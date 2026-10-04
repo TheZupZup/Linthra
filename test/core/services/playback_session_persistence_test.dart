@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/persisted_playback_session.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/just_audio_playback_controller.dart';
+import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/playback_session_persistence.dart';
 import 'package:linthra/core/sources/music_provider.dart';
 import 'package:linthra/data/repositories/in_memory_playback_session_store.dart';
@@ -499,6 +503,109 @@ void main() {
       });
     });
 
+    group('a queue that ran out', () {
+      // The queue is saved as it plays, and a queue that ran out (an album
+      // heard to the end, then the app closed) is the last thing saved.
+      const Track first = Track(
+        id: '/music/1.flac',
+        title: 'One',
+        uri: '/music/1.flac',
+        duration: _EndingEngine.length,
+      );
+      const Track last = Track(
+        id: '/music/2.flac',
+        title: 'Two',
+        uri: '/music/2.flac',
+        duration: _EndingEngine.length,
+      );
+      const Track queuedAfter = Track(
+        id: '/music/3.flac',
+        title: 'Three',
+        uri: '/music/3.flac',
+        duration: _EndingEngine.length,
+      );
+
+      /// Plays [first, last] to the end (then queues [then], when given),
+      /// quits, launches again, presses Play and listens for a second.
+      /// Returns what is playing then.
+      Future<PlaybackState> relaunchAndPlay({Track? then}) async {
+        final InMemoryPlaybackSessionStore store =
+            InMemoryPlaybackSessionStore();
+        final _EndingEngine engine = _EndingEngine();
+        final JustAudioPlaybackController controller =
+            JustAudioPlaybackController(
+                player: engine, resolver: _LocalResolver());
+        final PlaybackSessionPersistence persistence =
+            PlaybackSessionPersistence(
+          store: store,
+          controller: controller,
+          playbackStates: controller.stateStream,
+          localFileExists: (_) => true,
+          positionSaveInterval: Duration.zero,
+        );
+        await controller.playTracks(<Track>[first, last]);
+        await pumpEventQueue();
+        for (int track = 0; track < 2; track++) {
+          // The last position the engine reported, then the end.
+          controller.setPositionForTesting(
+              _EndingEngine.length - const Duration(milliseconds: 200));
+          await pumpEventQueue();
+          engine.advance(_EndingEngine.length);
+          await pumpEventQueue();
+        }
+        expect(controller.state.status, PlaybackStatus.completed);
+        expect(controller.state.currentTrack, last);
+        if (then != null) {
+          controller.addToQueue(then);
+          await pumpEventQueue();
+        }
+        await persistence.dispose();
+        await controller.dispose();
+
+        // The next launch.
+        final _EndingEngine nextEngine = _EndingEngine();
+        final JustAudioPlaybackController restored =
+            JustAudioPlaybackController(
+                player: nextEngine, resolver: _LocalResolver());
+        final PlaybackSessionPersistence restorer = PlaybackSessionPersistence(
+          store: store,
+          controller: restored,
+          playbackStates: restored.stateStream,
+          localFileExists: (_) => true,
+        );
+        addTearDown(restored.dispose);
+        addTearDown(restorer.dispose);
+        await restorer.restore();
+        await pumpEventQueue();
+
+        await restored.play();
+        await pumpEventQueue();
+        nextEngine.advance(const Duration(seconds: 1));
+        await pumpEventQueue();
+        return restored.state;
+      }
+
+      test('comes back ready to play from the top, not at its very end',
+          () async {
+        // Put back paused at the end of its last track, the first Play after
+        // the next launch played that track's last instant and ran out
+        // again: nothing to hear until a second Play.
+        final PlaybackState playing = await relaunchAndPlay();
+
+        expect(playing.status, PlaybackStatus.playing,
+            reason: 'Play after the relaunch ran the queue out again at once');
+        // What Play does after the end without a relaunch, too.
+        expect(playing.currentTrack, first);
+      });
+
+      test('comes back on a track queued after the end', () async {
+        final PlaybackState playing = await relaunchAndPlay(then: queuedAfter);
+
+        expect(playing.status, PlaybackStatus.playing);
+        expect(playing.currentTrack, queuedAfter);
+      });
+    });
+
     test('restore comes back on the saved entry, not an earlier copy of it',
         () async {
       // A queue can hold the same song twice: one queued again with "Add to
@@ -714,4 +821,94 @@ class _ThrowingRestoreController extends FakePlaybackController {
   }) async {
     throw StateError('simulated restore failure');
   }
+}
+
+/// An engine with just_audio's rules and a play clock: [advance] lets
+/// playing time pass through the loaded source, which reports completed (with
+/// `playing` still true) once that reaches its end, as just_audio and libmpv
+/// do. Positions reach the controller's state through
+/// `setPositionForTesting`, standing in for its periodic position flush.
+class _EndingEngine extends Fake implements AudioPlayer {
+  static const Duration length = Duration(minutes: 3);
+
+  final StreamController<PlayerState> _states =
+      StreamController<PlayerState>.broadcast();
+  final StreamController<Duration?> _durations =
+      StreamController<Duration?>.broadcast();
+  bool _playing = false;
+  ProcessingState _processing = ProcessingState.idle;
+  Duration _position = Duration.zero;
+
+  /// Lets [elapsed] of playing time pass.
+  void advance(Duration elapsed) {
+    if (!_playing || _processing == ProcessingState.completed) return;
+    _position += elapsed;
+    if (_position >= length) {
+      _position = length;
+      _processing = ProcessingState.completed;
+      _states.add(PlayerState(_playing, _processing));
+    }
+  }
+
+  @override
+  Stream<PlayerState> get playerStateStream => _states.stream;
+  @override
+  Stream<Duration> get positionStream => const Stream<Duration>.empty();
+  @override
+  Stream<Duration?> get durationStream => _durations.stream;
+  @override
+  Stream<PlaybackEvent> get playbackEventStream =>
+      const Stream<PlaybackEvent>.empty();
+
+  @override
+  Future<Duration?> setUrl(
+    String url, {
+    Map<String, String>? headers,
+    Duration? initialPosition,
+    bool preload = true,
+    dynamic tag,
+  }) async {
+    _position = Duration.zero;
+    _processing = ProcessingState.ready;
+    _durations.add(length);
+    _states.add(PlayerState(_playing, _processing));
+    return length;
+  }
+
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    _position = position ?? Duration.zero;
+    _processing =
+        _position >= length ? ProcessingState.completed : ProcessingState.ready;
+    _states.add(PlayerState(_playing, _processing));
+  }
+
+  @override
+  Future<void> play() async {
+    if (_playing) return;
+    _playing = true;
+    _states.add(PlayerState(_playing, _processing));
+  }
+
+  @override
+  Future<void> pause() async {
+    _playing = false;
+    _states.add(PlayerState(_playing, _processing));
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {}
+  @override
+  Future<void> stop() async {}
+  @override
+  Future<void> dispose() async {}
+}
+
+class _LocalResolver implements PlayableUriResolver {
+  @override
+  bool handles(Track track) => true;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async =>
+      ResolvedPlayable(Uri.file(track.uri), PlaybackSource.localFile);
 }

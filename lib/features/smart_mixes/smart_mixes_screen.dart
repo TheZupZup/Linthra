@@ -21,6 +21,9 @@ class SmartMixesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Smart mixes')),
       body: mixes.when(
+        // Recomputed on every play, heart, download and library change: keep
+        // the mixes on screen until the new counts are ready.
+        skipLoadingOnReload: true,
         loading: () => const LoadingIndicator(label: 'Loading smart mixes'),
         error: (_, __) => const EmptyState(
           icon: Icons.error_outline,

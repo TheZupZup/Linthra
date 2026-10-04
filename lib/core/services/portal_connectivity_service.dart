@@ -68,6 +68,14 @@ class PortalConnectivityService implements ConnectivityService {
   /// Until when the portal is not asked, after one that never answered.
   DateTime? _quietUntil;
 
+  /// Ends the quiet period, so the portal is asked again.
+  Timer? _quietTimer;
+
+  /// Has the change stream read the status again with no signal from the
+  /// portal: when a quiet period starts (everyone is told unknown from then
+  /// on) and when it ends (the portal can be asked again).
+  final StreamController<void> _askAgain = StreamController<void>.broadcast();
+
   late final Stream<NetworkStatus> _changes =
       _portalChanges().distinct().asBroadcastStream();
 
@@ -95,8 +103,17 @@ class PortalConnectivityService implements ConnectivityService {
           : NetworkStatus.wifi;
     } catch (error) {
       if (!_portalCannotAnswer(error)) rethrow;
-      if (error is TimeoutException) {
+      if (error is TimeoutException && !_closed) {
         _quietUntil = _now().add(_quietAfterNoAnswer);
+        // A download held on this unknown is only asked again on a change,
+        // and the network may never change: once the portal can be asked
+        // again, the change stream asks it and reports the answer.
+        _quietTimer?.cancel();
+        _quietTimer = Timer(_quietAfterNoAnswer, () {
+          _quietUntil = null;
+          _askAgain.add(null);
+        });
+        _askAgain.add(null);
       }
       return NetworkStatus.unknown;
     }
@@ -156,8 +173,20 @@ class PortalConnectivityService implements ConnectivityService {
       interface: _interface,
       name: 'changed',
     );
-    await for (final DBusSignal _ in changed) {
-      yield await currentStatus();
+    final StreamController<void> asks = StreamController<void>();
+    final StreamSubscription<DBusSignal> signals = changed.listen(
+      (DBusSignal _) => asks.add(null),
+      onError: asks.addError,
+      onDone: asks.close,
+    );
+    final StreamSubscription<void> quiet = _askAgain.stream.listen(asks.add);
+    try {
+      await for (final void _ in asks.stream) {
+        yield await currentStatus();
+      }
+    } finally {
+      await quiet.cancel();
+      await signals.cancel();
     }
   }
 
@@ -179,6 +208,9 @@ class PortalConnectivityService implements ConnectivityService {
   Future<void> dispose() async {
     if (_closed) return;
     _closed = true;
+    _quietTimer?.cancel();
+    _quietTimer = null;
+    unawaited(_askAgain.close());
     final DBusClient? client = _client;
     _client = null;
     _bus = null;

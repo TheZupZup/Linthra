@@ -6,6 +6,7 @@ import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
+import 'package:linthra/core/services/linux_playback_controller.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 
 /// A fake engine that records, in order, every source it was handed and every
@@ -52,6 +53,105 @@ class _RecordingPlayer extends Fake implements AudioPlayer {
     if (position != null) seekCalls.add(position);
   }
 
+  @override
+  Future<void> dispose() async {}
+}
+
+/// An engine that brings its native player up the way the vendored just_audio
+/// does (third_party/just_audio/lib/just_audio.dart, `load`, `_load` and
+/// `_setPlatformActive`).
+///
+/// The open that finds no native player (at startup, after a stop, after an
+/// open failed) brings one up. An open made while that is still out waits for
+/// it (`load` awaits the `_platform` that bring-up set) and then goes to the
+/// player it brought up, even when the bring-up failed and that player was let
+/// go again. Such an open is cut short: [cutShort] is what reaches the caller
+/// (just_audio's own [PlayerInterruptedException] on Android; media_kit's
+/// refusal of a player it has let go on Linux). An open made once the
+/// bring-up has settled starts afresh.
+class _BringUpEngine extends Fake implements AudioPlayer {
+  _BringUpEngine({Object Function()? cutShort})
+      : _cutShort = cutShort ??
+            (() => PlayerInterruptedException('Loading interrupted'));
+
+  final Object Function() _cutShort;
+
+  /// Sources whose open fails, and opens that wait for the test to settle
+  /// them.
+  final Set<String> failing = <String>{};
+  final Map<String, Completer<void>> held = <String, Completer<void>>{};
+
+  /// Every open, in order, and the ones sent to a player already let go.
+  final List<String> opened = <String>[];
+  final List<String> sentToLetGo = <String>[];
+  int plays = 0;
+
+  bool _up = false;
+  Future<void>? _bringingUp;
+
+  @override
+  Stream<PlayerState> get playerStateStream =>
+      const Stream<PlayerState>.empty();
+  @override
+  Stream<Duration> get positionStream => const Stream<Duration>.empty();
+  @override
+  Stream<Duration?> get durationStream => const Stream<Duration?>.empty();
+  @override
+  Stream<PlaybackEvent> get playbackEventStream =>
+      const Stream<PlaybackEvent>.empty();
+
+  @override
+  Future<Duration?> setUrl(
+    String url, {
+    Map<String, String>? headers,
+    Duration? initialPosition,
+    bool preload = true,
+    dynamic tag,
+  }) async {
+    opened.add(url);
+    final Future<void>? bringingUp = _bringingUp;
+    if (bringingUp != null) {
+      final bool cameUp =
+          await bringingUp.then((_) => true, onError: (Object _) => false);
+      if (!cameUp) {
+        sentToLetGo.add(url);
+        throw _cutShort();
+      }
+    }
+    if (_up) {
+      await _open(url);
+      return const Duration(minutes: 3);
+    }
+    final Future<void> bringUp = _open(url);
+    _bringingUp = bringUp;
+    try {
+      await bringUp;
+      _up = true;
+    } catch (_) {
+      _up = false;
+      rethrow;
+    } finally {
+      if (identical(_bringingUp, bringUp)) _bringingUp = null;
+    }
+    return const Duration(minutes: 3);
+  }
+
+  Future<void> _open(String url) async {
+    final Completer<void>? gate = held[url];
+    if (gate != null) await gate.future;
+    if (failing.contains(url)) throw PlayerException(0, 'Source error');
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {}
+  @override
+  Future<void> play() async => plays++;
+  @override
+  Future<void> pause() async {}
+  @override
+  Future<void> stop() async => _up = false;
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {}
   @override
   Future<void> dispose() async {}
 }
@@ -190,6 +290,101 @@ void main() {
 
       expect(controller.state.status, isNot(PlaybackStatus.error));
       expect(controller.state.currentTrack?.id, 'c');
+    });
+  });
+
+  group('the engine\'s first open failing while another track is picked', () {
+    final Map<String, ResolvedPlayable> streams = <String, ResolvedPlayable>{
+      'jellyfin:a': _stream('a'),
+      'jellyfin:b': _stream('b'),
+    };
+
+    /// A is the engine's first open (the app just started, or Stop let the
+    /// engine go), and its source turns out not to open only after the
+    /// listener has picked B.
+    Future<void> pickWhileTheFirstOpenFails(
+      JustAudioPlaybackController controller,
+      _BringUpEngine engine,
+    ) async {
+      engine.failing.add(_url('a'));
+      final Completer<void> aFails = engine.held[_url('a')] = Completer<void>();
+      unawaited(controller.playTracks(<Track>[_track('a')]));
+      await _settle();
+      final Future<void> picked = controller.playTracks(<Track>[_track('b')]);
+      await _settle();
+      aFails.complete();
+      await picked;
+      await _settle();
+    }
+
+    test('the picked track still plays', () async {
+      final engine = _BringUpEngine();
+      final controller = JustAudioPlaybackController(
+        player: engine,
+        resolver: _GatedResolver(streams),
+      );
+      addTearDown(controller.dispose);
+
+      await pickWhileTheFirstOpenFails(controller, engine);
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, isNot(PlaybackStatus.error),
+          reason: 'only A failed; B was never even tried on its own');
+      expect(engine.plays, 1);
+    });
+
+    test('on Linux the picked track still plays', () async {
+      final engine = _BringUpEngine(
+        cutShort: () => AssertionError('[Player] has been disposed'),
+      );
+      final controller = LinuxPlaybackController(
+        player: engine,
+        resolver: _GatedResolver(streams),
+      );
+      addTearDown(controller.dispose);
+
+      await pickWhileTheFirstOpenFails(controller, engine);
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+      expect(engine.plays, 1);
+    });
+
+    test('a track that itself fails to open is not tried twice', () async {
+      final engine = _BringUpEngine()..failing.add(_url('b'));
+      final controller = JustAudioPlaybackController(
+        player: engine,
+        resolver: _GatedResolver(streams),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.playTracks(<Track>[_track('b')]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(engine.opened, <String>[_url('b')]);
+    });
+
+    test('a Stop while the picked track waits leaves it stopped', () async {
+      final engine = _BringUpEngine()..failing.add(_url('a'));
+      final Completer<void> aFails = engine.held[_url('a')] = Completer<void>();
+      final controller = JustAudioPlaybackController(
+        player: engine,
+        resolver: _GatedResolver(streams),
+      );
+      addTearDown(controller.dispose);
+
+      unawaited(controller.playTracks(<Track>[_track('a')]));
+      await _settle();
+      final Future<void> picked = controller.playTracks(<Track>[_track('b')]);
+      await _settle();
+      await controller.stop();
+      aFails.complete();
+      await picked;
+      await _settle();
+
+      expect(engine.opened, <String>[_url('a'), _url('b')]);
+      expect(engine.plays, 0);
+      expect(controller.state.status, PlaybackStatus.idle);
     });
   });
 

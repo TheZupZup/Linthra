@@ -48,6 +48,29 @@ abstract interface class LocalArtworkMaintainer {
   Future<void> retainArtwork(Set<Uri> live);
 }
 
+/// The other optional half of a reader that owns an artwork cache: which of
+/// the covers the catalog points at it no longer holds.
+///
+/// That cache lives where the platform keeps data it may reclaim (the XDG
+/// cache directory on Linux), so its entries can go while the catalog still
+/// points at them: the user clears `~/.cache`, or a cleanup tool does. An
+/// incremental scan reuses an unchanged file's row as it is, cover included,
+/// so a scan has to ask this before it reuses one, or a cover that went would
+/// never come back.
+///
+/// Separate from [LocalArtworkMaintainer] for the same reason that one is
+/// separate from [LocalMetadataReader]: only the reader that owns such a cache
+/// has anything to answer.
+abstract interface class LocalArtworkInventory {
+  /// The URIs among [referenced] that point into this reader's cache at an
+  /// entry it no longer holds. A URI that does not point into the cache is
+  /// never in the answer.
+  ///
+  /// Must never throw: a cache that cannot be read answers with nothing, which
+  /// leaves every row to be reused as before.
+  Future<Set<Uri>> missingArtwork(Set<Uri> referenced);
+}
+
 /// The [LocalMetadataReader] for anywhere a filesystem tag read is not wanted:
 /// Android, whose tags come from the native SAF walk, and tests. It reads
 /// nothing, so the mapper falls back to filename/folder metadata.

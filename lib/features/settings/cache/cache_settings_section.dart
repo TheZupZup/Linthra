@@ -96,9 +96,12 @@ class CacheSettingsSection extends ConsumerWidget {
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: snapshot.entries.isEmpty
-                        ? null
-                        : () => _clearCache(context, ref),
+                    // Copies kept for another Plex server take room without
+                    // being listed, so room in use counts too.
+                    onPressed:
+                        snapshot.entries.isEmpty && snapshot.usedBytes == 0
+                            ? null
+                            : () => _clearCache(context, ref),
                     icon: const Icon(Icons.delete_sweep_outlined),
                     label: const Text('Free up storage'),
                   ),

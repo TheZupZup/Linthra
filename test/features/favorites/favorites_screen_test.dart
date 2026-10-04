@@ -9,8 +9,10 @@ import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/favorites/favorites_screen.dart';
+import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/player/player_screen.dart';
+import 'package:linthra/shared/widgets/loading_indicator.dart';
 
 import '../library/fake_music_library_repository.dart';
 import '../player/fake_playback_controller.dart';
@@ -110,6 +112,86 @@ void main() {
       expect(find.textContaining('boom'), findsNothing);
     });
 
+    testWidgets(
+        'a favourite removed from the library leaves the list straight away',
+        (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(id: 'local1', title: 'Alpha', uri: 'file:///a.mp3'),
+          Track(id: 'remote1', title: 'Bravo', uri: 'jellyfin:remote1'),
+        ],
+        favorites: const FavoritesData(
+          localIds: {'file:///a.mp3'},
+          remoteIds: {'jellyfin:remote1'},
+        ),
+      );
+      expect(find.text('Bravo'), findsOneWidget);
+
+      // What "Remove from Linthra" does (a removed folder, a disconnected
+      // server and a sync that drops a song change the catalog the same way):
+      // the rows go, then the library reloads. The heart itself stays.
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(FavoritesScreen)));
+      await container
+          .read(musicLibraryRepositoryProvider)
+          .removeTracks(<String>['jellyfin:remote1']);
+      await container.read(libraryControllerProvider.notifier).refresh();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alpha'), findsOneWidget);
+      expect(find.text('Bravo'), findsNothing);
+    });
+
+    testWidgets(
+        'a heart dropped or a library reload keeps the list where the user '
+        'left it', (tester) async {
+      final List<Track> library = <Track>[
+        for (int i = 0; i < 60; i++)
+          Track(
+            id: 's$i',
+            title: 'Song ${i.toString().padLeft(2, '0')}',
+            uri: 'file:///music/s$i.mp3',
+          ),
+      ];
+      await _pump(
+        tester,
+        tracks: library,
+        favorites: FavoritesData(
+          localIds: <String>{for (final Track t in library) t.uri},
+        ),
+      );
+      await tester.drag(
+          find.byKey(const Key('library_track_list')), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      final double scrolled = _listOffset(tester);
+      expect(scrolled, greaterThan(0));
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(FavoritesScreen)));
+
+      // The heart of one song (here the very first) is taken off.
+      await container
+          .read(favoritesRepositoryProvider)
+          .setFavorite(library.first, false);
+      await tester.pump();
+      expect(
+        find.byType(LoadingIndicator),
+        findsNothing,
+        reason: 'the list being recomputed is no reason to take it off screen',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Song 00'), findsNothing);
+      expect(_listOffset(tester), scrolled);
+
+      // The library reloads under it (a sync, or on Linux the folder watcher's
+      // rescan after a file changed).
+      await container.read(libraryControllerProvider.notifier).refresh();
+      await tester.pump();
+      expect(find.byType(LoadingIndicator), findsNothing);
+      await tester.pumpAndSettle();
+      expect(_listOffset(tester), scrolled);
+    });
+
     testWidgets('tapping a favourite plays it and queues the rest', (
       tester,
     ) async {
@@ -138,4 +220,15 @@ void main() {
       );
     });
   });
+}
+
+/// How far the favourites list is scrolled.
+double _listOffset(WidgetTester tester) {
+  return tester
+      .state<ScrollableState>(find.descendant(
+        of: find.byKey(const Key('library_track_list')),
+        matching: find.byType(Scrollable),
+      ))
+      .position
+      .pixels;
 }

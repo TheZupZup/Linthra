@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/album.dart';
 import '../../../core/models/artist.dart';
+import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/music_library_repository.dart';
 import '../../../core/repositories/reconciling_catalog_writer.dart';
@@ -11,6 +12,7 @@ import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../../core/sources/subsonic/subsonic_catalog_walk.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
+import '../../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
@@ -450,9 +452,14 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Best-effort playlist refresh that never throws out of [sync]: a thrown
   /// error (rather than the repository's own friendly result) is mapped to a
   /// failed outcome so a single bad call can't abort a successful track sync.
+  ///
+  /// Navidrome's playlists only: this card reports what came from Navidrome,
+  /// and another signed-in server answering says nothing about it.
   Future<PlaylistSyncResult> _refreshPlaylists() async {
     try {
-      return await ref.read(playlistRepositoryProvider).refreshFromRemote();
+      return await ref
+          .read(playlistRepositoryProvider)
+          .refreshFromRemote(source: PlaylistSource.subsonic);
     } catch (_) {
       return const PlaylistSyncResult.failed();
     }
@@ -461,7 +468,9 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Best-effort favourites refresh, mirroring [_refreshPlaylists].
   Future<FavoritesSyncResult> _refreshFavorites() async {
     try {
-      return await ref.read(favoritesRepositoryProvider).refreshFromRemote();
+      return await ref
+          .read(favoritesRepositoryProvider)
+          .refreshFromRemote(providerScheme: SubsonicTrackMapper.uriScheme);
     } catch (_) {
       return const FavoritesSyncResult.failed();
     }

@@ -431,12 +431,12 @@ void main() {
 
         final nodes = await treeOf(library).childrenOf(MediaId.queue, playback);
 
+        // Each row carries its position and the opaque hash of the track it
+        // listed.
+        String row(int index) => '${MediaId.queueItem(index)}/'
+            '${MediaId.libraryTrackHash(library[index].uri)}';
         expect(nodes.map((n) => n.title), ['Song a', 'Song b', 'Song c']);
-        expect(nodes.map((n) => n.id), [
-          MediaId.queueItem(0),
-          MediaId.queueItem(1),
-          MediaId.queueItem(2),
-        ]);
+        expect(nodes.map((n) => n.id), [row(0), row(1), row(2)]);
       });
 
       test('is empty when nothing is playing', () async {
@@ -452,6 +452,38 @@ void main() {
         expect(request, isNotNull);
         expect(request!.tracks.map((t) => t.id), ['a', 'b', 'c']);
         expect(request.startIndex, 2);
+      });
+
+      test('a row resolves to the song it listed after the queue moved on',
+          () async {
+        final MediaBrowserTree tree = treeOf(library);
+        final List<MediaNode> rows = await tree.childrenOf(MediaId.queue,
+            _playing(library[0], upNext: [library[1], library[2]]));
+        // Song a ended while the car still shows that list.
+        final PlaybackState movedOn =
+            _playing(library[1], upNext: [library[2]]);
+
+        final request = await tree.resolve(rows[2].id, movedOn);
+        expect(request, isNotNull);
+        expect(request!.tracks[request.startIndex], library[2]);
+        expect(await tree.resolve(rows[0].id, movedOn), isNull,
+            reason: 'Song a has played; the row must not start another song');
+      });
+
+      test('a song queued twice keeps each row on its own copy', () async {
+        final Track a = library[0];
+        final Track b = library[1];
+        final Track c = library[2];
+        final MediaBrowserTree tree = treeOf(library);
+        final List<MediaNode> rows = await tree.childrenOf(
+            MediaId.queue, _playing(a, upNext: [b, a, c]));
+        // The first Song a ended: the second one moved up from row 2 to row 1.
+        final PlaybackState movedOn = _playing(b, upNext: [a, c]);
+
+        final request = await tree.resolve(rows[2].id, movedOn);
+        expect(request, isNotNull);
+        expect(request!.startIndex, 1);
+        expect(request.tracks[1], a);
       });
 
       test('an out-of-range / non-numeric queue id resolves to null', () async {

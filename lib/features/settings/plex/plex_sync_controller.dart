@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/album.dart';
 import '../../../core/models/artist.dart';
 import '../../../core/models/track.dart';
+import '../../../core/repositories/catalog_track_counter.dart';
 import '../../../core/repositories/incremental_catalog_writer.dart';
 import '../../../core/repositories/music_library_repository.dart';
+import '../../../core/repositories/source_catalog_reader.dart';
 import '../../../core/sources/plex/plex_exception.dart';
 import '../../../core/sources/plex/plex_music_source.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
@@ -175,9 +177,15 @@ class PlexSyncController extends Notifier<PlexSyncState> {
         tracks = await source.fetchTracks();
       }
 
-      // 2. Skip the whole rebuild when nothing changed since the last sync.
+      // 2. Skip the whole rebuild when nothing changed since the last sync,
+      //    as long as the catalog still holds what that sync wrote. The
+      //    signature only describes the server: Plex rows the catalog lost
+      //    since ("Remove from Linthra", a catalog file that did not survive
+      //    while the preferences did) leave it matching, and skipping then
+      //    would keep them gone with the card saying "already up to date".
       final String signature = _signatureFor(sectionKeys, tracks);
-      if (signature == _lastSyncedSignature) {
+      if (signature == _lastSyncedSignature &&
+          await _catalogStillHolds(tracks.length)) {
         state = PlexSyncState.done(
           trackCount: tracks.length,
           message: _doneMessage(sectionKeys, tracks.length, upToDate: true),
@@ -250,6 +258,33 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     } catch (_) {
       // Best-effort: swallow (see [_persistSignature]).
     }
+  }
+
+  /// Whether the catalog's Plex slice still has the [count] rows the sync
+  /// behind the matching signature wrote.
+  ///
+  /// Counted when the repository can count a source's rows (the app's can),
+  /// otherwise read back. A repository that can do neither keeps the old
+  /// answer and trusts the signature. One that fails to answer does not: a
+  /// rebuild is the safe side to be wrong on.
+  Future<bool> _catalogStillHolds(int count) async {
+    final MusicLibraryRepository repository =
+        ref.read(musicLibraryRepositoryProvider);
+    try {
+      if (repository is CatalogTrackCounter) {
+        final int stored = await (repository as CatalogTrackCounter)
+            .countTracks(sourceId: PlexMusicSource.sourceId);
+        return stored == count;
+      }
+      if (repository is SourceCatalogReader) {
+        final List<Track> stored = await (repository as SourceCatalogReader)
+            .getTracksForSource(PlexMusicSource.sourceId);
+        return stored.length == count;
+      }
+    } catch (_) {
+      return false;
+    }
+    return true;
   }
 
   /// Replaces the Plex slice of the catalog with [tracks] in chunks, refreshing

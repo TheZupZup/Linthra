@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 
 import '../../core/models/download_progress.dart';
 import '../../core/models/track.dart';
@@ -10,6 +13,7 @@ import '../../core/services/cache_eviction_policy.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/download_scheduler.dart';
 import '../../core/services/offline_cache_manager.dart';
+import '../../core/services/offline_copy_origins.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
 
@@ -52,7 +56,8 @@ import '../../core/services/track_prefetcher.dart';
 ///    account signs out or another takes its place while the request waits
 ///    (held by the network policy, or queued for a slot), it is dropped rather
 ///    than fetched with the new session, which would download another
-///    account's item, or nothing, under this track.
+///    account's item, or nothing, under this track. One already fetching then
+///    is not saved either: its bytes are the old account's item.
 ///  - **Stays under the cache limit.** Before writing a remote download, the
 ///    policy evicts least-recently-used, unpinned, not-currently-playing tracks
 ///    to make room; if it still won't fit, the download is refused with a
@@ -85,6 +90,7 @@ class CacheDownloadRepository
     Future<List<Track>> Function()? catalogForMigration,
     Stream<NetworkStatus>? networkChanges,
     String? Function(Track track)? accountScopeOf,
+    OfflineCopyOrigins? origins,
   })  : _store = store,
         _files = files,
         _downloader = downloader,
@@ -95,7 +101,8 @@ class CacheDownloadRepository
         _currentlyPlayingTrack = currentlyPlayingTrack,
         _now = now ?? DateTime.now,
         _catalogForMigration = catalogForMigration,
-        _accountScopeOf = accountScopeOf {
+        _accountScopeOf = accountScopeOf,
+        _origins = origins {
     // Followed from the start rather than from the first hold: a change that
     // lands while the first request is still asking the policy has to be
     // counted too (see [_networkChangeCount]).
@@ -103,6 +110,10 @@ class CacheDownloadRepository
       _onNetworkChange,
       // A connectivity stream that fails only means no automatic start; a
       // fresh request or a policy change still asks again.
+      onError: (Object _, StackTrace __) {},
+    );
+    _originSubscription = origins?.changes.listen(
+      (_) => _onOriginsChanged(),
       onError: (Object _, StackTrace __) {},
     );
   }
@@ -139,6 +150,24 @@ class CacheDownloadRepository
   /// with right now (`jellyfin:<fingerprint>`, …), or null when signed out or
   /// not wired (tests and dev, where every request counts as one account).
   final String? Function(Track track)? _accountScopeOf;
+
+  /// The server each provider whose ids only mean something on one server is
+  /// connected to now. A copy of such a provider's track is stamped with the
+  /// server it came from and is kept in [_downloads] only while that server
+  /// is connected; otherwise it waits in [_dormant]. Null in tests and dev,
+  /// where every copy is unbound.
+  final OfflineCopyOrigins? _origins;
+
+  /// Follows [OfflineCopyOrigins.changes], so copies move between [_downloads]
+  /// and [_dormant] as the listener connects to another server or signs out.
+  StreamSubscription<void>? _originSubscription;
+
+  /// Copies from a server other than the one connected now (or kept through
+  /// a sign-out), by [_dormantKey]. Persisted with the rest and counted in
+  /// the cache's usage and eviction, but never served, shown or promoted,
+  /// since the same id names another song here. Each goes back into
+  /// [_downloads] when its server is connected again.
+  final Map<String, CachedTrack> _dormant = <String, CachedTrack>{};
 
   /// Follows the `networkChanges` stream, which reports each change of
   /// connection so downloads the network policy held back can be asked again.
@@ -224,6 +253,7 @@ class CacheDownloadRepository
     bool changed = false;
     final List<CachedTrack> records = await _store.loadDownloads();
     final Map<String, String?> legacyScheme = await _legacySchemeFor(records);
+    final List<CachedTrack> kept = <CachedTrack>[];
     for (final CachedTrack record in records) {
       CachedTrack cached = record;
       // Legacy (pre-v0.1.6) records carry no sourceType, so they key as
@@ -252,16 +282,129 @@ class CacheDownloadRepository
           changed = true;
         }
       }
-      _downloads[_keyForCached(cached)] = cached;
+      kept.add(cached);
+    }
+    // Sorted for the server connected now in one step, after every await
+    // above, so a connect landing mid-load can't leave some copies sorted for
+    // the server before it.
+    for (final CachedTrack cached in kept) {
+      final CachedTrack adopted = _adopted(cached);
+      if (!identical(adopted, cached)) changed = true;
+      if (!offlineCopyBelongs(adopted, _origins)) {
+        _dormant[_dormantKey(adopted)] = adopted;
+        continue;
+      }
+      _downloads[_keyForCached(adopted)] = adopted;
       // A preloaded entry is cached and playable, but never a *download*: it
       // stays out of the status map so the downloads UI doesn't show it.
-      if (!cached.preloaded) {
-        _statuses[_keyForCached(cached)] = DownloadStatus.downloaded;
+      if (!adopted.preloaded) {
+        _statuses[_keyForCached(adopted)] = DownloadStatus.downloaded;
       }
     }
     if (changed) await _save();
     _loaded = true;
   }
+
+  /// [copy] given the server connected now, when it is a bound copy saved
+  /// before its server was recorded: it was made on the server the listener
+  /// was using, which is the one connected now unless they switched before
+  /// this version first ran. Otherwise [copy] itself.
+  CachedTrack _adopted(CachedTrack copy) {
+    if (copy.origin != null) return copy;
+    final String? scheme = copy.sourceType;
+    if (scheme == null) return copy;
+    final String? server = _serverOf(scheme);
+    return server == null ? copy : copy.copyWith(origin: server);
+  }
+
+  /// The server [scheme]'s copies are bound to right now, or null when they
+  /// aren't bound or its provider is signed out (or can't say).
+  String? _serverOf(String scheme) {
+    final OfflineCopyOrigins? origins = _origins;
+    if (origins == null) return null;
+    try {
+      return origins.binds(scheme) ? origins.current(scheme) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether [scheme]'s copies are bound to the server they came from.
+  bool _binds(String? scheme) {
+    final OfflineCopyOrigins? origins = _origins;
+    if (origins == null || scheme == null) return false;
+    try {
+      return origins.binds(scheme);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The listener connected to another server, or signed out or in: copies
+  /// from the server now connected go back into use, everyone else's are set
+  /// aside. Runs in the commit chain, so it never lands in the middle of a
+  /// commit that is evicting or recording a copy.
+  void _onOriginsChanged() {
+    if (_disposed) return;
+    unawaited(_commit(() async {
+      // A load still running sorts with the server connected when it ends,
+      // which may be the one before this change. One not started yet sorts
+      // with whatever is connected then.
+      final Future<void>? loading = _loading;
+      if (loading != null) await loading;
+      if (!_loaded || _disposed || !_resortCopies()) return;
+      await _save();
+      _emitStatus();
+      _emitCache();
+    }).catchError((Object _) {}));
+  }
+
+  /// Moves every copy to where it belongs for the server connected now, and
+  /// says whether anything moved. Synchronous, so no request sees half of it.
+  bool _resortCopies() {
+    bool changed = false;
+    for (final MapEntry<String, CachedTrack> entry
+        in _downloads.entries.toList()) {
+      final CachedTrack adopted = _adopted(entry.value);
+      if (!identical(adopted, entry.value)) changed = true;
+      if (offlineCopyBelongs(adopted, _origins)) {
+        _downloads[entry.key] = adopted;
+        continue;
+      }
+      _downloads.remove(entry.key);
+      if (_statuses[entry.key] == DownloadStatus.downloaded) {
+        _statuses.remove(entry.key);
+      }
+      _dormant[_dormantKey(adopted)] = adopted;
+      changed = true;
+    }
+    for (final MapEntry<String, CachedTrack> entry
+        in _dormant.entries.toList()) {
+      final CachedTrack copy = entry.value;
+      final String key = _keyForCached(copy);
+      if (!offlineCopyBelongs(copy, _origins) || _downloads.containsKey(key)) {
+        continue;
+      }
+      _dormant.remove(entry.key);
+      _downloads[key] = copy;
+      // A request still out for this track was asked on the server just
+      // left, so it ends without saving anything and leaves this row as it
+      // finds it (see [requestDownload]).
+      if (!copy.preloaded) _statuses[key] = DownloadStatus.downloaded;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /// Where a set-aside copy is kept: its server plus its track's cache key,
+  /// since two servers can each have a copy of the same id.
+  static String _dormantKey(CachedTrack copy) =>
+      '${copy.origin ?? ''}${String.fromCharCode(0)}${copy.cacheKey}';
+
+  /// Every copy on disk, in use or set aside: what counts toward the cache
+  /// limit and what eviction may pick from.
+  List<CachedTrack> get _allCopies =>
+      <CachedTrack>[..._downloads.values, ..._dormant.values];
 
   /// The provider scheme for each legacy (sourceType-less) record's bare id,
   /// resolved via the catalog oracle so those records can be re-keyed to
@@ -334,7 +477,7 @@ class CacheDownloadRepository
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
     final _CacheOperation? running = _inFlight[key];
-    if (running != null) {
+    if (running != null && !_orphaned(running, track, preloaded: false)) {
       // A fresh, explicit request supersedes a pending cancellation of the
       // request still running (the user removed it and immediately asked
       // again): that request goes ahead, and its row shows where it really is
@@ -346,7 +489,15 @@ class CacheDownloadRepository
       }
       return DownloadRequestOutcome.started;
     }
-    final _CacheOperation operation = _CacheOperation(scope: _scopeOf(track));
+    // One still out was asked under an account that has signed out or been
+    // replaced (or on a server no longer connected): it saves nothing (see
+    // [_canceledOrOrphaned]), so it can't stand in for this request. It is
+    // dropped, and this one is fetched with the account asking now.
+    running?.canceled = true;
+    final _CacheOperation operation = _CacheOperation(
+      scope: _scopeOf(track),
+      origin: _serverOf(_sourceTypeOf(track) ?? ''),
+    );
     _inFlight[key] = operation;
     final int networkChangesBefore = _networkChangeCount;
     DownloadRequestOutcome outcome = DownloadRequestOutcome.started;
@@ -374,14 +525,23 @@ class CacheDownloadRepository
       // resets rows it can see. A cancelled download must not end there, or
       // the row sticks and pre-cache skips the track, so it goes back to not
       // downloaded, unless its bytes were committed before the cancel landed.
+      // Or unless a download of it is in use anyway: one of this server's
+      // that came back while a request asked on the server just left was out.
+      // The row and the progress are left to the request that replaced this
+      // one, if one did (see above).
+      final bool current = identical(_inFlight[key], operation);
       final CachedTrack? committed = _downloads[key];
-      if (operation.canceled &&
-          (committed == null || committed.preloaded) &&
-          _statuses.containsKey(key)) {
-        _set(key, DownloadStatus.notDownloaded);
+      if (current && operation.canceled && _statuses.containsKey(key)) {
+        if (committed == null || committed.preloaded) {
+          _set(key, DownloadStatus.notDownloaded);
+        } else if (_statuses[key] != DownloadStatus.downloaded) {
+          _set(key, DownloadStatus.downloaded);
+        }
       }
-      if (identical(_inFlight[key], operation)) _inFlight.remove(key);
-      _clearProgress(key);
+      if (current) {
+        _inFlight.remove(key);
+        _clearProgress(key);
+      }
       // Held back by the network policy: remember it, so it starts by itself
       // once the connection (or the policy) lets it. Done here, after the
       // in-flight slot is released, so the next ask isn't taken for a
@@ -505,8 +665,17 @@ class CacheDownloadRepository
         if (current == null || !current.preloaded || !current.isManaged) {
           return false;
         }
-        _downloads[key] = current.copyWith(preloaded: false);
+        // Stamped as used now, like a download fetched now. A pre-cache
+        // nobody has played yet has no access time, which eviction reads as
+        // the least recently used, so the song just downloaded would be the
+        // first download to go.
+        _downloads[key] =
+            current.copyWith(preloaded: false, lastAccessedAt: _now());
         await _save();
+        // A Clear all deleting this copy's file (or a removal) dropped the
+        // record while it was being saved, so there is nothing left to call
+        // downloaded. A request the clear did not cancel fetches it below.
+        if (!_downloads.containsKey(key)) return operation.canceled;
         _statuses[key] = DownloadStatus.downloaded;
         _emitStatus();
         _emitCache();
@@ -552,8 +721,11 @@ class CacheDownloadRepository
       _setPhase(key, operation, DownloadStatus.downloading);
       final RemoteTrackData data = await _downloader.fetch(
         track,
-        onProgress: (int received, int? total) =>
-            _reportProgress(track, received, total),
+        onProgress: (int received, int? total) {
+          if (identical(_inFlight[key], operation)) {
+            _reportProgress(track, received, total);
+          }
+        },
       );
       // Commit serially so concurrent downloads can't jointly overshoot the
       // limit; the (slow) byte fetch above already ran in parallel.
@@ -592,7 +764,7 @@ class CacheDownloadRepository
     // The mark stays for the request's own cleanup, which settles the status.
     // Asked again after every await below, since the removal isn't serialized
     // with this commit and can land in any of them.
-    if (operation.canceled) return;
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded)) return;
     if (preloaded) {
       // The session that asked for these bytes is gone (sign-out, a different
       // server or account, or the pre-cache driver was disposed). They were
@@ -611,9 +783,14 @@ class CacheDownloadRepository
     final int incoming = data.bytes.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     // Asked again after every await below: a sign-out can land in any of them.
-    if (operation.canceled || (preloaded && !_passes(isStillWanted))) return;
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
+        (preloaded && !_passes(isStillWanted))) {
+      return;
+    }
     final EvictionPlan plan = _policy.plan(
-      cached: _downloads.values,
+      // Copies set aside for another server take up room on disk too, and are
+      // given up like any other copy when it runs out.
+      cached: _allCopies,
       incomingBytes: incoming,
       maxBytes: maxBytes,
       protectKey: _protectKey(),
@@ -621,7 +798,9 @@ class CacheDownloadRepository
       // A pre-cache may only displace other pre-caches: automatic caching
       // never removes something the user chose to download.
       onlyPreloaded: preloaded,
-      incomingKey: key,
+      // Only a copy in use is written over by this one. A copy of the same id
+      // kept for another server stays next to it, so it still counts.
+      incomingKey: _downloads.containsKey(key) ? key : null,
     );
 
     if (!plan.fits) {
@@ -637,7 +816,7 @@ class CacheDownloadRepository
       // be what the new queue needs. Asked before every eviction, since either
       // can change while the previous one is being deleted. A cancelled
       // download stops making room too: nothing else is given up for it.
-      if (operation.canceled ||
+      if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
           (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted)))) {
         if (evictedAny) {
           await _save();
@@ -647,9 +826,7 @@ class CacheDownloadRepository
         return;
       }
       await _deleteManagedFile(victim);
-      final String victimKey = _keyForCached(victim);
-      _downloads.remove(victimKey);
-      if (_statuses.remove(victimKey) != null) evictedAStatus = true;
+      if (_forgetDeleted(victim)) evictedAStatus = true;
       evictedAny = true;
     }
     // Room made for a queue that has moved on since goes to the new one, not
@@ -661,11 +838,12 @@ class CacheDownloadRepository
     }
 
     final String fileName = await _files.write(
-      _fileBaseName(track),
+      _fileBaseName(track, operation.origin),
       data.bytes,
       extension: data.fileExtension,
     );
-    if (operation.canceled || (preloaded && !_passes(isStillWanted))) {
+    if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
+        (preloaded && !_passes(isStillWanted))) {
       // Removed or cleared, or the session changed, while the bytes were being
       // written: take the file back out instead of publishing it, and persist
       // the evictions already made so the metadata matches what is on disk.
@@ -688,6 +866,7 @@ class CacheDownloadRepository
       // keeps it ahead of played tracks of its own kind in eviction order.
       lastAccessedAt: preloaded ? null : now,
       preloaded: preloaded,
+      origin: operation.origin,
     );
     await _save();
     if (!preloaded) {
@@ -718,7 +897,8 @@ class CacheDownloadRepository
     // Reserve synchronously, before any await, so a second concurrent prefetch
     // of the same track bails here instead of fetching the same bytes twice.
     if (_preloading.containsKey(key)) return;
-    final _CacheOperation operation = _CacheOperation();
+    final _CacheOperation operation =
+        _CacheOperation(origin: _serverOf(_sourceTypeOf(track) ?? ''));
     _preloading[key] = operation;
     try {
       // Preload is best-effort and network-heavy, so it honours the mobile-data
@@ -871,22 +1051,44 @@ class CacheDownloadRepository
       }
     }
     _held.clear();
-    final List<CachedTrack> victims = _downloads.values
-        .where((CachedTrack c) => !(keepPinned && c.pinned))
-        .toList();
+    // Copies set aside for another server go too: they are on this device.
+    final List<CachedTrack> victims =
+        _allCopies.where((CachedTrack c) => !(keepPinned && c.pinned)).toList();
     if (victims.isEmpty) {
       if (resetARow) _emitStatus();
       return;
     }
     for (final CachedTrack victim in victims) {
       await _deleteManagedFile(victim);
-      final String victimKey = _keyForCached(victim);
-      _downloads.remove(victimKey);
-      _statuses.remove(victimKey);
+      _forgetDeleted(victim);
     }
     await _save();
     _emitStatus();
     _emitCache();
+  }
+
+  /// Forgets the record of [deleted], whose file was just deleted, wherever
+  /// it is kept now, and says whether a download's status went with it.
+  ///
+  /// Looked up after the delete: a change of server can move a copy between
+  /// [_downloads] and [_dormant] meanwhile (Clear all is not in the commit
+  /// chain), and a clear or an eviction running alongside can have taken it
+  /// out already. Only a record of the deleted file goes. Another copy under
+  /// the same key, with its own file, is not this one and stays: another
+  /// server's copy of the same id now in use (a pinned one "clear unpinned"
+  /// keeps), or one downloaded while the delete ran.
+  bool _forgetDeleted(CachedTrack deleted) {
+    final String dormantKey = _dormantKey(deleted);
+    final CachedTrack? setAside = _dormant[dormantKey];
+    if (setAside != null && setAside.fileName == deleted.fileName) {
+      _dormant.remove(dormantKey);
+      return false;
+    }
+    final String key = _keyForCached(deleted);
+    final CachedTrack? inUse = _downloads[key];
+    if (inUse == null || inUse.fileName != deleted.fileName) return false;
+    _downloads.remove(key);
+    return _statuses.remove(key) != null;
   }
 
   /// Releases the change streams. Call when the owning provider is disposed.
@@ -897,6 +1099,8 @@ class CacheDownloadRepository
     // acknowledge, which must never hold up shutdown, so it isn't awaited.
     unawaited(_networkSubscription?.cancel().catchError((Object _) {}));
     _networkSubscription = null;
+    unawaited(_originSubscription?.cancel().catchError((Object _) {}));
+    _originSubscription = null;
     await _changes.close();
     await _cacheChanges.close();
     await _progressChanges.close();
@@ -910,7 +1114,7 @@ class CacheDownloadRepository
     final String? protectKey = _protectKey();
     int used = 0;
     int reclaimable = 0;
-    for (final CachedTrack c in _downloads.values) {
+    for (final CachedTrack c in _allCopies) {
       used += c.sizeBytes;
       if (CacheEvictionPolicy.isEvictable(
         c,
@@ -934,6 +1138,44 @@ class CacheDownloadRepository
     } catch (_) {
       return false;
     }
+  }
+
+  /// Whether [operation] is cancelled, marking a user download cancelled first
+  /// when the account it was asked under has signed out or been replaced.
+  ///
+  /// Signing out cancels nothing that is already fetching, and those bytes
+  /// are the old account's item: on another Plex server (or an Airsonic-style
+  /// Subsonic one) the same id names a different song. Saved under the
+  /// track's key, they would play for the new account's song with that id
+  /// and make it read as downloaded. A pre-cache asks its own `isStillWanted`.
+  ///
+  /// Either kind is also dropped when the server a bound copy would be
+  /// stamped with is no longer the one connected (or was never known): it
+  /// would be filed under the wrong server.
+  bool _canceledOrOrphaned(
+    _CacheOperation operation,
+    Track track, {
+    required bool preloaded,
+  }) {
+    if (operation.canceled) return true;
+    if (_orphaned(operation, track, preloaded: preloaded)) {
+      operation.canceled = true;
+    }
+    return operation.canceled;
+  }
+
+  /// Whether [operation] was asked under an account that has signed out or
+  /// been replaced (a user download), or for a server that is no longer the
+  /// one connected (a bound copy of either kind).
+  bool _orphaned(
+    _CacheOperation operation,
+    Track track, {
+    required bool preloaded,
+  }) {
+    final String? scheme = _sourceTypeOf(track);
+    final bool serverMoved = _binds(scheme) &&
+        (operation.origin == null || _serverOf(scheme!) != operation.origin);
+    return serverMoved || (!preloaded && _scopeOf(track) != operation.scope);
   }
 
   /// The account [track]'s provider is signed in with right now. A check that
@@ -994,14 +1236,16 @@ class CacheDownloadRepository
     }
   }
 
-  Future<void> _save() => _store.saveDownloads(_downloads.values.toList());
+  Future<void> _save() => _store.saveDownloads(_allCopies);
 
   /// Moves a user download to [status] and remembers it as where that
   /// request stands, so a request that supersedes its cancellation can put
   /// the row back there.
   void _setPhase(String key, _CacheOperation operation, DownloadStatus status) {
     operation.phase = status;
-    _set(key, status);
+    // A request replaced by a newer one for this track no longer drives its
+    // row (see [requestDownload]).
+    if (identical(_inFlight[key], operation)) _set(key, status);
   }
 
   void _set(String key, DownloadStatus status) {
@@ -1063,8 +1307,10 @@ class CacheDownloadRepository
       Map<String, DownloadProgress>.of(_progress);
 
   CacheSnapshot _cacheSnapshot() {
+    // Copies set aside for another server take room on this device, so they
+    // count toward what is used; only those in use are listed.
     int used = 0;
-    for (final CachedTrack c in _downloads.values) {
+    for (final CachedTrack c in _allCopies) {
       used += c.sizeBytes;
     }
     return CacheSnapshot(
@@ -1111,19 +1357,35 @@ class CacheDownloadRepository
   /// with the same id write to distinct files (`plex_101`, `jellyfin_101`). The
   /// [OfflineFileStore] sanitizes it further; the resulting file name is what's
   /// persisted, so existing files (named from the bare id) keep resolving.
-  static String _fileBaseName(Track track) =>
-      '${_sourceTypeOf(track) ?? 'local'}_${track.id}';
+  ///
+  /// A copy bound to the server it came from ([origin]) gets that server's
+  /// tag in its name too, so a copy of the same id from another server never
+  /// writes over this one's file. The tag is a short hash, never the server's
+  /// identity itself.
+  static String _fileBaseName(Track track, String? origin) {
+    final String base = '${_sourceTypeOf(track) ?? 'local'}_${track.id}';
+    if (origin == null) return base;
+    final String tag =
+        sha256.convert(utf8.encode(origin)).toString().substring(0, 12);
+    return '${_sourceTypeOf(track)}_${tag}_${track.id}';
+  }
 }
 
 /// One download or pre-cache of one track, from its reservation to its
 /// cleanup: what a removal or a clear marks, so the mark reaches exactly the
 /// operation it was aimed at and is gone with it.
 class _CacheOperation {
-  _CacheOperation({this.scope});
+  _CacheOperation({this.scope, this.origin});
 
   /// The account the track's provider was signed in with when this was asked
   /// for. A user download is only fetched while that is still the account.
   final String? scope;
+
+  /// The server a copy of a bound provider's track is fetched from (see
+  /// `OfflineCopyOrigins`), read when this was asked for: what the copy is
+  /// stamped with, and the server that must still be connected when it is
+  /// saved. Null for every other provider.
+  final String? origin;
 
   /// Set when the user removed or cleared the track while this operation was
   /// running. It then fetches nothing more and commits nothing. A fresh

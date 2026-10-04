@@ -33,6 +33,27 @@ void main() {
       );
     });
 
+    test('keeps the server a Plex copy came from across instances', () async {
+      // What tells a copy from one Plex server apart from another server's
+      // song with the same ratingKey after a restart.
+      await SharedPreferencesDownloadStore().saveDownloads(<CachedTrack>[
+        const CachedTrack(
+          trackId: '101',
+          fileName: 'plex_101.flac',
+          sourceType: 'plex',
+          origin: 'machine-home',
+        ),
+        const CachedTrack(
+            trackId: 'j1', fileName: 'jellyfin_j1.mp3', sourceType: 'jellyfin'),
+      ]);
+
+      final List<CachedTrack> loaded =
+          await SharedPreferencesDownloadStore().loadDownloads();
+
+      expect(loaded.map((CachedTrack c) => c.origin),
+          <String?>['machine-home', null]);
+    });
+
     test('repeated loads return equal but independent, caller-owned lists',
         () async {
       final SharedPreferencesDownloadStore store =

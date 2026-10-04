@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
@@ -187,6 +188,70 @@ void main() {
       handshake.complete();
       await pumpEventQueue();
     }
+
+    final List<_FakeSocket> open = <_FakeSocket>[
+      for (final _FakeSocket socket in sockets)
+        if (!socket.closed) socket,
+    ];
+    expect(open, hasLength(1));
+
+    // The server sends a command to every connection the session has.
+    for (final _FakeSocket socket in open) {
+      socket.emit(_playstate('NextTrack'));
+    }
+    await pumpEventQueue();
+    expect(received, <RemoteCommand>[const RemoteNext()]);
+
+    await sub.cancel();
+    await receiver.dispose();
+    expect(sockets.where((_FakeSocket s) => !s.closed), isEmpty);
+  });
+
+  // The same restart on a flaky connection, or while a proxy answers for a
+  // Jellyfin that is restarting: the replaced attempt's handshake is refused
+  // while the newer one is still connecting. Nobody is waiting for the
+  // replaced attempt any more, so its failure must not schedule a reconnect
+  // of its own next to the newer connection.
+  test('a replaced connection attempt that fails leaves a single connection',
+      () async {
+    final FakeJellyfinClient client = FakeJellyfinClient();
+    final List<Completer<bool>> handshakes = <Completer<bool>>[];
+    final List<_FakeSocket> sockets = <_FakeSocket>[];
+    final receiver = JellyfinRemoteControlReceiver(
+      session: () => _session,
+      client: () => client,
+      connect: (Uri _) async {
+        final Completer<bool> handshake = Completer<bool>();
+        handshakes.add(handshake);
+        if (!await handshake.future) {
+          throw const WebSocketException('handshake refused');
+        }
+        final _FakeSocket socket = _FakeSocket();
+        sockets.add(socket);
+        return socket;
+      },
+      // Any reconnect runs at once instead of after the production delay.
+      retryDelay: Duration.zero,
+    );
+    final List<RemoteCommand> received = <RemoteCommand>[];
+    final sub = receiver.commands.listen(received.add);
+
+    unawaited(receiver.start());
+    await pumpEventQueue();
+    unawaited(receiver.stop());
+    unawaited(receiver.start());
+    await pumpEventQueue();
+    expect(handshakes, hasLength(2));
+
+    // The replaced attempt is refused, then the newer one connects.
+    handshakes[0].complete(false);
+    handshakes[1].complete(true);
+    await pumpEventQueue();
+    // Whatever reconnect that refusal scheduled has run by now: let it connect.
+    for (final Completer<bool> handshake in handshakes.skip(2)) {
+      handshake.complete(true);
+    }
+    await pumpEventQueue();
 
     final List<_FakeSocket> open = <_FakeSocket>[
       for (final _FakeSocket socket in sockets)

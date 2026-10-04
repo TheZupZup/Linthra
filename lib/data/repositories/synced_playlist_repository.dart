@@ -96,6 +96,18 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// until it has finished. See [_pushInOrder].
   final Map<String, Future<void>> _pushes = <String, Future<void>>{};
 
+  /// The creates still out, each as the provider it went to and that
+  /// provider's sign-out count when it left. See [_mergeRemote].
+  final List<({PlaylistSource source, int clears})> _createsOut =
+      <({PlaylistSource source, int clears})>[];
+
+  /// Server playlists deleted here that a refresh answer may still list: `null`
+  /// while the delete is out, then the number of the last fetch sent before it
+  /// settled. Kept while a refresh that may have read the server before it is
+  /// out; see [_mergeRemote] and [_settleDelete].
+  final Map<({PlaylistSource source, String remoteId}), int?> _deletes =
+      <({PlaylistSource source, String remoteId}), int?>{};
+
   static String Function() _defaultIdGenerator() {
     int counter = 0;
     return () {
@@ -107,11 +119,28 @@ class SyncedPlaylistRepository implements PlaylistRepository {
 
   Future<void> _ensureLoaded() async {
     if (!_loaded) {
-      _playlists = await _store.load();
+      _playlists = <Playlist>[
+        for (final Playlist p in await _store.load())
+          // Its create was still out when the app last closed. A create lasts
+          // only as long as the app, so no answer is coming: it is a create
+          // that failed, and says so rather than passing for synced.
+          if (p.syncState == PlaylistSyncState.pendingCreate &&
+              p.remoteId == null)
+            p.copyWith(
+              syncState: PlaylistSyncState.syncFailed,
+              lastSyncError: () => _unfinishedCreate,
+            )
+          else
+            p,
+      ];
       _loaded = true;
     }
     await _migrateLegacyTrackIdsOnce();
   }
+
+  /// The [Playlist.lastSyncError] of a playlist whose create never answered.
+  static const String _unfinishedCreate =
+      'Linthra closed before the server confirmed this playlist was created.';
 
   /// The connected gateway that serves [source], or `null` when that provider is
   /// local-only, not registered, or not signed in.
@@ -173,10 +202,19 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       // screen and editable at once, but an edit has no server id to go to
       // until this lands, so it waits for it instead of being skipped.
       final Playlist pending = playlist;
-      playlist = await _pushInOrder(
-        pending.id,
-        () => _pushCreate(pending, gateway),
-      );
+      // Out until it has settled (bound to its server id, failed, or deleted
+      // on the server again); see [_mergeRemote].
+      final ({PlaylistSource source, int clears}) create =
+          (source: source, clears: _clearsOf(source));
+      _createsOut.add(create);
+      try {
+        playlist = await _pushInOrder(
+          pending.id,
+          () => _pushCreate(pending, gateway),
+        );
+      } finally {
+        _createsOut.remove(create);
+      }
     }
     return playlist;
   }
@@ -243,13 +281,30 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (playlist.isRemote && playlist.remoteId != null) {
       final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
       if (gateway != null) {
+        final ({PlaylistSource source, String remoteId}) deleted =
+            (source: playlist.source, remoteId: playlist.remoteId!);
+        _deletes[deleted] = null;
         try {
           await gateway.deleteRemote(playlist.remoteId!);
         } on RemoteSyncException catch (_) {
           // Swallowed: the playlist is already gone locally. It may reappear on a
           // later refresh if the server still has it (documented limitation).
+        } finally {
+          _settleDelete(deleted);
         }
       }
+    }
+  }
+
+  /// Notes that the server delete of [deleted] has settled. A refresh that
+  /// asked the server before this may still have it in its answer; one that
+  /// asks after won't, unless the delete failed (then it is back, as a failed
+  /// delete always was).
+  void _settleDelete(({PlaylistSource source, String remoteId}) deleted) {
+    if (_refreshesOut == 0) {
+      _deletes.remove(deleted);
+    } else {
+      _deletes[deleted] = _fetchesSent;
     }
   }
 
@@ -392,11 +447,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<PlaylistSyncResult> refreshFromRemote() async {
+  Future<PlaylistSyncResult> refreshFromRemote({PlaylistSource? source}) async {
     await _ensureLoaded();
     final List<RemotePlaylistGateway> connected = <RemotePlaylistGateway>[
       for (final RemotePlaylistGateway g in _gateways)
-        if (g.isConnected) g,
+        if (g.isConnected && (source == null || g.source == source)) g,
     ];
     if (connected.isEmpty) {
       return const PlaylistSyncResult.notConfigured();
@@ -405,8 +460,8 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     // Startup, resume, opening the Playlists tab and the end of every library
     // sync all ask for a refresh, often at once. A caller joins the one in
     // flight rather than stacking another 1 + N round-trips per provider, but
-    // only when that one is asking exactly the providers connected now, under
-    // the same sign-in: one that started before a sign-in (or a sign-out)
+    // only when that one is asking exactly the providers this call would ask,
+    // under the same sign-in: one that started before a sign-in (or a sign-out)
     // would answer for the wrong set of accounts, and could still be waiting
     // on one that is gone.
     final Map<PlaylistSource, int> clears = <PlaylistSource, int>{
@@ -443,7 +498,10 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     try {
       return await _fetchAndMergeOnce(connected, clears);
     } finally {
-      if (--_refreshesOut == 0) _mergedBy.clear();
+      if (--_refreshesOut == 0) {
+        _mergedBy.clear();
+        _deletes.removeWhere((_, int? settled) => settled != null);
+      }
     }
   }
 
@@ -605,8 +663,24 @@ class SyncedPlaylistRepository implements PlaylistRepository {
       next.add(adopted);
       merged.add(adopted);
     }
+    // A create still out may already be on the server, and in this answer,
+    // under an id nothing here has yet: imported now, it would be a second
+    // copy of that playlist, bound to the same server playlist. What is new
+    // on the server waits for the next refresh instead.
+    final bool creating = _createsOut.any(
+      (({PlaylistSource source, int clears}) c) =>
+          c.source == source && c.clears == _clearsOf(source),
+    );
     for (final RemotePlaylistData dto in remote) {
-      if (!known.add(dto.remoteId)) continue;
+      if (creating || !known.add(dto.remoteId)) continue;
+      // Deleted here, and this answer may have been read before the server
+      // delete landed: not new on the server, just not gone from it yet.
+      final ({PlaylistSource source, String remoteId}) key =
+          (source: source, remoteId: dto.remoteId);
+      if (_deletes.containsKey(key)) {
+        final int? settled = _deletes[key];
+        if (settled == null || fetch <= settled) continue;
+      }
       final Playlist imported = Playlist(
         id: _newId(),
         name: dto.name,
@@ -814,6 +888,11 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     Playlist playlist,
     RemotePlaylistGateway gateway,
   ) async {
+    // Signing out while the create is out turns the playlist into a device
+    // playlist (see [clearRemote]). What the create says after that is about
+    // an account that is gone: neither its failure nor its server id belongs
+    // on the device's copy.
+    final int clears = _clearsOf(gateway.source);
     final String remoteId;
     try {
       remoteId = await gateway.createRemotePlaylist(
@@ -821,6 +900,9 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         playlist.trackIds,
       );
     } on RemoteSyncException catch (error) {
+      if (_clearsOf(gateway.source) != clears) {
+        return _byId(playlist.id) ?? playlist;
+      }
       return _mutate(
         playlist.id,
         (Playlist p) => p.copyWith(
@@ -829,14 +911,22 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         ),
       );
     }
+    if (_clearsOf(gateway.source) != clears) {
+      return _byId(playlist.id) ?? playlist;
+    }
     if (_byId(playlist.id) == null) {
       // Deleted here while the server was still making it. That delete had
       // no server id to send, so it goes now: left there, the playlist would
       // come back with the next refresh.
+      final ({PlaylistSource source, String remoteId}) deleted =
+          (source: gateway.source, remoteId: remoteId);
+      _deletes[deleted] = null;
       try {
         await gateway.deleteRemote(remoteId);
       } on RemoteSyncException catch (_) {
         // Best-effort, like every server delete (see [deletePlaylist]).
+      } finally {
+        _settleDelete(deleted);
       }
       return playlist;
     }
@@ -932,8 +1022,13 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   /// that didn't. That one stays marked until a refresh reconciles the
   /// playlist with the server, rather than the marker quietly going away and
   /// the next refresh dropping the edit with no sign it never got there.
+  ///
+  /// Always a new object, though, even when nothing on it changes: a refresh
+  /// that read the server before this push landed tells that its answer is
+  /// older only by identity (see [_mergeRemote]), and by then the push has
+  /// left [_pushes]. Handing back [p] itself let that answer undo the edit.
   static Playlist _confirmedPush(Playlist p) {
-    if (p.syncState == PlaylistSyncState.syncFailed) return p;
+    if (p.syncState == PlaylistSyncState.syncFailed) return p.copyWith();
     return p.copyWith(
       syncState: PlaylistSyncState.synced,
       lastSyncError: () => null,

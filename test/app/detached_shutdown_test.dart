@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -89,6 +92,69 @@ void main() {
     expect(handle.isShuttingDown, isTrue);
     // The window is closing and the process is ending: playback stops with it.
     expect(controller.stopCount, greaterThanOrEqualTo(1));
+  });
+
+  testWidgets(
+      'closing the window on Linux runs the graceful shutdown before exiting',
+      (tester) async {
+    final (ApplicationHandle handle, FakePlaybackController controller) =
+        await _pumpApp(tester, host: HostPlatform.linux);
+
+    // What the Linux embedder does when the window is closed: FlView's
+    // delete-event handler sends System.requestAppExit, and the application
+    // quits as soon as the answer is "exit". It never sends `detached`.
+    final AppExitResponse? response = await tester.runAsync(
+      () => tester.binding.handleRequestAppExit(),
+    );
+
+    expect(response, AppExitResponse.exit);
+    // By the time the app is allowed to exit, the shutdown has run to the
+    // end: playback was stopped and the engine released, which is the order
+    // the saved session and the servers' "stopped" depend on.
+    expect(handle.isShuttingDown, isTrue);
+    expect(controller.stopCount, greaterThanOrEqualTo(1));
+    expect(controller.disposed, isTrue);
+  });
+
+  testWidgets('a shutdown that never finishes does not keep the window open',
+      (tester) async {
+    final (ApplicationHandle handle, FakePlaybackController _) =
+        await _pumpApp(tester, host: HostPlatform.linux);
+    // A resource whose teardown never completes.
+    final Completer<void> wedged = Completer<void>();
+    handle.own(() => wedged.future);
+
+    AppExitResponse? response;
+    unawaited(
+      tester.binding.handleRequestAppExit().then((AppExitResponse r) {
+        response = r;
+      }),
+    );
+    // Well inside the bound, then well past it, so the test holds whatever
+    // the exact bound is tuned to.
+    await tester.pump(const Duration(seconds: 1));
+    expect(response, isNull, reason: 'still giving the shutdown its chance');
+
+    await tester.pump(const Duration(seconds: 10));
+    expect(response, AppExitResponse.exit);
+
+    // Let the wedged teardown go, so the test leaves nothing running.
+    wedged.complete();
+    await tester.pump();
+  });
+
+  testWidgets('an exit request on Android never shuts the application down',
+      (tester) async {
+    final (ApplicationHandle handle, FakePlaybackController controller) =
+        await _pumpApp(tester, host: HostPlatform.android);
+
+    final AppExitResponse? response = await tester.runAsync(
+      () => tester.binding.handleRequestAppExit(),
+    );
+
+    expect(response, AppExitResponse.exit);
+    expect(handle.isShuttingDown, isFalse);
+    expect(controller.stopCount, 0);
   });
 
   testWidgets('detaching on Android never shuts the application down',

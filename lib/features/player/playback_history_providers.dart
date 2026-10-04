@@ -74,6 +74,10 @@ final playbackHistoryProvider =
 ///    with [PlaybackController.playFromHistory], exactly what tapping a
 ///    "previously played" row has always done. Up-next is preserved, the queue
 ///    is not rebuilt, and nothing about queue behaviour changes.
+///  * the listener stepped back past it with Previous, so it is ahead in the
+///    current queue again (or playing now) → jump to it there with
+///    [PlaybackController.playFromQueue] (or start it again in place), for
+///    the same reason.
 ///  * otherwise (it came from an earlier queue) → [PlaybackController.playTrack],
 ///    the ordinary play path.
 ///
@@ -90,5 +94,14 @@ Future<void> playFromRecentHistory(WidgetRef ref, Track track) {
   final int inQueue =
       state.previous.lastIndexWhere((Track queued) => queued.uri == track.uri);
   if (inQueue >= 0) return controller.playFromHistory(inQueue);
+  // Not behind the current track, but not from an earlier queue either: the
+  // listener went back past it with Previous. Played as a queue of its own,
+  // it threw away the queue it is still part of.
+  if (state.currentTrack?.uri == track.uri) {
+    return controller.seek(Duration.zero).then((_) => controller.play());
+  }
+  final int ahead =
+      state.upNext.indexWhere((Track queued) => queued.uri == track.uri);
+  if (ahead >= 0) return controller.playFromQueue(ahead);
   return controller.playTrack(track);
 }

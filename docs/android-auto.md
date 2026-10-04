@@ -156,6 +156,9 @@ Selecting a track plays it and queues the rest of **the list it was opened
 from** (the album's tracks for an album track, the artist's for an artist track,
 the playlist's for a playlist track, …) — exactly like tapping a track in that
 screen on the phone.
+A **Queue** row is the exception: picking it moves to that song within the
+current queue, like the car's Up Next list, and the song already playing stays
+as it is.
 
 Stable media IDs:
 
@@ -165,24 +168,29 @@ Stable media IDs:
 | Song / library track | `library/<trackId>` |
 | Albums category | `albums` |
 | An album (container) | `album/<albumId>` |
-| Album track | `album/<albumId>/<index>` |
+| Album track | `album/<albumId>/<index>@<uriHash>` |
 | Artists category | `artists` |
 | An artist (container) | `artist/<artistId>` |
-| Artist track | `artist/<artistId>/<index>` |
+| Artist track | `artist/<artistId>/<index>@<uriHash>` |
 | Playlists category | `playlists` |
 | A playlist (container) | `playlist/<playlistId>` |
-| Playlist track | `playlist/<playlistId>/<index>` |
+| Playlist track | `playlist/<playlistId>/<index>@<uriHash>` |
 | Favorites category | `favorites` |
-| Favorite track | `favorite/<index>` |
+| Favorite track | `favorite/<index>@<uriHash>` |
 | Offline category | `offline` |
-| Offline track | `offline/<index>` |
+| Offline track | `offline/<index>@<uriHash>` |
 | Queue category | `queue` |
-| Queue item | `queue/<index>` |
+| Queue item | `queue/<index>/<uriHash>` |
 | Empty-state placeholder | `empty` |
 
 `<albumId>` / `<artistId>` are URL-safe, **opaque** grouping ids (a base64url
 token, or an `unknown-album` / `unknown-artist` sentinel) — never a name, path,
 or token.
+
+`<uriHash>` is the same opaque SHA-256 of the track uri that the Songs leaves
+use. The car keeps showing a list after the queue or the list has moved on, so a
+row carries the song it listed: picking it plays that song, or nothing once it
+has left the list.
 
 - **Songs / Albums / Artists** are always shown (they reflect the catalog). When
   the catalog is empty, opening one shows a friendly placeholder ("Sync your

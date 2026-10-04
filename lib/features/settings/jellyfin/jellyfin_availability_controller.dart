@@ -4,10 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/lifecycle/app_visibility.dart';
 import '../../../core/models/jellyfin_session.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/reachability.dart';
 import '../../../core/sources/jellyfin/jellyfin_availability.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/source_availability.dart';
+import '../../../data/repositories/download_repository_provider.dart';
+import '../../../data/repositories/host_platform_provider.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_settings_providers.dart';
 
@@ -112,6 +115,7 @@ class JellyfinAvailabilityController extends Notifier<SourceAvailabilityState> {
       (bool? previous, bool visible) => _syncPoll(visible: visible),
     );
     _syncPoll(visible: ref.read(appVisibilityProvider));
+    _followNetwork();
     // Probe off the build so the notifier never writes state while building.
     // Until it lands the state is `checking`, which hides nothing (see
     // [SourceAvailability.hidesTracks]) — a library must not blink out while we
@@ -139,6 +143,30 @@ class JellyfinAvailabilityController extends Notifier<SourceAvailabilityState> {
       return;
     }
     _poll ??= Timer.periodic(interval, (_) => unawaited(refresh()));
+  }
+
+  /// Re-probes when the device gets a connection back (or a different one),
+  /// where the platform reports connection changes: Wi-Fi rejoined, mobile
+  /// data back, a laptop's network up again after it woke. Otherwise a server
+  /// found unreachable while the connection was down stays hidden until the
+  /// next poll. Only while the app is on screen, like the poll: coming back
+  /// to it re-probes anyway. Going offline probes nothing; that can only fail.
+  void _followNetwork() {
+    if (!hostReportsNetworkChanges(ref.read(hostPlatformProvider))) return;
+    final StreamSubscription<NetworkStatus> changes =
+        ref.read(connectivityServiceProvider).statusStream.listen(
+      (NetworkStatus status) {
+        if (_disposed || status == NetworkStatus.offline) return;
+        if (!ref.read(appVisibilityProvider)) return;
+        unawaited(refresh());
+      },
+      // A connectivity stream that fails only means no early re-probe; the
+      // poll and resume still come.
+      onError: (Object _, StackTrace __) {},
+    );
+    // Cancelling a platform event stream waits on the native side, which
+    // must never hold up a rebuild or shutdown.
+    ref.onDispose(() => unawaited(changes.cancel().catchError((Object _) {})));
   }
 
   /// Re-probes the configured server now. Safe to call from anywhere and at any

@@ -7,12 +7,22 @@
 // test/core/services/local_artwork_cache_test.dart; what is under test here is
 // that the sweep is asked for at all, with the right set, and only on the
 // platforms whose covers this cache holds.
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/local_artwork_cache.dart';
+import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
+import 'package:linthra/core/sources/local/mp4_box_guard.dart';
+import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
@@ -21,7 +31,9 @@ import 'package:linthra/data/repositories/selected_music_folder_repository_provi
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/library/selected_folder_controller.dart';
 import 'package:linthra/features/settings/source/local_music_controller.dart';
+import 'package:path/path.dart' as p;
 
+import '../../core/sources/local/audio_tag_fixtures.dart';
 import 'fake_audio_file_scanner.dart';
 import 'fake_folder_picker_service.dart';
 
@@ -42,6 +54,32 @@ class _MaintainingMetadataReader
 
   @override
   Future<void> retainArtwork(Set<Uri> live) async => sweeps.add(live);
+}
+
+Future<Uint8List> _solidPng(int width, int height) async {
+  final ui.PictureRecorder recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawRect(
+    ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    ui.Paint()..color = const ui.Color(0xFF336699),
+  );
+  final ui.Image image = await recorder.endRecording().toImage(width, height);
+  final ByteData? data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return data!.buffer.asUint8List();
+}
+
+/// The real guard, on a drive that answers every read of a song with an I/O
+/// error while `<song>.eio` sits next to it. Top-level, so it can cross to the
+/// parse isolate.
+bool _readFailsWhileMarked(File file) {
+  if (File('${file.path}.eio').existsSync()) {
+    throw FileSystemException(
+      'Input/output error',
+      file.path,
+      const OSError('Input/output error', 5),
+    );
+  }
+  return Mp4BoxGuard.isSafeToParse(file);
 }
 
 LocalAudioMetadata _tagged(String title, {Uri? artwork}) => LocalAudioMetadata(
@@ -197,6 +235,165 @@ void main() {
     await rescan(c);
 
     expect(reader.sweeps, hasLength(1));
+  });
+
+  test(
+      'a cover the system reclaimed is extracted again on the next scan, '
+      'though its file did not change', () async {
+    // The cache lives in the XDG cache directory, which the user or a cleanup
+    // tool may empty at any time. An incremental scan reuses an unchanged
+    // file's row as it is, cover included, so without asking the cache which
+    // covers are gone, every one of them stayed a placeholder for good.
+    // Staged with the real walk, stat, tag reader and artwork cache, and the
+    // real Drift catalog.
+    final Directory sandbox =
+        await Directory.systemTemp.createTemp('linthra_reclaimed_covers_');
+    addTearDown(() => sandbox.delete(recursive: true));
+    final String music = p.join(sandbox.path, 'Music');
+    final Directory album = Directory(p.join(music, 'Bon Iver', 'For Emma'))
+      ..createSync(recursive: true);
+    final Directory covers = Directory(p.join(sandbox.path, 'cache', 'art'));
+    final String song = p.join(album.path, '01 Flume.mp3');
+    File(song).writeAsBytesSync(
+      AudioTagFixtures.mp3(
+        title: 'Flume',
+        artist: 'Bon Iver',
+        album: 'For Emma, Forever Ago',
+        coverImage: await _solidPng(8, 8),
+      ),
+      flush: true,
+    );
+    final FilesystemLocalMetadataReader tagReader =
+        FilesystemLocalMetadataReader(
+      artworkCache: LocalArtworkCache(directory: () async => covers),
+    );
+    addTearDown(tagReader.close);
+    final ProviderContainer c = ProviderContainer(
+      overrides: <Override>[
+        folderPickerServiceProvider
+            .overrideWithValue(FakeFolderPickerService()),
+        selectedMusicFolderRepositoryProvider.overrideWithValue(
+          InMemorySelectedMusicFolderRepository(
+            initialFolders: <String>[music],
+          ),
+        ),
+        linthraDatabaseExecutorProvider
+            .overrideWithValue(NativeDatabase.memory()),
+        driftMusicLibraryRepositoryOverride,
+        localMetadataReaderProvider.overrideWithValue(tagReader),
+        hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.read(selectedFolderControllerProvider.future);
+    Future<Uri?> coverOf() async =>
+        (await c.read(musicLibraryRepositoryProvider).getTrackByUri(song))!
+            .artworkUri;
+
+    await rescan(c);
+    final Uri? first = await coverOf();
+    expect(first, isNotNull);
+    expect(File(first!.toFilePath()).existsSync(), isTrue);
+
+    covers.deleteSync(recursive: true);
+    await rescan(c);
+
+    final Uri? after = await coverOf();
+    expect(after, isNotNull);
+    expect(
+      File(after!.toFilePath()).existsSync(),
+      isTrue,
+      reason: 'the cover is still embedded in the file, so the rescan must '
+          'not keep pointing the track at a cache entry that is gone',
+    );
+    final Track track =
+        (await c.read(musicLibraryRepositoryProvider).getTrackByUri(song))!;
+    expect(track.title, 'Flume');
+  });
+
+  test(
+      'a song read again for a reclaimed cover keeps its tags when that read '
+      'fails', () async {
+    // Once the cache is reclaimed, the next scan reads every song with a cover
+    // again, though no file changed. One of those reads can fail (a USB drive
+    // or a network share answering with an I/O error, a read that runs out of
+    // time): the song's tags are no less there for it, and its unchanged file
+    // is never read again afterwards. Staged with the real walk, stat, tag
+    // reader and artwork cache, and the real Drift catalog. The failing read
+    // is the reader's own guard, which reads the file on the parse isolate
+    // right before the parse, getting the I/O error the drive gives.
+    final Directory sandbox =
+        await Directory.systemTemp.createTemp('linthra_cover_reread_');
+    addTearDown(() => sandbox.delete(recursive: true));
+    final String music = p.join(sandbox.path, 'Music');
+    final Directory unsorted = Directory(p.join(music, 'Unsorted'))
+      ..createSync(recursive: true);
+    final Directory covers = Directory(p.join(sandbox.path, 'cache', 'art'));
+    final String song = p.join(unsorted.path, 'track05.flac');
+    File(song).writeAsBytesSync(
+      AudioTagFixtures.flac(
+        title: 'Holocene',
+        artist: 'Bon Iver',
+        albumArtist: 'Bon Iver',
+        album: 'Bon Iver',
+        track: '5',
+        coverImage: await _solidPng(8, 8),
+      ),
+      flush: true,
+    );
+    final FilesystemLocalMetadataReader tagReader =
+        FilesystemLocalMetadataReader(
+      artworkCache: LocalArtworkCache(directory: () async => covers),
+      guard: _readFailsWhileMarked,
+    );
+    addTearDown(tagReader.close);
+    final ProviderContainer c = ProviderContainer(
+      overrides: <Override>[
+        folderPickerServiceProvider
+            .overrideWithValue(FakeFolderPickerService()),
+        selectedMusicFolderRepositoryProvider.overrideWithValue(
+          InMemorySelectedMusicFolderRepository(
+            initialFolders: <String>[music],
+          ),
+        ),
+        linthraDatabaseExecutorProvider
+            .overrideWithValue(NativeDatabase.memory()),
+        driftMusicLibraryRepositoryOverride,
+        localMetadataReaderProvider.overrideWithValue(tagReader),
+        hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.read(selectedFolderControllerProvider.future);
+    Future<Track> stored() async =>
+        (await c.read(musicLibraryRepositoryProvider).getTrackByUri(song))!;
+
+    await rescan(c);
+    expect((await stored()).title, 'Holocene');
+    expect((await stored()).artworkUri, isNotNull);
+
+    covers.deleteSync(recursive: true);
+    final File failing = File('$song.eio')..writeAsStringSync('');
+    await rescan(c);
+
+    final Track kept = await stored();
+    expect(
+      kept.title,
+      'Holocene',
+      reason: 'the file did not change: one read of it failing says nothing '
+          'about the tags it was indexed with',
+    );
+    expect(kept.albumName, 'Bon Iver');
+    expect(kept.duration, greaterThan(Duration.zero));
+
+    // The drive answers again: the cover comes back, the tags stay.
+    failing.deleteSync();
+    await rescan(c);
+
+    final Track after = await stored();
+    expect(after.title, 'Holocene');
+    expect(after.artworkUri, isNotNull);
+    expect(File(after.artworkUri!.toFilePath()).existsSync(), isTrue);
   });
 
   test('Android sweeps nothing: its reader owns no artwork cache', () {

@@ -18,9 +18,13 @@ import 'package:linthra/data/repositories/in_memory_music_library_repository.dar
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/selected_music_folder_repository_provider.dart';
+import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/library/library_screen.dart';
+import 'package:linthra/features/library/widgets/alphabet_track_list.dart';
+import 'package:linthra/features/player/player_providers.dart';
 
+import '../player/fake_playback_controller.dart';
 import 'fake_audio_file_scanner.dart';
 import 'fake_folder_picker_service.dart';
 import 'fake_music_library_repository.dart';
@@ -154,6 +158,133 @@ void main() {
       expect(scanner.requestedFolder, '/music');
       expect(find.text('Hello'), findsOneWidget);
       expect(find.text('No music folder selected'), findsNothing);
+    });
+
+    testWidgets('a rescan keeps the list where the user left it', (
+      tester,
+    ) async {
+      // What the folder watcher does when a download lands in the music
+      // folder while someone is scrolling through their library.
+      final _HeldScanner scanner = _HeldScanner(<String>[
+        for (int i = 0; i < 60; i++)
+          '/music/Artist/Album/${i.toString().padLeft(2, '0')} - Song $i.mp3',
+      ]);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            audioFileScannerProvider.overrideWithValue(scanner),
+            // Inert, for the reasons given in the test above: the paths are
+            // fictional, and real I/O never completes against the fake clock.
+            localMetadataReaderProvider.overrideWithValue(
+              const UnsupportedLocalMetadataReader(),
+            ),
+            localFileStatReaderProvider.overrideWithValue(
+              const UnsupportedLocalFileStatReader(),
+            ),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(LibraryScreen)),
+      );
+      Future<void> rescan() => container
+          .read(libraryControllerProvider.notifier)
+          .scanFolders(const <String>['/music']);
+      await rescan();
+      await tester.pumpAndSettle();
+
+      Finder list() => find
+          .descendant(
+            of: find.byType(AlphabetTrackList),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.drag(list(), const Offset(0, -900));
+      await tester.pumpAndSettle();
+      final double before =
+          tester.state<ScrollableState>(list()).position.pixels;
+      expect(before, greaterThan(0), reason: 'the drag should have scrolled');
+
+      // A walk takes real time on a real disk, and frames are drawn meanwhile.
+      scanner.hold();
+      final Future<void> running = rescan();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(find.byType(AlphabetTrackList), findsOneWidget);
+
+      scanner.release();
+      await running;
+      await tester.pumpAndSettle();
+
+      expect(tester.state<ScrollableState>(list()).position.pixels, before);
+    });
+
+    testWidgets(
+        "a song's menu acts on that song when a rescan reorders the list "
+        'under it', (tester) async {
+      final FakePlaybackController playback = FakePlaybackController();
+      final _HeldScanner scanner = _HeldScanner(<String>[
+        '/music/Album/Bravo.mp3',
+        '/music/Album/Charlie.mp3',
+        '/music/Album/Delta.mp3',
+      ]);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicLibraryRepositoryProvider.overrideWithValue(
+              InMemoryMusicLibraryRepository(),
+            ),
+            audioFileScannerProvider.overrideWithValue(scanner),
+            localMetadataReaderProvider.overrideWithValue(
+              const UnsupportedLocalMetadataReader(),
+            ),
+            localFileStatReaderProvider.overrideWithValue(
+              const UnsupportedLocalFileStatReader(),
+            ),
+            playbackControllerProvider.overrideWithValue(playback),
+          ],
+          child: const MaterialApp(home: LibraryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(LibraryScreen)),
+      );
+      Future<void> rescan() => container
+          .read(libraryControllerProvider.notifier)
+          .scanFolders(const <String>['/music']);
+      await rescan();
+      await tester.pumpAndSettle();
+
+      // The menu of the second song, Charlie.
+      await tester.tap(find.byTooltip('More actions').at(1));
+      await tester.pumpAndSettle();
+
+      // While it is open, a song lands in the music folder (a download
+      // finishing, a sync tool) and the folder watcher's rescan publishes a
+      // list where everything after it has moved down one place. The walk
+      // takes real time on a real disk, and frames are drawn meanwhile.
+      scanner.files = <String>['/music/Album/Alpha.mp3', ...scanner.files];
+      scanner.hold();
+      final Future<void> running = rescan();
+      await tester.pump(const Duration(milliseconds: 16));
+      scanner.release();
+      await running;
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Play next'));
+      await tester.pumpAndSettle();
+
+      expect(
+        playback.playNextCalls.map((Track t) => t.title),
+        <String>['Charlie'],
+        reason: 'the menu was opened on Charlie, and the song now drawn where '
+            'Charlie was is another one',
+      );
     });
 
     testWidgets('cancelling the picker leaves the empty state untouched', (
@@ -445,6 +576,31 @@ void main() {
       expect(find.text('Folder not found'), findsNothing);
     });
   });
+}
+
+/// A walk that answers at once until [hold] is called, and then not until
+/// [release].
+class _HeldScanner extends FakeAudioFileScanner {
+  _HeldScanner(List<String> files) : super(files: files);
+
+  Completer<void>? _gate;
+
+  void hold() => _gate = Completer<void>();
+
+  void release() => _gate?.complete();
+
+  @override
+  Future<List<String>> listFiles(
+    String folderPath, {
+    void Function(String directory)? onUnreadableDirectory,
+  }) async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) await gate.future;
+    return super.listFiles(
+      folderPath,
+      onUnreadableDirectory: onUnreadableDirectory,
+    );
+  }
 }
 
 /// A chooser that does not answer until the test says so, so the screen can be

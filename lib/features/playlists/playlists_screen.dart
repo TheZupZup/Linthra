@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/routes.dart';
 import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/playlist_repository.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/widgets/confirm_dialog.dart';
@@ -247,20 +248,27 @@ class _PlaylistTile extends ConsumerWidget {
   }
 
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
+    // Read before the dialog, not after it. The list can rebuild this row
+    // while the dialog is up (the phone turned sideways to type, a shorter
+    // window, a refresh that dropped a playlist), and reading through its ref
+    // then throws: the name the listener saved would never be applied.
+    final PlaylistRepository repository = ref.read(playlistRepositoryProvider);
     final PlaylistEdit? edit = await showRenamePlaylistDialog(
       context,
       initialName: playlist.name,
       initialDescription: playlist.description,
     );
     if (edit == null) return;
-    await ref.read(playlistRepositoryProvider).renamePlaylist(
-          playlist.id,
-          edit.name,
-          description: edit.description,
-        );
+    await repository.renamePlaylist(
+      playlist.id,
+      edit.name,
+      description: edit.description,
+    );
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    // Read before the dialog, for the same reason as in [_rename].
+    final PlaylistRepository repository = ref.read(playlistRepositoryProvider);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Delete playlist',
@@ -270,7 +278,7 @@ class _PlaylistTile extends ConsumerWidget {
       confirmLabel: 'Delete',
     );
     if (!confirmed) return;
-    await ref.read(playlistRepositoryProvider).deletePlaylist(playlist.id);
+    await repository.deletePlaylist(playlist.id);
   }
 }
 

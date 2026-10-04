@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dbus/dbus.dart';
@@ -11,8 +12,12 @@ import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/services/android_connectivity_service.dart';
 import 'package:linthra/core/services/portal_connectivity_service.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
+import 'package:linthra/data/repositories/cache_download_repository.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
+import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
+import 'package:linthra/data/repositories/in_memory_download_store.dart';
+import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 
 // A Linux desktop has no Android network channel, so it never knew whether
 // its connection was metered, and the download policy holds an unknown link
@@ -58,6 +63,51 @@ class _Downloader implements RemoteTrackDownloader {
 }
 
 const Track _track = Track(id: 'j1', title: 'j1', uri: 'jellyfin:j1');
+
+/// The session bus of a desktop whose portal is still starting, as
+/// xdg-desktop-portal is while a backend it waits for times out: the bus
+/// itself answers at once, but GetMetered gets no reply until [startUp].
+/// Nothing here opens a socket, so the test runs on fake time.
+class _StartingPortalBus extends DBusClient {
+  _StartingPortalBus()
+      : super(DBusAddress('unix:path=/nonexistent/linthra-test-bus'));
+
+  Completer<void>? _starting = Completer<void>();
+
+  /// The portal is up: it answers every GetMetered from now on (unmetered).
+  void startUp() {
+    _starting?.complete();
+    _starting = null;
+  }
+
+  @override
+  Future<DBusMethodSuccessResponse> callMethod({
+    String? destination,
+    required DBusObjectPath path,
+    String? interface,
+    required String name,
+    Iterable<DBusValue> values = const <DBusValue>[],
+    DBusSignature? replySignature,
+    bool noReplyExpected = false,
+    bool noAutoStart = false,
+    bool allowInteractiveAuthorization = false,
+  }) async {
+    switch (name) {
+      case 'GetId':
+        return DBusMethodSuccessResponse(<DBusValue>[const DBusString('bus')]);
+      case 'GetNameOwner':
+        return DBusMethodSuccessResponse(<DBusValue>[const DBusString(':1.7')]);
+      case 'AddMatch':
+      case 'RemoveMatch':
+        return DBusMethodSuccessResponse();
+      case 'GetMetered':
+        final Completer<void>? starting = _starting;
+        if (starting != null) await starting.future;
+        return DBusMethodSuccessResponse(<DBusValue>[const DBusBoolean(false)]);
+    }
+    throw StateError('Unexpected call: $name');
+  }
+}
 
 void main() {
   late DBusServer server;
@@ -184,5 +234,45 @@ void main() {
       android.read(connectivityServiceProvider),
       isA<AndroidConnectivityService>(),
     );
+  });
+
+  testWidgets(
+      'a download held while the portal could not answer starts once it can',
+      (WidgetTester tester) async {
+    // Linthra launched right after login, while the desktop's portal is
+    // still starting: its first metering question gets no answer in time,
+    // so the connection reads as unknown and, with the default "Wi-Fi
+    // only", a download asked for then is held.
+    final _StartingPortalBus bus = _StartingPortalBus();
+    final PortalConnectivityService portal = PortalConnectivityService(
+      connect: () => bus,
+      now: () => tester.binding.clock.now(),
+    );
+    final CacheDownloadRepository repository = CacheDownloadRepository(
+      store: InMemoryDownloadStore(),
+      files: InMemoryOfflineFileStore(),
+      downloader: downloader,
+      connectivity: portal,
+      preferences: InMemoryDownloadPreferences(),
+      networkChanges: portal.statusStream,
+    );
+    DownloadRequestOutcome? outcome;
+    unawaited(repository
+        .requestDownload(_track)
+        .then((DownloadRequestOutcome o) => outcome = o));
+    await tester.pump(const Duration(seconds: 6));
+    expect(outcome, DownloadRequestOutcome.waitingForWifi);
+    expect(await repository.statusFor('j1'), DownloadStatus.queued);
+
+    // The portal is up a moment later. The desktop stays on the same
+    // unmetered connection, so it never reports a change.
+    bus.startUp();
+    await tester.pump(const Duration(minutes: 2));
+
+    expect(downloader.fetches, 1);
+    expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+
+    await repository.dispose();
+    await portal.dispose();
   });
 }

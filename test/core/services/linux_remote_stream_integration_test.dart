@@ -136,6 +136,15 @@ class LoopbackEngine extends Fake implements AudioPlayer {
     _events.addError(Exception('Failed to open $url'), StackTrace.empty);
   }
 
+  /// Loses the source mid-track the way the real Linux stack reports a libmpv
+  /// error such as a refused reconnect: the vendored just_audio_media_kit turns
+  /// it into an idle processing state, just_audio tears the native player down
+  /// on that idle, and its playing flag stays set. No error reaches the event
+  /// stream and nothing more is reported (observed against libmpv 2.2 when the
+  /// server's port closed mid-track).
+  void loseSourceMidStream() =>
+      _states.add(PlayerState(true, ProcessingState.idle));
+
   Future<void> close() async {
     _http.close(force: true);
     await _states.close();
@@ -693,6 +702,64 @@ void main() {
       // The sweep below is only worth anything if something was recorded: a
       // failed stream leaves breadcrumbs, and none of them may carry the URL.
       expect(SafeEventLog.instance.lines, isNotEmpty);
+      expectCredentialsContained(controller);
+    });
+
+    test(
+        'a server that restarts mid-track is reconnected to, not left '
+        'playing in silence', () async {
+      final FakeJellyfinServer server = await jellyfinServer();
+      final LoopbackEngine engine = newEngine();
+      final LinuxPlaybackController controller = controllerFor(
+        engine,
+        router(jellyfin: jellyfinSource(server)),
+      );
+
+      await controller.playTrack(jellyfinTrack('101'));
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(server.streamProbes, hasLength(1));
+
+      // The server restarts under the stream. libmpv's reconnect is refused,
+      // which the Linux backend reports only as the engine going idle: no
+      // error, and no sound from here on.
+      engine.loseSourceMidStream();
+      await waitFor(
+        () => server.streamProbes.length == 2,
+        describe: 'the player to go back to the server for a fresh stream',
+      );
+      await waitFor(
+        () => controller.state.status == PlaybackStatus.playing,
+        describe: 'the reconnected stream to play',
+      );
+
+      expect(engine.opened, hasLength(2));
+      expectCredentialsContained(controller);
+    });
+
+    test(
+        'a server that stays down after dropping the stream ends on an error '
+        'with Retry, not on playing', () async {
+      final FakeJellyfinServer server = await jellyfinServer();
+      final LoopbackEngine engine = newEngine();
+      final LinuxPlaybackController controller = controllerFor(
+        engine,
+        router(jellyfin: jellyfinSource(server)),
+      );
+
+      await controller.playTrack(jellyfinTrack('101'));
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      server.refuseConnections = true;
+      engine.loseSourceMidStream();
+      await waitFor(
+        () => controller.state.status == PlaybackStatus.error,
+        describe: 'the lost stream to end on an error',
+      );
+
+      expect(controller.state.currentTrack!.uri, 'jellyfin:101');
+      expect(controller.state.failure!.canRetry, isTrue);
+      expect(engine.opened, hasLength(1),
+          reason: 'nothing reached the engine while the server was down');
       expectCredentialsContained(controller);
     });
 

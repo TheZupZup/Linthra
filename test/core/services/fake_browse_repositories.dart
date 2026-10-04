@@ -82,7 +82,8 @@ class FakePlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Future<PlaylistSyncResult> refreshFromRemote() => throw UnimplementedError();
+  Future<PlaylistSyncResult> refreshFromRemote({PlaylistSource? source}) =>
+      throw UnimplementedError();
 
   @override
   Future<void> clearRemote({PlaylistSource? source}) =>
@@ -116,7 +117,8 @@ class FakeFavoritesRepository implements FavoritesRepository {
   }
 
   @override
-  Future<FavoritesSyncResult> refreshFromRemote() async =>
+  Future<FavoritesSyncResult> refreshFromRemote(
+          {String? providerScheme}) async =>
       const FavoritesSyncResult.notConfigured();
 
   @override

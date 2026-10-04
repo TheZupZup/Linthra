@@ -461,4 +461,50 @@ void main() {
     });
     expect(await selection.getSelectedFolders(), <String>[_internal]);
   });
+
+  test('removing a folder while every other folder is away drops its music',
+      () async {
+    // The rescan of the folders that are left can read none of them, and a
+    // scan that reads nothing writes nothing. The removal still has to take
+    // this folder's tracks out, and nothing else with them.
+    await catalog.upsertCatalog(
+      sourceId: 'jellyfin',
+      tracks: <Track>[_serverTrack('1')],
+      albums: const [],
+      artists: const [],
+    );
+    final ProviderContainer c = container();
+    await start(c);
+    fs.unplug(_usb);
+    fs.unplug(_internal);
+
+    await c.read(localMusicControllerProvider.notifier).removeFolder(_usb);
+
+    expect(await selection.getSelectedFolders(), <String>[_internal]);
+    expect(await catalogUris(), <String>{
+      '$_internal/Idles/Danny Nedelko.mp3',
+      'jellyfin:1',
+    });
+    expect(
+      <String>{
+        for (final Track track in c.read(libraryControllerProvider).tracks)
+          track.uri,
+      },
+      await catalogUris(),
+      reason: 'the library on screen is the catalog the removal left',
+    );
+  });
+
+  test(
+      'removing a readable folder while the only other one is away drops '
+      'its music', () async {
+    final ProviderContainer c = container();
+    await start(c);
+    fs.unplug(_usb);
+
+    await c.read(localMusicControllerProvider.notifier).removeFolder(_internal);
+
+    expect(await selection.getSelectedFolders(), <String>[_usb]);
+    expect(await catalogUris(), <String>{'$_usb/Bon Iver/Holocene.flac'});
+  });
 }

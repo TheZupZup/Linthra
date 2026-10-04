@@ -264,7 +264,8 @@ class _RecordingFavoritesRepository implements FavoritesRepository {
   }
 
   @override
-  Future<FavoritesSyncResult> refreshFromRemote() async =>
+  Future<FavoritesSyncResult> refreshFromRemote(
+          {String? providerScheme}) async =>
       FavoritesSyncResult.synced(_ids.length);
 
   @override

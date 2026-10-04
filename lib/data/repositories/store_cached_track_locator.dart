@@ -2,6 +2,7 @@ import '../../core/models/track.dart';
 import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cached_track_locator.dart';
+import '../../core/services/offline_copy_origins.dart';
 
 /// The app's [CachedTrackLocator]: answers "is this track available offline?" by
 /// reading the durable download metadata ([DownloadStore]) and confirming the
@@ -17,10 +18,18 @@ class StoreCachedTrackLocator implements CachedTrackLocator {
     this._store,
     this._files, {
     Future<List<Track>> Function()? catalogForLegacyMatch,
-  }) : _catalogForLegacyMatch = catalogForLegacyMatch;
+    OfflineCopyOrigins? origins,
+  })  : _catalogForLegacyMatch = catalogForLegacyMatch,
+        _origins = origins;
 
   final DownloadStore _store;
   final OfflineFileStore _files;
+
+  /// The server each provider whose ids only mean something on one server is
+  /// connected to now. A copy from another server is never served: the same
+  /// id names a different song there. Null keeps every copy servable (tests
+  /// and dev).
+  final OfflineCopyOrigins? _origins;
 
   /// Resolves the current catalog so a legacy (untagged, pre-v0.1.6) cache record
   /// is matched by bare id only when that id maps to a single provider — never
@@ -39,6 +48,9 @@ class StoreCachedTrackLocator implements CachedTrackLocator {
     String? untagged;
     for (final CachedTrack cached in await _store.loadDownloads()) {
       if (cached.trackId != track.id) continue;
+      // Kept for a server other than the one connected now (or while signed
+      // out): another server's song with this id.
+      if (!offlineCopyBelongs(cached, _origins)) continue;
       if (cached.sourceType == null) {
         untagged ??= cached.fileName;
       } else if (cached.sourceType == scheme) {

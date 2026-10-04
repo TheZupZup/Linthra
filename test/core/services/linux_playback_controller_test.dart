@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,16 @@ class _Engine extends Fake implements AudioPlayer {
   int disposals = 0;
   bool failOpen = false;
 
+  /// The streams whose connection drops while libmpv is still opening them
+  /// (the reconnect is refused). The vendored just_audio_media_kit reports
+  /// that only as an idle engine with an error code, and just_audio lets the
+  /// engine go on that idle without ever answering the load, so setUrl
+  /// never returns (seen natively with libmpv 2.2).
+  final Set<String> dropWhileOpening = <String>{};
+
+  /// How long an open takes to answer when it answers.
+  Duration openDelay = Duration.zero;
+
   @override
   Stream<PlayerState> get playerStateStream => states.stream;
   @override
@@ -40,6 +51,12 @@ class _Engine extends Fake implements AudioPlayer {
       dynamic tag}) async {
     opened.add(url);
     if (failOpen) throw Exception('native open failed with a secret URL');
+    if (dropWhileOpening.contains(url)) {
+      states.add(PlayerState(false, ProcessingState.loading));
+      states.add(PlayerState(false, ProcessingState.idle));
+      return Completer<Duration?>().future;
+    }
+    if (openDelay > Duration.zero) await Future<void>.delayed(openDelay);
     return const Duration(minutes: 4);
   }
 
@@ -55,8 +72,24 @@ class _Engine extends Fake implements AudioPlayer {
     states.add(PlayerState(false, ProcessingState.ready));
   }
 
+  /// What just_audio does on stop: the player stops playing, and the platform
+  /// it switches to reports idle.
   @override
-  Future<void> stop() async => stops++;
+  Future<void> stop() async {
+    stops++;
+    states.add(PlayerState(false, ProcessingState.ready));
+    states.add(PlayerState(false, ProcessingState.idle));
+  }
+
+  /// libmpv loses the source mid-playback (a server that went away, a
+  /// truncated stream, a file it cannot decode further). The vendored
+  /// just_audio_media_kit reports that as an idle engine with an error code,
+  /// which just_audio does not forward: nothing arrives on
+  /// [playbackEventStream], only the idle state.
+  void loseSourceAsLinuxDoes() {
+    states.add(PlayerState(true, ProcessingState.idle));
+  }
+
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     if (position != null) seeks.add(position);
@@ -258,6 +291,293 @@ void main() {
     expect(controller.state.status, PlaybackStatus.error);
     expect(controller.state.isPlaying, isFalse);
     expect(controller.state.errorMessage, isNot(contains('music.example')));
+  });
+
+  test('a stream lost mid-song is recovered, not left playing in silence',
+      () async {
+    final engine = _Engine();
+    final controller = build(engine)..streamRetryBackoff = Duration.zero;
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    await controller.playTrack(_track('remote', 'jellyfin:remote'));
+    expect(controller.state.status, PlaybackStatus.playing);
+
+    engine.loseSourceAsLinuxDoes();
+    await pumpEventQueue();
+
+    // The same bounded recovery an engine error gets: the stream is opened
+    // again, where it was.
+    expect(engine.opened, <String>[
+      'https://music.example/stream/remote',
+      'https://music.example/stream/remote',
+    ]);
+    expect(controller.state.status, PlaybackStatus.playing);
+  });
+
+  test('a local file lost mid-song says so instead of playing in silence',
+      () async {
+    final engine = _Engine();
+    final controller = build(engine);
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    // Not on this disk any more: its drive was pulled out mid-song.
+    await controller.playTrack(_track('gone', '/linthra-test/gone.flac'));
+    expect(controller.state.status, PlaybackStatus.playing);
+
+    engine.loseSourceAsLinuxDoes();
+    await pumpEventQueue();
+
+    expect(controller.state.status, PlaybackStatus.error);
+    expect(controller.state.isPlaying, isFalse);
+  });
+
+  group('a song whose last bytes do not decode', () {
+    // What follows the last audio frame of many files is not audio: a
+    // Lyrics3 tag, zero padding, the cut-off frame of a copy that stopped
+    // short. libmpv logs `Error decoding audio.` when it reaches it, about
+    // half a second before the end it reported, and the vendored
+    // just_audio_media_kit turns that into an idle engine (observed with
+    // libmpv 2.2: a 4.05 s MP3 with a Lyrics3 tag went idle at 3.42 s).
+    late Directory dir;
+    late String a;
+    late String b;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('linthra-tail');
+      a = '${dir.path}/a.mp3';
+      b = '${dir.path}/b.mp3';
+      File(a).writeAsBytesSync(<int>[1, 2, 3]);
+      File(b).writeAsBytesSync(<int>[1, 2, 3]);
+    });
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('moves on to the next one at its end', () async {
+      final engine = _Engine();
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTracks(<Track>[_track('a', a), _track('b', b)]);
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 3419));
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      expect(controller.state.failure, isNull,
+          reason: 'the whole song played: there is nothing to report');
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('on repeat-one plays again from the top', () async {
+      final engine = _Engine();
+      final controller = build(engine)..setRepeatMode(RepeatMode.one);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTrack(_track('a', a));
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 3419));
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      // The engine let go of the source, so there is nothing to rewind:
+      // the song is opened again.
+      expect(engine.opened, hasLength(2));
+      expect(controller.state.failure, isNull);
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('still says so when it stops well before its end', () async {
+      final engine = _Engine();
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTracks(<Track>[_track('a', a), _track('b', b)]);
+      engine.durations.add(const Duration(milliseconds: 4048));
+      controller.setPositionForTesting(const Duration(milliseconds: 1500));
+
+      engine.loseSourceAsLinuxDoes();
+      await pumpEventQueue();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.id, 'a');
+    });
+  });
+
+  test('stopping is not taken for a lost source', () async {
+    final engine = _Engine();
+    final controller = build(engine)..streamRetryBackoff = Duration.zero;
+    addTearDown(() async {
+      await controller.dispose();
+      await engine.close();
+    });
+    await controller.playTrack(_track('remote', 'jellyfin:remote'));
+
+    await controller.stop();
+    await pumpEventQueue();
+
+    expect(engine.opened, hasLength(1));
+    expect(controller.state.status, PlaybackStatus.idle);
+  });
+
+  group('a stream that drops while it opens', () {
+    testWidgets('ends on a failure to retry instead of loading for good',
+        (WidgetTester tester) async {
+      final engine = _Engine()
+        ..dropWhileOpening.add('https://music.example/stream/remote');
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTrack(_track('remote', 'jellyfin:remote')));
+      await tester.pump();
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      await tester.pump(const Duration(seconds: 31));
+
+      // Play does nothing while a load is in flight, so a spinner that never
+      // ends leaves the listener nothing to do but skip.
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure?.canRetry, isTrue);
+
+      engine.dropWhileOpening.clear();
+      await controller.retryCurrentTrack();
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    testWidgets('an open that answers in time is not cut short',
+        (WidgetTester tester) async {
+      final engine = _Engine()..openDelay = const Duration(seconds: 25);
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTrack(_track('remote', 'jellyfin:remote')));
+      await tester.pump(const Duration(seconds: 25));
+      await tester.pump(const Duration(seconds: 10));
+
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.opened, hasLength(1));
+    });
+
+    testWidgets('leaves the song picked after it alone',
+        (WidgetTester tester) async {
+      final engine = _Engine()
+        ..dropWhileOpening.add('https://music.example/stream/a');
+      final controller = build(engine);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      unawaited(controller.playTracks(<Track>[
+        _track('a', 'jellyfin:a'),
+        _track('b', 'jellyfin:b'),
+      ]));
+      await tester.pump();
+      await controller.skipToNext();
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      await tester.pump(const Duration(seconds: 31));
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.pauses, 0);
+    });
+  });
+
+  // libmpv 2.2, seen natively: a seek to the very end while paused reports
+  // nothing, and Play then reports playing (ready) with libmpv sitting at the
+  // end, never reaching an end it would report.
+  group('a paused seek to the end', () {
+    Future<LinuxPlaybackController> pausedAtTheEndOfA(
+      _Engine engine,
+      Duration target,
+      List<Track> completed,
+    ) async {
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: _Resolver(),
+        onTrackCompleted: completed.add,
+      );
+      await controller.playTracks(<Track>[
+        _track('a', '/a.mp3'),
+        _track('b', '/b.mp3'),
+      ]);
+      engine.durations.add(const Duration(minutes: 4));
+      await controller.pause();
+      await controller.seek(target);
+      return controller;
+    }
+
+    test('then Play moves on to the next track', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 4), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed.map((Track t) => t.id), <String>['a']);
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(engine.opened, hasLength(2));
+    });
+
+    test('past the end does the same', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 5), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(controller.state.currentTrack?.id, 'b');
+    });
+
+    test('a seek back before Play plays on from there', () async {
+      final engine = _Engine();
+      final List<Track> completed = <Track>[];
+      final controller = await pausedAtTheEndOfA(
+          engine, const Duration(minutes: 4), completed);
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.seek(const Duration(minutes: 3));
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed, isEmpty);
+      expect(controller.state.currentTrack?.id, 'a');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
   });
 
   test('dispose releases the engine and a fresh controller can play', () async {

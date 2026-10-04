@@ -157,13 +157,15 @@ class LocalRootAvailabilityController
   /// The scan is incremental, so the folders that never left cost a walk and a
   /// stat rather than a re-parse, and it is the *only* way the local catalog is
   /// written, so a reconnect cannot drift from a manual rescan.
+  ///
+  /// A folder can come back while the user is pointing another one elsewhere,
+  /// so this waits for that change and walks the selection it stores (see
+  /// [LibraryController.refreshConfiguredFolders]).
   Future<void> _refreshAfterReconnect(List<String> returned) async {
     if (_disposed || returned.isEmpty) return;
-    final List<String> roots =
-        ref.read(selectedFolderControllerProvider).valueOrNull ??
-            const <String>[];
-    if (roots.isEmpty) return;
-    await ref.read(libraryControllerProvider.notifier).scanFolders(roots);
+    await ref
+        .read(libraryControllerProvider.notifier)
+        .refreshConfiguredFolders();
   }
 }
 

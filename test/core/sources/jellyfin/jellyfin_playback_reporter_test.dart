@@ -168,6 +168,56 @@ void main() {
       expect(client.lastReportSession?.baseUrl, 'https://other.example.com');
     });
 
+    test('reports nothing about a play to an account that signed in during it',
+        () async {
+      // Signing out never stops playback, so a song can play on while the
+      // listener signs in as someone else. The play belongs to the account it
+      // started under: the new account must not be told it played.
+      final reporter = build();
+      final Track track = _jellyfinTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = _session.copyWith(userId: 'user-2', accessToken: 'other-token');
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.playbackReports, hasLength(1));
+
+      // What the new account plays next is its own.
+      await reporter.onPlaybackStarted(
+          _jellyfinTrack('2'), _position, _duration);
+      expect(client.playbackReports, hasLength(2));
+      expect(client.lastReportSession?.userId, 'user-2');
+    });
+
+    test(
+        'reports nothing about a play that started while signed out to the '
+        'account that signs in during it', () async {
+      // Signing out never stops playback, and the queue can move on to a song
+      // that is already on the device before anyone signs in again. That play
+      // started under no account, so whoever signs in while it plays must not
+      // be told it played either.
+      final reporter = build();
+      final Track before = _jellyfinTrack('1');
+      final Track track = _jellyfinTrack('2');
+
+      await reporter.onPlaybackStarted(before, _position, _duration);
+      session = null;
+      await reporter.onTrackChanged(before, track);
+      await reporter.onPlaybackStarted(track, Duration.zero, _duration);
+      session = _session.copyWith(userId: 'user-2', accessToken: 'other-token');
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _duration, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.playbackReports, hasLength(1));
+
+      // What the new account plays next is its own.
+      await reporter.onPlaybackStarted(
+          _jellyfinTrack('3'), _position, _duration);
+      expect(client.playbackReports, hasLength(2));
+      expect(client.lastReportSession?.userId, 'user-2');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Jellyfin failure is swallowed', () async {
         client.playbackReportError = JellyfinException.notReachable();

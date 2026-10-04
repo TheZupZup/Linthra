@@ -21,10 +21,13 @@ import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/selected_music_folder_repository.dart';
+import 'package:linthra/core/repositories/source_catalog_reader.dart';
 import 'package:linthra/core/services/folder_picker_service.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
+import 'package:linthra/core/sources/local/local_music_roots.dart';
 import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
@@ -44,10 +47,12 @@ import 'package:linthra/features/settings/source/local_music_controller.dart';
 const String _usb = '/media/usb/Music';
 const String _internal = '/home/me/Music';
 const String _elsewhere = '/home/me/Archive';
+const String _camera = '/media/camera-card/Music';
 
 const String _usbTrack = '$_usb/Bon Iver/Holocene.flac';
 const String _internalTrack = '$_internal/Idles/Danny Nedelko.mp3';
 const String _elsewhereTrack = '$_elsewhere/Portico/Memory Of Newness.mp3';
+const String _cameraTrack = '$_camera/Field Recordings/Rain.flac';
 
 /// One fake filesystem whose folders can fail the three ways a real one does.
 ///
@@ -66,6 +71,18 @@ class _FakeFilesystem implements AudioFileScanner, DirectoryReadability {
   /// Every folder a scan was asked to walk, so a test can prove that a broken
   /// folder cost the *other* folders nothing.
   final List<String> walked = <String>[];
+
+  final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
+  final Map<String, Completer<void>> _reached = <String, Completer<void>>{};
+
+  /// Walks of [root] wait for [release] from now on, the way a large folder
+  /// takes its time. Completes once one of them has started.
+  Future<void> hold(String root) {
+    _holds[root] = Completer<void>();
+    return (_reached[root] = Completer<void>()).future;
+  }
+
+  void release(String root) => _holds.remove(root)?.complete();
 
   void connect(String root, {List<String> contents = const <String>[]}) {
     files[root] = List<String>.of(contents);
@@ -96,6 +113,9 @@ class _FakeFilesystem implements AudioFileScanner, DirectoryReadability {
     void Function(String directory)? onUnreadableDirectory,
   }) async {
     walked.add(folder);
+    _reached.remove(folder)?.complete();
+    final Completer<void>? held = _holds[folder];
+    if (held != null) await held.future;
     final LocalRootFault? fault = _faults[folder];
     if (fault != null) {
       // The production wording and code for this fault, so the test exercises
@@ -155,6 +175,70 @@ class _BlockingSelectionRepository implements SelectedMusicFolderRepository {
   Future<void> clearSelectedFolders() => _inner.clearSelectedFolders();
 }
 
+/// The catalog, with the next full read of it held open, so a scan can be
+/// caught between writing its result and showing it.
+class _HeldReloads implements MusicLibraryRepository, SourceCatalogReader {
+  _HeldReloads(this._inner);
+
+  final InMemoryMusicLibraryRepository _inner;
+  Completer<void>? _gate;
+  Completer<void>? _reached;
+
+  /// Holds the next [getAllTracks]; completes once it has been asked.
+  Future<void> holdNextReload() {
+    _gate = Completer<void>();
+    return (_reached = Completer<void>()).future;
+  }
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    gate?.complete();
+  }
+
+  @override
+  Future<List<Track>> getAllTracks() async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      _reached?.complete();
+      _reached = null;
+      await gate.future;
+    }
+    return _inner.getAllTracks();
+  }
+
+  @override
+  Future<List<Track>> getTracksForSource(String sourceId) =>
+      _inner.getTracksForSource(sourceId);
+
+  @override
+  Future<List<Album>> getAllAlbums() => _inner.getAllAlbums();
+
+  @override
+  Future<List<Artist>> getAllArtists() => _inner.getAllArtists();
+
+  @override
+  Future<Track?> getTrackByUri(String uri) => _inner.getTrackByUri(uri);
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) =>
+      _inner.upsertCatalog(
+        sourceId: sourceId,
+        tracks: tracks,
+        albums: albums,
+        artists: artists,
+      );
+
+  @override
+  Future<void> removeTracks(List<String> trackUris) =>
+      _inner.removeTracks(trackUris);
+}
+
 /// Pumps the event queue until [check] holds, so a test waits for the state it
 /// needs rather than for a fixed number of turns.
 Future<void> _until(
@@ -193,6 +277,7 @@ void main() {
     fs.connect(_usb, contents: <String>[_usbTrack]);
     fs.connect(_internal, contents: <String>[_internalTrack]);
     fs.connect(_elsewhere, contents: <String>[_elsewhereTrack]);
+    fs.connect(_camera, contents: <String>[_cameraTrack]);
   });
 
   /// A container wired like the running desktop app. Polling is off: every test
@@ -580,6 +665,160 @@ void main() {
       ]);
     });
 
+    // A refresh of the configured folders can start at any moment: the folder
+    // watcher runs one when a watched folder changes, and the reconnect
+    // refresh one when a drive comes back. These stage the second with a
+    // camera card plugged back in while a USB drive is being pointed
+    // elsewhere, because it needs no clock: its poll tick and the window
+    // coming back on screen both end in the same refresh() called here.
+    group('while a refresh of the configured folders starts', () {
+      const Map<String, String> trackOf = <String, String>{
+        _internal: _internalTrack,
+        _usb: _usbTrack,
+        _elsewhere: _elsewhereTrack,
+        _camera: _cameraTrack,
+      };
+
+      /// The three-folder library, both removable drives unplugged.
+      Future<ProviderContainer> twoDrivesAway(ProviderContainer c) async {
+        await start(c);
+        fs.breakRoot(_usb, LocalRootFault.missing);
+        fs.breakRoot(_camera, LocalRootFault.missing);
+        await rescan(c);
+        expect(await catalogUris(), <String>{
+          _internalTrack,
+          _usbTrack,
+          _cameraTrack,
+        });
+        picker.folder = _elsewhere;
+        return c;
+      }
+
+      Future<void> cameraCardBack(ProviderContainer c) {
+        fs.restore(_camera);
+        return c.read(localRootAvailabilityProvider.notifier).refresh();
+      }
+
+      Future<void> expectReselected(
+        ProviderContainer c,
+        SelectedMusicFolderRepository stored,
+      ) async {
+        final List<String> selected =
+            c.read(selectedFolderControllerProvider).value!;
+        final Set<String> uris = await catalogUris();
+        expect(
+          uris,
+          containsAll(<String>[
+            for (final String folder in selected) trackOf[folder]!,
+          ]),
+          reason: 'selection is now $selected: every folder still selected '
+              'keeps its music, and the one just picked has its own',
+        );
+        expect(
+          selected,
+          <String>[_internal, _elsewhere, _camera],
+          reason: 'the replacement the user picked could be read',
+        );
+        expect(await stored.getSelectedFolders(), selected);
+        expect(uris, isNot(contains(_usbTrack)));
+      }
+
+      test('one during the walk of the replacement does not undo it', () async {
+        final ProviderContainer c = await twoDrivesAway(
+          container(roots: <String>[_internal, _usb, _camera]),
+        );
+
+        final Future<void> walking = fs.hold(_elsewhere);
+        final Future<void> reselect =
+            c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+        await walking;
+        final Future<void> reconnect = cameraCardBack(c);
+        await pumpEventQueue();
+        fs.release(_elsewhere);
+        await reselect;
+        await reconnect;
+        await pumpEventQueue();
+
+        await expectReselected(c, selection);
+        expect(
+          c.read(localMusicControllerProvider).message,
+          contains('Added'),
+          reason: 'the card says what the change did, rather than going '
+              'quiet as if nothing had been asked',
+        );
+      });
+
+      test(
+          'one after the replacement was written keeps the music of every '
+          'folder still selected', () async {
+        selection = InMemorySelectedMusicFolderRepository(
+          initialFolders: <String>[_internal, _usb, _camera],
+        );
+        final _HeldReloads reloads = _HeldReloads(catalog);
+        final ProviderContainer c = ProviderContainer(
+          overrides: <Override>[
+            folderPickerServiceProvider.overrideWithValue(picker),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(selection),
+            musicLibraryRepositoryProvider.overrideWithValue(reloads),
+            audioFileScannerProvider.overrideWithValue(fs),
+            directoryReadabilityProvider.overrideWithValue(fs),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+          ],
+        );
+        addTearDown(c.dispose);
+        await twoDrivesAway(c);
+
+        // The replacement's scan has written the catalog it found and is
+        // reading it back to show it.
+        final Future<void> showing = reloads.holdNextReload();
+        final Future<void> reselect =
+            c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+        await showing;
+        final Future<void> reconnect = cameraCardBack(c);
+        await pumpEventQueue();
+        reloads.release();
+        await reselect;
+        await reconnect;
+        await pumpEventQueue();
+
+        await expectReselected(c, selection);
+      });
+
+      test('one while the new selection is being saved reads the new one',
+          () async {
+        final _BlockingSelectionRepository slow = _BlockingSelectionRepository(
+          InMemorySelectedMusicFolderRepository(
+            initialFolders: <String>[_internal, _usb, _camera],
+          ),
+        );
+        final ProviderContainer c = ProviderContainer(
+          overrides: <Override>[
+            folderPickerServiceProvider.overrideWithValue(picker),
+            selectedMusicFolderRepositoryProvider.overrideWithValue(slow),
+            musicLibraryRepositoryProvider.overrideWithValue(catalog),
+            audioFileScannerProvider.overrideWithValue(fs),
+            directoryReadabilityProvider.overrideWithValue(fs),
+            hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+          ],
+        );
+        addTearDown(c.dispose);
+        await twoDrivesAway(c);
+
+        slow.block();
+        final Future<void> reselect =
+            c.read(localMusicControllerProvider.notifier).reselectFolder(_usb);
+        await _until(() => slow.pendingWrites == 1);
+        final Future<void> reconnect = cameraCardBack(c);
+        await pumpEventQueue();
+        slow.release();
+        await reselect;
+        await reconnect;
+        await pumpEventQueue();
+
+        await expectReselected(c, slow);
+      });
+    });
+
     test(
         'a scan of a source that is not configured is not the library\'s '
         'failure', () async {
@@ -653,6 +892,87 @@ void main() {
         _usb,
       ]);
       expect(await catalogUris(), before);
+    });
+  });
+
+  // The card's Change button: pick one folder to stand in for the whole
+  // selection. It is the same kind of change as Reselect, so the same rule
+  // holds: the new folder is stored only once it could be read.
+  group('Change', () {
+    test('a folder that cannot be read is not adopted', () async {
+      final ProviderContainer c = container();
+      await start(c);
+      final Set<String> indexed = await catalogUris();
+
+      fs.breakRoot(_elsewhere, LocalRootFault.permissionDenied);
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).pickFolder();
+      await pumpEventQueue();
+
+      final List<String> selected = await selection.getSelectedFolders();
+      expect(
+        <String>[
+          for (final String uri in await catalogUris())
+            if (LocalMusicRoots.ownerOf(uri, selected) == null) uri,
+        ],
+        isEmpty,
+        reason: 'selection is now $selected: every indexed track must belong '
+            'to a selected folder, or its music can neither be refreshed nor '
+            'removed',
+      );
+      expect(selected, <String>[_internal, _usb]);
+      expect(c.read(selectedFolderControllerProvider).value, selected);
+      expect(await catalogUris(), indexed);
+      expect(c.read(localMusicControllerProvider).isError, isTrue);
+      expect(
+        c.read(localMusicControllerProvider).message,
+        contains('left as it was'),
+      );
+    });
+
+    test('a folder that can be read takes the place of every folder', () async {
+      final ProviderContainer c = container();
+      await start(c);
+
+      picker.folder = _elsewhere;
+      await c.read(localMusicControllerProvider.notifier).pickFolder();
+      await pumpEventQueue();
+
+      expect(await selection.getSelectedFolders(), <String>[_elsewhere]);
+      expect(c.read(selectedFolderControllerProvider).value, <String>[
+        _elsewhere,
+      ]);
+      expect(await catalogUris(), <String>{_elsewhereTrack});
+      expect(
+        c.read(localMusicControllerProvider).message,
+        contains('Added 1 track'),
+      );
+    });
+
+    test('a refresh during the walk of the new folder does not undo it',
+        () async {
+      final ProviderContainer c =
+          container(roots: <String>[_internal, _usb, _camera]);
+      await start(c);
+      fs.breakRoot(_camera, LocalRootFault.missing);
+      await rescan(c);
+
+      picker.folder = _elsewhere;
+      final Future<void> walking = fs.hold(_elsewhere);
+      final Future<void> change =
+          c.read(localMusicControllerProvider.notifier).pickFolder();
+      await walking;
+      fs.restore(_camera);
+      final Future<void> reconnect =
+          c.read(localRootAvailabilityProvider.notifier).refresh();
+      await pumpEventQueue();
+      fs.release(_elsewhere);
+      await change;
+      await reconnect;
+      await pumpEventQueue();
+
+      expect(await selection.getSelectedFolders(), <String>[_elsewhere]);
+      expect(await catalogUris(), <String>{_elsewhereTrack});
     });
   });
 

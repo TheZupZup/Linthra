@@ -332,6 +332,36 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
   PlaybackResolutionException? engineUnavailableFrom(Object error) =>
       _backend?.classifyEngineFailure(error)?.asResolutionException();
 
+  /// libmpv losing a source mid-playback (a server that went away, a stream
+  /// cut short, a file it can no longer decode) reaches just_audio only as an
+  /// idle state: the vendored just_audio_media_kit sets idle with an error
+  /// code, and just_audio forwards neither the code nor an error event. Taking
+  /// that idle as the failure it is gives Linux the reconnect, the sibling copy
+  /// and the error with Retry an engine error gets, instead of "playing" in
+  /// silence for good.
+  @override
+  @protected
+  bool get engineReportsFailureAsIdle => true;
+
+  /// libmpv reports nothing when a seek moves it to the very end of a source
+  /// while paused, and asked to play there it stays at the end, playing
+  /// nothing, without ever reporting the end (seen natively with libmpv 2.2).
+  @override
+  @protected
+  bool get engineReportsEndReachedWhilePaused => false;
+
+  /// An open that just_audio sends to the native player it has just let go
+  /// (an open made while the engine's first open was still bringing that
+  /// player up, which then failed) reaches a media_kit player that is
+  /// disposed, and media_kit refuses it with an [AssertionError] saying so.
+  /// That is the open cut short, not the source failing.
+  @override
+  @protected
+  bool engineCutOpenShort(Object error) =>
+      super.engineCutOpenShort(error) ||
+      (error is AssertionError &&
+          '${error.message}'.contains('has been disposed'));
+
   @override
   @protected
   PlaybackResolutionException loadFailureFor(

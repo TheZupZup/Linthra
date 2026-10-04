@@ -29,13 +29,18 @@ import '../repositories/playlist_repository.dart';
 ///    `artist/<artistId>/<index>` track leaves.
 ///  - `playlist/<playlistId>` — a playlist *container* (browsable); its children
 ///    are `playlist/<playlistId>/<index>` track leaves.
-///  - `queue/<index>` — a position in the live play queue.
+///  - `queue/<index>/<uriHash>`: a position in the live play queue, with the
+///    opaque hash of the track listed there (see [MediaId.queueItem]).
 ///  - `favorite/<index>` — a position in the (catalog-ordered) favourites list.
 ///  - `offline/<index>` — a position in the (catalog-ordered) downloaded list.
 ///  - `page/<sectionId>/<start>-<end>` — a *browse page* container: the
 ///    half-open window `[start, end)` of some other section's children. Always
 ///    browsable, never playable (see [MediaBrowserTree] for why big sections are
 ///    served as pages).
+///
+/// The album, artist, playlist, favourite and offline leaves are published to
+/// the media browser as `<leaf id>@<uriHash>`, with the track they list (see
+/// [MediaId.listing]).
 ///
 /// The namespaces never collide: a bare category word (`albums`) never starts
 /// with the matching container prefix (`album/`), a container `album/<id>` has
@@ -47,9 +52,10 @@ import '../repositories/playlist_repository.dart';
 /// Security invariant: every id is built only from non-secret, opaque ids — a
 /// derived album/artist grouping id, a local playlist id, a small integer index,
 /// a browse-page window (two integers), or an opaque hash of the track uri (the
-/// Songs leaf). No id ever carries a `jellyfin:`/`subsonic:` uri, a local file
-/// path, a Jellyfin/Subsonic access token, or an authenticated stream URL; the
-/// stream URL is minted lazily at play time by the resolver, never here.
+/// Songs and Queue leaves, and the `@<uriHash>` of a published leaf). No id
+/// ever carries a `jellyfin:`/`subsonic:` uri, a local file path, a
+/// Jellyfin/Subsonic access token, or an authenticated stream URL; the stream
+/// URL is minted lazily at play time by the resolver, never here.
 abstract final class MediaId {
   /// The root the platform requests first (audio_service's `browsableRootId`).
   static const String root = 'root';
@@ -94,7 +100,20 @@ abstract final class MediaId {
   static String libraryTrackHash(String trackUri) =>
       sha256.convert(utf8.encode(trackUri)).toString();
 
-  static String queueItem(int index) => '$_queuePrefix$index';
+  /// A row of the Queue list: [index] counts from the current track (0), and
+  /// [trackUri] is the track listed there, carried as its opaque
+  /// [libraryTrackHash].
+  ///
+  /// The position alone goes stale: the car keeps showing the list it was
+  /// given (nothing tells it the children changed), while the queue moves on
+  /// under it whenever a track ends, Next is pressed, or the phone starts
+  /// another queue. With only the position, a row picked after that played
+  /// whatever had moved into its place. The hash lets [MediaBrowserTree.resolve]
+  /// find the song the row showed, or nothing. A bare `queue/<index>` is still
+  /// read, by position.
+  static String queueItem(int index, [String? trackUri]) => trackUri == null
+      ? '$_queuePrefix$index'
+      : '$_queuePrefix$index/${libraryTrackHash(trackUri)}';
 
   /// An album *container* node id (its children are the album's tracks).
   static String album(String albumId) => '$_albumPrefix$albumId';
@@ -198,8 +217,19 @@ abstract final class MediaId {
   static int playlistTrackIndex(String id) => _leafIndex(id, _playlistPrefix);
 
   /// The queue position encoded in [id], or -1 when it isn't a valid number.
-  static int queueIndex(String id) =>
-      int.tryParse(id.substring(_queuePrefix.length)) ?? -1;
+  static int queueIndex(String id) {
+    final String rest = id.substring(_queuePrefix.length);
+    final int slash = rest.indexOf('/');
+    return int.tryParse(slash < 0 ? rest : rest.substring(0, slash)) ?? -1;
+  }
+
+  /// The hash of the track a Queue row was listed for, or null for a bare
+  /// `queue/<index>`.
+  static String? queueTrackHash(String id) {
+    final String rest = id.substring(_queuePrefix.length);
+    final int slash = rest.indexOf('/');
+    return slash < 0 ? null : rest.substring(slash + 1);
+  }
 
   /// The favourites position encoded in [id], or -1 when it isn't a number.
   static int favoriteIndex(String id) =>
@@ -208,6 +238,46 @@ abstract final class MediaId {
   /// The downloads position encoded in [id], or -1 when it isn't a number.
   static int offlineIndex(String id) =>
       int.tryParse(id.substring(_offlinePrefix.length)) ?? -1;
+
+  /// The id a playable row is published under: [id], and for a row that names
+  /// its track by position (an album, artist, playlist, favourite or offline
+  /// leaf) the opaque [libraryTrackHash] of [trackUri] after an `@`.
+  ///
+  /// The position alone goes stale: the car keeps showing the list it was
+  /// given, and a download finishing, a favourites or library sync landing, or
+  /// a playlist edit moves songs to other positions in it. With the hash,
+  /// [MediaBrowserTree.resolve] plays the song the row showed, or nothing.
+  /// Songs and Queue rows already carry their track and are returned as they
+  /// are.
+  static String listing(String id, String trackUri) => _namesTrackByPosition(id)
+      ? '$id$_listedTrackSeparator${libraryTrackHash(trackUri)}'
+      : id;
+
+  /// A published row [id] split back into the id it was made from and the
+  /// hash of the track it listed, or [id] itself with no hash when it carries
+  /// none (see [listing]).
+  static ({String id, String? trackHash}) listedTrackOf(String id) {
+    final int separator = id.lastIndexOf(_listedTrackSeparator);
+    if (separator < 0) return (id: id, trackHash: null);
+    final String plain = id.substring(0, separator);
+    final String hash = id.substring(separator + 1);
+    if (!_namesTrackByPosition(plain) || !_trackHashShape.hasMatch(hash)) {
+      return (id: id, trackHash: null);
+    }
+    return (id: plain, trackHash: hash);
+  }
+
+  static bool _namesTrackByPosition(String id) =>
+      isAlbumTrack(id) ||
+      isArtistTrack(id) ||
+      isPlaylistTrack(id) ||
+      isFavoriteItem(id) ||
+      isOfflineItem(id);
+
+  static const String _listedTrackSeparator = '@';
+
+  /// What [libraryTrackHash] produces: SHA-256 as lower-case hex.
+  static final RegExp _trackHashShape = RegExp(r'^[0-9a-f]{64}$');
 
   static bool _isContainer(String id, String prefix) =>
       id.startsWith(prefix) && !id.substring(prefix.length).contains('/');
@@ -461,7 +531,7 @@ class MediaBrowserTree {
       case MediaId.artists:
         return _Section.of(await _artistCategoryNodes());
       case MediaId.queue:
-        return _Section.of(_queueNodes(playback));
+        return _queueSection(playback);
       case MediaId.playlists:
         return _Section.of(await _playlistCategoryNodes());
       case MediaId.favorites:
@@ -545,12 +615,20 @@ class MediaBrowserTree {
     return '${title.substring(0, maxLength - 1).trimRight()}…';
   }
 
-  /// Resolves a selected leaf [mediaId] to what should play, or null when it
-  /// doesn't name a playable track (e.g. a stale id, or a category/container).
+  /// Resolves a selected leaf [publishedId] to what should play, or null when
+  /// it doesn't name a playable track (e.g. a stale id, or a
+  /// category/container).
+  ///
+  /// A row published with the track it listed ([MediaId.listing]) plays that
+  /// track wherever its list now has it, or nothing once it has left the list.
   Future<MediaPlaybackRequest?> resolve(
-    String mediaId,
+    String publishedId,
     PlaybackState playback,
   ) async {
+    final ({String id, String? trackHash}) row =
+        MediaId.listedTrackOf(publishedId);
+    final String mediaId = row.id;
+    final String? listed = row.trackHash;
     // A `page/` container is a browse-only node. It is checked first (and
     // explicitly) so a page row can never be played, even if a future leaf
     // namespace were to overlap it.
@@ -568,37 +646,95 @@ class MediaBrowserTree {
     if (MediaId.isAlbumTrack(mediaId)) {
       final List<Track> tracks = tracksForAlbum(
           await _allTracks(), MediaId.albumTrackAlbumId(mediaId));
-      return _requestAt(tracks, MediaId.albumTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.albumTrackIndex(mediaId), listed);
     }
     if (MediaId.isArtistTrack(mediaId)) {
       final List<Track> tracks = tracksForArtist(
           await _allTracks(), MediaId.artistTrackArtistId(mediaId));
-      return _requestAt(tracks, MediaId.artistTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.artistTrackIndex(mediaId), listed);
     }
     if (MediaId.isQueueItem(mediaId)) {
       final List<Track> tracks = _currentQueue(playback);
-      return _requestAt(tracks, MediaId.queueIndex(mediaId));
+      return _requestAt(tracks, _queuePosition(mediaId, tracks));
     }
     if (MediaId.isPlaylistTrack(mediaId)) {
       final List<Track> tracks =
           await _playlistTracks(MediaId.playlistTrackPlaylistId(mediaId));
-      return _requestAt(tracks, MediaId.playlistTrackIndex(mediaId));
+      return _requestAt(tracks, MediaId.playlistTrackIndex(mediaId), listed);
     }
     if (MediaId.isFavoriteItem(mediaId)) {
       return _requestAt(
-          await _favoriteTracks(), MediaId.favoriteIndex(mediaId));
+          await _favoriteTracks(), MediaId.favoriteIndex(mediaId), listed);
     }
     if (MediaId.isOfflineItem(mediaId)) {
-      return _requestAt(await _offlineTracks(), MediaId.offlineIndex(mediaId));
+      return _requestAt(
+          await _offlineTracks(), MediaId.offlineIndex(mediaId), listed);
     }
     return null;
   }
 
   /// A request that starts [tracks] at [index], or null when the index is out of
-  /// range (a stale leaf id whose list has since shrunk).
-  MediaPlaybackRequest? _requestAt(List<Track> tracks, int index) {
-    if (index < 0 || index >= tracks.length) return null;
-    return MediaPlaybackRequest(tracks: tracks, startIndex: index);
+  /// range (a stale leaf id whose list has since shrunk). With [listed], the
+  /// hash of the track the row showed, it starts at that track instead,
+  /// wherever the list has it now, and is null once it has left the list.
+  MediaPlaybackRequest? _requestAt(
+    List<Track> tracks,
+    int index, [
+    String? listed,
+  ]) {
+    final int at =
+        listed == null ? index : _whereListedTrackIs(tracks, index, listed);
+    if (at < 0 || at >= tracks.length) return null;
+    return MediaPlaybackRequest(tracks: tracks, startIndex: at);
+  }
+
+  /// Where the Queue row [mediaId] points in the live queue of [playback]:
+  /// its position counting the current track as 0 and up-next after it, or -1
+  /// when the row no longer names a queued song.
+  ///
+  /// Synchronous, reading only [playback], so a caller can act on the answer
+  /// before the queue can move again.
+  int queuePositionOf(String mediaId, PlaybackState playback) =>
+      MediaId.isQueueItem(mediaId)
+          ? _queuePosition(mediaId, _currentQueue(playback))
+          : -1;
+
+  /// [queuePositionOf] within the live queue [tracks] (current, then up-next).
+  static int _queuePosition(String mediaId, List<Track> tracks) {
+    final int index = MediaId.queueIndex(mediaId);
+    final String? listed = MediaId.queueTrackHash(mediaId);
+    final int at =
+        listed == null ? index : _whereListedTrackIs(tracks, index, listed);
+    return at >= 0 && at < tracks.length ? at : -1;
+  }
+
+  /// Where the track a row was listed for ([trackHash], at [listedAt]) is in
+  /// its list [tracks] now, or -1 when it is not there any more (it has played,
+  /// left the list, or another queue replaced that one).
+  ///
+  /// The row's own position is checked first, which is the answer whenever the
+  /// list has not changed. Otherwise the nearest copy of the song wins, the
+  /// earlier one on a tie: a queue that moved on has moved the song towards the
+  /// top, and a song listed twice keeps each row on its own copy.
+  static int _whereListedTrackIs(
+    List<Track> tracks,
+    int listedAt,
+    String trackHash,
+  ) {
+    if (listedAt < 0) return -1;
+    bool listedHere(int i) =>
+        i >= 0 &&
+        i < tracks.length &&
+        MediaId.libraryTrackHash(tracks[i].uri) == trackHash;
+    for (int distance = 0;
+        listedAt - distance >= 0 || listedAt + distance < tracks.length;
+        distance++) {
+      if (listedHere(listedAt - distance)) return listedAt - distance;
+      if (distance > 0 && listedHere(listedAt + distance)) {
+        return listedAt + distance;
+      }
+    }
+    return -1;
   }
 
   /// The top-level categories. Songs / Albums / Artists (the library) and Queue
@@ -688,12 +824,15 @@ class MediaBrowserTree {
     ];
   }
 
-  List<MediaNode> _queueNodes(PlaybackState playback) {
+  /// The Queue section, lazy like Songs: each row carries a hash of its track
+  /// (see [MediaId.queueItem]), so only the rows a page returns are hashed,
+  /// however long the queue.
+  _Section _queueSection(PlaybackState playback) {
     final List<Track> tracks = _currentQueue(playback);
-    return <MediaNode>[
-      for (int i = 0; i < tracks.length; i++)
-        _trackNode(MediaId.queueItem(i), tracks[i]),
-    ];
+    return _Section(
+      tracks.length,
+      (int i) => _trackNode(MediaId.queueItem(i, tracks[i].uri), tracks[i]),
+    );
   }
 
   Future<List<MediaNode>> _playlistCategoryNodes() async {

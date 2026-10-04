@@ -47,6 +47,10 @@ class SmartMixDetailScreen extends ConsumerWidget {
         title: Text(mix.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: tracksAsync.when(
+        // The mix recomputes whenever a play, a heart, a download or the
+        // library changes. The tracks already shown stay until the new ones
+        // are ready, rather than the list blanking and coming back at the top.
+        skipLoadingOnReload: true,
         loading: () => const LoadingIndicator(label: 'Loading tracks'),
         error: (_, __) => const EmptyState(
           icon: Icons.error_outline,
@@ -71,6 +75,12 @@ class SmartMixDetailScreen extends ConsumerWidget {
         message: _emptyMessage(mix.kind),
       );
     }
+    // The list stays on screen while the mix updates and a play reorders it,
+    // so each row follows its song (keyed by uri) instead of keeping its
+    // index: a menu open on a song must not act on whatever moves under it.
+    final Map<String, int> indexByUri = <String, int>{
+      for (int i = 0; i < tracks.length; i++) tracks[i].uri: i,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -82,8 +92,13 @@ class SmartMixDetailScreen extends ConsumerWidget {
           child: ListView.builder(
             padding: const EdgeInsets.only(bottom: 88),
             itemCount: tracks.length,
-            itemBuilder: (context, index) =>
-                TrackTile(tracks: tracks, index: index),
+            findChildIndexCallback: (Key key) =>
+                key is ValueKey<String> ? indexByUri[key.value] : null,
+            itemBuilder: (context, index) => TrackTile(
+              key: ValueKey<String>(tracks[index].uri),
+              tracks: tracks,
+              index: index,
+            ),
           ),
         ),
       ],

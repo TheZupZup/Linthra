@@ -3,16 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
+import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/library/widgets/track_tile.dart';
 import 'package:linthra/features/player/player_providers.dart';
 
 import '../player/fake_playback_controller.dart';
+import 'fake_music_library_repository.dart';
 import 'fake_remote_track_downloader.dart';
 
 Future<void> _pump(
   WidgetTester tester,
   List<Track> tracks, {
   FakePlaybackController? controller,
+  FakeMusicLibraryRepository? library,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -21,6 +24,8 @@ Future<void> _pump(
             .overrideWithValue(FakeRemoteTrackDownloader()),
         if (controller != null)
           playbackControllerProvider.overrideWithValue(controller),
+        if (library != null)
+          musicLibraryRepositoryProvider.overrideWithValue(library),
       ],
       child: MaterialApp(
         home: Scaffold(
@@ -143,6 +148,41 @@ void main() {
       expect(find.text('Remove from favorites'), findsOneWidget);
       expect(find.text('Add to favorites'), findsNothing);
       expect(find.byIcon(Icons.favorite), findsOneWidget);
+    });
+
+    // The list can rebuild a row while its confirmation is up (a library
+    // reload, the phone turned sideways, a shorter window). The removal the
+    // listener confirmed must still happen.
+    testWidgets('Remove from Linthra confirmed after the row was rebuilt',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      addTearDown(tester.view.reset);
+      final List<Track> tracks = <Track>[
+        for (int i = 0; i < 16; i++)
+          Track(id: '$i', title: 'Song $i', uri: 'jellyfin:$i'),
+      ];
+      final FakeMusicLibraryRepository library =
+          FakeMusicLibraryRepository(tracks: tracks);
+      await _pump(tester, tracks, library: library);
+
+      final Finder row = find.ancestor(
+        of: find.text('Song 11'),
+        matching: find.byType(TrackTile),
+      );
+      await tester.tap(
+        find.descendant(of: row, matching: find.byTooltip('More actions')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from Linthra'));
+      await tester.pumpAndSettle();
+
+      tester.view.physicalSize = const Size(915, 412);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pumpAndSettle();
+
+      expect(library.removedTrackUris, <String>['jellyfin:11']);
     });
   });
 

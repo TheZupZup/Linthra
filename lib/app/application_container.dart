@@ -87,6 +87,7 @@ List<Override> productionApplicationOverrides({
     playbackCandidateSourceOverride,
     currentlyPlayingTrackOverride,
     downloadAccountScopeOverride,
+    offlineCopyOriginsOverride,
     nowPlayingOverride,
     secureJellyfinSessionStoreOverride,
     jellyfinAvailabilityPollOverride,
