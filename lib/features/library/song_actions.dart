@@ -35,6 +35,16 @@ abstract final class SongActions {
   }) async {
     if (tracks.isEmpty) return false;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    // Everything the removal needs is taken before the dialog, not read
+    // through [ref] after it. The list can rebuild the row that asked while
+    // the confirmation is up (a sync or a live-update rescan reloads the
+    // library, a shorter window), and reading through that row's ref then
+    // throws: the removal the listener confirmed would never happen. The
+    // copies to forget are worked out now as well, while the library that
+    // showed the row is loaded: a reload still running has none to offer.
+    final List<String> uris = _removalIds(ref, tracks, expandLogicalSources);
+    final ProviderContainer container =
+        ProviderScope.containerOf(context, listen: false);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Remove from Linthra',
@@ -47,14 +57,12 @@ abstract final class SongActions {
     );
     if (!confirmed) return false;
 
-    await ref
-        .read(musicLibraryRepositoryProvider)
-        .removeTracks(_removalIds(ref, tracks, expandLogicalSources));
+    await container.read(musicLibraryRepositoryProvider).removeTracks(uris);
     // Refresh the library view; if we're inside a playlist, re-resolve its
     // tracks so a now-removed item is reflected.
-    await ref.read(libraryControllerProvider.notifier).refresh();
+    await container.read(libraryControllerProvider.notifier).refresh();
     if (playlistId != null) {
-      ref.invalidate(playlistTracksProvider(playlistId));
+      container.invalidate(playlistTracksProvider(playlistId));
     }
 
     messenger.showSnackBar(
@@ -80,6 +88,11 @@ abstract final class SongActions {
   ) async {
     if (tracks.isEmpty) return false;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    // Taken before the dialog, for the same reason as in [removeFromLibrary].
+    // What is playing is still asked after it, below: the file to keep is the
+    // one playing when the listener confirms.
+    final playback = ref.read(playbackControllerProvider);
+    final repository = ref.read(downloadRepositoryProvider);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Remove offline copy',
@@ -91,9 +104,7 @@ abstract final class SongActions {
     );
     if (!confirmed) return false;
 
-    final String? playingUri =
-        ref.read(playbackControllerProvider).state.currentTrack?.uri;
-    final repository = ref.read(downloadRepositoryProvider);
+    final String? playingUri = playback.state.currentTrack?.uri;
     int removed = 0;
     int failed = 0;
     int skipped = 0;

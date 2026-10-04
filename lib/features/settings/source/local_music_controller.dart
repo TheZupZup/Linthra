@@ -42,9 +42,14 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   LocalMusicActionState build() => const LocalMusicActionState();
 
   /// Picks a folder and makes it the only local source. This is the Android
-  /// path (one SAF grant at a time) and the first-run/empty-library prompt.
+  /// path (one SAF grant at a time), the first-run/empty-library prompt, and
+  /// the card's Change button.
   Future<void> pickFolder() async {
     state = const LocalMusicActionState(busy: true);
+    if (_selectedFolders().isNotEmpty) {
+      await _replaceSelection();
+      return;
+    }
     final String? picked = await ref
         .read(selectedFolderControllerProvider.notifier)
         .pickAndPersist();
@@ -53,6 +58,44 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       return;
     }
     await _scan(<String>[picked]);
+  }
+
+  /// Change: the folder the user picks stands in for every selected folder.
+  ///
+  /// Transactional, the same way [reselectFolder] is: the folder is asked
+  /// first, then scanned, and stored only once that scan could read it. A
+  /// first walk that reads nothing writes nothing, so storing the folder
+  /// before it would leave the music of the folders it replaced in the
+  /// library under no selected folder: not refreshed, and with no folder left
+  /// in Settings to remove it from.
+  Future<void> _replaceSelection() async {
+    final String? picked =
+        await ref.read(folderPickerServiceProvider).pickFolder();
+    if (picked == null || picked.isEmpty) {
+      state = const LocalMusicActionState();
+      return;
+    }
+    final LocalRootFault? unreadable =
+        (await ref.read(localRootProbeProvider).inspect(picked))?.fault;
+    if (unreadable != null) {
+      state = LocalMusicActionState(
+        message: _replacementUnreadable(unreadable),
+        isError: true,
+      );
+      return;
+    }
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report = await _scan(<String>[picked]);
+      if (report == null || report.hadError) return;
+      // Held back until the selection it describes is stored, as Reselect
+      // does.
+      final LocalMusicActionState outcome = state;
+      state = const LocalMusicActionState(busy: true);
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .setAndPersist(picked);
+      state = outcome;
+    });
   }
 
   /// Picks another folder and adds it to the library, keeping the folders
@@ -86,17 +129,33 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   /// folder's tracks go away.
   Future<void> removeFolder(String folder) async {
     state = const LocalMusicActionState(busy: true);
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .removeAndPersist(folder);
-    final List<String> remaining = _selectedFolders();
-    if (remaining.isEmpty) {
-      await ref.read(libraryControllerProvider.notifier).clearLocalCatalog();
+    final String target = LocalMusicRoots.canonicalize(folder);
+    if (_selectedFolders().every(
+      (String selected) => LocalMusicRoots.canonicalize(selected) == target,
+    )) {
+      // Nothing would be left to scan, so this folder's music is cleared
+      // outright, and only then does the folder leave the selection.
+      final bool cleared = await _clearLocalMusic(
+        () => ref
+            .read(selectedFolderControllerProvider.notifier)
+            .removeAndPersist(folder),
+      );
+      if (!cleared) return;
       state = const LocalMusicActionState(
         message: 'Folder removed. Your files were not deleted.',
       );
       return;
     }
+    await ref
+        .read(selectedFolderControllerProvider.notifier)
+        .removeAndPersist(folder);
+    final List<String> remaining = _selectedFolders();
+    // Taken out here rather than left to the rescan below, which writes
+    // nothing when none of the remaining folders can be read: with the other
+    // drives unplugged, this folder's music would otherwise stay listed.
+    await ref
+        .read(libraryControllerProvider.notifier)
+        .removeFolderTracks(folder, remaining: remaining);
     final LocalScanReport? report = await _scan(remaining);
     // Keep the scan's own message when it has something to warn about; the
     // removal succeeded either way.
@@ -216,18 +275,25 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     }
     // Picking the *same* folder again is a real fix, not a no-op: it is how a
     // revoked portal document is re-granted, so this scans either way.
-    final LocalScanReport? report = await _scan(replaced);
-    if (report == null || report.hadError) return;
-    // What the scan had to say, held back until the selection it describes is
-    // actually stored. Nothing renders in between: there is no await between
-    // reading it and going busy again, so no frame can catch the card offering
-    // Retry and Reselect over a selection that is still being written.
-    final LocalMusicActionState outcome = state;
-    state = const LocalMusicActionState(busy: true);
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .replaceAndPersist(folder, picked);
-    state = outcome;
+    //
+    // The scan and the save are one source change, so a refresh the app starts
+    // on its own (a watched folder changing, a drive coming back) runs after
+    // both rather than in between.
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report = await _scan(replaced);
+      if (report == null || report.hadError) return;
+      // What the scan had to say, held back until the selection it describes
+      // is actually stored. Nothing renders in between: there is no await
+      // between reading it and going busy again, so no frame can catch the
+      // card offering Retry and Reselect over a selection that is still being
+      // written.
+      final LocalMusicActionState outcome = state;
+      state = const LocalMusicActionState(busy: true);
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .replaceAndPersist(folder, picked);
+      state = outcome;
+    });
   }
 
   /// Opts into Android's device-wide shared music library.
@@ -257,15 +323,17 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     // Scan before persisting. The scan takes the location explicitly, so
     // nothing has to be saved first, and a failure leaves the stored selection
     // untouched: no restore step, and no window where a crash could strand a
-    // half-applied switch.
-    final LocalScanReport? report =
-        await _scan(<String>[FolderLocation.androidMediaStoreAudio]);
-    if (report == null || report.hadError) {
-      return;
-    }
-    await ref
-        .read(selectedFolderControllerProvider.notifier)
-        .setAndPersist(FolderLocation.androidMediaStoreAudio);
+    // half-applied switch. Both are one source change, as for Reselect.
+    await ref.read(libraryControllerProvider.notifier).changeSource(() async {
+      final LocalScanReport? report =
+          await _scan(<String>[FolderLocation.androidMediaStoreAudio]);
+      if (report == null || report.hadError) {
+        return;
+      }
+      await ref
+          .read(selectedFolderControllerProvider.notifier)
+          .setAndPersist(FolderLocation.androidMediaStoreAudio);
+    });
   }
 
   Future<void> refreshAndroidPermissionStatus() async {
@@ -293,11 +361,47 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     // actual clear after any already-started local catalog write.
     library.invalidatePendingScans();
     state = const LocalMusicActionState(busy: true);
-    await ref.read(selectedFolderControllerProvider.notifier).clear();
-    await library.clearLocalCatalog();
+    final bool cleared = await _clearLocalMusic(
+      ref.read(selectedFolderControllerProvider.notifier).clear,
+    );
+    if (!cleared) return;
     state = const LocalMusicActionState(
       message: 'Local music forgotten. Your files were not deleted.',
     );
+  }
+
+  /// Clears the local catalog and, only once that write went through,
+  /// [unselect]s: the two steps of Forget and of removing the last folder.
+  ///
+  /// The catalog goes first so that a write that fails (the disk is full, the
+  /// database went read-only) leaves the selection as it was, and the card
+  /// says so instead of spinning for good. Emptying the selection first left
+  /// the music in the library under no selected folder, with nothing in
+  /// Settings to remove it from. Both steps are one source change, so a
+  /// refresh the app starts on its own cannot scan the folders back in
+  /// between.
+  ///
+  /// Returns false, having said so on the card, when the catalog could not be
+  /// written.
+  Future<bool> _clearLocalMusic(Future<void> Function() unselect) async {
+    final LibraryController library =
+        ref.read(libraryControllerProvider.notifier);
+    bool cleared = false;
+    await library.changeSource(() async {
+      try {
+        await library.clearLocalCatalog();
+      } catch (_) {
+        state = const LocalMusicActionState(
+          message: "Couldn't update your library, so nothing was changed. "
+              'Try again.',
+          isError: true,
+        );
+        return;
+      }
+      await unselect();
+      cleared = true;
+    });
+    return cleared;
   }
 
   List<String> _selectedFolders() =>

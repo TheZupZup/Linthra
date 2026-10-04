@@ -285,6 +285,33 @@ void main() {
           reason: 'the regain resumes the track that loaded meanwhile');
     });
 
+    test(
+        'a call that ends while the next track loads does not resume the '
+        'paused song', () async {
+      final setup = await playingAWithBGated();
+      // Paused, then Next: a request to play B, which is slow to resolve.
+      await setup.controller.pause();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      // A call or a notification sound, past the debounce, then over.
+      setup.controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      setup.controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+
+      expect(setup.resolver.isWaiting(b.uri), isTrue);
+      expect(setup.player.lastTransport, 'pause',
+          reason: "the engine still holds A, which the listener paused: the "
+              "regain must not play it under B's title");
+
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+      expect(setup.player.loadedUrls.last, _url(b));
+      expect(setup.player.lastTransport, 'play',
+          reason: 'B starts once it lands');
+    });
+
     test('a focus blip absorbed during the load still lets the track start',
         () async {
       final setup = await playingAWithBGated();
@@ -343,6 +370,78 @@ void main() {
 
       expect(setup.player.loadedUrls.last, _url(b));
       expect(setup.player.lastTransport, 'play');
+    });
+  });
+
+  group('a Play pressed while the restored queue is still loading', () {
+    test('starts the restored track when it lands', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      // Launch puts the last queue back, paused, and its track is still
+      // resolving against a slow server when the listener presses Play: a
+      // media key or the shell's controls over MPRIS, or the window.
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      expect(resolver.isWaiting(a.uri), isTrue);
+      await controller.play();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.seeks, <String>['seek:60000'],
+          reason: 'it starts where the listener left it');
+      expect(player.lastTransport, 'play',
+          reason: 'the listener pressed Play while it loaded');
+    });
+
+    test('a restore nobody pressed Play for still lands paused', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.lastTransport, 'none');
+    });
+
+    test('Play then Pause while it loads leaves it paused', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      await controller.play();
+      await controller.pause();
+      resolver.release(a);
+      await restore;
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)]);
+      expect(player.lastTransport, 'pause');
     });
   });
 

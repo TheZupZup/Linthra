@@ -20,6 +20,7 @@ class CachedTrack {
     this.lastAccessedAt,
     this.pinned = false,
     this.preloaded = false,
+    this.origin,
   });
 
   /// The catalog id of the cached track.
@@ -56,6 +57,15 @@ class CachedTrack {
   /// user download when space is needed (see [CacheEvictionPolicy]). Cleared
   /// when the user explicitly downloads the same track, promoting it.
   final bool preloaded;
+
+  /// The server these bytes came from, for a provider whose ids only mean
+  /// something on the server that issued them (a Plex ratingKey: `101` on
+  /// another server is another song). The copy only ever stands in for its
+  /// track while that server is the one connected (see
+  /// `OfflineCopyOrigins`). The server's non-secret identity (a Plex
+  /// `machineIdentifier`), never an address or a credential. `null` for every
+  /// other provider, and for a copy saved before this was recorded.
+  final String? origin;
 
   /// Whether this record points at app-managed downloaded bytes (vs. an
   /// on-device track that is merely marked available offline).
@@ -105,6 +115,7 @@ class CachedTrack {
     DateTime? lastAccessedAt,
     bool? pinned,
     bool? preloaded,
+    String? origin,
   }) {
     return CachedTrack(
       trackId: trackId,
@@ -115,6 +126,7 @@ class CachedTrack {
       lastAccessedAt: lastAccessedAt ?? this.lastAccessedAt,
       pinned: pinned ?? this.pinned,
       preloaded: preloaded ?? this.preloaded,
+      origin: origin ?? this.origin,
     );
   }
 
@@ -129,6 +141,7 @@ class CachedTrack {
           'lastAccessedAt': lastAccessedAt!.millisecondsSinceEpoch,
         if (pinned) 'pinned': true,
         if (preloaded) 'preloaded': true,
+        if (origin != null && origin!.isNotEmpty) 'origin': origin,
       };
 
   /// Rebuilds a record from [toJson] output, or returns `null` when the track
@@ -140,6 +153,7 @@ class CachedTrack {
     if (trackId == null || trackId.isEmpty) return null;
     final String? fileName = json['fileName'] as String?;
     final String? sourceType = json['sourceType'] as String?;
+    final Object? origin = json['origin'];
     return CachedTrack(
       trackId: trackId,
       fileName: (fileName != null && fileName.isNotEmpty) ? fileName : null,
@@ -150,6 +164,7 @@ class CachedTrack {
       lastAccessedAt: _asDate(json['lastAccessedAt']),
       pinned: json['pinned'] == true,
       preloaded: json['preloaded'] == true,
+      origin: (origin is String && origin.isNotEmpty) ? origin : null,
     );
   }
 
@@ -176,7 +191,8 @@ class CachedTrack {
           other.cachedAt == cachedAt &&
           other.lastAccessedAt == lastAccessedAt &&
           other.pinned == pinned &&
-          other.preloaded == preloaded);
+          other.preloaded == preloaded &&
+          other.origin == origin);
 
   @override
   int get hashCode => Object.hash(
@@ -188,6 +204,7 @@ class CachedTrack {
         lastAccessedAt,
         pinned,
         preloaded,
+        origin,
       );
 }
 

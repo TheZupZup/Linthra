@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
@@ -72,6 +74,34 @@ LocalRootScan _scanner(
 
 void main() {
   group('LocalLibraryScanner', () {
+    test('a folder whose name ends in a space is the folder walked', () async {
+      // Legal on Linux, and not the same folder as one without the space.
+      final Directory base =
+          await Directory.systemTemp.createTemp('linthra_scan_roots');
+      addTearDown(() => base.delete(recursive: true));
+      final String selected = '${base.path}/Music ';
+      await Directory(selected).create();
+      final List<String> walked = <String>[];
+      // What the real walk does: a folder that is not there is a scan error.
+      final LocalLibraryScanner scanner =
+          LocalLibraryScanner((String root) async {
+        walked.add(root);
+        if (!Directory(root).existsSync()) {
+          throw FolderScanException(
+            "Linthra couldn't find the selected folder.",
+            folder: root,
+          );
+        }
+        return _scanOf(<String>['$root/01 - Song.mp3']);
+      });
+
+      final LocalLibraryScan scan =
+          await scanner.scan(roots: <String>[selected]);
+
+      expect(walked, <String>[selected]);
+      expect(_uris(scan), <String>['$selected/01 - Song.mp3']);
+    });
+
     test('scans several folders into one library', () async {
       final scanner = LocalLibraryScanner(_scanner(<String, List<String>>{
         '/music': <String>['/music/a.mp3'],
@@ -555,6 +585,173 @@ void main() {
 
       expect(scan.retentionUnavailable, isFalse);
       expect(scan.isWritable, isTrue);
+    });
+  });
+
+  // A file moved while the walk runs can be listed at its old path before the
+  // move and at its new path after it. The old path then cannot be read, and
+  // its row is kept; kept beside the file it is, it would outlive the move,
+  // and the file would lose its history at the next scan.
+  group('a file the walk saw before and after it moved', () {
+    const String from = '/music/inbox/track05.flac';
+    const String to = '/music/Bon Iver/Bon Iver/05 Holocene.flac';
+
+    /// The old path kept because it could not be read (as the source keeps
+    /// it), and the new path read for the first time.
+    LocalScan seenTwice() => LocalScan(
+          tracks: <Track>[_tagged(from), _tagged(to)],
+          vanished: const <String>{from},
+          report: const LocalScanReport(
+            folderSelected: true,
+            isContentUri: false,
+            filesVisited: 2,
+            audioCandidates: 2,
+            importedTracks: 2,
+            skippedUnsupported: 0,
+            readFailures: 0,
+          ),
+        );
+
+    test('is moved when its folder answers without it', () async {
+      final List<(String, String)> asked = <(String, String)>[];
+      final scanner = LocalLibraryScanner(
+        (String root) async => seenTwice(),
+        isGone: (String path, String root) async {
+          asked.add((path, root));
+          return true;
+        },
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music'],
+        previousTracks: <StampedTrack>[StampedTrack(track: _tagged(from))],
+      );
+
+      expect(_uris(scan), <String>[to]);
+      expect(scan.reconciliation.moves, <LocalTrackMove>[
+        const LocalTrackMove(from: from, to: to),
+      ]);
+      expect(asked, <(String, String)>[(from, '/music')]);
+    });
+
+    test('is kept when nothing shows it is gone', () async {
+      // A read that failed for a moment, or a drive that went away after the
+      // walk, beside a copy of the file that is new: not a move.
+      final scanner = LocalLibraryScanner(
+        (String root) async => seenTwice(),
+        isGone: (String path, String root) async => false,
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music'],
+        previousTracks: <StampedTrack>[StampedTrack(track: _tagged(from))],
+      );
+
+      expect(_uris(scan), <String>[from, to]);
+      expect(scan.reconciliation.moves, isEmpty);
+      expect(scan.reconciliation.removedUris, isEmpty);
+    });
+
+    test('is kept for the next scan when nothing turned up in its place',
+        () async {
+      // Moved into a folder the walk had already listed: this scan never sees
+      // the new path, and the next one recognises the move from the kept row.
+      bool asked = false;
+      final scanner = LocalLibraryScanner(
+        (String root) async => LocalScan(
+          tracks: <Track>[_tagged(from)],
+          vanished: const <String>{from},
+          report: const LocalScanReport(
+            folderSelected: true,
+            isContentUri: false,
+            filesVisited: 1,
+            audioCandidates: 1,
+            importedTracks: 1,
+            skippedUnsupported: 0,
+            readFailures: 0,
+          ),
+        ),
+        isGone: (String path, String root) async => asked = true,
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music'],
+        previousTracks: <StampedTrack>[StampedTrack(track: _tagged(from))],
+      );
+
+      expect(_uris(scan), <String>[from]);
+      expect(asked, isFalse);
+    });
+
+    test('a folder moved while the walk was inside the library', () async {
+      // The album folder answered "not found" when the walk got to it, because
+      // it had just been moved into a folder the walk had not listed yet.
+      const String album = '/music/Bon Iver';
+      const String moved = '/music/Bon Iver (artist)/Bon Iver/05 Holocene.flac';
+      final List<String> asked = <String>[];
+      final scanner = LocalLibraryScanner(
+        (String root) async => LocalScan(
+          tracks: <Track>[_tagged(moved)],
+          unreadableDirectories: const <String>[album],
+          report: const LocalScanReport(
+            folderSelected: true,
+            isContentUri: false,
+            filesVisited: 1,
+            audioCandidates: 1,
+            importedTracks: 1,
+            skippedUnsupported: 0,
+            readFailures: 1,
+          ),
+        ),
+        isGone: (String path, String root) async {
+          asked.add(path);
+          return true;
+        },
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music'],
+        previousTracks: <StampedTrack>[
+          StampedTrack(track: _tagged('$album/05 Holocene.flac')),
+        ],
+      );
+
+      expect(_uris(scan), <String>[moved]);
+      expect(scan.reconciliation.moves, <LocalTrackMove>[
+        const LocalTrackMove(from: '$album/05 Holocene.flac', to: moved),
+      ]);
+      expect(asked, <String>['$album/05 Holocene.flac']);
+    });
+
+    test('two files sharing the identity are still no move', () async {
+      final scanner = LocalLibraryScanner(
+        (String root) async => LocalScan(
+          tracks: <Track>[
+            _tagged(from),
+            _tagged(to),
+            _tagged('/music/Copies/05 Holocene.flac'),
+          ],
+          vanished: const <String>{from},
+          report: const LocalScanReport(
+            folderSelected: true,
+            isContentUri: false,
+            filesVisited: 3,
+            audioCandidates: 3,
+            importedTracks: 3,
+            skippedUnsupported: 0,
+            readFailures: 0,
+          ),
+        ),
+        isGone: (String path, String root) async => true,
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music'],
+        previousTracks: <StampedTrack>[StampedTrack(track: _tagged(from))],
+      );
+
+      expect(scan.reconciliation.moves, isEmpty);
+      expect(scan.reconciliation.removedUris, <String>[from]);
     });
   });
 }

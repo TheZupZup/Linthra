@@ -80,6 +80,22 @@ final List<Track> _library = <Track>[_track('a'), _track('b'), _track('c')];
 /// listener before assertions read the mirrored session state.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
+/// A catalog whose full read can be held open, the way reading a large
+/// library takes a while once the browse tree's short-lived snapshot of it
+/// has expired.
+class _SlowCatalog extends FakeMusicLibraryRepository {
+  _SlowCatalog({required super.tracks});
+
+  Completer<void>? read;
+
+  @override
+  Future<List<Track>> getAllTracks() async {
+    final Completer<void>? gate = read;
+    if (gate != null) await gate.future;
+    return super.getAllTracks();
+  }
+}
+
 void main() {
   group('LinthraAudioHandler', () {
     late FakePlaybackController controller;
@@ -964,6 +980,90 @@ void main() {
     });
 
     group('media browser', () {
+      test('the song picked last plays, whichever selection resolves first',
+          () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+        await picked.playTracks(_library);
+        await _settle();
+
+        // A song from Songs: the catalog has to be read again first.
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // Then, while that read is still going, a row of the Queue folder,
+        // which resolves from the live queue at once.
+        await car.playFromMediaId(MediaId.queueItem(1));
+        await _settle();
+        expect(picked.state.currentTrack?.id, 'b');
+
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'b',
+            reason: 'the earlier pick, resolved last, replaced the later one');
+      });
+
+      test('an earlier pick still plays when the later one finds nothing',
+          () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // A stale row: nothing is queued, so it plays nothing.
+        await car.playFromMediaId(MediaId.queueItem(4));
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'c');
+      });
+
+      test(
+          'a song picked on the Up Next list keeps playing when an earlier '
+          'pick lands late', () async {
+        final FakePlaybackController picked = FakePlaybackController();
+        addTearDown(picked.dispose);
+        final _SlowCatalog catalog = _SlowCatalog(tracks: _library);
+        final LinthraAudioHandler car =
+            LinthraAudioHandler(picked, MediaBrowserTree(catalog));
+        addTearDown(car.dispose);
+        await picked.playTracks(_library);
+        await _settle();
+
+        // A song from Songs: the catalog has to be read again first.
+        catalog.read = Completer<void>();
+        final Future<void> first =
+            car.playFromMediaId(MediaId.libraryTrack('/c.mp3'));
+        await _settle();
+        // Then, while that read is still going, a row of the car's own Up
+        // Next list, which moves within the queue at once.
+        await car.skipToQueueItem(1);
+        await _settle();
+        expect(picked.state.currentTrack?.id, 'b');
+
+        catalog.read!.complete();
+        await first;
+        await _settle();
+
+        expect(picked.state.currentTrack?.id, 'b',
+            reason: 'the earlier pick, resolved last, replaced the song '
+                'picked on the Up Next list');
+      });
+
       test('root lists the library categories and Queue', () async {
         final children = await handler.getChildren(MediaId.root);
 
@@ -1035,11 +1135,14 @@ void main() {
 
         final children = await handler.getChildren(MediaId.queue);
 
-        // current (b) followed by up-next (c).
+        // current (b) followed by up-next (c). Each row carries its position
+        // and the opaque hash of the track it listed.
+        String row(int index, String uri) =>
+            '${MediaId.queueItem(index)}/${MediaId.libraryTrackHash(uri)}';
         expect(children.map((i) => i.title), ['Song b', 'Song c']);
         expect(children.map((i) => i.id), [
-          MediaId.queueItem(0),
-          MediaId.queueItem(1),
+          row(0, '/b.mp3'),
+          row(1, '/c.mp3'),
         ]);
       });
 
@@ -1060,6 +1163,262 @@ void main() {
 
         expect(controller.state.currentTrack?.id, 'c');
         expect(controller.state.hasNext, isFalse);
+      });
+
+      // The car keeps showing the Queue list it was given: nothing tells it the
+      // queue moved on (audio_service never reports the children changed). A
+      // row picked after a track ended, or after Next on the steering wheel,
+      // still has to play the song it showed.
+      group('a Queue row picked after the queue moved on', () {
+        final List<Track> four = <Track>[
+          _track('a'),
+          _track('b'),
+          _track('c'),
+          _track('d'),
+        ];
+
+        Future<List<audio.MediaItem>> listedQueue() async {
+          await controller.playTracks(four);
+          await _settle();
+          return handler.getChildren(MediaId.queue);
+        }
+
+        String rowFor(List<audio.MediaItem> rows, String title) =>
+            rows.singleWhere((audio.MediaItem row) => row.title == title).id;
+
+        test('plays the song the row showed, not the one now at its position',
+            () async {
+          final List<audio.MediaItem> rows = await listedQueue();
+          // Next on the steering wheel while the list is on screen.
+          await handler.skipToNext();
+          await _settle();
+
+          await handler.playFromMediaId(rowFor(rows, 'Song c'));
+          await _settle();
+
+          expect(controller.state.currentTrack?.title, 'Song c',
+              reason: 'the listener tapped Song c');
+          expect(controller.state.upNext.map((Track t) => t.id), <String>['d']);
+        });
+
+        test('does nothing for a song that has already played', () async {
+          final List<audio.MediaItem> rows = await listedQueue();
+          await handler.skipToNext();
+          await _settle();
+          final int played = controller.playedTracks.length;
+
+          await handler.playFromMediaId(rowFor(rows, 'Song a'));
+          await _settle();
+
+          expect(controller.playedTracks, hasLength(played),
+              reason: 'Song a is no longer in the queue the row came from, and '
+                  'restarting Song b instead is not what was tapped');
+          expect(controller.state.currentTrack?.title, 'Song b');
+        });
+
+        test('does nothing once another queue has replaced it', () async {
+          final List<audio.MediaItem> rows = await listedQueue();
+          // A new album started from the phone while the car shows the list.
+          await controller.playTracks(<Track>[
+            _track('x'),
+            _track('y'),
+            _track('z'),
+          ]);
+          await _settle();
+          final int played = controller.playedTracks.length;
+
+          await handler.playFromMediaId(rowFor(rows, 'Song c'));
+          await _settle();
+
+          expect(controller.playedTracks, hasLength(played));
+          expect(controller.state.currentTrack?.title, 'Song x');
+        });
+      });
+
+      // The Queue list is the live queue, so picking a row moves within it, as
+      // a row of the car's Up Next list does (docs/android-auto.md: "read +
+      // jump"), instead of starting a new queue from the rows it shows.
+      group('a Queue row moves within the queue', () {
+        final List<Track> six = <Track>[
+          for (final String id in <String>['a', 'b', 'c', 'd', 'e', 'f'])
+            _track(id),
+        ];
+
+        String rowFor(List<audio.MediaItem> rows, String title) =>
+            rows.singleWhere((audio.MediaItem row) => row.title == title).id;
+
+        test('the songs already played stay in the queue', () async {
+          await controller.playTracks(six);
+          controller.setRepeatMode(RepeatMode.all);
+          await controller.skipToNext();
+          await controller.skipToNext();
+          await _settle();
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rowFor(rows, 'Song e'));
+          await _settle();
+
+          expect(controller.state.currentTrack?.id, 'e');
+          expect(controller.state.previous.map((Track t) => t.id),
+              <String>['a', 'b', 'c', 'd'],
+              reason: 'with repeat all on, Song a and Song b must come round '
+                  'again after Song f');
+          expect(controller.state.upNext.map((Track t) => t.id), <String>['f']);
+        });
+
+        test('with shuffle on, the rest keeps the order the car showed',
+            () async {
+          controller.setShuffleEnabled(true);
+          await controller.playTracks(six);
+          await controller.skipToNext();
+          await _settle();
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rows[2].id);
+          await _settle();
+
+          expect(controller.state.currentTrack?.title, rows[2].title);
+          expect(
+            controller.state.upNext.map((Track t) => t.title),
+            rows.skip(3).map((audio.MediaItem row) => row.title),
+            reason: 'the songs after it play in the order the car showed, and '
+                'the song that was playing does not come back',
+          );
+        });
+
+        test('picking the song that is playing leaves it playing', () async {
+          await controller.playTracks(six);
+          await controller.skipToNext();
+          await _settle();
+          final int played = controller.playedTracks.length;
+          final List<audio.MediaItem> rows =
+              await handler.getChildren(MediaId.queue);
+
+          await handler.playFromMediaId(rowFor(rows, 'Song b'));
+          await _settle();
+
+          expect(controller.playedTracks, hasLength(played),
+              reason: 'it is already the current song, as on the Up Next list');
+          expect(
+              controller.state.previous.map((Track t) => t.id), <String>['a']);
+        });
+      });
+
+      // Favorites, Offline, albums, artists and playlists name a row by its
+      // position in a list that can change while the car shows it: a download
+      // finishing, a favourites sync landing, a library sync. A row picked
+      // after that must still play the song it showed.
+      group('a row picked after its list changed', () {
+        final List<Track> catalog = <Track>[
+          for (final String id in <String>['a', 'b', 'c', 'd']) _track(id),
+        ];
+
+        /// The car's view of [tree], playing through its own controller.
+        ({LinthraAudioHandler car, FakePlaybackController player}) carOver(
+          MediaBrowserTree tree,
+        ) {
+          final FakePlaybackController player = FakePlaybackController();
+          final LinthraAudioHandler car = LinthraAudioHandler(player, tree);
+          addTearDown(() async {
+            await car.dispose();
+            await player.dispose();
+          });
+          return (car: car, player: player);
+        }
+
+        String rowFor(List<audio.MediaItem> rows, String title) =>
+            rows.singleWhere((audio.MediaItem row) => row.title == title).id;
+
+        test('an Offline row after another download finished', () async {
+          final Set<String> downloaded = <String>{
+            CachedTrack.cacheKeyForTrack(catalog[1]),
+            CachedTrack.cacheKeyForTrack(catalog[3]),
+          };
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            downloads: FakeDownloadRepository(downloaded),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.offline);
+          // Song c finishes downloading while the car shows the list.
+          downloaded.add(CachedTrack.cacheKeyForTrack(catalog[2]));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song d'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song d',
+              reason: 'the listener tapped Song d');
+        });
+
+        test('a Favorites row after the favourites synced', () async {
+          final Set<String> favourites = <String>{'/a.mp3', '/c.mp3'};
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            favorites: FakeFavoritesRepository(favourites),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.favorites);
+          // A favourite added on another device arrives with the sync.
+          favourites.add('/b.mp3');
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song c'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song c');
+        });
+
+        test('an album row after a library sync', () async {
+          Track albumTrack(int number) => Track(
+                id: 'x$number',
+                title: 'Song x$number',
+                uri: '/x$number.mp3',
+                artistName: 'Artist x',
+                albumName: 'Album x',
+                trackNumber: number,
+              );
+          final List<Track> library = <Track>[albumTrack(1), albumTrack(3)];
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: library),
+            // No reuse of an earlier catalog read: the sync below is seen.
+            catalogSnapshotTtl: Duration.zero,
+          ));
+          final List<audio.MediaItem> albums =
+              await setup.car.getChildren(MediaId.albums);
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(albums.single.id);
+          // A sync brings in the album's missing second track.
+          library.insert(1, albumTrack(2));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song x3'));
+          await _settle();
+
+          expect(setup.player.state.currentTrack?.title, 'Song x3');
+        });
+
+        test('a row whose song left its list does nothing', () async {
+          final Set<String> downloaded = <String>{
+            CachedTrack.cacheKeyForTrack(catalog[1]),
+            CachedTrack.cacheKeyForTrack(catalog[3]),
+          };
+          final setup = carOver(MediaBrowserTree(
+            FakeMusicLibraryRepository(tracks: catalog),
+            downloads: FakeDownloadRepository(downloaded),
+          ));
+          final List<audio.MediaItem> rows =
+              await setup.car.getChildren(MediaId.offline);
+          // Song d's download is removed and Song c's finishes.
+          downloaded
+            ..remove(CachedTrack.cacheKeyForTrack(catalog[3]))
+            ..add(CachedTrack.cacheKeyForTrack(catalog[2]));
+
+          await setup.car.playFromMediaId(rowFor(rows, 'Song d'));
+          await _settle();
+
+          expect(setup.player.playedTracks, isEmpty,
+              reason: 'Song d is no longer offline; Song c was not tapped');
+        });
       });
 
       test('an unknown media id is a no-op', () async {

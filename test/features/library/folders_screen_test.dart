@@ -70,10 +70,27 @@ GoRouter _router() {
   );
 }
 
+/// The Folders tab the way the app's frame hosts it: under a navigator of its
+/// own inside the root one, so a song's menu and sheet open on the tab's
+/// navigator and a confirmation dialog on the root's.
+GoRouter _tabRouter() {
+  return GoRouter(
+    routes: <RouteBase>[
+      ShellRoute(
+        builder: (_, __, Widget tab) => tab,
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, __) => const FoldersScreen()),
+        ],
+      ),
+    ],
+  );
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   List<FolderBrowsableMusicSource> sources =
       const <FolderBrowsableMusicSource>[],
+  GoRouter? router,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -81,7 +98,7 @@ Future<void> _pump(
         folderBrowsableSourcesProvider.overrideWithValue(sources),
         playbackControllerProvider.overrideWithValue(FakePlaybackController()),
       ],
-      child: MaterialApp.router(routerConfig: _router()),
+      child: MaterialApp.router(routerConfig: router ?? _router()),
     ),
   );
   await tester.pumpAndSettle();
@@ -381,6 +398,74 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No music folders yet'), findsOneWidget);
+    });
+  });
+
+  // Android's Back closes whatever is open over the folder list first, as it
+  // does everywhere else, and only then walks up the trail. Walking up under
+  // an open sheet or dialog left it on screen over a folder it no longer
+  // belonged to, and Back could not close it until the trail ran out.
+  group('FoldersScreen system Back with something open over it', () {
+    Future<void> openFolder(WidgetTester tester) async {
+      await _pump(
+        tester,
+        router: _tabRouter(),
+        sources: <FolderBrowsableMusicSource>[
+          _FakeFolderSource(
+            id: 'subsonic',
+            displayName: 'Navidrome',
+            roots: const <MusicFolder>[MusicFolder(id: 'r1', name: 'Music')],
+            children: const <String, MusicFolderListing>{
+              'r1': MusicFolderListing(
+                tracks: <Track>[
+                  Track(id: 't1', title: 'Opener', uri: 'subsonic:t1'),
+                ],
+              ),
+            },
+          ),
+        ],
+      );
+      await tester.tap(find.text('Music'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('More actions'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Back closes a song\'s sheet and stays in the folder',
+        (tester) async {
+      await openFolder(tester);
+      await tester.tap(find.text('Add to playlist'));
+      await tester.pumpAndSettle();
+      expect(find.text('New playlist'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('New playlist'), findsNothing);
+      expect(find.byKey(const Key('folder_browser_header')), findsOneWidget);
+      expect(find.text('Opener'), findsOneWidget);
+
+      // With nothing over the list any more, Back walks up the trail.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('folder_browser_header')), findsNothing);
+      expect(find.text('Music'), findsOneWidget);
+    });
+
+    testWidgets('Back closes a confirmation and stays in the folder',
+        (tester) async {
+      await openFolder(tester);
+      await tester.tap(find.text('Remove from Linthra'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byKey(const Key('folder_browser_header')), findsOneWidget);
+      expect(find.text('Opener'), findsOneWidget);
     });
   });
 }

@@ -476,6 +476,40 @@ void main() {
       expect(repo.pendingRemoteWriteCount, 0);
     });
 
+    // Signing out keeps the server's songs in the library, so they can still
+    // be hearted. Such a heart belongs to no account: whoever signs in next
+    // (another person on a shared device, or another server) did not make it.
+    test('a heart made after signing out is not sent to whoever signs in next',
+        () async {
+      final repo = build();
+      gateway.connected = false;
+      await repo.clearRemote(providerScheme: 'subsonic:');
+
+      await repo.setFavorite(_subsonic('mf-2'), true);
+      expect(repo.isFavorite('subsonic:mf-2'), isTrue);
+
+      // Another account signs in; its server has nothing starred.
+      gateway.connected = true;
+      await repo.refreshFromRemote();
+
+      expect(gateway.pushes, isEmpty);
+      expect(gateway.serverUris, isEmpty);
+      expect(repo.pendingRemoteWriteCount, 0);
+      expect(repo.isFavorite('subsonic:mf-2'), isFalse);
+    });
+
+    test('a heart made once someone has signed in again is theirs', () async {
+      final repo = build();
+      gateway.connected = false;
+      await repo.clearRemote(providerScheme: 'subsonic:');
+      gateway.connected = true;
+
+      await repo.setFavorite(_subsonic('mf-2'), true);
+
+      expect(gateway.serverUris, contains('subsonic:mf-2'));
+      expect(repo.pendingRemoteWriteCount, 0);
+    });
+
     test('a successful star clears the pending write immediately', () async {
       final repo = build();
       await repo.setFavorite(_subsonic('mf-1'), true);

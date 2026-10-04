@@ -803,6 +803,63 @@ void main() {
       expect(repo.upsertedSourceId, 'plex');
       expect(repo.upsertedTracks, isEmpty);
     });
+
+    test(
+        'connecting again after the keyring was locked at launch keeps the '
+        "same server's selection and synced tracks", () async {
+      // The saved session is still in the keyring; the keyring was only
+      // locked when Linthra started, so the restore could not read it. The
+      // card then says to unlock it, or to connect again. The user unlocks
+      // it and connects again, to the same server.
+      final store = _FlakyPlexSessionStore(
+        initialSession: _session.copyWith(
+          machineIdentifier: 'fake-machine-id',
+          selectedSectionKeys: const <String>['5'],
+        ),
+        readError: const SecureStorageException(
+          operation: SecureStorageOperation.read,
+          failure: SecureStorageFailure.locked,
+        ),
+      );
+      final repo = _RecordingRepository();
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: const <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: <PlexMetadata>[
+              PlexMetadata(ratingKey: '101', type: 'track', title: 'Aurora'),
+            ],
+          },
+        ),
+        store: store,
+        repository: repo,
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      expect(
+        container.read(plexSettingsControllerProvider).errorMessage,
+        contains("Couldn't restore"),
+      );
+
+      store.readError = null;
+      final ok = await notifier.connect(
+        url: 'https://plex.example.com:32400',
+        token: 'token-after-unlock',
+      );
+      await _settle();
+
+      expect(ok, isTrue);
+      // The libraries the user picked are still picked, in state and at
+      // rest...
+      expect(
+        container.read(plexSettingsControllerProvider).selectedSectionKeys,
+        <String>['5'],
+      );
+      expect((await store.read())!.selectedSectionKeys, <String>['5']);
+      // ...and the catalog was brought in step with them, not emptied.
+      expect(repo.upsertedSourceId, 'plex');
+      expect(repo.upsertedTracks.map((Track t) => t.uri), ['plex:101']);
+    });
   });
 
   group('sections', () {

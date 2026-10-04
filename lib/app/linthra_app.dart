@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,6 +41,11 @@ import 'theme.dart';
 final notificationPermissionProvider = Provider<NotificationPermission>((ref) {
   return const PermissionHandlerNotificationPermission();
 });
+
+/// How long closing the desktop window waits for the graceful shutdown before
+/// the app exits anyway. The shutdown normally takes well under a second; this
+/// is the bound for one that does not finish.
+const Duration exitShutdownDeadline = Duration(seconds: 5);
 
 /// Root widget. Linthra follows the device's light/dark setting by default; the
 /// user can pin Light or Dark in Settings → Appearance, and that choice is read
@@ -165,6 +171,32 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
         unawaited(widget.lifecycle?.shutdown());
       }
     }
+  }
+
+  /// How a window close reaches Dart on Linux.
+  ///
+  /// The Linux embedder answers the window's close button by asking for an
+  /// exit, and quits the application the moment the answer is "exit". It
+  /// never reports [AppLifecycleState.detached] on the way, so the shutdown
+  /// above never ran for a window close: the session was not saved where
+  /// playback was, and the servers were never told it stopped. The embedder
+  /// waits for this answer, so the graceful shutdown runs here first.
+  ///
+  /// Bounded: a close always closed the window, and a teardown that never
+  /// finishes must not change that. Past [exitShutdownDeadline] the app exits
+  /// anyway, exactly as it did before it waited at all.
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    final HostPlatform host = ref.read(hostPlatformProvider);
+    final ApplicationHandle? lifecycle = widget.lifecycle;
+    if (lifecycle != null && PlatformShutdownPolicy.shutsDownOnDetached(host)) {
+      try {
+        await lifecycle.shutdown().timeout(exitShutdownDeadline);
+      } on TimeoutException {
+        // Exit regardless: see above.
+      }
+    }
+    return AppExitResponse.exit;
   }
 
   @override

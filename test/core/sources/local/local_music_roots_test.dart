@@ -40,6 +40,15 @@ void main() {
       );
     });
 
+    test('a trailing space is part of a folder name, not padding', () {
+      // Two different folders on Linux; trimming made them one.
+      expect(
+        LocalMusicRoots.normalize(<String>['/music/Live ', '/music/Live']),
+        <String>['/music/Live ', '/music/Live'],
+      );
+      expect(LocalMusicRoots.canonicalize('/music/Live /'), '/music/Live ');
+    });
+
     test('sibling folders with a shared prefix both survive', () {
       // '/music2' is not inside '/music', however similar the strings look.
       expect(

@@ -8,6 +8,7 @@ import '../../services/server_playback_reporter.dart';
 import 'plex_api.dart';
 import 'plex_client.dart';
 import 'plex_exception.dart';
+import 'plex_session_fingerprint.dart';
 import 'plex_track_mapper.dart';
 
 /// Reports playback of `plex:<ratingKey>` tracks back to the Plex Media
@@ -52,6 +53,16 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
   Duration _lastReportedPosition = Duration.zero;
   Duration? _lastReportedDuration;
 
+  /// The play reported last, and the server and Home profile connected when it
+  /// started ([plexSessionFingerprint]), or null when none was. Connecting to
+  /// another server leaves the song playing, and a ratingKey only means
+  /// something on the server that issued it: the rest of that play is not
+  /// reported to the new server, where the same number names another item.
+  /// Nor to another Home profile of the same server, whose token would put it
+  /// in that person's history.
+  String? _playUri;
+  String? _playSession;
+
   @override
   bool handles(Track track) => track.uri.startsWith(PlexTrackMapper.uriScheme);
 
@@ -61,7 +72,8 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     Duration position,
     Duration duration,
   ) =>
-      _report(track, PlexTimelineState.playing, position, duration);
+      _report(track, PlexTimelineState.playing, position, duration,
+          starts: true);
 
   @override
   Future<void> onPlaybackProgress(
@@ -118,14 +130,28 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     Track track,
     PlexTimelineState state,
     Duration position,
-    Duration duration,
-  ) async {
+    Duration duration, {
+    bool starts = false,
+  }) async {
     if (!handles(track)) return;
-    final PlexSession? session = _session();
-    if (session == null) return;
     final String ratingKey =
         track.uri.substring(PlexTrackMapper.uriScheme.length).trim();
     if (ratingKey.isEmpty) return;
+    final PlexSession? session = _session();
+
+    // A fresh start, or another track, is bound to the server and profile
+    // connected now, and only they hear the rest of the play (through another
+    // address too). One that starts while no server is connected is bound to
+    // none, so a server connected during it isn't told about it either.
+    final String? owner =
+        session == null ? null : plexSessionFingerprint(session);
+    if (starts || track.uri != _playUri) {
+      _playUri = track.uri;
+      _playSession = owner;
+    } else if (owner != _playSession) {
+      return;
+    }
+    if (session == null) return;
 
     if (state == PlexTimelineState.stopped) {
       if (track.uri == _lastReportedUri) _lastReportedUri = null;

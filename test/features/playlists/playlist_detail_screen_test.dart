@@ -260,6 +260,169 @@ void main() {
     );
   });
 
+  // Removal messages queue up (one with an action stays until it is used), so
+  // after two removals the first one's Undo is offered first, then the
+  // second's. Using both, in that order, must give back the playlist there
+  // was, whichever of the two songs came first in it.
+  group('undoing two removals in the order they are offered', () {
+    Future<void> removeRow(WidgetTester tester, String title) async {
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text(title),
+            matching: find.byType(ListTile),
+          ),
+          matching: find.byTooltip('Track actions'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from playlist'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> undo(WidgetTester tester, String title) async {
+      expect(find.text('Removed “$title” from playlist.'), findsOneWidget);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+    }
+
+    for (final (String first, String second) in <(String, String)>[
+      ('Song B', 'Song A'),
+      ('Song A', 'Song B'),
+    ]) {
+      testWidgets('$first, then $second, gives back the order there was',
+          (tester) async {
+        final InMemoryPlaylistStore store = await _seededStore(
+          trackIds: <String>[for (final Track track in _tracks) track.uri],
+        );
+        await _pump(tester, store: store, controller: FakePlaybackController());
+
+        await removeRow(tester, first);
+        await removeRow(tester, second);
+        expect(
+          (await store.load()).single.trackIds,
+          <String>['file:///c.mp3'],
+        );
+
+        await undo(tester, first);
+        await undo(tester, second);
+
+        expect(
+          (await store.load()).single.trackIds,
+          <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+        );
+      });
+    }
+  });
+
+  // The open playlist has to show its own edits. A playlist is equal to
+  // another with the same id, so an edit that kept the id used to look like
+  // no change at all: the screen kept the rows, the order and the name it had
+  // before, while the edit was saved.
+  group('the open playlist shows its own edits', () {
+    testWidgets('a removed song leaves the list, and Undo brings it back',
+        (tester) async {
+      final InMemoryPlaylistStore store = await _seededStore(
+        trackIds: <String>[for (final Track track in _tracks) track.uri],
+      );
+      await _pump(tester, store: store, controller: FakePlaybackController());
+
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Song B'),
+            matching: find.byType(ListTile),
+          ),
+          matching: find.byTooltip('Track actions'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from playlist'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Song B'), findsNothing);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Song B'), findsOneWidget);
+    });
+
+    testWidgets('a dragged track is shown where it was dropped',
+        (tester) async {
+      final InMemoryPlaylistStore store = await _seededStore(
+        trackIds: <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+      );
+      await _pump(tester, store: store, controller: FakePlaybackController());
+
+      await _dragToEnd(tester, from: 0);
+
+      final List<double> rows = <double>[
+        for (final String title in <String>['Song A', 'Song B', 'Song C'])
+          tester.getCenter(find.text(title)).dy,
+      ];
+      // Song B, then Song C, then Song A: the order that was saved.
+      expect(rows[1], lessThan(rows[2]));
+      expect(rows[2], lessThan(rows[0]));
+    });
+
+    testWidgets('a second drag moves the song it was started on',
+        (tester) async {
+      final InMemoryPlaylistStore store = await _seededStore(
+        trackIds: <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+      );
+      await _pump(tester, store: store, controller: FakePlaybackController());
+      await _dragToEnd(tester, from: 1);
+      expect(
+        await _storedOrder(store),
+        <String>['file:///a.mp3', 'file:///c.mp3', 'file:///b.mp3'],
+      );
+
+      // Song C, wherever its row now is, dragged to the top.
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(
+          find.descendant(
+            of: find.ancestor(
+              of: find.text('Song C'),
+              matching: find.byType(ListTile),
+            ),
+            matching: find.byIcon(Icons.drag_handle),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.moveBy(const Offset(0, -300));
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.moveBy(const Offset(0, -300));
+      await tester.pumpAndSettle();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        await _storedOrder(store),
+        <String>['file:///c.mp3', 'file:///a.mp3', 'file:///b.mp3'],
+      );
+    });
+
+    testWidgets('a rename shows the new name', (tester) async {
+      await _pump(
+        tester,
+        store: await _seededStore(),
+        controller: FakePlaybackController(),
+      );
+
+      await tester.tap(find.byTooltip('Playlist actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Night Drive');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(AppBar, 'Night Drive'), findsOneWidget);
+    });
+  });
+
   testWidgets('Play queues the playlist and opens the player', (tester) async {
     final FakePlaybackController controller = FakePlaybackController();
     await _pump(tester, store: await _seededStore(), controller: controller);

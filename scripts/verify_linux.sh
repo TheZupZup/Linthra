@@ -108,7 +108,10 @@ run_audio_smoke() {
   local binary="$REPO_ROOT/build/linux/x64/release/bundle/linthra"
   local alsa_null_conf
   alsa_null_conf="$(mktemp)"
-  trap 'rm -f "$alsa_null_conf"' RETURN
+  # A RETURN trap is not local to the function that sets it: left in place it
+  # fires again when run_step returns, where alsa_null_conf no longer exists,
+  # and set -u ends the script before the release build. It clears itself.
+  trap 'rm -f "$alsa_null_conf"; trap - RETURN' RETURN
   printf '%s\n' \
     'pcm.!default { type plug; slave.pcm "null" }' \
     'pcm.null { type null }' \

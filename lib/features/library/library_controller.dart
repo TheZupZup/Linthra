@@ -10,6 +10,7 @@ import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/services/local_track_move_applier.dart';
 import '../../core/sources/local/folder_location.dart';
+import '../../core/sources/local/local_file_stat.dart';
 import '../../core/sources/local/local_library_scanner.dart';
 import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/local_music_roots.dart';
@@ -30,6 +31,10 @@ class LibraryController extends Notifier<LibraryState> {
   int _scanGeneration = 0;
   int _loadGeneration = 0;
   Future<void> _localMutationTail = Future<void>.value();
+
+  /// Completes once every source change started through [changeSource] is
+  /// done.
+  Future<void> _sourceChanges = Future<void>.value();
 
   @override
   LibraryState build() {
@@ -70,6 +75,50 @@ class LibraryController extends Notifier<LibraryState> {
   /// Invalidation happens first, so pending walks cannot enqueue a new write.
   Future<void> waitForLocalMutations() => _localMutationTail;
 
+  /// Runs [change], a source change that scans the new selection before it
+  /// stores it (Reselect, switching to the device library), as one step that
+  /// [refreshConfiguredFolders] does not start in the middle of.
+  ///
+  /// Such a change writes the catalog for a selection that is not stored yet,
+  /// and only then stores it. A refresh of the stored selection that started
+  /// in between superseded the scan, and the change was silently dropped; one
+  /// that started after the scan had written the catalog then wrote a catalog
+  /// for the old selection from that result, which no longer held the music of
+  /// the folder being replaced, so a folder that was still selected lost its
+  /// music; and one that started while the new selection was being saved read
+  /// the old one, and dropped the music of the folder just picked.
+  Future<T> changeSource<T>(Future<T> Function() change) {
+    final Future<T> result = change();
+    final Future<void> done = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    final Future<void> earlier = _sourceChanges;
+    _sourceChanges = earlier.then((_) => done);
+    return result;
+  }
+
+  /// Rescans the folders the user has configured, on the app's own initiative:
+  /// the folder watcher runs this when a watched folder changes, and
+  /// availability tracking when a drive comes back.
+  ///
+  /// It waits for a source change in progress ([changeSource]) and reads the
+  /// selection only then, so it walks the folders that change stored rather
+  /// than the ones it replaced. A user's own Rescan or Retry is not this: it
+  /// supersedes whatever is running, as before.
+  Future<void> refreshConfiguredFolders() async {
+    Future<void> pending;
+    do {
+      pending = _sourceChanges;
+      await pending;
+    } while (!identical(pending, _sourceChanges));
+    final List<String> roots =
+        ref.read(selectedFolderControllerProvider).valueOrNull ??
+            const <String>[];
+    if (roots.isEmpty) return;
+    await scanFolders(roots);
+  }
+
   /// Serializes local catalog writes, including forget. A scan may finish its
   /// walk while a previous write is pending; its generation is checked again
   /// inside this queue so obsolete results cannot commit after a clear.
@@ -84,16 +133,90 @@ class LibraryController extends Notifier<LibraryState> {
 
   /// Clears only the local source, after any already-started local write.
   /// A new scan started after this action can still populate the catalog.
+  ///
+  /// Fails when the catalog cannot be written (the disk is full, the database
+  /// went read-only). The library is reloaded either way, so a scan
+  /// superseded here never leaves it loading.
   Future<void> clearLocalCatalog() {
     invalidatePendingScans();
     return _serializeLocalMutation(() async {
-      await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
-        sourceId: _localSourceId,
-        tracks: const [],
-        albums: const [],
-        artists: const [],
-      );
-      ref.read(localScanReportProvider.notifier).clear();
+      try {
+        await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+          sourceId: _localSourceId,
+          tracks: const [],
+          albums: const [],
+          artists: const [],
+        );
+        ref.read(localScanReportProvider.notifier).clear();
+      } finally {
+        await _load();
+      }
+    });
+  }
+
+  /// Takes the tracks of [folder], which the user just removed from the
+  /// selection, out of the local catalog, after any already-started local
+  /// write. Every other row stays exactly as it was, stamp included.
+  ///
+  /// The rescan of [remaining] that follows a removal drops them as well, but
+  /// only when it can read one of those folders: a scan that reads nothing
+  /// writes nothing. With the other drives unplugged, the removed folder's
+  /// music would stay in the library under a folder that is no longer
+  /// selected, with nothing left in Settings to remove it from.
+  ///
+  /// A row goes only when it is a path [folder] owns and no folder in
+  /// [remaining] owns. A `content://` tree or the device-wide library cannot be
+  /// matched to its rows by path, so removing one of those drops nothing here.
+  ///
+  /// Pending scans are superseded first, as [clearLocalCatalog] does, so a
+  /// walk that started before the removal cannot write these tracks back. The
+  /// catalog is reloaded either way, so a scan superseded here never leaves
+  /// the library loading.
+  Future<void> removeFolderTracks(
+    String folder, {
+    required List<String> remaining,
+  }) {
+    if (!FolderLocation.parse(folder).isFilesystemPath) {
+      return Future<void>.value();
+    }
+    invalidatePendingScans();
+    final List<String> stillSelected = LocalMusicRoots.normalize(remaining);
+    return _serializeLocalMutation(() async {
+      try {
+        final List<StampedTrack>? current = await _localCatalogSnapshot();
+        if (current != null) {
+          final List<StampedTrack> kept = <StampedTrack>[
+            for (final StampedTrack stamped in current)
+              if (!LocalMusicRoots.owns(folder, stamped.track.uri) ||
+                  LocalMusicRoots.ownerOf(stamped.track.uri, stillSelected) !=
+                      null)
+                stamped,
+          ];
+          if (kept.length < current.length) {
+            final MusicLibraryRepository repository =
+                ref.read(musicLibraryRepositoryProvider);
+            if (repository is StampedCatalogWriter) {
+              await (repository as StampedCatalogWriter).upsertStampedCatalog(
+                sourceId: _localSourceId,
+                tracks: kept,
+              );
+            } else {
+              final List<Track> tracks = <Track>[
+                for (final StampedTrack stamped in kept) stamped.track,
+              ];
+              await repository.upsertCatalog(
+                sourceId: _localSourceId,
+                tracks: tracks,
+                albums: groupAlbums(tracks),
+                artists: groupArtists(tracks),
+              );
+            }
+          }
+        }
+      } catch (_) {
+        // Left as it was. The rescan that follows still drops these tracks
+        // as soon as one of the remaining folders can be read.
+      }
       await _load();
     });
   }
@@ -148,7 +271,7 @@ class LibraryController extends Notifier<LibraryState> {
     // otherwise do metadata and artwork I/O for the whole MediaStore traversal.
     invalidatePendingScans();
     final int generation = _scanGeneration;
-    state = const LibraryState.loading();
+    _showLoading();
     final List<String> roots = LocalMusicRoots.normalize(folderPaths);
     try {
       // The stored slice, with each row's on-disk stamp. Three jobs: an
@@ -176,17 +299,44 @@ class LibraryController extends Notifier<LibraryState> {
       // provider hands out.
       final LocalMetadataReader metadataReader =
           ref.read(localMetadataReaderProvider);
-      final scanner = LocalLibraryScanner((String root) {
-        return LocalMusicSource(
-          folderPath: root,
-          scanner: ref.read(audioFileScannerProvider),
-          safDocumentLister: ref.read(safDocumentListerProvider),
-          androidMediaLibrary: ref.read(androidMediaLibraryProvider),
-          metadataReader: metadataReader,
-          statReader: ref.read(localFileStatReaderProvider),
-          alreadyIndexed: alreadyIndexed,
-        ).scanTracks();
-      });
+
+      // An unchanged file's row is reused as it is, cover included, so a
+      // cover its cache no longer holds (the cache was reclaimed) would stay
+      // missing for good. Those files are read again instead.
+      final Set<Uri> missingArtwork =
+          alreadyIndexed.isEmpty || metadataReader is! LocalArtworkInventory
+              ? const <Uri>{}
+              : await (metadataReader as LocalArtworkInventory).missingArtwork(
+                  <Uri>{
+                    for (final StampedTrack stamped in alreadyIndexed.values)
+                      if (stamped.track.artworkUri != null)
+                        stamped.track.artworkUri!,
+                  },
+                );
+      if (generation != _scanGeneration) return null;
+
+      final LocalFileStatReader statReader =
+          ref.read(localFileStatReaderProvider);
+      final scanner = LocalLibraryScanner(
+        (String root) {
+          return LocalMusicSource(
+            folderPath: root,
+            scanner: ref.read(audioFileScannerProvider),
+            safDocumentLister: ref.read(safDocumentListerProvider),
+            androidMediaLibrary: ref.read(androidMediaLibraryProvider),
+            metadataReader: metadataReader,
+            statReader: statReader,
+            alreadyIndexed: alreadyIndexed,
+            missingArtwork: missingArtwork,
+          ).scanTracks();
+        },
+        // Lets a file moved while the walk ran be matched to where it went
+        // (see LocalLibraryScanner._dropMovedAway). Only where paths are read.
+        isGone: statReader is LocalFileAbsence
+            ? (String path, String root) =>
+                (statReader as LocalFileAbsence).isGone(path, root: root)
+            : null,
+      );
       final LocalLibraryScan scan = await scanner.scan(
         roots: roots,
         previousTracks: previousTracks,
@@ -298,8 +448,12 @@ class LibraryController extends Notifier<LibraryState> {
         // would tell the user to reconnect a drive that is sitting right there.
       );
       ref.read(localScanReportProvider.notifier).record(report);
-      _loadGeneration++;
-      state = const LibraryState.error(_scanFailedMessage);
+      // The catalog write is one transaction, so a write that failed (a full
+      // disk, a database gone read-only) left the catalog exactly as it was.
+      // Show it, for the same reason a scan that could write nothing does:
+      // an error page in its place says the music is gone, and its advice to
+      // select the folder again would not help.
+      await _showCatalogOrError(_scanFailedMessage);
       return report;
     }
   }
@@ -405,9 +559,29 @@ class LibraryController extends Notifier<LibraryState> {
       "Couldn't open your music library. Try again, or rescan your music "
       'folder.';
 
+  /// Shows the loading state, unless the library already has music on screen.
+  ///
+  /// A rescan or a reload replaces what is shown only once its new catalog is
+  /// ready. Blanking the library for the length of a walk hid every track,
+  /// local and server alike, behind "Loading your library" whenever the folder
+  /// watcher or a returning drive started a rescan, and threw away the scroll
+  /// position of every list and album page the user was reading. A walk that
+  /// never answers (a network share whose server went away) never gave the
+  /// library back at all. With nothing shown yet there is nothing to keep, so
+  /// the first load still shows the spinner.
+  void _showLoading() {
+    final LibraryState? shown = stateOrNull;
+    if (shown != null &&
+        shown.status == LibraryStatus.loaded &&
+        shown.tracks.isNotEmpty) {
+      return;
+    }
+    state = const LibraryState.loading();
+  }
+
   Future<void> _load() async {
     final int generation = ++_loadGeneration;
-    state = const LibraryState.loading();
+    _showLoading();
     try {
       final tracks =
           await ref.read(musicLibraryRepositoryProvider).getAllTracks();

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/playback_state.dart';
 import '../models/track.dart';
+import 'playback_history_recorder.dart';
 import 'server_playback_reporter.dart';
 
 /// What the service last told reporters about the current track, so raw state
@@ -83,6 +84,10 @@ class PlaybackReportingService {
   Duration _lastPosition = Duration.zero;
   Duration _lastDuration = Duration.zero;
 
+  /// The furthest position reached in the current play of [_track], which is
+  /// what tells a replay of the same track (see [_isReplay]) from a seek.
+  Duration _furthest = Duration.zero;
+
   /// Pending reporter calls, dispatched strictly in order, one at a time.
   final List<Future<void> Function()> _pending = <Future<void> Function()>[];
   bool _draining = false;
@@ -106,16 +111,32 @@ class PlaybackReportingService {
       _phase = _ReportedPhase.none;
       _lastPosition = Duration.zero;
       _lastDuration = Duration.zero;
+      _furthest = Duration.zero;
     }
 
     final Track? current = _track;
     if (current == null) return;
+
+    // The same track starting over is a new play too. Repeat-one replays the
+    // track in place (and so does repeat-all with one track queued): the
+    // controller seeks it back to the start, with no track change and no
+    // completed status in between. Unreported, a server would hear one play
+    // stretched over every pass, and count (or scrobble) none of them.
+    if (_isActive && _isReplay(state)) {
+      final Duration end = _furthest;
+      final Duration length = _lastDuration;
+      _phase = _ReportedPhase.stopped;
+      _enqueue(() => _reporter.onPlaybackStopped(current, end, length));
+      _lastPosition = Duration.zero;
+      _furthest = Duration.zero;
+    }
 
     // Prefer the engine's live values; fall back to the catalog's duration
     // (and the last observed position for the zeroed stop/error states).
     final Duration duration =
         state.duration > Duration.zero ? state.duration : current.duration;
     if (state.position > Duration.zero) _lastPosition = state.position;
+    if (state.position > _furthest) _furthest = state.position;
     if (duration > Duration.zero) _lastDuration = duration;
 
     switch (state.status) {
@@ -125,6 +146,10 @@ class PlaybackReportingService {
           case _ReportedPhase.none:
           case _ReportedPhase.stopped:
             _phase = _ReportedPhase.playing;
+            // A play of its own (the song played again after it ended or was
+            // stopped): how far an earlier one got, already reported, or a
+            // place it was put back at before it played, is not this one's.
+            _furthest = position;
             _lastProgressAt = _now();
             _enqueue(
                 () => _reporter.onPlaybackStarted(current, position, duration));
@@ -173,6 +198,21 @@ class PlaybackReportingService {
   /// Whether the server currently believes this track has an open session.
   bool get _isActive =>
       _phase == _ReportedPhase.playing || _phase == _ReportedPhase.paused;
+
+  /// Whether [state] is the current track starting again after its play
+  /// reached the end, rather than a seek within it: the rule the
+  /// recent-playback history closes a pass by ([PlaybackHistoryRecorder]),
+  /// so the two never disagree about what one play is.
+  bool _isReplay(PlaybackState state) {
+    final Duration length = _lastDuration;
+    if (length <= Duration.zero) return false;
+    if (state.position > PlaybackHistoryRecorder.replayThreshold) return false;
+    if (_furthest <= PlaybackHistoryRecorder.replayThreshold) return false;
+    // The end tolerance, capped at a quarter of a short track.
+    final Duration quarter = length ~/ 4;
+    const Duration tolerance = PlaybackHistoryRecorder.endTolerance;
+    return _furthest >= length - (quarter < tolerance ? quarter : tolerance);
+  }
 
   void _enqueue(Future<void> Function() report) {
     _pending.add(report);

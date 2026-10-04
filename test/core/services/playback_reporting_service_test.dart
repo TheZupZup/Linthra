@@ -1,8 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/just_audio_playback_controller.dart';
+import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/playback_reporting_service.dart';
 import 'package:linthra/core/services/server_playback_reporter.dart';
 
@@ -94,6 +98,103 @@ class _GatedReporter extends _RecordingReporter {
     await gate.future;
     await super.onPlaybackPaused(track, position, duration);
   }
+}
+
+/// An engine with just_audio's behaviour where it matters here: a source
+/// handed over starts out at its own beginning (just_audio publishes the new
+/// source's position, zero, the moment setUrl is called), keeps the playing
+/// flag it had, and takes a server round trip to open; a seek publishes where
+/// it went. A stream that drops surfaces as an error on the event stream, as
+/// ExoPlayer's "Source error" does.
+class _StreamingEngine extends Fake implements AudioPlayer {
+  final StreamController<PlayerState> _states =
+      StreamController<PlayerState>.broadcast();
+  final StreamController<Duration> _positions =
+      StreamController<Duration>.broadcast();
+  final StreamController<Duration?> _durations =
+      StreamController<Duration?>.broadcast();
+  final StreamController<PlaybackEvent> _events =
+      StreamController<PlaybackEvent>.broadcast();
+
+  static const Duration length = Duration(minutes: 3);
+  static const Duration openTime = Duration(milliseconds: 400);
+
+  bool _playing = false;
+
+  @override
+  Stream<PlayerState> get playerStateStream => _states.stream;
+  @override
+  Stream<Duration> get positionStream => _positions.stream;
+  @override
+  Stream<Duration?> get durationStream => _durations.stream;
+  @override
+  Stream<PlaybackEvent> get playbackEventStream => _events.stream;
+
+  @override
+  Future<Duration?> setUrl(
+    String url, {
+    Map<String, String>? headers,
+    Duration? initialPosition,
+    bool preload = true,
+    dynamic tag,
+  }) async {
+    _positions.add(initialPosition ?? Duration.zero);
+    _states.add(PlayerState(_playing, ProcessingState.loading));
+    await Future<void>.delayed(openTime);
+    _durations.add(length);
+    _states.add(PlayerState(_playing, ProcessingState.ready));
+    return length;
+  }
+
+  @override
+  Future<void> play() async {
+    _playing = true;
+    _states.add(PlayerState(true, ProcessingState.ready));
+  }
+
+  @override
+  Future<void> pause() async {
+    _playing = false;
+    _states.add(PlayerState(false, ProcessingState.ready));
+  }
+
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    _positions.add(position ?? Duration.zero);
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> stop() async {
+    _playing = false;
+    _states.add(PlayerState(false, ProcessingState.idle));
+  }
+
+  @override
+  Future<void> dispose() async {}
+
+  void playsOnTo(Duration position) => _positions.add(position);
+
+  void dropsStream() => _events.addError(
+      PlayerException(0, 'Source error', <String, dynamic>{}),
+      StackTrace.empty);
+
+  void ends() => _states.add(PlayerState(_playing, ProcessingState.completed));
+}
+
+class _StreamResolver implements PlayableUriResolver {
+  int _resolves = 0;
+
+  @override
+  bool handles(Track track) => true;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async => ResolvedPlayable(
+        Uri.parse('https://music.example/${track.id}?n=${++_resolves}'),
+        PlaybackSource.streamingDirect,
+      );
 }
 
 Track _track(String id, {Duration duration = Duration.zero}) =>
@@ -356,6 +457,55 @@ void main() {
       await service.dispose();
     });
 
+    test('each repeat-one pass is reported as a play of its own', () async {
+      // Repeat-one replays the track in place: the controller seeks it back
+      // to the start and plays on, publishing no track change and no
+      // completed status, only the position coming back to zero. The server
+      // has to hear each pass end, or it counts (and scrobbles) none of them.
+      final service = build(progressInterval: const Duration(hours: 1));
+      final Track a = _track('a');
+      final Track b = _track('b');
+      const Duration d = Duration(minutes: 3);
+
+      states.add(_state(PlaybackStatus.playing, a, duration: d));
+      states.add(_state(PlaybackStatus.playing, a,
+          position: const Duration(minutes: 1), duration: d));
+      states.add(_state(PlaybackStatus.playing, a,
+          position: const Duration(minutes: 2, seconds: 59, milliseconds: 800),
+          duration: d));
+      // The end: the same track again from the top.
+      states.add(_state(PlaybackStatus.playing, a,
+          position: const Duration(milliseconds: 250), duration: d));
+      states.add(_state(PlaybackStatus.playing, a,
+          position: const Duration(seconds: 40), duration: d));
+      // Then on to the next track partway through the second pass.
+      states.add(_state(PlaybackStatus.loading, b));
+      await _settle();
+
+      expect(reporter.events, <String>[
+        'started:a@0/180000',
+        'stopped:a@179800/180000',
+        'started:a@250/180000',
+        'changed:a->b',
+      ]);
+      await service.dispose();
+    });
+
+    test('a seek back within the track is not a new play', () async {
+      final service = build(progressInterval: const Duration(hours: 1));
+      final Track a = _track('a');
+      const Duration d = Duration(minutes: 3);
+
+      states.add(_state(PlaybackStatus.playing, a,
+          position: const Duration(minutes: 2), duration: d));
+      // Back to the very start, but the track never reached its end.
+      states.add(_state(PlaybackStatus.playing, a, duration: d));
+      await _settle();
+
+      expect(reporter.events, <String>['started:a@120000/180000']);
+      await service.dispose();
+    });
+
     test('a same-id provider fallback is reported as a track change', () async {
       // A preferred copy fails and playback falls back to another provider's
       // copy that shares the bare id. The reporting identity is the uri, so the
@@ -507,6 +657,63 @@ void main() {
       await _settle();
 
       expect(reporter.events, isEmpty);
+    });
+  });
+
+  group('with the real player', () {
+    // A one-song queue played to its end, then Play to hear it again: the
+    // controller starts the song over (as it does after Stop at the end, or
+    // a seek back into a finished queue). That is a new play; the one before
+    // it was already reported stopped at its end.
+    // A widget test only for its fake clock.
+    testWidgets('playing a song again after it ended counts it once more',
+        (WidgetTester tester) async {
+      final _StreamingEngine engine = _StreamingEngine();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: _StreamResolver(),
+      );
+      final _RecordingReporter reporter = _RecordingReporter();
+      final PlaybackReportingService service = PlaybackReportingService(
+        playbackStates: controller.stateStream,
+        reporter: reporter,
+        progressInterval: const Duration(hours: 1),
+      );
+      final Track a = _track('a', duration: _StreamingEngine.length);
+
+      unawaited(controller.playTracks(<Track>[a]));
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.state.status, PlaybackStatus.playing);
+      engine.playsOnTo(const Duration(minutes: 2, seconds: 59));
+      await tester.pump(const Duration(milliseconds: 500));
+      engine.ends();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.state.status, PlaybackStatus.completed);
+
+      // The listener plays it again.
+      unawaited(controller.play());
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.state.status, PlaybackStatus.playing);
+      engine.playsOnTo(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+      engine.playsOnTo(const Duration(seconds: 1, milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        reporter.events,
+        <String>[
+          'started:a@0/180000',
+          'stopped:a@179000/180000',
+          'started:a@0/180000',
+        ],
+        reason: 'the first play was reported stopped once, at its end; a '
+            'second stop there counts (and scrobbles) it again',
+      );
+
+      unawaited(service.dispose());
+      unawaited(controller.dispose());
+      await tester.pump(const Duration(seconds: 1));
     });
   });
 }

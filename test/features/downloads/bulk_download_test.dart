@@ -11,6 +11,8 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/bulk_downloader.dart';
+import 'package:linthra/core/services/connectivity_service.dart';
+import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
@@ -305,6 +307,100 @@ void main() {
       expect(find.text('Rename'), findsOneWidget);
       expect(find.text('Delete playlist'), findsOneWidget);
     });
+
+    // Trimming a playlist and then taking it offline: the removal's Undo is
+    // still on screen (a message with an action stays until it is used or
+    // swiped away) when the batch is confirmed, so the batch's "Downloading"
+    // line waits behind it. The result, minutes later, must not take that
+    // Undo away, and must not leave the "Downloading" line up for a batch
+    // that has finished.
+    testWidgets('the result does not take away an Undo that is still on screen',
+        (tester) async {
+      final InMemoryPlaylistStore store = InMemoryPlaylistStore();
+      await store.save(<Playlist>[
+        const Playlist(
+          id: 'p1',
+          name: 'Road Trip',
+          trackIds: <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3'],
+        ),
+      ]);
+      const List<Track> tracks = <Track>[
+        Track(id: '1', title: 'Alpha', uri: 'jellyfin:1'),
+        Track(id: '2', title: 'Beta', uri: 'jellyfin:2'),
+        Track(id: '3', title: 'Gamma', uri: 'jellyfin:3'),
+      ];
+      final GoRouter router = GoRouter(
+        initialLocation: '/playlists/detail/p1',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/playlists/detail/:id',
+            builder: (_, GoRouterState s) =>
+                PlaylistDetailScreen(playlistId: s.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: AppRoutes.downloads,
+            builder: (_, __) => const DownloadsScreen(),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            musicLibraryRepositoryProvider
+                .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+            playlistStoreProvider.overrideWithValue(store),
+            playbackControllerProvider
+                .overrideWithValue(FakePlaybackController()),
+            downloadRepositoryProvider
+                .overrideWithValue(FakeDownloadRepository()),
+            remoteTrackDownloaderProvider
+                .overrideWithValue(FakeRemoteTrackDownloader()),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Beta'),
+            matching: find.byType(ListTile),
+          ),
+          matching: find.byTooltip('Track actions'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from playlist'));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Playlist actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download all'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      // The batch is done, and the Undo is where the listener left it.
+      expect(find.text('Undo'), findsOneWidget);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(
+        (await store.load()).single.trackIds,
+        <String>['jellyfin:1', 'jellyfin:2', 'jellyfin:3'],
+      );
+      // What follows is the batch's result, not a "Downloading" line for a
+      // batch that already finished.
+      expect(find.text('Downloading “Road Trip”.'), findsNothing);
+      expect(
+        find.text('All 2 songs from “Road Trip” are available offline.'),
+        findsOneWidget,
+      );
+    });
   });
 
   group('Counting what the user is shown', () {
@@ -502,4 +598,102 @@ void main() {
       await tester.pump(_tick);
     });
   });
+
+  group('Download all and the account it was started for', () {
+    test(
+        'signing in as someone else stops the batch rather than downloading '
+        'the rest for them', () async {
+      String? account = 'jellyfin:alice';
+      final _AccountFetches fetches = _AccountFetches(() => account);
+      // The real download repository, built the way the app builds it.
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          remoteTrackDownloaderProvider.overrideWithValue(fetches),
+          connectivityServiceProvider.overrideWithValue(_OnWifi()),
+          downloadAccountScopeProvider
+              .overrideWith((ref) => (Track _) => account),
+          bulkDownloaderProvider
+              .overrideWithValue(const BulkDownloader(maxOutstanding: 1)),
+        ],
+      );
+      addTearDown(container.dispose);
+      Future<void> settle() async {
+        for (int i = 0; i < 100; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      final Future<BulkDownloadSummary?> batch =
+          container.read(bulkDownloadControllerProvider.notifier).start(
+        label: 'Road Trip',
+        tracks: const <Track>[
+          Track(id: '1', title: 'One', uri: 'jellyfin:1'),
+          Track(id: '2', title: 'Two', uri: 'jellyfin:2'),
+          Track(id: '3', title: 'Three', uri: 'jellyfin:3'),
+        ],
+      );
+      await settle();
+      expect(fetches.fetched, <String>['1@jellyfin:alice']);
+
+      // Alice signs out and Bob signs in while her first song still fetches.
+      account = 'jellyfin:bob';
+      for (int round = 0; round < 4; round++) {
+        fetches.releaseAll();
+        await settle();
+      }
+      final BulkDownloadSummary? summary = await batch;
+
+      // Bob asked for none of it: nothing is fetched or saved for him.
+      expect(fetches.fetched, <String>['1@jellyfin:alice']);
+      expect(
+        await container.read(downloadRepositoryProvider).downloadedTrackKeys(),
+        isEmpty,
+      );
+      expect(summary?.canceled, isTrue);
+    });
+  });
+}
+
+/// Wi-Fi, so the network policy lets every download run.
+class _OnWifi implements ConnectivityService {
+  @override
+  Stream<NetworkStatus> get statusStream => const Stream<NetworkStatus>.empty();
+
+  @override
+  Future<NetworkStatus> currentStatus() async => NetworkStatus.wifi;
+}
+
+/// A Jellyfin downloader that fetches with whichever account is signed in when
+/// a fetch starts, as the real one does, and holds each fetch until the test
+/// releases it.
+class _AccountFetches implements RemoteTrackDownloader {
+  _AccountFetches(this._account);
+
+  final String? Function() _account;
+
+  /// Each fetch as `<track id>@<account>`, in the order they started.
+  final List<String> fetched = <String>[];
+  final List<Completer<void>> _held = <Completer<void>>[];
+
+  void releaseAll() {
+    for (final Completer<void> held in _held) {
+      if (!held.isCompleted) held.complete();
+    }
+  }
+
+  @override
+  bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<RemoteTrackData> fetch(
+    Track track, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    fetched.add('${track.id}@${_account() ?? 'nobody'}');
+    final Completer<void> held = Completer<void>();
+    _held.add(held);
+    await held.future;
+    return const RemoteTrackData(
+        bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
+  }
 }

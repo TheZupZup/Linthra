@@ -208,6 +208,41 @@ void main() {
     expect(client.itemRequests.last.page, 1);
   });
 
+  testWidgets('a library that cannot be listed does not trap the browser in it',
+      (tester) async {
+    // The server answers for one library and fails for the other every time
+    // (a 500 on that library's items, or a listing too slow to finish).
+    final client = _OneLibraryFailsClient(
+      failingLibraryId: 'lib-kids',
+      libraries: <AudiobookshelfLibraryDto>[_bookLibrary, _otherBookLibrary],
+    );
+    client.itemsByLibrary['lib-books'] = <AudiobookshelfLibraryItemDto>[
+      _book('item-1', 'The Hobbit'),
+    ];
+
+    await _pump(tester, client: client);
+    expect(find.text('The Hobbit'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Kids'));
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsOneWidget);
+    // Trying again asks for the same library, which fails the same way.
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsOneWidget);
+
+    expect(
+      find.widgetWithText(ChoiceChip, 'Audiobooks'),
+      findsOneWidget,
+      reason: 'the library that works must stay reachable, or the browser '
+          'stays on the failing one until the app is restarted',
+    );
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Audiobooks'));
+    await tester.pumpAndSettle();
+    expect(find.text('The Hobbit'), findsOneWidget);
+    expect(find.text('Try again'), findsNothing);
+  });
+
   testWidgets('never renders the access token', (tester) async {
     final client = FakeAudiobookshelfClient(
       libraries: <AudiobookshelfLibraryDto>[_bookLibrary],
@@ -236,4 +271,36 @@ void main() {
       );
     });
   });
+}
+
+/// A server whose one library always fails to list, as the real client
+/// reports an HTTP 500 for it, while every other library answers.
+class _OneLibraryFailsClient extends FakeAudiobookshelfClient {
+  _OneLibraryFailsClient({
+    required this.failingLibraryId,
+    required super.libraries,
+  });
+
+  final String failingLibraryId;
+
+  @override
+  Future<AudiobookshelfLibraryItemsPage> fetchLibraryItems(
+    AudiobookshelfSession session, {
+    required String libraryId,
+    required int limit,
+    required int page,
+  }) {
+    if (libraryId == failingLibraryId) {
+      itemRequests.add((libraryId: libraryId, limit: limit, page: page));
+      return Future<AudiobookshelfLibraryItemsPage>.error(
+        AudiobookshelfException.serverError(500),
+      );
+    }
+    return super.fetchLibraryItems(
+      session,
+      libraryId: libraryId,
+      limit: limit,
+      page: page,
+    );
+  }
 }

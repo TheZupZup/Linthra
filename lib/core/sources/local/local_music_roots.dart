@@ -47,14 +47,19 @@ abstract final class LocalMusicRoots {
     return kept;
   }
 
-  /// A stable spelling of one selected folder: trimmed, and for filesystem
-  /// paths normalized (`/music/../music/rock` and a trailing separator both
-  /// collapse) so the same folder picked twice compares equal.
+  /// A stable spelling of one selected folder: blank is no folder, and for
+  /// filesystem paths normalized (`/music/../music/rock` and a trailing
+  /// separator both collapse) so the same folder picked twice compares equal.
+  ///
+  /// A filesystem path keeps its trailing whitespace. On Linux it is part of
+  /// the last folder's name (`Music ` and `Music` are two different folders),
+  /// so trimming it pointed every scan, watch and probe at another folder, or
+  /// at one that does not exist.
   static String canonicalize(String root) {
     final String trimmed = root.trim();
     if (trimmed.isEmpty) return '';
     if (!FolderLocation.parse(trimmed).isFilesystemPath) return trimmed;
-    final String normalized = p.normalize(trimmed);
+    final String normalized = p.normalize(root.trimLeft());
     if (normalized.length > 1 && normalized.endsWith(p.separator)) {
       return normalized.substring(0, normalized.length - 1);
     }

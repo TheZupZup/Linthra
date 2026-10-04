@@ -13,7 +13,8 @@ import '../../models/plex_session.dart';
 /// it.
 ///
 /// It exists for one in-memory question, "is this still the same server and
-/// profile?", asked by smart pre-cache before it keeps bytes it fetched. It is
+/// profile?", asked by smart pre-cache before it keeps bytes it fetched, and
+/// by the playback reporter before it reports more of a play. It is
 /// never persisted, logged, or put in diagnostics.
 String plexSessionFingerprint(PlexSession session) {
   // A NUL separator keeps e.g. ("ab","c") distinct from ("a","bc").

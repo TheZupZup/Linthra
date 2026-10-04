@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -84,7 +86,16 @@ abstract final class CollectionDownloadActions {
     );
     if (!confirmed) return false;
 
-    messenger.showSnackBar(
+    // The result replaces this line and nothing else. Whatever else is on
+    // screen when the batch ends belongs to something the listener did since
+    // (an Undo they have yet to use), and a line still waiting behind it when
+    // the batch ends has nothing left to say, so it steps aside on its turn.
+    bool startedShown = false;
+    bool startedClosed = false;
+    bool finished = false;
+    late final ScaffoldFeatureController<SnackBar, SnackBarClosedReason>
+        started;
+    started = messenger.showSnackBar(
       SnackBar(
         // Deliberately without a number: some of the collection may already be
         // offline, so the batch works on fewer songs than the collection holds,
@@ -96,8 +107,13 @@ abstract final class CollectionDownloadActions {
                 label: 'View',
                 onPressed: () => router.push(AppRoutes.downloads),
               ),
+        onVisible: () {
+          startedShown = true;
+          if (finished) started.close();
+        },
       ),
     );
+    unawaited(started.closed.then((_) => startedClosed = true));
 
     // A batch that another screen started between the confirmation and here is
     // refused by the controller; say so rather than leaving the "downloading"
@@ -113,9 +129,9 @@ abstract final class CollectionDownloadActions {
       // raw error: it can carry a path or store detail.
       message = _failedMessage;
     }
-    messenger
-      ..removeCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    finished = true;
+    if (startedShown && !startedClosed) started.close();
+    messenger.showSnackBar(SnackBar(content: Text(message)));
     return summary != null;
   }
 

@@ -163,6 +163,20 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
+  // Closing this window is the application's own decision to make, and only
+  // the runner can answer a GTK delete-event in time. See
+  // window_lifecycle_channel.h.
+  //
+  // Registered before the view is realized, and that order is the fix rather
+  // than a style choice. Realizing the view is when FlView connects its own
+  // delete-event handler, which turns every close into an app-exit request
+  // and returns TRUE. GTK runs delete-event handlers in the order they were
+  // connected and stops at the first TRUE, so a handler connected after that
+  // never sees a close at all: "keep playing in the background" never hid the
+  // window, and every close quit Linthra and stopped the music.
+  // scripts/check_linux_runner.py holds this order.
+  self->window_lifecycle = window_lifecycle_channel_new(view, window);
+
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.
   g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
@@ -177,11 +191,6 @@ static void my_application_activate(GApplication* application) {
   // zenity/kdialog, which the sandbox does not contain. See
   // folder_picker_channel.h.
   self->folder_picker = folder_picker_channel_new(view, window);
-
-  // Registered on the same engine, and for the same reason: closing this
-  // window is the application's own decision to make, and only the runner can
-  // answer a GTK delete-event in time. See window_lifecycle_channel.h.
-  self->window_lifecycle = window_lifecycle_channel_new(view, window);
 
   // Registered on the same engine. Reading a disc needs no window, so this one
   // takes only the view. See optical_toc_channel.h.

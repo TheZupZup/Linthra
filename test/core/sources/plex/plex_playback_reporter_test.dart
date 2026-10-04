@@ -199,6 +199,85 @@ void main() {
       expect(client.lastBaseUrl, 'https://other.example.com:32400');
     });
 
+    test('reports nothing about a play to a server connected during it',
+        () async {
+      // Connecting to another server leaves the song playing. Its ratingKey
+      // names something else on that server (often not even a song), so
+      // nothing more about this play may reach it.
+      final reporter = build();
+      final Track track = _plexTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = _session.copyWith(
+        baseUrl: 'https://other.example.com:32400',
+        token: 'other-token',
+        machineIdentifier: 'machine-2',
+      );
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.timelineReports, hasLength(1));
+
+      // What plays next from the new server is reported to it.
+      await reporter.onPlaybackStarted(_plexTrack('2'), _position, _duration);
+      expect(client.timelineReports, hasLength(2));
+      expect(client.lastBaseUrl, 'https://other.example.com:32400');
+    });
+
+    test(
+        'reports nothing about a play that started while disconnected to a '
+        'server connected during it', () async {
+      // Disconnecting never stops playback, and the queue can move on to a
+      // song that is already on the device before another server is
+      // connected. That play started under no server, and its ratingKey names
+      // something else on the new one, so nothing about it may reach it.
+      final reporter = build();
+      final Track before = _plexTrack('1');
+      final Track track = _plexTrack('2');
+
+      await reporter.onPlaybackStarted(before, _position, _duration);
+      session = null;
+      await reporter.onTrackChanged(before, track);
+      await reporter.onPlaybackStarted(track, Duration.zero, _duration);
+      session = _session.copyWith(
+        baseUrl: 'https://other.example.com:32400',
+        token: 'other-token',
+        machineIdentifier: 'machine-2',
+      );
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _duration, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.timelineReports, hasLength(1));
+
+      // What plays next from the new server is reported to it.
+      await reporter.onPlaybackStarted(_plexTrack('3'), _position, _duration);
+      expect(client.timelineReports, hasLength(2));
+      expect(client.lastBaseUrl, 'https://other.example.com:32400');
+    });
+
+    test(
+        'reports nothing about a play to another Plex Home profile connected '
+        'during it', () async {
+      // Disconnect, then Connect with Plex as another Home profile of the
+      // same server, leaves the song playing. Each profile has its own token,
+      // and what the server hears with it lands in that profile's history.
+      final reporter = build();
+      final Track track = _plexTrack('1');
+
+      await reporter.onPlaybackStarted(track, _position, _duration);
+      session = null;
+      session = _session.copyWith(token: 'kid-profile-token');
+      await reporter.onPlaybackProgress(track, _position, _duration);
+      await reporter.onPlaybackStopped(track, _position, _duration);
+      await reporter.onTrackChanged(track, null);
+      expect(client.timelineReports, hasLength(1));
+
+      // What the new profile plays next is its own.
+      await reporter.onPlaybackStarted(_plexTrack('2'), _position, _duration);
+      expect(client.timelineReports, hasLength(2));
+      expect(client.lastToken, 'kid-profile-token');
+    });
+
     group('reporting is best-effort and never throws', () {
       test('a typed Plex failure is swallowed', () async {
         client.timelineError = PlexException.notReachable();

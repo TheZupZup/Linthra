@@ -394,6 +394,33 @@ void main() {
       // No further resolve hammering after the bounded escape.
       expect(resolver.calls, <String>['jellyfin:j', 'jellyfin:j']);
     });
+
+    test(
+        'a stall the listener paused is not left loading once the stream fails',
+        () async {
+      final player = _ControllablePlayer();
+      final resolver = _FlappingResolver(reachable: <String>{'jellyfin:j'});
+      final controller = build(player: player, resolver: resolver);
+
+      await controller.playTracks(<Track>[jelly]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+
+      // Paused mid-stall. ExoPlayer goes on buffering, which reads as loading
+      // (out of the watchdog's reach), then gives up on the dead connection.
+      resolver.reachable.remove('jellyfin:j');
+      await controller.pause();
+      controller
+          .handleEngineState(PlayerState(false, ProcessingState.buffering));
+      player.emitError(Exception('Source error'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.state.status, PlaybackStatus.error,
+          reason: 'Loading would never end, with Play disabled');
+      expect(player.playCalls, 1,
+          reason: 'and nothing starts behind the pause');
+    });
   });
 
   group('manual recovery after outage', () {

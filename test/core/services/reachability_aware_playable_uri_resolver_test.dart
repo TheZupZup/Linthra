@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
@@ -31,6 +33,24 @@ class _FakeInner implements PlayableUriResolver {
       Uri.parse('https://stream/${track.id}'),
       PlaybackSource.streamingDirect,
     );
+  }
+}
+
+/// An inner resolver whose calls stay open until the test answers them, in any
+/// order, so two attempts can overlap the way a request stuck on a dead network
+/// and a later retry do.
+class _AnsweredInner implements PlayableUriResolver {
+  final List<Completer<ResolvedPlayable>> calls =
+      <Completer<ResolvedPlayable>>[];
+
+  @override
+  bool handles(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) {
+    final Completer<ResolvedPlayable> call = Completer<ResolvedPlayable>();
+    calls.add(call);
+    return call.future;
   }
 }
 
@@ -287,6 +307,45 @@ void main() {
       final ResolvedPlayable resolved = await sub.resolve(s101);
       expect(resolved.source, PlaybackSource.streamingDirect);
       expect(subInner.calls, 1);
+    });
+
+    test(
+        'an attempt older than one that reached the server neither records '
+        'nor reports its outage', () async {
+      // Wi-Fi drops under a request, which hangs until the client times out.
+      // Meanwhile the phone moves to mobile data and a newer attempt reaches
+      // the server. The old request's verdict predates that answer, so it must
+      // not leave the server remembered, or shown, as unreachable.
+      final reachability = CachingProviderReachability();
+      final observed = <ReachabilityStatus>[];
+      final inner = _AnsweredInner();
+      final resolver = _build(
+        inner: inner,
+        reachability: reachability,
+        onReachabilityObserved: observed.add,
+      );
+
+      final Future<void> stale = expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>()),
+      );
+      final Future<ResolvedPlayable> newer = resolver.resolve(_track);
+      await pumpEventQueue();
+      expect(inner.calls, hasLength(2));
+
+      inner.calls[1].complete(ResolvedPlayable(
+        Uri.parse('https://stream/t1'),
+        PlaybackSource.streamingDirect,
+      ));
+      await newer;
+      inner.calls[0].completeError(const PlaybackResolutionException(
+        'timed out',
+        kind: PlaybackResolutionErrorKind.serverUnreachable,
+      ));
+      await stale;
+
+      expect(reachability.statusOf('jellyfin'), ReachabilityStatus.reachable);
+      expect(observed, <ReachabilityStatus>[ReachabilityStatus.reachable]);
     });
 
     group('reachability observer', () {

@@ -13,6 +13,7 @@ import 'package:linthra/features/downloads/download_providers.dart';
 import 'package:linthra/features/library/library_controller.dart';
 import 'package:linthra/features/library/playback_candidates_provider.dart';
 import 'package:linthra/features/library/playback_source_strategy_controller.dart';
+import 'package:linthra/features/library/source_availability_providers.dart';
 import 'package:linthra/features/library/source_preference_controller.dart';
 import 'package:linthra/features/player/player_providers.dart';
 
@@ -60,6 +61,7 @@ Future<ProviderContainer> _seed({
   required List<Track> subsonic,
   PlaybackSourceStrategy strategy = PlaybackSourceStrategy.preferDefault,
   Set<String> cachedKeys = const <String>{},
+  Set<String>? unavailable,
 }) async {
   final repo = InMemoryMusicLibraryRepository();
   final container = ProviderContainer(
@@ -70,6 +72,8 @@ Future<ProviderContainer> _seed({
       playbackSourceStrategyProvider
           .overrideWith(() => _FixedStrategy(strategy)),
       offlineAvailableTrackKeysProvider.overrideWithValue(cachedKeys),
+      if (unavailable != null)
+        unavailableSourceIdsProvider.overrideWithValue(unavailable),
     ],
   );
   addTearDown(container.dispose);
@@ -207,6 +211,44 @@ void main() {
         subsonic: <Track>[_sub('s', title: 'Hello')],
         strategy: PlaybackSourceStrategy.preferLocalCache,
         // No offline copies.
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      expect(map['jellyfin:j']!.map((Track t) => t.uri).toList(),
+          <String>['jellyfin:j', 'subsonic:s']);
+    });
+  });
+
+  group('playbackCandidatesProvider: a server that cannot be reached', () {
+    test(
+        'a queued copy from it still falls back to the same song\'s other '
+        'copy, which goes first', () async {
+      // Its tracks are held out of the active library while it is away, so
+      // the library plays the copy that works. A copy of it that was already
+      // in the queue (or a playlist, or the restored session) has to get
+      // there too.
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello')],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+        unavailable: <String>{'jellyfin'},
+      );
+
+      final Map<String, List<Track>> map =
+          container.read(playbackCandidatesProvider);
+      expect(map['jellyfin:j']?.map((Track t) => t.uri).toList(),
+          <String>['subsonic:s', 'jellyfin:j']);
+    });
+
+    test('its downloaded copy is not held out and keeps the default order',
+        () async {
+      final container = await _seed(
+        priority: const SourcePriority(<String>['jellyfin', 'subsonic']),
+        jellyfin: <Track>[_jelly('j', title: 'Hello')],
+        subsonic: <Track>[_sub('s', title: 'Hello')],
+        cachedKeys: <String>{CachedTrack.cacheKeyFor('jellyfin', 'j')},
+        unavailable: <String>{'jellyfin'},
       );
 
       final Map<String, List<Track>> map =

@@ -305,6 +305,72 @@ void main() {
       );
     });
 
+    testWidgets('a song stepped back past plays where it is in the queue',
+        (tester) async {
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+      await _pumpPane(tester, controller: controller);
+
+      await controller.playTracks(
+        <Track>[_track('1'), _track('2'), _track('3'), _track('4')],
+      );
+      await tester.pumpAndSettle();
+      // On to 3, then back to 1 with Previous: 2 and 3 are recently played,
+      // and ahead in the queue again.
+      await controller.skipToNext();
+      await controller.skipToNext();
+      await controller.skipToPrevious();
+      await controller.skipToPrevious();
+      await tester.pumpAndSettle();
+      expect(controller.state.currentTrack?.id, '1');
+      expect(
+        controller.state.upNext.map((Track t) => t.id),
+        <String>['2', '3', '4'],
+      );
+
+      // The Recently played row for 3 (Up next lists it too, above).
+      await tester.tap(find.text('Song 3').last);
+      await tester.pumpAndSettle();
+
+      expect(controller.state.currentTrack?.id, '3');
+      expect(
+        controller.state.upNext.map((Track t) => t.id),
+        <String>['4'],
+        reason: 'the queue was replaced by the one song',
+      );
+      expect(
+        controller.state.previous.map((Track t) => t.id),
+        <String>['1', '2'],
+      );
+    });
+
+    testWidgets('the song playing now starts again in place', (tester) async {
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+      await _pumpPane(tester, controller: controller);
+
+      await controller.playTracks(
+        <Track>[_track('1'), _track('2'), _track('3')],
+      );
+      await tester.pumpAndSettle();
+      // On to 2 and back: 2 is recently played and playing again.
+      await controller.skipToNext();
+      await controller.skipToNext();
+      await controller.skipToPrevious();
+      await tester.pumpAndSettle();
+      expect(controller.state.currentTrack?.id, '2');
+
+      // Now playing lists it too, above.
+      await tester.tap(find.text('Song 2').last);
+      await tester.pumpAndSettle();
+
+      expect(controller.state.currentTrack?.id, '2');
+      expect(controller.state.previous.map((Track t) => t.id), <String>['1']);
+      expect(controller.state.upNext.map((Track t) => t.id), <String>['3']);
+      expect(controller.seeks, <Duration>[Duration.zero]);
+      expect(controller.playCount, 1);
+    });
+
     testWidgets('plays a track from an earlier queue through the normal path',
         (tester) async {
       final FakePlaybackController controller = FakePlaybackController();

@@ -201,6 +201,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final NavigatorState? activeBranch =
         widget.branchNavigatorKeys[currentIndex].currentState;
     if (activeBranch?.canPop() ?? false) return false;
+    // The tab's first page can still hold Back for itself: the Library's
+    // selection mode ends on Back. The router never asks it, because all it
+    // pops is the root navigator, whose page is this frame, and the app
+    // closed instead. maybePop runs the page's PopScope and says whether the
+    // page kept the pop.
+    if (activeBranch != null && await activeBranch.maybePop()) return true;
 
     if (currentIndex == 0) return false;
     widget.navigationShell.goBranch(0);

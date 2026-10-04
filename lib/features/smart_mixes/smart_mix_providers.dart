@@ -11,6 +11,8 @@ import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/library_added_store_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
+import '../library/library_controller.dart';
+import '../library/library_state.dart';
 import '../player/favorites_providers.dart';
 
 /// The shared resolver. Stateless and const, so every mix is computed the same
@@ -60,6 +62,9 @@ final smartPlaylistInputsProvider =
       ref.watch(favoriteIdsProvider).valueOrNull ?? const <String>{};
   final Set<String> downloadedKeys =
       ref.watch(_downloadedTrackKeysProvider).valueOrNull ?? const <String>{};
+  // The catalog itself changes too (a scan, a sync, a removed folder or song,
+  // a disconnected server), and the library reloads after each of those.
+  ref.watch(libraryControllerProvider.select((LibraryState s) => s.tracks));
 
   final List<Track> allTracks = await library.getAllTracks();
   final Map<String, DateTime> addedAt = await addedStore.load();

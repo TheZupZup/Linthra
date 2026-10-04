@@ -6,6 +6,7 @@ import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/favorites_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
@@ -14,6 +15,7 @@ import 'package:linthra/core/repositories/remote_sync_gateway.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_music_source.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_favorites_store.dart';
 import 'package:linthra/data/repositories/in_memory_playlist_store.dart';
@@ -21,6 +23,8 @@ import 'package:linthra/data/repositories/jellyfin_favorites_gateway.dart';
 import 'package:linthra/data/repositories/jellyfin_playlist_gateway.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/subsonic_favorites_gateway.dart';
+import 'package:linthra/data/repositories/subsonic_playlist_gateway.dart';
 import 'package:linthra/data/repositories/synced_favorites_repository.dart';
 import 'package:linthra/data/repositories/synced_playlist_repository.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
@@ -28,6 +32,7 @@ import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
+import '../../../core/sources/subsonic/fake_subsonic_client.dart';
 
 const _session = JellyfinSession(
   baseUrl: 'https://music.example.com',
@@ -36,6 +41,13 @@ const _session = JellyfinSession(
   deviceId: 'device-1',
   userName: 'alice',
   serverName: 'Home',
+);
+
+const _navidromeSession = SubsonicSession(
+  baseUrl: 'https://nav.example.com',
+  username: 'alice',
+  salt: 'salt1',
+  token: 'navidrome-token',
 );
 
 /// A recording [MusicLibraryRepository] that captures the last upsert so a test
@@ -662,6 +674,68 @@ void main() {
       expect(state.status, JellyfinSyncStatus.success);
       expect(state.favoritesFailed, isTrue);
       expect(state.message, contains('could not be synced'));
+    });
+
+    // Signed in to Navidrome too. The Jellyfin card reports what came from
+    // Jellyfin: the other server's playlists and hearts loading fine says
+    // nothing about Jellyfin's, which could not be read.
+    test(
+        'a Navidrome account signed in too does not answer for Jellyfin '
+        'playlists and favourites', () async {
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      )
+        ..playlistError = JellyfinException.notReachable()
+        ..favoritesError = JellyfinException.notReachable();
+      final navidrome = FakeSubsonicClient()
+        ..playlists = <SubsonicPlaylistDto>[
+          const SubsonicPlaylistDto(id: 'n-1', name: 'Gym'),
+          const SubsonicPlaylistDto(id: 'n-2', name: 'Focus'),
+        ]
+        ..starredSongIds = <String>{'s1', 's2', 's3'};
+      final playlists = SyncedPlaylistRepository(
+        store: InMemoryPlaylistStore(),
+        gateways: <RemotePlaylistGateway>[
+          JellyfinPlaylistGateway(client: client, session: () => _session),
+          SubsonicPlaylistGateway(
+            client: navidrome,
+            session: () => _navidromeSession,
+          ),
+        ],
+      );
+      addTearDown(playlists.dispose);
+      final favorites = SyncedFavoritesRepository(
+        store: InMemoryFavoritesStore(),
+        gateways: <RemoteFavoritesGateway>[
+          JellyfinFavoritesGateway(client: client, session: () => _session),
+          SubsonicFavoritesGateway(
+            client: navidrome,
+            session: () => _navidromeSession,
+          ),
+        ],
+      );
+      addTearDown(favorites.dispose);
+      final container = _container(
+        repository: _RecordingRepository(),
+        source: _sourceOver(client),
+        playlists: playlists,
+        favorites: favorites,
+      );
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      final state = container.read(jellyfinSyncControllerProvider);
+      expect(state.status, JellyfinSyncStatus.success);
+      expect(state.playlistsFailed, isTrue);
+      expect(state.favoritesFailed, isTrue);
+      expect(state.playlistCount, 0);
+      expect(state.favoriteCount, 0);
+      expect(state.message, contains('could not be loaded'));
+      expect(state.message, contains('could not be synced'));
+      expect(state.message, isNot(contains('2 playlists')));
+      expect(state.message, isNot(contains('3 favorites')));
     });
 
     test('no token leaks into the combined sync message', () async {

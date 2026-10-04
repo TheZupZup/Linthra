@@ -1000,6 +1000,29 @@ def window_lifecycle_problems(root: Path) -> list[str]:
             "running starts a duplicate process instead of presenting the "
             "window it already has (see #401)"
         )
+    # Realizing the view is when FlView connects its own delete-event handler,
+    # which turns every close into an app-exit request and returns TRUE. GTK
+    # runs delete-event handlers in the order they were connected and stops at
+    # the first TRUE, so a channel created after the realize never sees a close:
+    # hide-on-close never hides, and every close quits.
+    code = _blank(my_application, comments=True, strings=True)
+    activate_start, activate_end = _function_body(
+        code, RUNNER_ACTIVATE_FUNCTION, MY_APPLICATION
+    )
+    activate = code[activate_start:activate_end]
+    channel = re.search(r"\bwindow_lifecycle_channel_new\s*\(", activate)
+    realize = re.search(r"\bgtk_widget_realize\s*\(", activate)
+    if (
+        channel is not None
+        and realize is not None
+        and realize.start() < channel.start()
+    ):
+        problems.append(
+            f"{MY_APPLICATION}: window_lifecycle_channel_new() runs after "
+            "gtk_widget_realize(), so FlView's own delete-event handler is "
+            "connected first and turns every close into an app exit: the "
+            "window is never hidden and closing it always quits (see #401)"
+        )
     return problems
 
 

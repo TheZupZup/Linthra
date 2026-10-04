@@ -108,6 +108,13 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// real devices, so this race is reachable.
   bool _restoreSuperseded = false;
 
+  /// Set when the startup restore could not read the saved session (a locked,
+  /// missing or refusing keyring). The session may well still be at rest, so
+  /// the next connect reads it again before replacing it (see
+  /// [_completeConnect]). Cleared once a connect or disconnect settles what is
+  /// stored.
+  bool _savedSessionUnread = false;
+
   /// Moves on every connect and disconnect, so a library listing still out
   /// from an earlier connection can tell its answer no longer applies.
   int _connection = 0;
@@ -134,6 +141,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     try {
       saved = await ref.read(plexSessionStoreProvider).read();
     } catch (error) {
+      _savedSessionUnread = true;
       // A keyring that is missing, locked or denied must not break startup;
       // stay disconnected but say so (statically, token-free), so a user who
       // *was* connected isn't left wondering where their server went. (A
@@ -554,7 +562,18 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// selection, and any rows the previous server synced are dropped quietly:
   /// their ratingKeys belong to another machine and could never play.
   Future<bool> _completeConnect(PlexSession newSession) async {
-    final PlexSession? previous = _session;
+    PlexSession? previous = _session;
+    if (previous == null && _savedSessionUnread) {
+      // The keyring could not be read at launch, which is not the same as
+      // nothing being saved: the session it still holds, with the libraries
+      // picked in it, is what this connect is about to replace. Read it now
+      // that the keyring answers, so connecting again to the same server
+      // keeps them rather than starting over and dropping its synced tracks.
+      final int attempt = _linkAttempt;
+      previous = await _readSavedSessionQuietly();
+      // A cancel, a disconnect or a newer connect owns the card now.
+      if (_linkAttempt != attempt) return false;
+    }
     final bool sameServer = previous != null &&
         previous.machineIdentifier == newSession.machineIdentifier;
     // Persist the client identifier the verify above announced, so every
@@ -589,6 +608,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
 
     _session = stamped;
+    _savedSessionUnread = false;
     _connection++;
     // The just-connected server becomes the active/default provider for picking
     // among duplicate sources, so a song that also lives on another server now
@@ -887,6 +907,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return;
     }
     _session = null;
+    _savedSessionUnread = false;
     _connection++;
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
@@ -928,6 +949,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
           .syncAfterSelectionChange();
     } catch (_) {
       // Reported through PlexSyncState; nothing to add here.
+    }
+  }
+
+  /// What the session store holds right now, or null when it holds nothing or
+  /// still cannot be read (the connect then goes ahead as a first one).
+  Future<PlexSession?> _readSavedSessionQuietly() async {
+    try {
+      return await ref.read(plexSessionStoreProvider).read();
+    } catch (_) {
+      return null;
     }
   }
 

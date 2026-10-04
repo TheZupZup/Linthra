@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
+import 'package:linthra/data/repositories/play_history_repository_provider.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/smart_mixes/smart_mix_detail_screen.dart';
+import 'package:linthra/shared/widgets/loading_indicator.dart';
 
 import '../library/fake_music_library_repository.dart';
 import '../player/fake_playback_controller.dart';
@@ -112,5 +114,78 @@ void main() {
 
       expect(find.text('Mix not found'), findsOneWidget);
     });
+
+    testWidgets(
+        'a song finishing while the mix is open keeps the list where the '
+        'user left it', (tester) async {
+      final List<Track> library = <Track>[
+        for (int i = 0; i < 60; i++)
+          Track(id: 't$i', title: 'Song $i', uri: 'jellyfin:t$i'),
+      ];
+      await _pump(tester, kindId: 'recentlyAdded', tracks: library);
+      await tester.drag(find.byType(ListView), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      final double scrolled = _listOffset(tester);
+      expect(scrolled, greaterThan(0));
+
+      // Music plays on while the user browses: the player records each song
+      // that reaches its end, which is what feeds the play-based mixes.
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SmartMixDetailScreen)));
+      await container
+          .read(playHistoryRepositoryProvider)
+          .recordCompletion(library[3]);
+      await tester.pump();
+
+      expect(
+        find.byType(LoadingIndicator),
+        findsNothing,
+        reason: 'the mix being recomputed is no reason to take it off screen',
+      );
+      await tester.pumpAndSettle();
+      expect(_listOffset(tester), scrolled);
+    });
+
+    testWidgets(
+        "a song's menu acts on that song when the mix reorders under it",
+        (tester) async {
+      final FakePlaybackController controller =
+          await _pump(tester, kindId: 'recentlyPlayed');
+      final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SmartMixDetailScreen)));
+      final history = container.read(playHistoryRepositoryProvider);
+      await history.recordCompletion(_tracks[2]);
+      await history.recordCompletion(_tracks[1]);
+      await history.recordCompletion(_tracks[0]);
+      await tester.pumpAndSettle();
+
+      // Most recent first: A, B, C. The menu of the second song, B.
+      await tester.tap(find.byTooltip('More actions').at(1));
+      await tester.pumpAndSettle();
+      // While it is open a song ends: C moves to the top, B one row down.
+      await history.recordCompletion(_tracks[2]);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Play next'));
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.playNextCalls.map((Track t) => t.title),
+        <String>['Song B'],
+        reason: 'the menu was opened on Song B, and the song now drawn where '
+            'it was is another one',
+      );
+    });
   });
+}
+
+/// How far the mix's track list is scrolled.
+double _listOffset(WidgetTester tester) {
+  return tester
+      .state<ScrollableState>(find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      ))
+      .position
+      .pixels;
 }

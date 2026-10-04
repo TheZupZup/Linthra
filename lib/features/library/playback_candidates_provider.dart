@@ -3,12 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/catalog/logical_track.dart';
 import '../../core/catalog/source_capability.dart';
 import '../../core/catalog/source_strategy.dart';
+import '../../core/catalog/track_identity.dart';
+import '../../core/catalog/track_unifier.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/download_store.dart';
 import '../../core/services/playback_candidate_source.dart';
 import '../downloads/download_providers.dart';
 import '../player/player_providers.dart';
+import 'library_controller.dart';
 import 'playback_source_strategy_controller.dart';
+import 'source_availability_providers.dart';
+import 'source_preference_controller.dart';
 import 'unified_library_providers.dart';
 
 /// Maps *every source copy's* [Track.uri] to its song's ordered source
@@ -69,6 +74,41 @@ final playbackCandidatesProvider = Provider<Map<String, List<Track>>>((ref) {
     // copy, so two providers' same-id tracks never collide on one entry.
     for (final Track candidate in candidates) {
       byTrackUri[candidate.uri] = ordered;
+    }
+  }
+
+  // A server that can't be reached right now has its copies held out of the
+  // active library, so none of them is listed above. One can already be in the
+  // queue, a playlist or the restored session, though, and it must still fall
+  // back to its song's other copies: those first, then itself.
+  final Set<String> unavailable = ref.watch(unavailableSourceIdsProvider);
+  if (unavailable.isNotEmpty) {
+    bool heldOut(Track track) =>
+        unavailable.contains(trackSourceId(track)) &&
+        !cachedKeys.contains(CachedTrack.cacheKeyForTrack(track));
+    for (final LogicalTrack logical in unifyTracks(
+      ref.watch(libraryControllerProvider).tracks,
+      ref.watch(librarySourcePriorityProvider),
+    )) {
+      final List<Track> copies = <Track>[
+        for (final TrackSourceCandidate c in logical.candidates) c.track,
+      ];
+      final List<Track> held = copies.where(heldOut).toList();
+      if (held.isEmpty || held.length == copies.length) continue;
+      final List<Track> ordered = <Track>[
+        ...orderBySourceStrategy(copies, strategy, profileOf)
+            .where((Track t) => !heldOut(t)),
+        ...held,
+      ];
+      final Uri? artwork = ordered
+          .map((Track t) => t.artworkUri)
+          .firstWhere((Uri? art) => art != null, orElse: () => null);
+      final List<Track> fallback = <Track>[
+        for (final Track t in ordered) t.copyWith(artworkUri: artwork),
+      ];
+      for (final Track copy in held) {
+        byTrackUri[copy.uri] = fallback;
+      }
     }
   }
   return byTrackUri;

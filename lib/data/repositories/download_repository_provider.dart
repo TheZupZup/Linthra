@@ -12,6 +12,7 @@ import '../../core/services/android_connectivity_service.dart';
 import '../../core/services/cached_track_locator.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/offline_cache_manager.dart';
+import '../../core/services/offline_copy_origins.dart';
 import '../../core/services/portal_connectivity_service.dart';
 import '../../core/services/remote_track_downloader.dart';
 import '../../core/services/track_prefetcher.dart';
@@ -105,6 +106,13 @@ final currentlyPlayingTrackProvider =
 final downloadAccountScopeProvider =
     Provider<String? Function(Track track)?>((ref) => null);
 
+/// Supplies the server each provider whose ids only mean something on one
+/// server is connected to now, so a download or pre-cache from one server is
+/// never served for another server's song with the same id. The data layer
+/// defaults to none (every copy unbound); the app overrides it for Plex (see
+/// `offlineCopyOriginsOverride`).
+final offlineCopyOriginsProvider = Provider<OfflineCopyOrigins?>((ref) => null);
+
 /// The single [CacheDownloadRepository] the app drives offline downloads
 /// through. It composes the seams above and centralizes the user-initiated,
 /// source-aware, Wi-Fi-respecting, limit-bounded cache policy. Held as the
@@ -127,6 +135,7 @@ final _cacheDownloadRepositoryProvider =
         ? connectivity.statusStream
         : null,
     accountScopeOf: ref.watch(downloadAccountScopeProvider),
+    origins: ref.watch(offlineCopyOriginsProvider),
     // One-time migration of legacy (pre-v0.1.6, sourceType-less) cache records to
     // provider-aware keys, inferring each one's provider from the catalog. Read
     // lazily (not watched) so wiring it never rebuilds the repository.
@@ -169,6 +178,8 @@ final cachedTrackLocatorProvider = Provider<CachedTrackLocator>((ref) {
     // Read lazily so wiring it never rebuilds the locator.
     catalogForLegacyMatch: () =>
         ref.read(musicLibraryRepositoryProvider).getAllTracks(),
+    // A copy from a server other than the one connected now is never served.
+    origins: ref.watch(offlineCopyOriginsProvider),
   );
 });
 

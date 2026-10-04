@@ -150,4 +150,69 @@ void main() {
       expect(find.text('Road Trip'), findsNothing);
     });
   });
+
+  // The list can rebuild a row while that row's dialog is up: the phone turned
+  // sideways to type, a shorter window, a refresh that dropped a playlist. The
+  // change the listener confirmed must still be made.
+  group('PlaylistsScreen row actions after the row was rebuilt', () {
+    Future<InMemoryPlaylistStore> pumpTwelve(WidgetTester tester) async {
+      // A phone held upright, with playlists down to the bottom of the screen.
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      addTearDown(tester.view.reset);
+      final InMemoryPlaylistStore store = InMemoryPlaylistStore();
+      await store.save(<Playlist>[
+        for (int i = 0; i < 12; i++) Playlist(id: 'p$i', name: 'Playlist $i'),
+      ]);
+      await _pump(tester, store);
+      return store;
+    }
+
+    Future<void> openRowMenu(WidgetTester tester, String name) async {
+      final Finder row =
+          find.ancestor(of: find.text(name), matching: find.byType(ListTile));
+      await tester.tap(
+        find.descendant(of: row, matching: find.byTooltip('Playlist actions')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // Landscape leaves room for a few rows only, so the list drops the lower
+    // ones, the row whose dialog is open among them.
+    Future<void> turnSideways(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(915, 412);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a rename saved after the row was rebuilt is applied',
+        (tester) async {
+      final InMemoryPlaylistStore store = await pumpTwelve(tester);
+      await openRowMenu(tester, 'Playlist 8');
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Road Trip');
+
+      await turnSideways(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final List<Playlist> saved = await store.load();
+      expect(saved.firstWhere((Playlist p) => p.id == 'p8').name, 'Road Trip');
+    });
+
+    testWidgets('a delete confirmed after the row was rebuilt is applied',
+        (tester) async {
+      final InMemoryPlaylistStore store = await pumpTwelve(tester);
+      await openRowMenu(tester, 'Playlist 8');
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      await turnSideways(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+
+      final List<Playlist> saved = await store.load();
+      expect(saved.map((Playlist p) => p.id), isNot(contains('p8')));
+    });
+  });
 }
