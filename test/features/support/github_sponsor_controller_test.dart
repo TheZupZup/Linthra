@@ -170,8 +170,7 @@ void main() {
     client.failVerification = true;
     await container
         .read(githubSponsorControllerProvider.notifier)
-        .revalidateIfStale(
-            now: DateTime.now().add(const Duration(hours: 7)));
+        .revalidateIfStale(now: DateTime.now().add(const Duration(hours: 7)));
 
     expect(
       container.read(githubSponsorControllerProvider).valueOrNull?.access,
