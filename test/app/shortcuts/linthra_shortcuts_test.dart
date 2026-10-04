@@ -620,8 +620,9 @@ void main() {
 
       await _pressCtrl(tester, LogicalKeyboardKey.keyU);
 
-      // The shell cannot answer from up there, so the app-level fallback does.
-      expect(find.byType(BottomSheet), findsOneWidget);
+      // The shell cannot answer from up there, so the app-level fallback does,
+      // with the desktop's side sheet.
+      expect(find.byKey(const Key('queue_side_sheet')), findsOneWidget);
 
       // The fallback is a toggle too.
       await _pressCtrl(tester, LogicalKeyboardKey.keyU);

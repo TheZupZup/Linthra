@@ -12,6 +12,7 @@ import '../../../core/repositories/playlist_repository.dart';
 import '../../../data/repositories/host_platform_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/focus/list_keyboard_navigation.dart';
+import '../../../shared/layout/desktop_presentation.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../../shared/widgets/reorder_focus_walk.dart';
 import '../../../shared/widgets/reorder_handle.dart';
@@ -21,21 +22,99 @@ import '../playback_history_providers.dart';
 import '../player_providers.dart';
 import 'album_artwork.dart';
 
-/// Opens the advanced Queue / Up Next manager as a tall bottom sheet.
+/// Width the queue is drawn at whenever it is a pane beside other content:
+/// the shell's desktop column, and the desktop side sheet.
+const double queuePaneWidth = 340;
+
+/// Opens the advanced Queue / Up Next manager.
 ///
-/// It's a sheet (not a route) so it floats over Now Playing without leaving it —
-/// browsing the queue never touches playback. The current track keeps playing
-/// while the listener reorders, removes, or jumps around the queue.
+/// On a phone it is a tall bottom sheet. It's a sheet (not a route) so it
+/// floats over Now Playing without leaving it: browsing the queue never
+/// touches playback. The current track keeps playing while the listener
+/// reorders, removes, or jumps around the queue.
+///
+/// A desktop gets it from the side instead, as the same pane the shell's queue
+/// column shows (#416): no drag handle to pull at with a mouse, the session
+/// history the column lists (#419), and the page still in view beside it.
+/// That is what a desktop window too narrow for the column opens from the
+/// bottom bar, and what Now Playing and the keyboard open.
 ///
 /// However it is opened, the sheet claims the queue shortcut while it is up
 /// (see [_ModalQueueSheet]), so the chord that shows it can also take it away.
 Future<void> showQueueSheet(BuildContext context) {
+  if (usesDesktopPresentation(context)) return _showQueueSideSheet(context);
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) => const _ModalQueueSheet(),
+    builder: (_) => const _ModalQueueSheet(child: QueueSheet()),
   );
+}
+
+Future<void> _showQueueSideSheet(BuildContext context) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Colors.black26,
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (BuildContext sheetContext, _, __) => _ModalQueueSheet(
+      child: _QueueSideSheet(
+        onClose: () => Navigator.of(sheetContext).pop(),
+      ),
+    ),
+    transitionBuilder: (
+      BuildContext context,
+      Animation<double> animation,
+      Animation<double> secondaryAnimation,
+      Widget child,
+    ) {
+      final bool rtl = Directionality.of(context) == TextDirection.rtl;
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: Offset(rtl ? -1 : 1, 0),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        ),
+        child: child,
+      );
+    },
+  );
+}
+
+/// The queue pane, full height along the window's end edge.
+class _QueueSideSheet extends StatelessWidget {
+  const _QueueSideSheet({required this.onClose});
+
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Align(
+      alignment: AlignmentDirectional.centerEnd,
+      child: SizedBox(
+        key: const Key('queue_side_sheet'),
+        width: queuePaneWidth,
+        height: double.infinity,
+        child: Material(
+          color: theme.colorScheme.surfaceContainerLow,
+          elevation: 1,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.md),
+              child: QueueSheet(embedded: true, onClose: onClose),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The queue sheet, with the app's queue shortcut (#391) pointed at it.
@@ -47,7 +126,10 @@ Future<void> showQueueSheet(BuildContext context) {
 /// opened. The embedded pane is not this: the desktop column is the frame's,
 /// and the frame claims the action for itself.
 class _ModalQueueSheet extends ConsumerStatefulWidget {
-  const _ModalQueueSheet();
+  const _ModalQueueSheet({required this.child});
+
+  /// The queue as this host draws it: the bottom sheet's, or the side sheet's.
+  final Widget child;
 
   @override
   ConsumerState<_ModalQueueSheet> createState() => _ModalQueueSheetState();
@@ -91,7 +173,7 @@ class _ModalQueueSheetState extends ConsumerState<_ModalQueueSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => const QueueSheet();
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// The Queue / Up Next manager.

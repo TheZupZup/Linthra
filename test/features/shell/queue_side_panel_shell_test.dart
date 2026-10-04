@@ -288,7 +288,7 @@ void main() {
     expect(find.byType(QueueSidePanel), findsOneWidget);
   });
 
-  testWidgets('a narrow desktop window keeps the queue sheet',
+  testWidgets('a narrow desktop window opens the queue from the side',
       (WidgetTester tester) async {
     await _pumpShell(
       tester,
@@ -300,8 +300,19 @@ void main() {
     await tester.tap(find.byTooltip('Queue'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(BottomSheet), findsOneWidget);
+    // Not the phone's bottom sheet, and not the column either: the window has
+    // no room for one. The same pane, over the page, along the end edge.
+    expect(find.byType(BottomSheet), findsNothing);
     expect(find.byType(QueueSidePanel), findsNothing);
+    expect(find.byKey(const Key('queue_side_sheet')), findsOneWidget);
+    expect(
+      tester.getRect(find.byKey(const Key('queue_side_sheet'))).right,
+      _narrowDesktopWindow.width,
+    );
+
+    await tester.tap(find.byTooltip('Close queue'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('queue_side_sheet')), findsNothing);
   });
 
   testWidgets('a wide Android window keeps the phone layout',
