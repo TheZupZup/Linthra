@@ -339,6 +339,35 @@ void main() {
       expect(service.backgroundPermission, BackgroundPermission.allowed);
     });
 
+    test(
+        'a refusal that comes once the window is already hidden quits the '
+        'normal way', () async {
+      int shutdowns = 0;
+      service.installShutdown(() async => shutdowns++);
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+      // The window is closed, and hidden, while the desktop still decides.
+      await window.report(DesktopWindowVisibility.hidden);
+      expect(window.quitCount, 0);
+
+      // Left hidden, the desktop would kill it a few seconds from now.
+      await desktop.answer(BackgroundPermission.denied);
+
+      expect(shutdowns, 1);
+      expect(window.quitCount, 1);
+    });
+
+    test('a refusal with the window on screen only changes the next close',
+        () async {
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+
+      await desktop.answer(BackgroundPermission.denied);
+
+      expect(window.quitCount, 0);
+      expect(window.hideOnClose.last, isFalse);
+    });
+
     test('checking again with quitting chosen asks nothing', () async {
       service.setCloseBehavior(DesktopCloseBehavior.quit);
 

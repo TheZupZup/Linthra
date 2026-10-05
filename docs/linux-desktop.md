@@ -1794,7 +1794,9 @@ What that buys, in the order the requirements ask for it:
   desktop says no, closing the window quits the normal way and the settings
   card says why, with a **Check again** button that asks again, for after the
   permission was changed in the system settings (the option is still the
-  chosen one, so choosing it again would change nothing). A desktop whose portal has
+  chosen one, so choosing it again would change nothing). A "no" that comes
+  after the window was already closed and hidden quits the normal way too,
+  rather than leave Linthra to be killed. A desktop whose portal has
   no Background backend has no monitor either, and a native build never
   asks (#754).
 * **No duplicate instance.** The runner is single-instance, so launching

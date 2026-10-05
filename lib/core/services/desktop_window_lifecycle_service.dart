@@ -121,6 +121,13 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
     _permission = answer;
     if (!_permissionChanges.isClosed) _permissionChanges.add(answer);
     _sync(_playback.state);
+    // The window was closed while the desktop was still deciding, and hid as
+    // keep playing does. Left hidden now, the desktop kills Linthra a few
+    // seconds from now, mid-song and with no shutdown: quit the normal way,
+    // as closing the window does once the answer is known.
+    if (answer == BackgroundPermission.denied && _hidden) {
+      unawaited(quit());
+    }
   }
 
   /// Installs the graceful shutdown [quit] runs before the process ends.
