@@ -130,6 +130,18 @@ class ArtworkDiskCache {
   /// Enforce the cap after this many writes (and after the first one).
   static const int _trimEvery = 50;
 
+  /// The covers [cachedFile] handed out last, the latest last. The image reads
+  /// a file only after it was handed out, so a trim leaves these be: one
+  /// deleted in between is a cover on screen with nothing to show.
+  final Set<String> _handedOut = <String>{};
+
+  /// How many of the covers handed out last a trim leaves be (more than a
+  /// screen shows at once).
+  static const int _handedOutKept = 256;
+
+  /// The covers a trim is deleting right now: a miss already, never a hit.
+  final Set<String> _trimmingAway = <String>{};
+
   /// In-flight warms, keyed by the cache key's hash, so a burst of rebuilds for
   /// the same reference (e.g. a scrolling list) share one fetch instead of
   /// racing to write the same file — and so a caller (tests) can await the same
@@ -164,6 +176,7 @@ class ArtworkDiskCache {
     _trimAtFirstUse();
     final String? hash = _hashFor(key);
     if (hash == null) return null;
+    if (_trimmingAway.contains(hash)) return null;
     final File file = _fileFor(hash);
     final FileStat stat;
     try {
@@ -177,6 +190,10 @@ class ArtworkDiskCache {
     if (_now().difference(stat.modified) >= refreshAfter) {
       unawaited(warm(key));
     }
+    _handedOut
+      ..remove(hash)
+      ..add(hash);
+    if (_handedOut.length > _handedOutKept) _handedOut.remove(_handedOut.first);
     return file;
   }
 
@@ -313,15 +330,20 @@ class ArtworkDiskCache {
       final int target = maxBytes - maxBytes ~/ 10;
       for (final (File file, FileStat stat) in covers) {
         if (total <= target) break;
-        // One being fetched again right now is left to its warm.
-        if (_warming.containsKey(p.basenameWithoutExtension(file.path))) {
-          continue;
-        }
+        final String hash = p.basenameWithoutExtension(file.path);
+        // One being fetched again right now is left to its warm, and one
+        // handed out lately to the image reading it (see [_handedOut]).
+        if (_warming.containsKey(hash) || _handedOut.contains(hash)) continue;
+        // Asked for while it goes, it is a miss rather than a file about to
+        // vanish under the image.
+        _trimmingAway.add(hash);
         try {
           await file.delete();
           total -= stat.size;
         } on FileSystemException {
           // Gone already, or not ours to delete: leave it.
+        } finally {
+          _trimmingAway.remove(hash);
         }
       }
     } catch (_) {

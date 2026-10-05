@@ -413,6 +413,38 @@ void main() {
       // The ones fetched last stay.
       expect(cache.cachedFile(covers.last), isNotNull);
     });
+
+    test(
+        'a cover handed out as that trim starts is left for the image to '
+        'read', () async {
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+
+      // The first screen shows the cover fetched longest ago, still fresh:
+      // the image reads the file only once this has returned it.
+      final File handedOut = cache.cachedFile(covers.first)!;
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(handedOut.existsSync(), isTrue);
+      // The cap holds all the same, with the next ones gone instead.
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+      expect(
+        <bool>[for (final Uri cover in covers) cache.cachedFile(cover) != null],
+        <bool>[true, false, false, false, true, true],
+      );
+    });
   });
 }
 
