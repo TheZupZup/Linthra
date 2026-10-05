@@ -744,7 +744,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
         audio.MediaAction.setShuffleMode,
         audio.MediaAction.setRepeatMode,
       },
-      processingState: _processingStateFor(state.status),
+      processingState: _processingStateFor(state),
       playing: _isSessionPlaying(state),
       updatePosition: state.position,
       speed: _sessionSpeed(state),
@@ -785,13 +785,18 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   ///
   /// The controller bounds the transient hold, so a pause can never keep the
   /// service foreground indefinitely.
+  ///
+  /// A busy engine is only working toward sound while the listener still wants
+  /// it: one they paused mid-stall (or a seek while paused that rebuffers) is
+  /// paused, whatever the engine is still doing (#751, [_pausedWhileBusy]).
   static bool _isSessionPlaying(PlaybackState state) {
     switch (state.status) {
       case PlaybackStatus.playing:
+        return true;
       case PlaybackStatus.buffering:
       case PlaybackStatus.reconnecting:
       case PlaybackStatus.loading:
-        return true;
+        return !_pausedWhileBusy(state);
       case PlaybackStatus.paused:
         return state.interruptedByTransientFocus;
       case PlaybackStatus.idle:
@@ -800,6 +805,24 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
         return false;
     }
   }
+
+  /// Whether [state] is busy (loading, buffering, reconnecting) on a track the
+  /// listener has paused, so nothing will sound when the engine is ready.
+  ///
+  /// The engine reports buffering whether or not it is meant to play next, so
+  /// without [PlaybackState.playWhenReady] a pause pressed mid-stall left the
+  /// session playing: Pause stayed in the notification, on the lock screen and
+  /// in the car, a headset click paused again and did nothing, and the
+  /// foreground service and its wake lock stayed held until the buffer
+  /// refilled or the stream failed (#751). Such a state is reported exactly
+  /// like a pause instead.
+  ///
+  /// A transient-focus hold is not the listener pausing: the controller will
+  /// resume it, so it keeps the service up like any other hold.
+  static bool _pausedWhileBusy(PlaybackState state) =>
+      state.isBusy &&
+      !state.playWhenReady &&
+      !state.interruptedByTransientFocus;
 
   /// The rate the reported position is actually advancing at.
   ///
@@ -816,9 +839,12 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// stopped, with no extra pushes or timers, and does not touch the foreground
   /// service: `audio_service` promotes and demotes it on the `playing` flag
   /// alone. Buffering and loading keep 1.0 — they are bounded by the engine's
-  /// own watchdog and behave as before.
+  /// own watchdog and behave as before — unless the listener paused them, which
+  /// stops the position like any other pause.
   static double _sessionSpeed(PlaybackState state) =>
-      state.status == PlaybackStatus.paused ? 0.0 : 1.0;
+      state.status == PlaybackStatus.paused || _pausedWhileBusy(state)
+          ? 0.0
+          : 1.0;
 
   static RepeatMode _repeatModeFrom(audio.AudioServiceRepeatMode mode) {
     switch (mode) {
@@ -858,7 +884,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     ];
   }
 
-  /// The session-level processing state for a controller [status].
+  /// The session-level processing state for a controller [state].
   ///
   /// Opening a track — [PlaybackStatus.loading] — is reported as *buffering*,
   /// not as `audio_service`'s `loading` (#638).
@@ -894,8 +920,15 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// destination to connect to. Cast routing is resolved by
   /// `ActivePlaybackController` before any state reaches this bridge, so what
   /// arrives here is always a local view of one already-chosen output.
-  audio.AudioProcessingState _processingStateFor(PlaybackStatus status) {
-    switch (status) {
+  ///
+  /// A busy state the listener paused ([_pausedWhileBusy]) is reported ready,
+  /// which with `playing: false` is `STATE_PAUSED`. Buffering would not do:
+  /// `audio_service` turns it into `STATE_BUFFERING` whatever `playing` says,
+  /// and Android's media controls and car head units read that as active (a
+  /// spinner or Pause), never as paused (#751).
+  audio.AudioProcessingState _processingStateFor(PlaybackState state) {
+    if (_pausedWhileBusy(state)) return audio.AudioProcessingState.ready;
+    switch (state.status) {
       case PlaybackStatus.idle:
         return audio.AudioProcessingState.idle;
       case PlaybackStatus.loading:

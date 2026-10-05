@@ -957,6 +957,114 @@ void main() {
         }
       });
 
+      // #751: the engine reports buffering whether or not it will play next,
+      // so a stall the listener paused (or a seek while paused that rebuffers)
+      // reads busy. Reported as playing, Pause stayed in the notification, a
+      // headset click paused again and did nothing, and the service and its
+      // wake lock stayed held until the buffer refilled.
+      group('a busy track the listener paused (#751)', () {
+        for (final PlaybackStatus busy in <PlaybackStatus>[
+          PlaybackStatus.loading,
+          PlaybackStatus.buffering,
+          PlaybackStatus.reconnecting,
+        ]) {
+          test('$busy reports paused, with Play offered', () async {
+            await controller.playTracks(<Track>[_track('a')]);
+            await _settle();
+
+            controller.emit(controller.state.copyWith(
+              status: busy,
+              playWhenReady: false,
+            ));
+            await _settle();
+
+            final state = handler.playbackState.value;
+            expect(state.playing, isFalse,
+                reason: 'the foreground service and wake lock must go');
+            expect(state.processingState, audio.AudioProcessingState.ready,
+                reason: 'buffering would be STATE_BUFFERING, which Android '
+                    'and cars show as active whatever `playing` says');
+            expect(state.controls, contains(audio.MediaControl.play));
+            expect(state.controls, isNot(contains(audio.MediaControl.pause)));
+            expect(state.speed, 0.0,
+                reason: 'nothing advances the position until Play');
+          });
+        }
+
+        test('the same stall waited out while playing still reports playing',
+            () async {
+          await controller.playTracks(<Track>[_track('a')]);
+          await _settle();
+
+          controller.emit(controller.state.copyWith(
+            status: PlaybackStatus.buffering,
+            playWhenReady: true,
+          ));
+          await _settle();
+
+          final state = handler.playbackState.value;
+          expect(state.playing, isTrue);
+          expect(state.processingState, audio.AudioProcessingState.buffering);
+          expect(state.controls, contains(audio.MediaControl.pause));
+          expect(state.speed, 1.0);
+        });
+
+        test('pausing mid-stall is pushed to the session at once', () async {
+          await controller.playTracks(<Track>[_track('a')]);
+          await _settle();
+          controller.emit(controller.state.copyWith(
+            status: PlaybackStatus.buffering,
+          ));
+          await _settle();
+          expect(handler.playbackState.value.playing, isTrue);
+
+          controller.emit(controller.state.copyWith(playWhenReady: false));
+          await _settle();
+          expect(handler.playbackState.value.playing, isFalse);
+
+          // Play again while it is still stalled: back to a stall it waits out.
+          controller.emit(controller.state.copyWith(playWhenReady: true));
+          await _settle();
+          expect(handler.playbackState.value.playing, isTrue);
+          expect(handler.playbackState.value.processingState,
+              audio.AudioProcessingState.buffering);
+        });
+
+        test('a headset click on the paused stall plays instead of pausing',
+            () async {
+          await controller.playTracks(<Track>[_track('a')]);
+          await _settle();
+          controller.emit(controller.state.copyWith(
+            status: PlaybackStatus.loading,
+            playWhenReady: false,
+          ));
+          await _settle();
+          final int plays = controller.playCount;
+          final int pauses = controller.pauseCount;
+
+          await handler.click();
+
+          expect(controller.playCount, plays + 1);
+          expect(controller.pauseCount, pauses);
+        });
+
+        test('a transient-focus hold still keeps the service foreground',
+            () async {
+          await controller.playTracks(<Track>[_track('a')]);
+          await _settle();
+
+          controller.emit(controller.state.copyWith(
+            status: PlaybackStatus.buffering,
+            playWhenReady: false,
+            interruptedByTransientFocus: true,
+          ));
+          await _settle();
+
+          expect(handler.playbackState.value.playing, isTrue,
+              reason: 'a hold the controller will resume is not a pause');
+        });
+      });
+
       test('completion and error report not-playing', () async {
         await controller.playTracks(<Track>[_track('a')]);
         await _settle();

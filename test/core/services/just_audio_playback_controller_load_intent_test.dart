@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audio_service/audio_service.dart' as audio;
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -7,10 +8,14 @@ import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
+import 'package:linthra/core/services/linthra_audio_handler.dart';
+import 'package:linthra/core/services/media_browser_tree.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/playback_candidate_source.dart';
 import 'package:linthra/core/services/playback_recovery_policy.dart';
 import 'package:linthra/core/services/stream_interruption.dart';
+
+import '../../features/library/fake_music_library_repository.dart';
 
 /// A fake engine that records every transport call in order (`setUrl:<url>`,
 /// `play`, `pause`, `seek:<ms>`), so a test can read what the engine was last
@@ -643,6 +648,132 @@ void main() {
       expect(player.loadedUrls, <String>[_url(a), _url(a)],
           reason: 'the reload still refreshes the source after sleep');
       expect(player.lastTransport, 'pause');
+    });
+  });
+
+  // #751: the media session reads a busy state as playing only while the
+  // listener still wants sound, so every state carries that intent.
+  group('the intent the media session reads (#751)', () {
+    test('a pause during a mid-stream stall is published at once', () async {
+      final setup = await playingAWithBGated();
+      // The stream stalls while playing.
+      setup.controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+      expect(setup.controller.state.status, PlaybackStatus.buffering);
+      expect(setup.controller.state.playWhenReady, isTrue);
+
+      await setup.controller.pause();
+      expect(setup.controller.state.playWhenReady, isFalse,
+          reason: 'the stalled engine may say nothing new for a long while');
+
+      // The engine's own report of the pause: still buffering, not playing.
+      setup.controller
+          .handleEngineState(PlayerState(false, ProcessingState.buffering));
+      expect(setup.controller.state.status, PlaybackStatus.loading);
+      expect(setup.controller.state.playWhenReady, isFalse);
+
+      // Play while it is still stalled.
+      await setup.controller.play();
+      expect(setup.controller.state.playWhenReady, isTrue);
+    });
+
+    test('a pause while the next track loads is published before it lands',
+        () async {
+      final setup = await playingAWithBGated();
+      final Future<void> skip = setup.controller.skipToNext();
+      await _settle();
+      expect(setup.controller.state.status, PlaybackStatus.loading);
+      expect(setup.controller.state.playWhenReady, isTrue);
+
+      await setup.controller.pause();
+      // The engine's report is about a, on its way out, and is dropped.
+      setup.controller
+          .handleEngineState(PlayerState(false, ProcessingState.ready));
+      expect(setup.controller.state.status, PlaybackStatus.loading);
+      expect(setup.controller.state.playWhenReady, isFalse);
+
+      setup.resolver.release(b);
+      await skip;
+      await _settle();
+      expect(setup.player.lastTransport, 'pause');
+    });
+
+    test('a restored queue opens as not meant to play', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+      expect(controller.state.playWhenReady, isFalse,
+          reason: 'nobody asked this load to play');
+
+      await controller.play();
+      expect(controller.state.playWhenReady, isTrue);
+
+      resolver.release(a);
+      await restore;
+    });
+
+    test('a load after a paused cast ends is not meant to play either',
+        () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver =
+          _GatedResolver(immediate: <String>{a.uri});
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a, b]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      await controller.suspend();
+      // The receiver moved on to b, then the cast ended paused.
+      await controller.skipToNext();
+      final Future<void> resumed = controller.resume();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+      expect(controller.state.playWhenReady, isFalse);
+
+      resolver.release(b);
+      await resumed;
+      expect(player.lastTransport, isNot('play'));
+    });
+
+    test('the Android session reports a paused stall as paused end to end',
+        () async {
+      final setup = await playingAWithBGated();
+      final LinthraAudioHandler handler = LinthraAudioHandler(
+        setup.controller,
+        MediaBrowserTree(FakeMusicLibraryRepository(tracks: <Track>[a, b])),
+      );
+      addTearDown(handler.dispose);
+      setup.controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+      await _settle();
+      expect(handler.playbackState.value.playing, isTrue,
+          reason: 'a stall during playback keeps the service up');
+
+      // The listener taps Pause in the notification mid-stall.
+      await handler.pause();
+      setup.controller
+          .handleEngineState(PlayerState(false, ProcessingState.buffering));
+      await _settle();
+
+      final audio.PlaybackState session = handler.playbackState.value;
+      expect(session.playing, isFalse);
+      expect(session.processingState, audio.AudioProcessingState.ready);
+      expect(session.controls, contains(audio.MediaControl.play));
+
+      // A headset click now plays rather than pausing again.
+      await handler.click();
+      await _settle();
+      expect(setup.player.lastTransport, 'play');
+      expect(handler.playbackState.value.playing, isTrue);
     });
   });
 }

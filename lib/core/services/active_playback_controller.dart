@@ -93,6 +93,10 @@ class ActivePlaybackController implements PlaybackController {
       status: _castStatus.status,
       position: _interpolatedCastPosition(),
       duration: duration,
+      // The receiver's busy states are its own, and transport while casting
+      // goes to it, so the parked local engine's intent says nothing about
+      // them.
+      playWhenReady: true,
     );
   }
 

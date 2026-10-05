@@ -97,4 +97,45 @@ void main() {
       );
     });
   });
+
+  group('playWhenReady (#751)', () {
+    const PlaybackState stalled = PlaybackState(
+      status: PlaybackStatus.buffering,
+      playWhenReady: false,
+    );
+
+    test('defaults to true, so a busy state reads as before', () {
+      expect(const PlaybackState().playWhenReady, isTrue);
+      expect(PlaybackState.idle.playWhenReady, isTrue);
+    });
+
+    test('is part of equality, so a pause mid-stall is never dropped', () {
+      expect(stalled, isNot(stalled.withPlayWhenReady(true)));
+      expect(stalled, stalled.copyWith());
+      expect(stalled.hashCode, stalled.copyWith().hashCode);
+    });
+
+    test('survives copyWith and every re-stamp', () {
+      expect(stalled.copyWith(status: PlaybackStatus.loading).playWhenReady,
+          isFalse);
+      expect(
+          stalled.withTransientFocusInterruption(true).playWhenReady, isFalse);
+      expect(
+          stalled.withVolume(volume: 0.5, muted: true).playWhenReady, isFalse);
+      expect(stalled.withAutoSkip(null).playWhenReady, isFalse);
+      expect(stalled.copyWith(playWhenReady: true).playWhenReady, isTrue);
+    });
+
+    test('re-stamping it keeps a failure', () {
+      final PlaybackState failed = PlaybackState(
+        status: PlaybackStatus.error,
+        currentTrack: _jelly('1'),
+        failure: const PlaybackFailure(
+          kind: PlaybackFailureKind.temporarySource,
+          message: "Couldn't reach your music server.",
+        ),
+      );
+      expect(failed.withPlayWhenReady(false).failure, failed.failure);
+    });
+  });
 }

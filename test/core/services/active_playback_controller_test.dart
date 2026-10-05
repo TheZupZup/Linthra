@@ -212,6 +212,33 @@ void main() {
       expect(state.currentTrack, _trackA);
     });
 
+    test(
+        "the parked engine's paused intent never reads a buffering receiver "
+        'as paused (#751)', () async {
+      final controller = build();
+      addTearDown(controller.dispose);
+      // The listener paused locally before casting, and plays on the receiver.
+      local.emit(local.state.copyWith(
+        status: PlaybackStatus.paused,
+        playWhenReady: false,
+      ));
+      cast.emit(_casting());
+      await _waitFor(controller,
+          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
+
+      cast.emitPlayback(const CastPlaybackStatus(
+        status: PlaybackStatus.buffering,
+        position: Duration(seconds: 3),
+      ));
+
+      final state = await _waitFor(
+        controller,
+        (s) => s.status == PlaybackStatus.buffering,
+      );
+      expect(state.playWhenReady, isTrue,
+          reason: 'transport goes to the receiver while casting');
+    });
+
     test('a local engine error while casting never pulls output back to local',
         () async {
       final controller = build();

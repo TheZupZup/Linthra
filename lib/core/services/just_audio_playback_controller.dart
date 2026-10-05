@@ -548,7 +548,24 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// unplug, another app taking audio). A call only holds playback, which
   /// [_heldForTransientFocus] covers. Automatic reloads (a reconnect, a
   /// recovery step, the post-suspend reload) only read it.
+  ///
+  /// Published on every state as [PlaybackState.playWhenReady], which is how
+  /// the media session tells a stall the listener paused from one it is
+  /// waiting out (#751).
   bool _playWhenLoaded = false;
+
+  /// Sets [_playWhenLoaded] from a transport the listener (or an unplug, or
+  /// another app) just issued, and republishes a busy state with it.
+  ///
+  /// A busy engine may have nothing new to report: a pause during a load in
+  /// flight reaches the song on its way out, whose reports are dropped, and a
+  /// stalled stream can sit on the same buffering report until its watchdog.
+  /// Without the republish the session would go on offering Pause (and
+  /// holding the foreground service) until the engine happened to speak.
+  void _setPlayWhenLoaded(bool value) {
+    _playWhenLoaded = value;
+    if (_state.isBusy) _emit(_state);
+  }
 
   /// The playback generation whose load has not yet started (or declined to
   /// start) its source, or null when none is in flight. Until it has, the
@@ -769,7 +786,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       case AudioFocusAction.pausePermanent:
         _armTransientResume(false);
         // Nothing resumes this one, so a track still loading must not start.
-        _playWhenLoaded = false;
+        _setPlayWhenLoaded(false);
         _cancelPendingFocusPause();
         // Another app owns audio now: don't move on and start a track under it.
         _haltAutomaticRecovery(settle: true);
@@ -1105,7 +1122,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_suspended) return;
     _armTransientResume(false);
     // Nor may a track still loading start through the speaker when it lands.
-    _playWhenLoaded = false;
+    _setPlayWhenLoaded(false);
     // Headphones really were pulled: cancel a pending debounce pause and pause
     // now (the enqueued pause bumps the epoch, superseding any queued resume).
     _cancelPendingFocusPause();
@@ -1610,6 +1627,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // publish a state that disagrees with the current hold.
     final PlaybackState stamped = _withCurrentRecoveries(next)
         .withTransientFocusInterruption(_foregroundHeldForFocus)
+        // And the listener's intent, so a busy state the listener paused never
+        // reads as one on its way to sound.
+        .withPlayWhenReady(_playWhenLoaded)
         // Stamped from one place like the focus hold, so the paths that build a
         // fresh state (an error, a restore) can never publish a stale level.
         .withVolume(volume: _volume, muted: _muted)
@@ -2216,10 +2236,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // and, unless it is that step's own load, one still loading.
     _cancelAutomaticRecovery();
     if (mayStart == null) _runningRecoveryStep = null;
-    // A fresh load the listener asked to hear is a request for sound. The
-    // automatic reloads (a reconnect, a recovery step) leave the intent as the
-    // listener last set it, so a pause during their wait still holds.
-    if (autoplay && !isRetry && mayStart == null) _playWhenLoaded = true;
+    // A fresh load the listener asked to hear is a request for sound, and one
+    // they didn't (a restored session, the end of a cast that was paused) is
+    // not: it must not read as playing while it opens. The automatic reloads
+    // (a reconnect, a recovery step) leave the intent as the listener last
+    // set it, so a pause during their wait still holds.
+    if (!isRetry && mayStart == null) _playWhenLoaded = autoplay;
     final track = _queue.current;
     if (track == null) return;
 
@@ -3302,7 +3324,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // A cast receiver owns playback while suspended; never start local audio
     // underneath it.
     if (_suspended) return;
-    _playWhenLoaded = true;
+    _setPlayWhenLoaded(true);
     // An explicit user / media-session play overrides any focus intent: clear
     // the resume arming and supersede any pending or already-queued focus pause
     // so a stale focus action can't undo the user's play, then restore full
@@ -3380,7 +3402,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Future<void> pause() {
     // A track still loading has nothing in the engine to pause yet: this is
     // what stops it starting when it lands.
-    _playWhenLoaded = false;
+    _setPlayWhenLoaded(false);
     // An explicit user / media-session pause overrides focus: clear the resume
     // arming and supersede any pending or queued focus pause/resume so the
     // regain after an interruption never auto-resumes a track the user paused.
