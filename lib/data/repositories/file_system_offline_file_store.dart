@@ -18,10 +18,20 @@ import '../../core/repositories/offline_file_store.dart';
 /// sanitized to filename-safe characters so an odd id can't escape the offline
 /// directory — never from a token or an authenticated URL.
 class FileSystemOfflineFileStore implements OfflineFileStore {
-  FileSystemOfflineFileStore({Future<Directory> Function()? directory})
-      : _directory = directory ?? _defaultDirectory;
+  FileSystemOfflineFileStore({
+    Future<Directory> Function()? directory,
+    Future<RandomAccessFile> Function(File temp)? openDraft,
+  })  : _directory = directory ?? _defaultDirectory,
+        _openDraft = openDraft ?? _openForWriting;
 
   final Future<Directory> Function() _directory;
+
+  /// Opens a draft's temp file for writing. Tests hand in their own, to have
+  /// the disk fail on cue.
+  final Future<RandomAccessFile> Function(File temp) _openDraft;
+
+  static Future<RandomAccessFile> _openForWriting(File temp) =>
+      temp.open(mode: FileMode.writeOnly);
 
   /// Files modified after this may be ones this run is writing, so
   /// [removeAbandoned] never takes them: when this store was created, less a
@@ -58,7 +68,7 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     final File temp = File(
       p.join(dir.path, '${_safeId(trackId)}.$serial$_tempSuffix'),
     );
-    final RandomAccessFile file = await temp.open(mode: FileMode.writeOnly);
+    final RandomAccessFile file = await _openDraft(temp);
     return _FileDraft(dir.path, trackId, temp, file);
   }
 
@@ -170,10 +180,12 @@ class _FileDraft implements OfflineFileDraft {
     }
     try {
       final RandomAccessFile? file = _file;
-      _file = null;
       if (file != null) {
         await file.flush();
         await file.close();
+        // Only once closed: a flush or close that fails leaves it to
+        // [discard] to close, rather than open until the process ends.
+        _file = null;
       }
       // Validate before publishing anything: an empty download (an
       // interrupted or truncated fetch can end with zero bytes) is never a

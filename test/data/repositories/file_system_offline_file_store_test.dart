@@ -204,6 +204,26 @@ void main() {
       await expectLater(draft.publish(), throwsStateError);
     });
 
+    test('a flush that fails still closes the file, and leaves no temp',
+        () async {
+      late _FailingFlush opened;
+      store = FileSystemOfflineFileStore(
+        directory: () async => tempDir,
+        openDraft: (File temp) async =>
+            opened = _FailingFlush(await temp.open(mode: FileMode.writeOnly)),
+      );
+      final OfflineFileDraft draft = await store.createDraft('t1');
+      await draft.add(const <int>[1, 2, 3]);
+
+      await expectLater(
+        draft.publish(extension: 'mp3'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(opened.closed, isTrue);
+      expect(tempDir.listSync(), isEmpty);
+    });
+
     test('discarding after publishing keeps the published file', () async {
       final OfflineFileDraft draft = await store.createDraft('t1');
       await draft.add(const <int>[1, 2, 3]);
@@ -243,4 +263,35 @@ void main() {
       expect(await store.sizeFor('t1.mp3'), 4);
     });
   });
+}
+
+/// An open file whose flush fails, the way it does once the disk is full.
+class _FailingFlush implements RandomAccessFile {
+  _FailingFlush(this._inner);
+
+  final RandomAccessFile _inner;
+  bool closed = false;
+
+  @override
+  Future<RandomAccessFile> writeFrom(
+    List<int> buffer, [
+    int start = 0,
+    int? end,
+  ]) async {
+    await _inner.writeFrom(buffer, start, end);
+    return this;
+  }
+
+  @override
+  Future<RandomAccessFile> flush() async =>
+      throw const FileSystemException('No space left on device');
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await _inner.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
