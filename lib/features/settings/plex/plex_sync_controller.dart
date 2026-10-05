@@ -103,6 +103,11 @@ class PlexSyncController extends Notifier<PlexSyncState> {
 
   /// The catalog write most recently handed out; the next one waits for it
   /// (see [_writeInTurn]).
+  ///
+  /// Like [_catalogGeneration], it lives on the notifier, which Riverpod keeps
+  /// across `ref.invalidate`: disconnecting invalidates this provider just
+  /// before it clears the rows, and the clear still takes its turn behind a
+  /// sync started before.
   Future<void> _lastWrite = Future<void>.value();
 
   /// How many tracks are written per batch. 100 keeps each main-isolate
