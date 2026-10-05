@@ -181,6 +181,13 @@ class _SpyOfflineFileStore implements OfflineFileStore {
     deleted.add(fileName);
     return _inner.delete(fileName);
   }
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) =>
+      _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
 }
 
 /// A connectivity stand-in whose [currentStatus] can be held open, so a
@@ -322,6 +329,13 @@ class _GatedWriteFileStore implements OfflineFileStore {
 
   @override
   Future<void> delete(String fileName) => _inner.delete(fileName);
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) =>
+      _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
 }
 
 /// A streaming fallback that records the track it was asked to resolve and
@@ -3315,6 +3329,13 @@ class _SlowDeleteFileStore implements OfflineFileStore {
     }
     await _inner.delete(fileName);
   }
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) =>
+      _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
 }
 
 /// Holds the deletes of chosen files until the test lets them go, so a clear
@@ -3352,6 +3373,13 @@ class _HeldDeletesFileStore implements OfflineFileStore {
     if (held != null) await held.future;
     await _inner.delete(fileName);
   }
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) =>
+      _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
 }
 
 /// Lets the broadcast stream deliver any pending events.

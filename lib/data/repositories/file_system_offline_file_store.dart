@@ -22,9 +22,19 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
 
   final Future<Directory> Function() _directory;
 
+  /// Files modified after this may be ones this run is writing, so
+  /// [removeAbandoned] never takes them: when this store was created, less a
+  /// margin, since file times come from a coarser clock than [DateTime.now]
+  /// (and are whole seconds on some filesystems).
+  final DateTime _sweepCutoff =
+      DateTime.now().subtract(const Duration(seconds: 10));
+
+  /// Whether [removeAbandoned] has run.
+  bool _sweptAbandoned = false;
+
   /// Suffix for the in-progress temp file an atomic [write] renames from. A
   /// leftover (from a crash mid-write) is never referenced by download metadata,
-  /// so it is harmless, and the next same-name download overwrites it.
+  /// so it is never served, and [removeAbandoned] clears it at the next launch.
   static const String _tempSuffix = '.part';
 
   static Future<Directory> _defaultDirectory() async {
@@ -105,6 +115,40 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     final File file = File(p.join(dir.path, fileName));
     if (await file.exists()) {
       await file.delete();
+    }
+  }
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) async {
+    // Once: the repository asks at its startup load, before it writes
+    // anything, and a repository built again later shares this store while
+    // the first one may still be writing.
+    if (_sweptAbandoned) return;
+    _sweptAbandoned = true;
+    try {
+      final Directory dir = await _directory();
+      if (!await dir.exists()) return;
+      // Not following links: only this directory's own files are ever taken.
+      await for (final FileSystemEntity entity
+          in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final String name = p.basename(entity.path);
+        if (!name.endsWith(_tempSuffix) &&
+            (temporaryOnly || referenced.contains(name))) {
+          continue;
+        }
+        try {
+          if (!(await entity.lastModified()).isBefore(_sweepCutoff)) continue;
+          await entity.delete();
+        } on FileSystemException {
+          // Gone already, or not ours to remove: leave it.
+        }
+      }
+    } on Object {
+      // Best-effort: the cache works the same with the leftovers in place.
     }
   }
 
