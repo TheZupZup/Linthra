@@ -20,6 +20,30 @@ abstract interface class LocalMetadataReader {
   Future<LocalAudioMetadata?> readFromPath(String path);
 }
 
+/// What one read of a file's tags came to: the tags, or null, and whether a
+/// null means the file could not be read this time rather than that it holds
+/// no tags.
+typedef LocalMetadataRead = ({LocalAudioMetadata? metadata, bool failed});
+
+/// The optional half of a [LocalMetadataReader] that can tell its two nulls
+/// apart: a file it read and found nothing in, and one it could not read (an
+/// I/O error, a parse that threw or ran past its time limit).
+///
+/// A scan treats the first as settled and the second as worth one more try:
+/// it may not happen again (a network share stalling, a drive answering with
+/// an error), and a row stored as read would be reused by every later scan,
+/// so the tags would never come back (#743).
+///
+/// Separate from [LocalMetadataReader], and reached through an `is` check, for
+/// the reason [LocalArtworkMaintainer] is: a reader that can't tell (Android's,
+/// the test fakes) answers nothing, and its nulls count as no tags, as all
+/// nulls did before.
+abstract interface class LocalMetadataReadOutcomes {
+  /// Reads the tags for the file at [path], as [LocalMetadataReader.readFromPath]
+  /// does, saying whether a null is a failed read. Must never throw.
+  Future<LocalMetadataRead> readWithOutcome(String path);
+}
+
 /// The optional half of [LocalMetadataReader]: a reader that also owns an
 /// on-disk artwork cache, and can be asked to drop what the library no longer
 /// references.

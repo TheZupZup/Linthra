@@ -262,8 +262,8 @@ class LocalMusicSource implements MusicSource {
         continue;
       }
 
-      final LocalAudioMetadata? metadata =
-          await _metadataReader.readFromPath(path);
+      final LocalMetadataRead read = await _readTags(path);
+      final LocalAudioMetadata? metadata = read.metadata;
       // Listed by the walk, but now it can be neither stat'ed nor read: the
       // drive went away, or the file was moved, after the walk got to it.
       // That says nothing about its tags, so the row already indexed for it
@@ -290,6 +290,20 @@ class LocalMusicSource implements MusicSource {
           !stamp.differsFrom(indexed.stamp)) {
         tracks.add(indexed.track);
         continue;
+      }
+      // New or changed, and it could not be read this time: a network share
+      // stalling past the parse limit, an I/O error. Its row is built from the
+      // file name as ever, but stored without its stamp. With it, every later
+      // scan would reuse that row as it is, and the tags would never come back
+      // short of a full rescan (#743). Without it, the next scan reads the
+      // file again. Only once in a row: a file whose row already has no stamp
+      // (most likely a read that failed last time too) keeps its stamp now, so
+      // a file that can never be read, one the parser loops on, costs one
+      // more read rather than one every scan.
+      if (read.failed &&
+          stamp != null &&
+          !(indexed != null && indexed.stamp == null)) {
+        stamps.remove(path);
       }
       tracks.add(LocalTrackMapper.fromPath(
         path,
@@ -318,6 +332,16 @@ class LocalMusicSource implements MusicSource {
         readFailures: unreadable.length,
       ),
     );
+  }
+
+  /// [path]'s tags, and whether a null is a failed read. A reader that can't
+  /// tell ([LocalMetadataReadOutcomes]) answers with no tags.
+  Future<LocalMetadataRead> _readTags(String path) async {
+    final LocalMetadataReader reader = _metadataReader;
+    if (reader is LocalMetadataReadOutcomes) {
+      return (reader as LocalMetadataReadOutcomes).readWithOutcome(path);
+    }
+    return (metadata: await reader.readFromPath(path), failed: false);
   }
 
   @override

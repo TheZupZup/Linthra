@@ -10,6 +10,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
+import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_track_mapper.dart';
 import 'package:linthra/core/sources/local/mp4_box_guard.dart';
 
@@ -277,6 +278,59 @@ void main() {
 
       await expectLater(
           reader.readFromPath(directory.path), completion(isNull));
+    });
+  });
+
+  // #743: a scan reads a file that could not be read this time again on the
+  // next scan, but settles one that was read and holds no tags. Both used to
+  // come back as the same null.
+  group('a failed read is told apart from a file with no tags (#743)', () {
+    test('an untagged file was read: nothing in it, but not a failure',
+        () async {
+      final String path = write('bare.flac', AudioTagFixtures.flac());
+
+      final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+      expect(read.failed, isFalse);
+      expect(read.metadata?.title, isNull);
+    });
+
+    test('blank tags were read too', () async {
+      final String path =
+          write('blank.mp3', AudioTagFixtures.mp3(title: ' ', artist: ''));
+
+      expect((await reader.readWithOutcome(path)).failed, isFalse);
+    });
+
+    test('a tagged file was read, and readFromPath gives the same tags',
+        () async {
+      final String path =
+          write('tagged.flac', AudioTagFixtures.flac(title: 'Tagged'));
+
+      final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Tagged');
+      expect((await reader.readFromPath(path))!.title, 'Tagged');
+    });
+
+    test('a file gone by the time it is read is a failed read', () async {
+      final LocalMetadataRead read =
+          await reader.readWithOutcome('${root.path}/gone.mp3');
+
+      expect(read.failed, isTrue);
+      expect(read.metadata, isNull);
+    });
+
+    test('a parse stopped at its time limit is a failed read', () async {
+      final String path = write('unfinished.m4a', _unfinishedEncode());
+
+      final Object? reply = await _onOwnIsolate(
+        _readOutcomeUnguardedEntry,
+        (path, artworkDir.path),
+      );
+
+      expect(reply, isTrue);
     });
   });
 
@@ -1192,6 +1246,18 @@ Future<void> _readUnguardedEntry((SendPort, (String, String)) message) async {
   final LocalAudioMetadata? metadata = await reader.readFromPath(path);
   await reader.close();
   reply.send(metadata);
+}
+
+/// Reads `(path, artworkPath)` with the guard out of the way, and sends back
+/// whether the read failed.
+Future<void> _readOutcomeUnguardedEntry(
+  (SendPort, (String, String)) message,
+) async {
+  final (SendPort reply, (String path, String artworkPath)) = message;
+  final FilesystemLocalMetadataReader reader = _unguardedReader(artworkPath);
+  final LocalMetadataRead read = await reader.readWithOutcome(path);
+  await reader.close();
+  reply.send(read.failed);
 }
 
 /// A guard that refuses nothing. Top-level, so it can cross to the parse's
