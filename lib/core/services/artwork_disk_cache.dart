@@ -130,14 +130,15 @@ class ArtworkDiskCache {
   /// Enforce the cap after this many writes (and after the first one).
   static const int _trimEvery = 50;
 
-  /// The covers [cachedFile] handed out last, the latest last. The image reads
-  /// a file only after it was handed out, so a trim leaves these be: one
-  /// deleted in between is a cover on screen with nothing to show.
-  final Set<String> _handedOut = <String>{};
+  /// When [cachedFile] last handed out each cover, the latest last. The image
+  /// reads a file a moment after it was handed out, so a trim leaves one
+  /// handed out within [_handedOutGrace] be: deleted in between, it is a cover
+  /// on screen with nothing to show. Past that it was read (or never will be),
+  /// and a trim takes it like any other, so the cap still holds.
+  final Map<String, DateTime> _handedOutAt = <String, DateTime>{};
 
-  /// How many of the covers handed out last a trim leaves be (more than a
-  /// screen shows at once).
-  static const int _handedOutKept = 256;
+  /// How long after it was handed out a cover is left to the image reading it.
+  static const Duration _handedOutGrace = Duration(minutes: 1);
 
   /// The covers a trim is deleting right now: a miss already, never a hit.
   final Set<String> _trimmingAway = <String>{};
@@ -187,14 +188,24 @@ class ArtworkDiskCache {
     }
     // Missing (notFound) or empty: not a usable hit either.
     if (stat.type != FileSystemEntityType.file || stat.size <= 0) return null;
-    if (_now().difference(stat.modified) >= refreshAfter) {
+    final DateTime now = _now();
+    if (now.difference(stat.modified) >= refreshAfter) {
       unawaited(warm(key));
     }
-    _handedOut
+    _handedOutAt
       ..remove(hash)
-      ..add(hash);
-    if (_handedOut.length > _handedOutKept) _handedOut.remove(_handedOut.first);
+      ..[hash] = now;
+    // The ones past their grace go, the oldest first.
+    while (now.difference(_handedOutAt.values.first) >= _handedOutGrace) {
+      _handedOutAt.remove(_handedOutAt.keys.first);
+    }
     return file;
+  }
+
+  /// Whether [hash] was handed out within [_handedOutGrace].
+  bool _handedOutLately(String hash) {
+    final DateTime? at = _handedOutAt[hash];
+    return at != null && _now().difference(at) < _handedOutGrace;
   }
 
   /// Whether [file] holds a cover that is recent enough to keep as it is.
@@ -332,8 +343,8 @@ class ArtworkDiskCache {
         if (total <= target) break;
         final String hash = p.basenameWithoutExtension(file.path);
         // One being fetched again right now is left to its warm, and one
-        // handed out lately to the image reading it (see [_handedOut]).
-        if (_warming.containsKey(hash) || _handedOut.contains(hash)) continue;
+        // handed out lately to the image reading it (see [_handedOutAt]).
+        if (_warming.containsKey(hash) || _handedOutLately(hash)) continue;
         // Asked for while it goes, it is a miss rather than a file about to
         // vanish under the image.
         _trimmingAway.add(hash);

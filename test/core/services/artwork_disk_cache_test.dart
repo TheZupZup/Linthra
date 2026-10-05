@@ -445,6 +445,35 @@ void main() {
         <bool>[true, false, false, false, true, true],
       );
     });
+
+    test('a cover handed out a while ago is trimmed like any other', () async {
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+      final File handedOut = cache.cachedFile(covers.first)!;
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(handedOut.existsSync(), isTrue);
+
+      // Long since read, and the cache past the cap again.
+      now = now.add(const Duration(minutes: 5));
+      await roomy.warm(Uri.parse('subsonic-cover:al-6'));
+      await roomy.warm(Uri.parse('subsonic-cover:al-7'));
+      await cache.trim();
+
+      expect(handedOut.existsSync(), isFalse);
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+    });
   });
 }
 
