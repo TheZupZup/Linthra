@@ -22,3 +22,13 @@ String subsonicAccountFingerprint(SubsonicSession session) {
   final String material = '${session.baseUrl}$separator${session.username}';
   return sha256.convert(utf8.encode(material)).toString();
 }
+
+/// An opaque, non-secret fingerprint of the Subsonic/Navidrome **server**
+/// [session] is signed in to, whoever is signed in.
+///
+/// A song id is the server's, the same for every account on it, so this is
+/// what an offline copy of a song belongs to (see `OfflineCopyOrigins`). The
+/// base URL is all Linthra knows of a server, hashed like
+/// [subsonicAccountFingerprint], so it reveals no address.
+String subsonicServerFingerprint(SubsonicSession session) =>
+    sha256.convert(utf8.encode(session.baseUrl)).toString();

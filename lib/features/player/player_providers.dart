@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/playback_state.dart';
+import '../../core/models/subsonic_session.dart';
 import '../../core/models/track.dart';
 import '../../core/platform/host_platform.dart';
 import '../../core/repositories/download_store.dart';
@@ -568,45 +569,90 @@ final downloadAccountScopeOverride = downloadAccountScopeProvider.overrideWith(
   (ref) => (Track track) => _accountKeyForTrack(ref, track),
 );
 
-/// Production binding: a Plex download or pre-cache belongs to the server it
-/// came from (its `machineIdentifier`). A ratingKey only means something on
-/// the server that issued it, so a copy from another server, or from before a
-/// reinstall, never plays or reads as downloaded for this server's song with
-/// the same number. It is kept, and comes back when its server is connected
-/// again. Read live; a change of server is announced so the cache re-sorts.
-/// Applied in `main`; tests keep the data-layer default (nothing bound).
+/// Production binding: a Plex or Subsonic download or pre-cache belongs to the
+/// server it came from. A Plex ratingKey, or the running number most Subsonic
+/// servers give a song (Airsonic, Ampache, gonic's `tr-N`), only means
+/// something on the server that issued it, so a copy from another server, or
+/// from before a reinstall, never plays or reads as downloaded for this
+/// server's song with the same id. It is kept, and comes back when its server
+/// is connected again. Read live; a change of server is announced so the
+/// cache re-sorts. Applied in `main`; tests keep the data-layer default
+/// (nothing bound).
 final offlineCopyOriginsOverride =
     offlineCopyOriginsProvider.overrideWith((ref) {
-  final _PlexCopyOrigins origins = _PlexCopyOrigins(
-    () => ref.read(plexMusicSourceProvider)?.session.machineIdentifier,
+  final _ServerCopyOrigins origins = _ServerCopyOrigins(
+    plex: () => ref.read(plexMusicSourceProvider)?.session.machineIdentifier,
+    subsonic: () =>
+        _subsonicCopies(ref.read(subsonicMusicSourceProvider)?.session),
   );
   ref.listen<String?>(
     plexMusicSourceProvider
         .select((source) => source?.session.machineIdentifier),
     (_, __) => origins.changed(),
   );
+  ref.listen<_SubsonicCopies>(
+    subsonicMusicSourceProvider
+        .select((source) => _subsonicCopies(source?.session)),
+    (_, __) => origins.changed(),
+  );
   ref.onDispose(origins.close);
   return origins;
 });
 
-/// Plex copies, bound to the server connected now.
-class _PlexCopyOrigins implements OfflineCopyOrigins {
-  _PlexCopyOrigins(this._server);
+/// Whether Subsonic copies are bound to their server right now, and the
+/// server they belong to (null while signed out).
+typedef _SubsonicCopies = ({bool binds, String? server});
 
-  /// The connected server's `machineIdentifier`, or null when signed out.
-  final String? Function() _server;
+/// Where Subsonic copies belong while signed in with [session].
+///
+/// Navidrome's ids come from each file's path, so nothing is bound while it
+/// is the server connected: a copy keeps playing when the same server is
+/// reached at another address (LAN or reverse proxy). Its copies are saved
+/// unbound, so they also play while signed out. Every other server's copies
+/// are bound to it, and signed out they are set aside until it is back, like
+/// Plex's.
+_SubsonicCopies _subsonicCopies(SubsonicSession? session) {
+  if (session == null) return (binds: true, server: null);
+  if (session.isNavidrome) return (binds: false, server: null);
+  return (binds: true, server: subsonicServerFingerprint(session));
+}
+
+/// Plex and Subsonic copies, bound to the server connected now.
+class _ServerCopyOrigins implements OfflineCopyOrigins {
+  _ServerCopyOrigins({
+    required String? Function() plex,
+    required _SubsonicCopies Function() subsonic,
+  })  : _plexServer = plex,
+        _subsonic = subsonic;
+
+  /// The connected Plex server's `machineIdentifier`, or null when signed
+  /// out.
+  final String? Function() _plexServer;
+
+  final _SubsonicCopies Function() _subsonic;
 
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
-  /// How a Plex copy's `sourceType` reads: its uri scheme, worked out the
-  /// same way the cache records it.
-  static final String? _plex = CachedTrack.schemeOf(PlexTrackMapper.uriScheme);
+  /// How a copy's `sourceType` reads for each provider: its uri scheme,
+  /// worked out the same way the cache records it.
+  static final String? _plexScheme =
+      CachedTrack.schemeOf(PlexTrackMapper.uriScheme);
+  static final String? _subsonicScheme =
+      CachedTrack.schemeOf(SubsonicTrackMapper.uriScheme);
 
   @override
-  bool binds(String scheme) => scheme == _plex;
+  bool binds(String scheme) {
+    if (scheme == _plexScheme) return true;
+    if (scheme == _subsonicScheme) return _subsonic().binds;
+    return false;
+  }
 
   @override
-  String? current(String scheme) => binds(scheme) ? _server() : null;
+  String? current(String scheme) {
+    if (scheme == _plexScheme) return _plexServer();
+    if (scheme == _subsonicScheme) return _subsonic().server;
+    return null;
+  }
 
   @override
   Stream<void> get changes => _changes.stream;

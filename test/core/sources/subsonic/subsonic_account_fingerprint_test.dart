@@ -55,4 +55,44 @@ void main() {
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
   });
+
+  group('subsonicServerFingerprint', () {
+    test('is the same for every account on one server', () {
+      // A song id is the server's, so another user's copies still match.
+      final other = _session.copyWith(username: 'bob', token: 'bob-token');
+      expect(
+        subsonicServerFingerprint(other),
+        subsonicServerFingerprint(_session),
+      );
+    });
+
+    test('changes when the server URL changes', () {
+      final other = _session.copyWith(baseUrl: 'https://other.example.com');
+      expect(
+        subsonicServerFingerprint(other),
+        isNot(subsonicServerFingerprint(_session)),
+      );
+    });
+
+    test('does not contain the credentials or the URL', () {
+      final String fingerprint = subsonicServerFingerprint(_session);
+      expect(fingerprint, isNot(contains('super-secret-token-value')));
+      expect(fingerprint, isNot(contains('salt-value')));
+      expect(fingerprint, isNot(contains('music.example.com')));
+      expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
+    });
+  });
+
+  group('isNavidrome', () {
+    test('reads the reported server type, whatever its case', () {
+      expect(_session.copyWith(serverType: 'navidrome').isNavidrome, isTrue);
+      expect(_session.copyWith(serverType: ' Navidrome ').isNavidrome, isTrue);
+    });
+
+    test('is false for any other server, or when none was reported', () {
+      expect(_session.isNavidrome, isFalse);
+      expect(_session.copyWith(serverType: 'gonic').isNavidrome, isFalse);
+      expect(_session.copyWith(serverType: 'airsonic').isNavidrome, isFalse);
+    });
+  });
 }

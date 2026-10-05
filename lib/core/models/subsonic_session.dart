@@ -39,8 +39,13 @@ class SubsonicSession {
   final String token;
 
   /// The server product, when reported (OpenSubsonic `type`, e.g. `navidrome`).
-  /// Display/diagnostics only.
+  /// Shown in Settings and diagnostics, and read by [isNavidrome].
   final String? serverType;
+
+  /// Whether the server reported itself as Navidrome. Its song ids come from
+  /// each file's path rather than a running number, so the same id on another
+  /// Navidrome names the file at the same path; offline copies rely on that.
+  bool get isNavidrome => serverType?.trim().toLowerCase() == 'navidrome';
 
   /// The server's own version (OpenSubsonic `serverVersion`), when reported.
   /// Display/diagnostics only.
