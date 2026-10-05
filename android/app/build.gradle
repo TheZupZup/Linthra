@@ -187,6 +187,10 @@ dependencies {
     // this line is what packages its classes and libflacJNI.so. Built from
     // vendored source; see third_party/media3_decoder_flac/PATCHES.md.
     implementation project(":media3_decoder_flac")
+
+    // JVM unit tests for the app's plain-Kotlin parts (android/app/src/test),
+    // such as the SAF cover cache (#742). Test-only: never in an APK.
+    testImplementation "junit:junit:4.13.2"
 }
 
 flutter {

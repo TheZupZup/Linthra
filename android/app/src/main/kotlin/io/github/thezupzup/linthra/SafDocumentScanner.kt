@@ -8,7 +8,6 @@ import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -213,6 +212,8 @@ class SafDocumentScanner(
         }
 
         val documents = ArrayList<Map<String, String?>>()
+        // The covers this walk extracts or reuses; see SafArtworkCache.
+        val artwork = SafArtworkCache(File(context.cacheDir, ARTWORK_CACHE_DIR))
         var filesVisited = 0
         var foldersVisited = 0
         var readFailures = 0
@@ -236,6 +237,11 @@ class SafDocumentScanner(
                         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                         DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                         DocumentsContract.Document.COLUMN_MIME_TYPE,
+                        // What tells a rewritten file from the one whose
+                        // cover is cached (#742). Every provider has to
+                        // answer for both, though either may be null.
+                        DocumentsContract.Document.COLUMN_SIZE,
+                        DocumentsContract.Document.COLUMN_LAST_MODIFIED,
                     ),
                     null,
                     null,
@@ -267,6 +273,8 @@ class SafDocumentScanner(
                         val docId = c.getString(0) ?: continue
                         val name = c.getString(1) ?: continue
                         val mime = c.getString(2)
+                        val sizeBytes = if (c.isNull(3)) null else c.getLong(3)
+                        val lastModifiedMs = if (c.isNull(4)) null else c.getLong(4)
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                             queue.add(docId)
                         } else {
@@ -284,7 +292,12 @@ class SafDocumentScanner(
                                 // omits them and the Dart mapper falls back to the
                                 // display name; a file with no embedded cover keeps
                                 // the calm placeholder.
-                                val metadata = readMetadata(docUri)
+                                val metadata = readMetadata(
+                                    docUri,
+                                    artwork,
+                                    sizeBytes,
+                                    lastModifiedMs,
+                                )
                                 documents.add(
                                     mapOf(
                                         "uri" to docUri.toString(),
@@ -356,7 +369,12 @@ class SafDocumentScanner(
      * and the track still indexes from its display name. The retriever is always
      * released, even on failure, so no native handle leaks across a large scan.
      */
-    private fun readMetadata(uri: Uri): Map<String, String?> {
+    private fun readMetadata(
+        uri: Uri,
+        artwork: SafArtworkCache,
+        sizeBytes: Long?,
+        lastModifiedMs: Long?,
+    ): Map<String, String?> {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
@@ -390,7 +408,13 @@ class SafDocumentScanner(
                 // A file:// URI to the embedded cover art, cached once. Its own
                 // try/catch (inside cacheEmbeddedArtwork) means a missing or
                 // unwritable cover never costs the tags read above.
-                "artworkUri" to cacheEmbeddedArtwork(uri, retriever),
+                "artworkUri" to cacheEmbeddedArtwork(
+                    uri,
+                    retriever,
+                    artwork,
+                    sizeBytes,
+                    lastModifiedMs,
+                ),
             )
         } catch (e: Exception) {
             emptyMap()
@@ -411,13 +435,17 @@ class SafDocumentScanner(
      * source the tags came from, under the folder's existing SAF grant, so it
      * needs no extra permission and never touches a raw /storage path.
      *
-     * Cheap and idempotent across re-scans: the cache file is named by a SHA-1 of
-     * the content URI — a stable key that leaks neither the file's name nor its
+     * Cheap and idempotent across re-scans: the cache file is named by hashes of
+     * the content URI and of the file's size and last-modified time
+     * ([SafArtworkCacheKey]) — a key that leaks neither the file's name nor its
      * on-disk path — so a cover already extracted on an earlier scan is reused
      * *without* pulling the (potentially large) image bytes out of the retriever
-     * again, because the existence check runs before getEmbeddedPicture(). Bytes
-     * are written to a temp file and atomically renamed, so an interrupted scan
-     * can never leave a half-written cover that then fails to decode forever.
+     * again, because the existence check runs before getEmbeddedPicture(), while
+     * a file rewritten since (re-tagged, or another song saved over it) misses
+     * and has its cover extracted again (#742). Its earlier covers are dropped
+     * then. Bytes are written to a temp file and atomically renamed, so an
+     * interrupted scan can never leave a half-written cover that then fails to
+     * decode forever.
      *
      * Deliberately total: any failure returns null so the track simply keeps the
      * calm placeholder, and — crucially — never disturbs the audio tags read
@@ -427,43 +455,28 @@ class SafDocumentScanner(
     private fun cacheEmbeddedArtwork(
         uri: Uri,
         retriever: MediaMetadataRetriever,
+        artwork: SafArtworkCache,
+        sizeBytes: Long?,
+        lastModifiedMs: Long?,
     ): String? {
         return try {
-            val dir = File(context.cacheDir, ARTWORK_CACHE_DIR)
-            val cacheFile = File(dir, artworkCacheKey(uri) + ".img")
-            if (cacheFile.isFile && cacheFile.length() > 0L) {
-                return Uri.fromFile(cacheFile).toString()
+            val document = uri.toString()
+            artwork.cached(document, sizeBytes, lastModifiedMs)?.let {
+                return Uri.fromFile(it).toString()
             }
+            // Not cached for the file as it is now. A cover cached for it
+            // before is from bytes it no longer has, whether or not it has a
+            // cover now.
+            artwork.dropOtherVersions(document, sizeBytes, lastModifiedMs)
             val picture = retriever.embeddedPicture
             if (picture == null || picture.isEmpty()) {
                 return null
             }
-            if (!dir.isDirectory && !dir.mkdirs()) {
-                return null
-            }
-            val tmp = File.createTempFile("art", ".tmp", dir)
-            try {
-                tmp.writeBytes(picture)
-                if (tmp.renameTo(cacheFile)) {
-                    Uri.fromFile(cacheFile).toString()
-                } else {
-                    tmp.delete()
-                    null
-                }
-            } catch (e: Exception) {
-                tmp.delete()
-                null
-            }
+            artwork.store(document, sizeBytes, lastModifiedMs, picture)
+                ?.let { Uri.fromFile(it).toString() }
         } catch (e: Exception) {
             null
         }
-    }
-
-    /** A stable, path-free cache key for [uri]'s cover: a SHA-1 hex of the URI. */
-    private fun artworkCacheKey(uri: Uri): String {
-        val digest = MessageDigest.getInstance("SHA-1")
-        val bytes = digest.digest(uri.toString().toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
     /** Raised inside [walk] when a newer scan superseded this one. */

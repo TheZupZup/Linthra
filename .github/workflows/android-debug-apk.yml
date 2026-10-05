@@ -59,6 +59,13 @@ jobs:
         working-directory: android
         run: ./gradlew lintVitalRelease
 
+      # The JVM unit tests under android/app/src/test: the app's plain-Kotlin
+      # parts, such as the SAF cover cache key that has to change when a file
+      # is re-tagged in place (#742).
+      - name: Run Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest
+
       # Fail fast if the build produced no usable artifact. The upload step
       # below also guards with if-no-files-found: error, but checking here gives
       # a clearer "build produced nothing" signal independent of the uploader,
