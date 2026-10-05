@@ -104,19 +104,13 @@ class _HeldWrites implements OfflineFileStore {
   Completer<void> holdNextDelete() => _holdDelete = Completer<void>();
 
   @override
-  Future<String> write(
-    String trackId,
-    List<int> bytes, {
-    String? extension,
-  }) async {
-    written.add(trackId);
-    final String name =
-        await _inner.write(trackId, bytes, extension: extension);
-    final Completer<void>? hold = _hold;
-    _hold = null;
-    if (hold != null) await hold.future;
-    return name;
-  }
+  Future<OfflineFileDraft> createDraft(String trackId) async =>
+      _HookedDraft(await _inner.createDraft(trackId), () async {
+        written.add(trackId);
+        final Completer<void>? hold = _hold;
+        _hold = null;
+        if (hold != null) await hold.future;
+      });
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -138,6 +132,32 @@ class _HeldWrites implements OfflineFileStore {
     bool temporaryOnly = false,
   }) =>
       _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
+}
+
+/// A draft that runs [_onPublished] once its inner draft is published, before
+/// publish returns: the moment a commit has written the file and not yet
+/// recorded it.
+class _HookedDraft implements OfflineFileDraft {
+  _HookedDraft(this._inner, this._onPublished);
+
+  final OfflineFileDraft _inner;
+  final Future<void> Function() _onPublished;
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  Future<void> add(List<int> chunk) => _inner.add(chunk);
+
+  @override
+  Future<String> publish({String? extension}) async {
+    final String name = await _inner.publish(extension: extension);
+    await _onPublished();
+    return name;
+  }
+
+  @override
+  Future<void> discard() => _inner.discard();
 }
 
 /// A streaming source that is always unreachable: the device is offline.

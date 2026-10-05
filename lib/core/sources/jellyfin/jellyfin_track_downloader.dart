@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import '../../models/track.dart';
 import '../../services/remote_track_downloader.dart';
-import '../audio_file_extension.dart';
+import '../download_response_body.dart';
 import '../media_content_type.dart';
 import 'jellyfin_download_source.dart';
 import 'jellyfin_track_mapper.dart';
@@ -19,6 +18,10 @@ import 'jellyfin_track_mapper.dart';
 /// returned, and not placed in any thrown error (a transport failure is
 /// re-raised as a generic message so a `ClientException` carrying the tokenized
 /// URL can't escape).
+///
+/// The body is handed back while it is still arriving (see
+/// [downloadResponseBody]), so the offline cache can write it to disk a
+/// chunk at a time, and an error while it is read is just as generic.
 class JellyfinTrackDownloader implements RemoteTrackDownloader {
   JellyfinTrackDownloader(this._source, {http.Client? httpClient})
       : _client = httpClient ?? http.Client();
@@ -54,8 +57,7 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
     }
 
     try {
-      // Stream the body so progress can be reported as bytes arrive. The
-      // request carries the token in its URL, but the URL never leaves this
+      // The request carries the token in its URL, but the URL never leaves this
       // method, is never logged, and any transport error below is replaced
       // with a generic message so it can't escape either.
       final http.StreamedResponse response =
@@ -77,23 +79,12 @@ class JellyfinTrackDownloader implements RemoteTrackDownloader {
             'Jellyfin download failed (the server did not send audio).');
       }
 
-      final int? total =
-          (response.contentLength != null && response.contentLength! > 0)
-              ? response.contentLength
-              : null;
-      final BytesBuilder builder = BytesBuilder(copy: false);
-      int received = 0;
-      onProgress?.call(received, total);
-      await for (final List<int> chunk in response.stream.timeout(_timeout)) {
-        builder.add(chunk);
-        received += chunk.length;
-        onProgress?.call(received, total);
-      }
-
-      return RemoteTrackData(
-        bytes: builder.takeBytes(),
-        fileExtension:
-            AudioFileExtension.forContentType(response.headers['content-type']),
+      // Handed back as it arrives: the cache writes it to disk a chunk at a
+      // time, so a big file is never held in memory whole.
+      return downloadResponseBody(
+        response,
+        failure: 'Jellyfin download failed.',
+        stallTimeout: _timeout,
       );
     } on StateError {
       // Our own friendly, token-free messages (bad status / not audio / not

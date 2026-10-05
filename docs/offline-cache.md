@@ -84,6 +84,13 @@ playing right now. If a new download still won't fit, it's refused with a
 friendly "not enough cache space" message instead of deleting something you
 wanted.
 
+A download goes to disk as it arrives and is never held in memory whole, so a
+big hi-res file (or several at once) can't run the device out of memory. A file
+bigger than the whole cache limit is stopped as soon as the server announces its
+size, or as soon as that many bytes have arrived when it doesn't, instead of
+being downloaded in full and then refused. Removing a download while it is still
+arriving stops the transfer too.
+
 Only a download **you** asked for can make room from step 2. Smart pre-cache
 only ever replaces older pre-cached tracks, never one of your downloads (pinned
 or not), the track playing, or a track that plays sooner than the one it is

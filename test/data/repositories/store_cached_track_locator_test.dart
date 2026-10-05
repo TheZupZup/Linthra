@@ -6,6 +6,8 @@ import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
+import '../../support/offline_file_writes.dart';
+
 Track _jellyfin(String id) => Track(id: id, title: id, uri: 'jellyfin:$id');
 Track _plex(String id) => Track(id: id, title: id, uri: 'plex:$id');
 Track _subsonic(String id) => Track(id: id, title: id, uri: 'subsonic:$id');
