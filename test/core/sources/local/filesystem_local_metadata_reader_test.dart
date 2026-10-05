@@ -284,6 +284,86 @@ void main() {
   // #743: a scan reads a file that could not be read this time again on the
   // next scan, but settles one that was read and holds no tags. Both used to
   // come back as the same null.
+  group('a FLAC the tag parser gives up on keeps what it says in the clear',
+      () {
+    // The package fails a whole file over one field it can't parse, and the
+    // track was then named after its file for good, with no length.
+    test('a vinyl track number keeps the other tags and the length', () async {
+      final String path = write(
+        'a1.flac',
+        AudioTagFixtures.flacWithRawComments(<String>[
+          'TITLE=Side Opener',
+          'ARTIST=The Band',
+          'ALBUMARTIST=The Band',
+          'ALBUM=On Vinyl',
+          'TRACKNUMBER=A1',
+        ]),
+      );
+
+      final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Side Opener');
+      expect(read.metadata!.artist, 'The Band');
+      expect(read.metadata!.albumArtist, 'The Band');
+      expect(read.metadata!.album, 'On Vinyl');
+      expect(read.metadata!.trackNumber, isNull,
+          reason: 'A1 and B1 are not both track 1');
+      expect(read.metadata!.duration, const Duration(seconds: 3));
+    });
+
+    test('an empty TRACKTOTAL keeps a 3/12 track number', () async {
+      final String path = write(
+        'empty-total.flac',
+        AudioTagFixtures.flacWithRawComments(
+            <String>['TITLE=Song', 'TRACKNUMBER=3/12', 'TRACKTOTAL=']),
+      );
+
+      final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+      expect(read.metadata!.title, 'Song');
+      expect(read.metadata!.trackNumber, 3);
+    });
+
+    test('but a FLAC that could not be read stays a failed read', () async {
+      // An I/O error says nothing about the tags: what the scan indexed
+      // before, cover included, has to stay, so nothing is read around it.
+      final String path = write(
+        'eio.flac',
+        AudioTagFixtures.flacWithRawComments(
+            <String>['TITLE=Song', 'TRACKNUMBER=A1']),
+      );
+      final FilesystemLocalMetadataReader failing =
+          FilesystemLocalMetadataReader(
+        artworkCache: LocalArtworkCache(directory: () async => artworkDir),
+        guard: (File file) => throw FileSystemException(
+            'Input/output error', file.path, const OSError('I/O error', 5)),
+      );
+      addTearDown(failing.close);
+
+      final LocalMetadataRead read = await failing.readWithOutcome(path);
+
+      expect(read.failed, isTrue);
+      expect(read.metadata, isNull);
+    });
+
+    test('a comment with no separator, or a word for a number, costs nothing',
+        () async {
+      for (final String odd in <String>['NOSEPARATOR', 'DISCTOTAL=two']) {
+        final String path = write(
+          'odd.flac',
+          AudioTagFixtures.flacWithRawComments(
+              <String>['TITLE=Song', 'ARTIST=Someone', odd]),
+        );
+
+        final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+        expect(read.metadata?.title, 'Song', reason: odd);
+        expect(read.metadata?.artist, 'Someone', reason: odd);
+      }
+    });
+  });
+
   group('a failed read is told apart from a file with no tags (#743)', () {
     test('an untagged file was read: nothing in it, but not a failure',
         () async {

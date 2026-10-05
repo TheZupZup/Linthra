@@ -216,3 +216,48 @@ class VorbisCommentFields {
     (fields[name] ??= <String>[]).add(comment.substring(equals + 1));
   }
 }
+
+/// The length of a FLAC file, from its STREAMINFO block: the total number of
+/// samples over the sample rate.
+///
+/// STREAMINFO is the one block every FLAC must have, and it always comes
+/// first, so this reads a few dozen bytes from the start of the file. Total
+/// like [VorbisCommentFields]: anything that isn't a FLAC opening with a whole
+/// STREAMINFO, or one that doesn't say how long it is, gives null.
+abstract final class FlacStreamInfo {
+  static const int _streamInfoBlock = 0;
+  static const int _streamInfoLength = 34;
+
+  static Future<Duration?> duration(File file) async {
+    RandomAccessFile? handle;
+    try {
+      handle = await file.open();
+      final Uint8List head = await handle.read(8 + _streamInfoLength);
+      if (head.length < 8 + _streamInfoLength) return null;
+      if (!VorbisCommentFields._isFlac(head)) return null;
+      final int length = (head[5] << 16) | (head[6] << 8) | head[7];
+      if ((head[4] & 0x7F) != _streamInfoBlock || length != _streamInfoLength) {
+        return null;
+      }
+      // 20 bits of sample rate, 3 of channels, 5 of bits per sample, then 36
+      // bits of total samples, from byte 10 of the block.
+      const int at = 8 + 10;
+      final int sampleRate =
+          (head[at] << 12) | (head[at + 1] << 4) | (head[at + 2] >> 4);
+      final int samples = ((head[at + 3] & 0x0F) << 32) |
+          (head[at + 4] << 24) |
+          (head[at + 5] << 16) |
+          (head[at + 6] << 8) |
+          head[at + 7];
+      // Zero samples means the encoder didn't know the length.
+      if (sampleRate == 0 || samples == 0) return null;
+      return Duration(
+        microseconds: samples * Duration.microsecondsPerSecond ~/ sampleRate,
+      );
+    } on FileSystemException {
+      return null;
+    } finally {
+      await handle?.close();
+    }
+  }
+}
