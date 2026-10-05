@@ -8,6 +8,7 @@ import '../core/models/desktop_close_behavior.dart';
 import '../core/models/plex_session.dart';
 import '../core/models/subsonic_session.dart';
 import '../core/services/artwork_disk_cache.dart';
+import '../core/services/artwork_server.dart';
 import '../core/services/desktop_window_lifecycle_service.dart';
 import '../core/services/media_session_binding.dart';
 import '../core/services/playback_session_persistence.dart';
@@ -416,11 +417,20 @@ Future<ApplicationHandle> bootstrapApplication(
 
     if (installPersistentArtworkCache) {
       // Persistent, credential-free artwork cache (issue #356). Only the
-      // credential-free key ever reaches disk — see [ArtworkDiskCache].
+      // credential-free key ever reaches disk (see [ArtworkDiskCache]). A
+      // Subsonic/Plex reference is kept per server, the one connected now
+      // (#739).
       final ArtworkDiskCache artworkDiskCache = ArtworkDiskCache(
         directory:
             artworkCacheDirectory ?? await ArtworkDiskCache.defaultDirectory(),
         resolveFetchUrl: (Uri key) => resolveArtworkReference(key) ?? key,
+        serverOf: (Uri key) => artworkServerOf(
+          key,
+          subsonic: container
+              .read(subsonicSettingsControllerProvider.notifier)
+              .session,
+          plex: container.read(plexMusicSourceProvider)?.session,
+        ),
       );
       installArtworkDiskCache(artworkDiskCache);
       handle.ownArtworkDiskCache(artworkDiskCache);

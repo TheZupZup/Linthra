@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'artwork_disk_cache.dart';
 import 'media_artwork_content_uri.dart';
 import 'media_artwork_source.dart';
 
@@ -39,10 +40,12 @@ import 'media_artwork_source.dart';
 class MediaArtworkCache implements MediaArtworkSource {
   MediaArtworkCache({
     required Uri? Function(Uri reference) resolveUrl,
+    String? Function(Uri reference)? serverOf,
     Future<List<int>?> Function(Uri url)? fetch,
     Future<Directory> Function()? directory,
     http.Client? httpClient,
   })  : _resolveUrl = resolveUrl,
+        _serverOf = serverOf ?? _anyServer,
         _directory = directory ?? _defaultDirectory,
         _httpClient = httpClient ?? http.Client() {
     // Default to the shared-client fetcher (an instance method, so it can reuse
@@ -55,6 +58,11 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// (e.g. signed out, or a Jellyfin/local URL). The returned URL carries the
   /// credential and is used only inside [resolve].
   final Uri? Function(Uri reference) _resolveUrl;
+
+  /// The server [reference] resolves against now (see `artworkServerOf`), so
+  /// one server's cover is never handed out for another's reference of the
+  /// same name (#739). Null when nothing would resolve it (signed out).
+  final String? Function(Uri reference) _serverOf;
 
   /// The HTTP client used by the default fetcher. Reused across cover fetches so
   /// the sequential pre-warm benefits from keep-alive (one TLS handshake per
@@ -99,13 +107,17 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// the media handler can attach it while building a `MediaItem` without
   /// awaiting — covers are warmed ahead of time by `MediaArtworkPrewarmService`.
   @override
-  Uri? cached(Uri reference) => _memo[_cacheKey(reference)];
+  Uri? cached(Uri reference) {
+    final String? key = _keyFor(reference);
+    return key == null ? null : _memo[key];
+  }
 
   /// The cached cover as a `file:` URI, for consumers that cannot resolve the
   /// Android `content://` form (the Linux MPRIS session). Same memoized entry.
   @override
   Uri? cachedFileUri(Uri reference) {
-    final File? file = _files[_cacheKey(reference)];
+    final String? key = _keyFor(reference);
+    final File? file = key == null ? null : _files[key];
     return file == null ? null : Uri.file(file.path);
   }
 
@@ -113,7 +125,8 @@ class MediaArtworkCache implements MediaArtworkSource {
   /// caching the image on a miss. Returns `null` (never throws) when the artwork
   /// can't be produced safely — the caller then shows no artwork.
   Future<Uri?> resolve(Uri reference) {
-    final String key = _cacheKey(reference);
+    final String? key = _keyFor(reference);
+    if (key == null) return Future<Uri?>.value();
     final Uri? memoized = _memo[key];
     if (memoized != null) return Future<Uri?>.value(memoized);
     final Completer<Uri?>? pending = _inFlight[key];
@@ -155,7 +168,11 @@ class MediaArtworkCache implements MediaArtworkSource {
     final Uri? url = _resolveUrl(reference);
     if (url == null) return null;
     final List<int>? bytes = await _fetch(url);
-    if (bytes == null || bytes.isEmpty) return null;
+    if (bytes == null ||
+        bytes.isEmpty ||
+        !ArtworkDiskCache.looksLikeImage(bytes)) {
+      return null;
+    }
 
     try {
       if (!await dir.exists()) {
@@ -192,13 +209,30 @@ class MediaArtworkCache implements MediaArtworkSource {
     await _coverReady.close();
   }
 
+  /// [reference]'s key on the server it resolves against now, or null when
+  /// nothing would resolve it.
+  String? _keyFor(Uri reference) {
+    final String? server;
+    try {
+      server = _serverOf(reference);
+    } catch (_) {
+      return null;
+    }
+    return server == null ? null : _cacheKey(reference, server);
+  }
+
   /// A credential-free, filename-safe cache key: the SHA-256 of the
-  /// *credential-free* reference string (e.g. `subsonic-cover:al-123`). The
-  /// reference carries no username, salt, token, server URL, or auth query, so
-  /// neither does the key — and hashing also keeps an odd id from escaping the
-  /// cache directory.
-  static String _cacheKey(Uri reference) =>
-      sha256.convert(utf8.encode(reference.toString())).toString();
+  /// *credential-free* reference string (e.g. `subsonic-cover:al-123`), after
+  /// the identity of the [server] it resolves against. Neither carries a
+  /// username, salt, token, server URL, or auth query, so the key doesn't
+  /// either. Hashing also keeps an odd id from escaping the cache directory.
+  static String _cacheKey(Uri reference, String server) => sha256
+      .convert(utf8.encode(
+        server.isEmpty ? reference.toString() : '$server\u0000$reference',
+      ))
+      .toString();
+
+  static String? _anyServer(Uri reference) => '';
 
   /// Where cover files live, which differs by platform because two different
   /// consumers have to be able to open them.

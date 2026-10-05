@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/models/plex_session.dart';
 import '../../core/models/subsonic_session.dart';
+import '../../core/services/artwork_server.dart';
 import '../../core/services/media_artwork_cache.dart';
 import '../../core/services/media_artwork_prewarm_service.dart';
 import '../../core/sources/plex/plex_artwork.dart';
@@ -74,6 +75,12 @@ Uri? resolveMediaSessionArtworkUrl(
 final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
   final cache = MediaArtworkCache(
     resolveUrl: (Uri reference) => resolveMediaSessionArtworkUrl(
+      reference,
+      subsonic: ref.read(subsonicSettingsControllerProvider.notifier).session,
+      plex: ref.read(plexSettingsControllerProvider.notifier).session,
+    ),
+    // One server's cover is never shown for another's reference (#739).
+    serverOf: (Uri reference) => artworkServerOf(
       reference,
       subsonic: ref.read(subsonicSettingsControllerProvider.notifier).session,
       plex: ref.read(plexSettingsControllerProvider.notifier).session,

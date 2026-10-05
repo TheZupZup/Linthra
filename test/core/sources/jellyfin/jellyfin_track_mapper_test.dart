@@ -29,8 +29,22 @@ void main() {
       expect(track.trackNumber, 3);
       expect(
         track.artworkUri,
-        Uri.parse('$_baseUrl/Items/track-1/Images/Primary'),
+        Uri.parse('$_baseUrl/Items/track-1/Images/Primary'
+            '?maxWidth=1024&maxHeight=1024'),
       );
+    });
+
+    test("the cover URL carries the image's tag (#739)", () {
+      final JellyfinItemDto item = JellyfinItemDto.fromJson(<String, dynamic>{
+        'Id': 'track-2',
+        'Name': 'Song',
+        'ImageTags': <String, dynamic>{'Primary': '5e9f'},
+      })!;
+
+      final track = JellyfinTrackMapper.toTrack(item, baseUrl: _baseUrl);
+
+      expect(track.artworkUri!.path, '/Items/track-2/Images/Primary');
+      expect(track.artworkUri!.queryParameters['tag'], '5e9f');
     });
 
     test('keeps the token out of the uri', () {
@@ -129,7 +143,8 @@ void main() {
       expect(album.trackCount, 12);
       expect(
         album.artworkUri,
-        Uri.parse('$_baseUrl/Items/album-1/Images/Primary'),
+        Uri.parse('$_baseUrl/Items/album-1/Images/Primary'
+            '?maxWidth=1024&maxHeight=1024'),
       );
     });
 
@@ -151,7 +166,8 @@ void main() {
       expect(artist.name, 'The Artist');
       expect(
         artist.artworkUri,
-        Uri.parse('$_baseUrl/Items/artist-1/Images/Primary'),
+        Uri.parse('$_baseUrl/Items/artist-1/Images/Primary'
+            '?maxWidth=1024&maxHeight=1024'),
       );
     });
   });

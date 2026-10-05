@@ -191,6 +191,7 @@ class JellyfinItemDto {
     this.productionYear,
     this.childCount,
     this.hasPrimaryImage = false,
+    this.primaryImageTag,
   });
 
   final String id;
@@ -210,6 +211,11 @@ class JellyfinItemDto {
   /// builds an artwork URL when there's actually an image to fetch.
   final bool hasPrimaryImage;
 
+  /// The primary image's tag, which changes when the image does. Part of the
+  /// cover URL, so a replaced cover is fetched again rather than served from
+  /// the artwork cache for good (#739).
+  final String? primaryImageTag;
+
   /// Parses one item, or returns `null` when it lacks a usable id/name (skipped
   /// by the caller) so a single malformed entry can't break a whole listing.
   ///
@@ -227,6 +233,8 @@ class JellyfinItemDto {
 
     final Object? imageTags = json['ImageTags'];
     final bool hasPrimary = imageTags is Map && imageTags['Primary'] != null;
+    final String? primaryTag =
+        hasPrimary ? _coerceString(imageTags['Primary']) : null;
 
     return JellyfinItemDto(
       id: id,
@@ -240,6 +248,7 @@ class JellyfinItemDto {
       productionYear: _coerceInt(json['ProductionYear']),
       childCount: _coerceInt(json['ChildCount']),
       hasPrimaryImage: hasPrimary,
+      primaryImageTag: primaryTag,
     );
   }
 }
