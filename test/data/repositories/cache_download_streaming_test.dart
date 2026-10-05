@@ -262,6 +262,33 @@ void main() {
       expect(await store.loadDownloads(), isEmpty);
     });
 
+    test(
+        'an announced size that fits, then more bytes than that, still stops '
+        'at the chunk that passes the limit', () async {
+      // The server says 6 bytes, and keeps sending past them.
+      final _StreamingDownloader downloader = _StreamingDownloader();
+      final _Body body = downloader.next(length: 6);
+      final CacheDownloadRepository repository = build(downloader);
+
+      final Future<void> refused = expectLater(
+        repository.requestDownload(_jellyfin('j1')),
+        throwsA(isA<CacheStorageException>()),
+      );
+      await _settle();
+      body.add(const <int>[1, 2, 3, 4, 5, 6]);
+      await _settle();
+      expect(body.cancelled, isFalse);
+      body.add(const <int>[7, 8, 9, 10, 11]);
+      await _settle();
+      // Read to the end, the body would only be refused at the commit.
+      unawaited(body.end());
+
+      await refused;
+      expect(body.cancelled, isTrue);
+      expect(files.drafts.single.discarded, isTrue);
+      expect(await repository.statusFor('j1'), DownloadStatus.notDownloaded);
+    });
+
     test('a pre-cache over its room is refused before its body is read',
         () async {
       final _StreamingDownloader downloader = _StreamingDownloader();

@@ -805,7 +805,8 @@ class CacheDownloadRepository
     bool tooBig = false;
     int shown = -1;
     void progress(int received, int? total) {
-      if ((total ?? received) > refuseOver) {
+      // Both: a server can announce a size that fits and send more than it.
+      if ((total ?? 0) > refuseOver || received > refuseOver) {
         tooBig = true;
         throw const _TooBig();
       }
