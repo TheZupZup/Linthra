@@ -163,6 +163,42 @@ void main() {
       expect(updated.hasNext, isFalse);
     });
 
+    test('play next while shuffled is still next once shuffle is off', () {
+      // Before, the track was appended to the pre-shuffle order, so turning
+      // shuffle off moved it behind everything else.
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c'), _track('d')],
+        startIndex: 1,
+      ).shuffled(Random(4)).enqueueNext(_track('z'));
+
+      final PlaybackQueue unshuffled = queue.unshuffled();
+
+      expect(unshuffled.current, _track('b'));
+      expect(unshuffled.tracks, [
+        _track('a'),
+        _track('b'),
+        _track('z'),
+        _track('c'),
+        _track('d'),
+      ]);
+    });
+
+    test('a set played next while shuffled keeps its place after shuffle off',
+        () {
+      final queue = PlaybackQueue.of(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 1,
+      ).shuffled(Random(5)).enqueueAllNext([_track('x'), _track('y')]);
+
+      expect(queue.unshuffled().tracks, [
+        _track('a'),
+        _track('b'),
+        _track('x'),
+        _track('y'),
+        _track('c'),
+      ]);
+    });
+
     test('appended() while shuffled survives a later unshuffle', () {
       final queue = PlaybackQueue.of([_track('a'), _track('b')])
           .shuffled(Random(2))

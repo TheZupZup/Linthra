@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/track.dart';
 import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
+import '../../player/shuffle_play.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 
 /// What a right-click offers on something that *is* a set of songs: an album,
@@ -83,8 +84,7 @@ Future<void> runCollectionAction(
       unawaited(controller.playTracks(tracks));
       showNowPlayingAfterPlay(context);
     case CollectionAction.shuffle:
-      controller.setShuffleEnabled(true);
-      unawaited(controller.playTracks(tracks));
+      unawaited(playShuffled(controller, tracks));
       showNowPlayingAfterPlay(context);
     case CollectionAction.playNext:
       // One insert for the whole set, in the order it was handed over: it lands

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/album.dart';
@@ -342,6 +344,144 @@ void main() {
           _sessionFor(baseUrl: 'https://other.example.com', userId: 'user-2'),
         ),
       );
+    });
+
+    test('signing in to another account mid-sync still syncs it', () async {
+      // Before, the second account's auto-sync found the first one still
+      // running and returned; the first then dropped its stale result, and
+      // the new account never synced in that session.
+      final repo = _RecordingRepository();
+      final store = InMemoryJellyfinAutoSyncStore();
+      final auth = FakeJellyfinAuthenticator(session: _sessionFor());
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      )..itemsGate = Completer<void>();
+      final container = _container(
+        authenticator: auth,
+        repository: repo,
+        autoSyncStore: store,
+        client: client,
+      );
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      // Alice's auto-sync parks on the library fetch.
+      await _signIn(container);
+      await _settle();
+      expect(container.read(jellyfinSyncControllerProvider).isSyncing, isTrue);
+
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+      final JellyfinSession bob = _sessionFor(
+        baseUrl: 'https://other.example.com',
+        userId: 'user-2',
+        userName: 'bob',
+      );
+      auth.session = bob;
+      await _signIn(container, url: 'other.example.com', username: 'bob');
+
+      client.itemsGate!.complete();
+      await _drainAutoSync();
+
+      expect(repo.upsertCount, 1, reason: "only Bob's library is written");
+      expect(await store.read(), jellyfinAccountFingerprint(bob));
+      expect(
+        container.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.success,
+      );
+    });
+
+    test('a manual Sync while the next account waits still records it',
+        () async {
+      // Signing out leaves the card idle, so Sync can be pressed while Bob's
+      // first auto-sync waits behind Alice's. Before, that press replaced
+      // Bob's fingerprint, his sync went unrecorded, and he would auto-sync
+      // his whole library again on his next sign-in.
+      final store = InMemoryJellyfinAutoSyncStore();
+      final auth = FakeJellyfinAuthenticator(session: _sessionFor());
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      )..itemsGate = Completer<void>();
+      final container = _container(
+        authenticator: auth,
+        repository: _RecordingRepository(),
+        autoSyncStore: store,
+        client: client,
+      );
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await _signIn(container);
+      await _settle();
+      await container.read(jellyfinSettingsControllerProvider.notifier).clear();
+      final JellyfinSession bob = _sessionFor(
+        baseUrl: 'https://other.example.com',
+        userId: 'user-2',
+        userName: 'bob',
+      );
+      auth.session = bob;
+      await _signIn(container, url: 'other.example.com', username: 'bob');
+      await pumpEventQueue(times: 10);
+
+      await container.read(jellyfinSyncControllerProvider.notifier).sync();
+      client.itemsGate!.complete();
+      await _drainAutoSync();
+
+      expect(await store.read(), jellyfinAccountFingerprint(bob));
+    });
+
+    test("a queued re-run never records another account's first sync",
+        () async {
+      // Bob's auto-sync waits behind Alice's, then Carol signs in. Carol was
+      // synced before, so she queues nothing, and the re-run syncs her. It
+      // must not mark Bob as synced: his library has never been pulled.
+      final JellyfinSession bob = _sessionFor(
+        baseUrl: 'https://other.example.com',
+        userId: 'user-2',
+        userName: 'bob',
+      );
+      final JellyfinSession carol = _sessionFor(
+        baseUrl: 'https://third.example.com',
+        userId: 'user-3',
+        userName: 'carol',
+      );
+      final store =
+          InMemoryJellyfinAutoSyncStore(jellyfinAccountFingerprint(carol));
+      final auth = FakeJellyfinAuthenticator(session: _sessionFor());
+      final client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a')],
+        },
+      )..itemsGate = Completer<void>();
+      final container = _container(
+        authenticator: auth,
+        repository: _RecordingRepository(),
+        autoSyncStore: store,
+        client: client,
+      );
+      container.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      await _signIn(container);
+      await _settle();
+      final JellyfinSettingsController settings =
+          container.read(jellyfinSettingsControllerProvider.notifier);
+      await settings.clear();
+      auth.session = bob;
+      await _signIn(container, url: 'other.example.com', username: 'bob');
+      await pumpEventQueue(times: 10);
+      await settings.clear();
+      auth.session = carol;
+      await _signIn(container, url: 'third.example.com', username: 'carol');
+      await pumpEventQueue(times: 10);
+
+      client.itemsGate!.complete();
+      await _drainAutoSync();
+
+      expect(await store.read(), jellyfinAccountFingerprint(carol));
     });
 
     test('manual sync still works after the auto-sync', () async {

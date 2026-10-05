@@ -9,6 +9,7 @@ import '../../shared/widgets/loading_indicator.dart';
 import '../library/widgets/track_tile.dart';
 import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
+import '../player/shuffle_play.dart';
 import 'smart_mix_providers.dart';
 
 /// One smart mix's tracks, with Play / Shuffle and tap-to-play.
@@ -112,9 +113,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
 
   void _shuffle(BuildContext context, WidgetRef ref, List<Track> tracks) {
     if (tracks.isEmpty) return;
-    final controller = ref.read(playbackControllerProvider);
-    controller.setShuffleEnabled(true);
-    controller.playTracks(tracks);
+    playShuffled(ref.read(playbackControllerProvider), tracks);
     showNowPlayingAfterPlay(context);
   }
 
@@ -129,7 +128,7 @@ class SmartMixDetailScreen extends ConsumerWidget {
       case SmartPlaylistKind.mostPlayed:
         return 'Your most-played tracks appear here as you listen.';
       case SmartPlaylistKind.favorites:
-        return 'Tap the heart on a track to add it here.';
+        return 'Use the heart on a track to add it here.';
       case SmartPlaylistKind.downloaded:
         return 'Download tracks for offline and they’ll appear here.';
       case SmartPlaylistKind.random:

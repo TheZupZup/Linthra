@@ -32,7 +32,7 @@ GoRouter _router() {
   );
 }
 
-Future<void> _pump(WidgetTester tester) async {
+Future<void> _pump(WidgetTester tester, {TargetPlatform? platform}) async {
   // A tall surface so the whole list of categories is laid out (a ListView
   // only builds on-screen rows) and every tile is hittable.
   tester.view.physicalSize = const Size(1000, 2000);
@@ -40,13 +40,31 @@ Future<void> _pump(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
-    ProviderScope(child: MaterialApp.router(routerConfig: _router())),
+    ProviderScope(
+      child: MaterialApp.router(
+        theme: platform == null ? null : ThemeData(platform: platform),
+        routerConfig: _router(),
+      ),
+    ),
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
   group('SettingsScreen (hub)', () {
+    testWidgets('downloads are summed up in the platform\'s own words',
+        (tester) async {
+      await _pump(tester);
+      expect(find.text('Mobile data and offline downloads'), findsOneWidget);
+
+      await _pump(tester, platform: TargetPlatform.linux);
+      expect(
+        find.text('Metered connections and offline downloads'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Mobile data'), findsNothing);
+    });
+
     testWidgets('shows the brand header and every category', (tester) async {
       await _pump(tester);
 

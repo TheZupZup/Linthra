@@ -13,6 +13,7 @@ Future<void> _pump(
   WidgetTester tester,
   InMemoryPlaylistStore store, {
   JellyfinSession? session,
+  TargetPlatform? platform,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -24,7 +25,10 @@ Future<void> _pump(
           InMemoryJellyfinSessionStore(initialSession: session),
         ),
       ],
-      child: const MaterialApp(home: PlaylistsScreen()),
+      child: MaterialApp(
+        theme: platform == null ? null : ThemeData(platform: platform),
+        home: const PlaylistsScreen(),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -108,6 +112,42 @@ void main() {
 
       expect(find.text('No playlists yet'), findsOneWidget);
       expect(find.textContaining('after you sync'), findsOneWidget);
+    });
+
+    testWidgets('a desktop puts New playlist in the header', (tester) async {
+      await _pump(
+        tester,
+        InMemoryPlaylistStore(),
+        platform: TargetPlatform.linux,
+      );
+
+      expect(find.byType(FloatingActionButton), findsNothing);
+      final Finder headerAction = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('New playlist'),
+      );
+      expect(headerAction, findsOneWidget);
+
+      await tester.tap(headerAction);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Chill');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chill'), findsOneWidget);
+    });
+
+    testWidgets('a phone keeps the floating button', (tester) async {
+      await _pump(tester, InMemoryPlaylistStore());
+
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('New playlist'),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(FloatingActionButton), findsOneWidget);
     });
 
     testWidgets('creating a playlist via the dialog adds it to the list',

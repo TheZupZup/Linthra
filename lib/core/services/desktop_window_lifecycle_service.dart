@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../lifecycle/desktop_close_policy.dart';
+import '../lifecycle/platform_shutdown_policy.dart';
 import '../models/desktop_close_behavior.dart';
 import '../models/playback_state.dart';
 import 'desktop_application_actions.dart';
@@ -31,11 +32,16 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
   DesktopWindowLifecycleService({
     required DesktopWindowController window,
     required PlaybackController playback,
+    Duration shutdownDeadline = exitShutdownDeadline,
   })  : _window = window,
-        _playback = playback;
+        _playback = playback,
+        _shutdownDeadline = shutdownDeadline;
 
   final DesktopWindowController _window;
   final PlaybackController _playback;
+
+  /// How long [quit] waits for the graceful shutdown before ending anyway.
+  final Duration _shutdownDeadline;
 
   StreamSubscription<PlaybackState>? _playbackSubscription;
   StreamSubscription<DesktopWindowVisibility>? _visibilitySubscription;
@@ -89,10 +95,13 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
     // close behaviour onto a window that is going away.
     await _cancelSubscriptions();
     try {
-      await _shutdown?.call();
+      // Bounded like closing the window is: a teardown that never finishes
+      // (an audio engine that hangs on dispose) must not leave a process with
+      // no window running behind the user's back.
+      await _shutdown?.call().timeout(_shutdownDeadline);
     } catch (_) {
-      // `ApplicationHandle.shutdown` never throws, and a foreign one that does
-      // must not keep the process alive.
+      // `ApplicationHandle.shutdown` never throws, and a foreign one that does,
+      // or one past the deadline, must not keep the process alive.
     }
     await _window.quit();
   }

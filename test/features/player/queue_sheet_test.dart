@@ -23,6 +23,7 @@ Future<void> _open(
   FakePlaybackController controller, {
   InMemoryPlaylistStore? store,
   TargetPlatform? platform,
+  TextDirection textDirection = TextDirection.ltr,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -32,6 +33,8 @@ Future<void> _open(
       ],
       child: MaterialApp(
         theme: platform == null ? null : ThemeData(platform: platform),
+        builder: (BuildContext context, Widget? child) =>
+            Directionality(textDirection: textDirection, child: child!),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
@@ -645,6 +648,75 @@ void main() {
       await _open(tester, controller, platform: TargetPlatform.linux);
 
       expect(_moveHint(tester), contains('Ctrl'));
+    });
+  });
+
+  group('where the queue opens', () {
+    final Finder sideSheet = find.byKey(const Key('queue_side_sheet'));
+
+    testWidgets('a phone keeps the bottom sheet', (tester) async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B')]);
+
+      await _open(tester, controller);
+
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(sideSheet, findsNothing);
+    });
+
+    testWidgets('a desktop opens it from the side, as the pane',
+        (tester) async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B')]);
+
+      await _open(tester, controller, platform: TargetPlatform.linux);
+
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(sideSheet, findsOneWidget);
+      expect(tester.getRect(sideSheet).right, 800);
+      expect(
+        tester.widget<QueueSheet>(find.byType(QueueSheet)).embedded,
+        isTrue,
+      );
+      expect(find.text('Song B'), findsOneWidget);
+    });
+
+    testWidgets('the close button, Escape and a click beside it close it',
+        (tester) async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B')]);
+
+      await _open(tester, controller, platform: TargetPlatform.linux);
+      await tester.tap(find.byTooltip('Close queue'));
+      await tester.pumpAndSettle();
+      expect(sideSheet, findsNothing);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(sideSheet, findsNothing);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(20, 300));
+      await tester.pumpAndSettle();
+      expect(sideSheet, findsNothing);
+    });
+
+    testWidgets('a right-to-left desktop opens it from the left',
+        (tester) async {
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B')]);
+
+      await _open(
+        tester,
+        controller,
+        platform: TargetPlatform.linux,
+        textDirection: TextDirection.rtl,
+      );
+
+      expect(tester.getRect(sideSheet).left, 0);
     });
   });
 }

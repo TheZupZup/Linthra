@@ -12,6 +12,7 @@ class FavoritesData {
   const FavoritesData({
     this.localIds = const <String>{},
     this.remoteIds = const <String>{},
+    this.pendingWrites = const <String, bool>{},
   });
 
   static const FavoritesData empty = FavoritesData();
@@ -24,10 +25,21 @@ class FavoritesData {
   /// its bare id at the request boundary.
   final Set<String> remoteIds;
 
-  FavoritesData copyWith({Set<String>? localIds, Set<String>? remoteIds}) {
+  /// Remote hearts and un-hearts whose server push hasn't been confirmed yet
+  /// (uri → the favourite state to push). Kept with the sets so a heart made
+  /// offline still reaches its server after a restart, instead of the first
+  /// refresh adopting a starred list that never heard of it.
+  final Map<String, bool> pendingWrites;
+
+  FavoritesData copyWith({
+    Set<String>? localIds,
+    Set<String>? remoteIds,
+    Map<String, bool>? pendingWrites,
+  }) {
     return FavoritesData(
       localIds: localIds ?? this.localIds,
       remoteIds: remoteIds ?? this.remoteIds,
+      pendingWrites: pendingWrites ?? this.pendingWrites,
     );
   }
 }

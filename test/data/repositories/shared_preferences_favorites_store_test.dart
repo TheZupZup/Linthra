@@ -26,6 +26,32 @@ void main() {
       expect(loaded.remoteIds, <String>{'jellyfin:101'});
     });
 
+    test('round-trips the writes still pending for a server', () async {
+      await store.save(const FavoritesData(
+        remoteIds: <String>{'subsonic:1'},
+        pendingWrites: <String, bool>{'subsonic:1': true, 'subsonic:2': false},
+      ));
+
+      expect(
+        (await store.load()).pendingWrites,
+        <String, bool>{'subsonic:1': true, 'subsonic:2': false},
+      );
+    });
+
+    test('a document saved before pending writes existed has none', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'favorites_v2': jsonEncode(<String, dynamic>{
+          'local': <String>[],
+          'remote': <String>['jellyfin:101'],
+        }),
+      });
+
+      final FavoritesData loaded = await store.load();
+
+      expect(loaded.remoteIds, <String>{'jellyfin:101'});
+      expect(loaded.pendingWrites, isEmpty);
+    });
+
     test('returns empty when nothing is stored', () async {
       expect((await store.load()).localIds, isEmpty);
       expect((await store.load()).remoteIds, isEmpty);

@@ -13,15 +13,16 @@ void main() {
     late InMemoryDownloadPreferences preferences;
     late FakeDownloadRepository downloads;
 
-    Future<void> pump(WidgetTester tester) async {
+    Future<void> pump(WidgetTester tester, {TargetPlatform? platform}) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             downloadPreferencesProvider.overrideWithValue(preferences),
             downloadRepositoryProvider.overrideWithValue(downloads),
           ],
-          child: const MaterialApp(
-            home: Scaffold(body: NetworkSettingsSection()),
+          child: MaterialApp(
+            theme: platform == null ? null : ThemeData(platform: platform),
+            home: const Scaffold(body: NetworkSettingsSection()),
           ),
         ),
       );
@@ -55,6 +56,41 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(downloads.retryHeldCount, 0);
+    });
+
+    testWidgets('a desktop names it for metered connections', (tester) async {
+      // A desktop has no mobile data plan; what it meets is a connection the
+      // system marks as metered, like a phone hotspot.
+      await pump(tester, platform: TargetPlatform.linux);
+
+      expect(find.text('Metered connections'), findsOneWidget);
+      expect(find.text('Downloads on metered connections'), findsOneWidget);
+      expect(find.text('Unmetered only'), findsOneWidget);
+      expect(find.textContaining('mobile data'), findsNothing);
+      expect(find.textContaining('Mobile data'), findsNothing);
+    });
+
+    testWidgets('a desktop offers the same three choices in its own words',
+        (tester) async {
+      await pump(tester, platform: TargetPlatform.linux);
+
+      await tester.tap(find.text('Downloads on metered connections'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unmetered only'), findsNWidgets(2));
+      expect(find.text('Save data'), findsOneWidget);
+      await tester.tap(find.text('Unlimited'));
+      await tester.pumpAndSettle();
+
+      expect(
+        await preferences.mobileDataProfile(),
+        MobileDataProfile.unlimited,
+      );
+      expect(
+        find.text(
+            'Downloads and smart pre-cache may use a metered connection.'),
+        findsOneWidget,
+      );
+      expect(downloads.retryHeldCount, 1);
     });
 
     testWidgets('shows Wi-Fi only as the safe default', (tester) async {

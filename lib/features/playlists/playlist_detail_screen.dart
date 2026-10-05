@@ -19,8 +19,10 @@ import '../player/favorites_providers.dart';
 import '../player/now_playing.dart';
 import '../player/now_playing_after_play.dart';
 import '../player/player_providers.dart';
+import '../player/shuffle_play.dart';
 import '../player/widgets/album_artwork.dart';
 import '../player/widgets/track_artwork.dart';
+import '../player/widgets/track_duration_label.dart';
 import 'playlist_add.dart';
 import 'playlist_drag.dart';
 import 'playlist_providers.dart';
@@ -342,6 +344,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          TrackDurationLabel(duration: track.duration),
           PopupMenuButton<_RowAction>(
             icon: const Icon(Icons.more_vert),
             tooltip: 'Track actions',
@@ -452,9 +455,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   void _shuffle(List<Track> tracks) {
     if (tracks.isEmpty) return;
-    final controller = ref.read(playbackControllerProvider);
-    controller.setShuffleEnabled(true);
-    controller.playTracks(tracks);
+    playShuffled(ref.read(playbackControllerProvider), tracks);
     showNowPlayingAfterPlay(context);
   }
 

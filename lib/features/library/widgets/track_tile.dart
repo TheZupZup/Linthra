@@ -7,12 +7,15 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/routes.dart';
 import '../../../core/catalog/library_grouping.dart';
+import '../../../core/catalog/text_folding.dart';
+import '../../../core/models/album.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/download_repository.dart';
 import '../../../core/repositories/download_store.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../shared/focus/focus_ring.dart';
+import '../../../shared/layout/desktop_presentation.dart';
 import '../../../shared/widgets/context_menu_region.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/favorites_providers.dart';
@@ -20,10 +23,12 @@ import '../../player/now_playing.dart';
 import '../../player/now_playing_after_play.dart';
 import '../../player/player_providers.dart';
 import '../../player/widgets/track_artwork.dart';
+import '../../player/widgets/track_duration_label.dart';
 import '../../playlists/playlist_drag.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../library_browse_providers.dart';
 import '../song_actions.dart';
+import 'album_track_number.dart';
 import 'track_status_glyph.dart';
 
 /// The actions reachable from a track row's overflow menu. Which subset is
@@ -74,6 +79,11 @@ enum _TrackAction {
 /// menu route to the same operation, "Add to playlist", is unchanged and stays
 /// the accessible path.
 ///
+/// On an album's own page ([albumPage]) a desktop row reads like a desktop
+/// player's: its track number in place of the cover every row would repeat,
+/// and an artist line only when the song is not by the album's artist.
+/// Phones keep the artwork rows.
+///
 /// Source-awareness: offline/download actions only appear for *remote* tracks
 /// (resolved through [remoteTrackDownloaderProvider], the same seam the
 /// download repository uses). On-device tracks are already local, so showing
@@ -90,6 +100,7 @@ class TrackTile extends ConsumerWidget {
     this.onSelectStart,
     this.onSelectRange,
     this.dragSelection,
+    this.albumPage,
     super.key,
   });
 
@@ -124,10 +135,19 @@ class TrackTile extends ConsumerWidget {
   /// Hosts without selection leave it null and a drag carries this row alone.
   final List<Track> Function()? dragSelection;
 
+  /// The album whose own page this row is on, when that page numbers its rows
+  /// (see [canNumberAlbumRows]), or null.
+  final Album? albumPage;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final track = tracks[index];
     final theme = Theme.of(context);
+    // Every row on an album's page shares its cover and its album, so a
+    // desktop row there drops both rather than repeating them down the list.
+    final Album? album = usesDesktopPresentation(context) ? albumPage : null;
+    final String? subtitle =
+        album == null ? _subtitle(track) : _artistBesides(track, album);
     // Only this row's own now-playing state is selected, so a track change that
     // doesn't affect this row never rebuilds it.
     final NowPlayingRowState? nowPlaying =
@@ -151,10 +171,15 @@ class TrackTile extends ConsumerWidget {
     final Widget row = FocusRing(
       child: ListTile(
         selected: selectionActive && selected,
-        leading: TrackArtwork(
-          artworkUri: track.artworkUri,
-          nowPlaying: nowPlaying,
-        ),
+        leading: album == null
+            ? TrackArtwork(
+                artworkUri: track.artworkUri,
+                nowPlaying: nowPlaying,
+              )
+            : AlbumTrackNumber(
+                trackNumber: track.trackNumber,
+                nowPlaying: nowPlaying,
+              ),
         title: Text(
           track.title,
           maxLines: 1,
@@ -163,14 +188,16 @@ class TrackTile extends ConsumerWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: Text(
-          _subtitle(track),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
+        subtitle: subtitle == null
+            ? null
+            : Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
         trailing: selectionActive
             // The row itself already carries the selected state (and toggles on
             // tap), so the box is the visual echo of it: a second, unnamed
@@ -186,6 +213,7 @@ class TrackTile extends ConsumerWidget {
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  TrackDurationLabel(duration: track.duration),
                   TrackStatusGlyph(
                     track: track,
                     isRemote: isRemote,
@@ -276,6 +304,16 @@ class TrackTile extends ConsumerWidget {
   static String _subtitle(Track track) {
     final String label = track.artistAlbumLabel;
     return label.isEmpty ? track.uri : label;
+  }
+
+  /// A row's second line on its album's page: the song's artist, and only
+  /// when it is not the album's (a guest, a compilation). The album's name
+  /// would just repeat the page title.
+  static String? _artistBesides(Track track, Album album) {
+    final String artist = (track.artistName ?? '').trim();
+    if (artist.isEmpty) return null;
+    if (foldText(artist) == foldText(album.artistName ?? '')) return null;
+    return artist;
   }
 }
 

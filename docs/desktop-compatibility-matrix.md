@@ -73,13 +73,13 @@ is the whole of what C needs and is the one step that is certainly right.
 
 No `rm -rf` recipe is given here on purpose. The window geometry is the one
 native path this page states outright, because A4 needs it and the runner builds
-it from `g_get_user_config_dir()`. The library is `linthra.sqlite` under
-Flutter's `getApplicationDocumentsDirectory()`
-([`linthra_database.dart`](../lib/data/database/linthra_database.dart)), which
-`path_provider` resolves on Linux through xdg-user-dirs, so where it actually
-lands depends on the session rather than on a constant this page could quote.
-Deleting by a guessed path is how a compatibility pass eats something it did not
-mean to.
+it from `g_get_user_config_dir()`. The library is `linthra.sqlite` in Flutter's
+`getApplicationSupportDirectory()`
+([`catalog_database_file.dart`](../lib/data/database/catalog_database_file.dart)),
+beside the offline audio and caches. Older builds kept it in the XDG Documents
+folder: a newer build moves it over on first launch, and an older one run after
+that starts a fresh catalog back there. Deleting by a guessed path is how a
+compatibility pass eats something it did not mean to.
 
 *Flatpak.* `flatpak uninstall` leaves `~/.var/app/io.github.thezupzup.linthra/`
 in place on purpose ([the table of what each command

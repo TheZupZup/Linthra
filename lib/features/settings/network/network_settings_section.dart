@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/dimens.dart';
 import '../../../core/repositories/download_preferences.dart';
 import '../../../data/repositories/download_repository_provider.dart';
+import 'metered_network_wording.dart';
 
 /// Loads and persists the user's metered-network profile.
 class MobileDataProfileController extends AsyncNotifier<MobileDataProfile> {
@@ -28,7 +29,8 @@ final mobileDataProfileControllerProvider =
   MobileDataProfileController.new,
 );
 
-/// The "Wi-Fi & mobile data" card on the Settings screen.
+/// The "Wi-Fi & mobile data" card on the Settings screen ("Metered
+/// connections" on a desktop, see [MeteredNetworkWording]).
 ///
 /// The selected profile is shared with the Downloads screen. It controls
 /// whether explicit downloads may use metered networks and whether automatic
@@ -40,6 +42,7 @@ class NetworkSettingsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final MeteredNetworkWording wording = MeteredNetworkWording.of(context);
 
     return Card(
       child: Padding(
@@ -54,19 +57,14 @@ class NetworkSettingsSection extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.network_cell_outlined,
-                  color: theme.colorScheme.primary,
-                ),
+                Icon(wording.sectionIcon, color: theme.colorScheme.primary),
                 const SizedBox(width: AppSpacing.sm),
-                Text('Wi-Fi & mobile data', style: theme.textTheme.titleMedium),
+                Text(wording.sectionTitle, style: theme.textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Choose how Linthra uses metered networks such as LTE, 5G, or a '
-              'metered Wi-Fi hotspot. Offline and unknown connections remain '
-              'protected.',
+              wording.sectionIntro,
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -91,16 +89,17 @@ class MobileDataDownloadsTile extends ConsumerWidget {
         ref.watch(mobileDataProfileControllerProvider);
     final MobileDataProfile selected =
         profile.valueOrNull ?? MobileDataProfile.wifiOnly;
+    final MeteredNetworkWording wording = MeteredNetworkWording.of(context);
 
     return ListTile(
       contentPadding: contentPadding,
       leading: Icon(selected.icon),
-      title: const Text('Mobile data usage'),
+      title: Text(wording.settingTitle),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(selected.label),
-          Text(selected.description),
+          Text(wording.label(selected)),
+          Text(wording.description(selected)),
         ],
       ),
       isThreeLine: true,
@@ -137,8 +136,9 @@ class _MobileDataProfileDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final MeteredNetworkWording wording = MeteredNetworkWording.of(context);
     return AlertDialog(
-      title: const Text('Mobile data usage'),
+      title: Text(wording.settingTitle),
       content: SingleChildScrollView(
         child: RadioGroup<MobileDataProfile>(
           groupValue: selected,
@@ -153,8 +153,8 @@ class _MobileDataProfileDialog extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   value: profile,
                   secondary: Icon(profile.icon),
-                  title: Text(profile.label),
-                  subtitle: Text(profile.description),
+                  title: Text(wording.label(profile)),
+                  subtitle: Text(wording.description(profile)),
                 ),
             ],
           ),
@@ -171,28 +171,6 @@ class _MobileDataProfileDialog extends StatelessWidget {
 }
 
 extension MobileDataProfilePresentation on MobileDataProfile {
-  String get label {
-    switch (this) {
-      case MobileDataProfile.wifiOnly:
-        return 'Wi-Fi only';
-      case MobileDataProfile.saveData:
-        return 'Save data';
-      case MobileDataProfile.unlimited:
-        return 'Unlimited plan';
-    }
-  }
-
-  String get description {
-    switch (this) {
-      case MobileDataProfile.wifiOnly:
-        return 'Downloads and smart pre-cache wait for an unmetered network.';
-      case MobileDataProfile.saveData:
-        return 'Manual downloads may use mobile data. Smart pre-cache is paused.';
-      case MobileDataProfile.unlimited:
-        return 'Downloads and smart pre-cache may use mobile data.';
-    }
-  }
-
   IconData get icon {
     switch (this) {
       case MobileDataProfile.wifiOnly:

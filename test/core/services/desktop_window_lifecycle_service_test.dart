@@ -210,6 +210,23 @@ void main() {
     expect(window.quitCount, 1);
   });
 
+  test('a shutdown that never finishes still ends the process', () async {
+    // The explicit Quit (MPRIS, the tray) and the hidden-queue auto-quit are
+    // bounded like closing the window, so a teardown that hangs can't leave a
+    // process with no window running.
+    final DesktopWindowLifecycleService bounded = DesktopWindowLifecycleService(
+      window: window,
+      playback: playback,
+      shutdownDeadline: const Duration(milliseconds: 20),
+    )
+      ..installShutdown(() => Completer<void>().future)
+      ..start();
+
+    await bounded.quit();
+
+    expect(window.quitCount, 1);
+  });
+
   test('raise asks the runner to show the window', () async {
     service.start();
 

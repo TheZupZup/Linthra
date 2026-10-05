@@ -9,7 +9,7 @@ import 'queue_sheet.dart';
 /// The same number the Now Playing pane uses: the queue is a list of song rows
 /// wherever it is drawn, and rows have a width that reads well. A flex share
 /// would only pull each title away from its handle as the window grows.
-const double queueSidePanelWidth = 340;
+const double queueSidePanelWidth = queuePaneWidth;
 
 /// What the desktop navigation rail and the two hairline dividers take out of
 /// the window before either column gets a pixel.

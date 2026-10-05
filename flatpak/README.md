@@ -8,9 +8,9 @@ runtime, with Linthra's own icon on the launcher entry and AppStream metainfo
 for a software-centre listing, and let the user point Linthra at a music
 folder through the desktop portal without granting any host filesystem
 access, and keep provider credentials in platform secure storage through the
-desktop's Secret portal. It is deliberately not the Flathub submission:
-some sandbox permissions are still deferred; see "What's deferred" below and
-the comments in `io.github.thezupzup.linthra.yml` itself.
+desktop's Secret portal. It is not the Flathub submission yet; see "What's
+left before Flathub" below, and the comments in
+`io.github.thezupzup.linthra.yml` itself for why each permission is there.
 
 ## Audio runtime
 
@@ -476,21 +476,36 @@ from the same code path.
 `scripts/check_linux_runner.py` holds the runner's channel name to the Dart
 side's, so the two cannot drift into a silent fallback.
 
-## What's deferred
+## What's left before Flathub
 
-Not in this manifest — each has its own issue:
+The sandbox side is done and checked on every Flatpak-affecting PR by
+`.github/workflows/flatpak-build.yml`: the permission audit (#439, #455), the
+build in CI (#444), and the launch, audio and local-library smokes (#445, #446,
+#447). Still no `--filesystem=host|home`: picking a music folder needs no
+filesystem grant (see [Local music folders](#local-music-folders)), and neither
+does credential storage (see
+[Secure credential storage](#secure-credential-storage)).
 
-* **The remaining filesystem-permission audit** (#439): still no
-  `--filesystem=host|home`. Picking a music folder does not need a filesystem
-  grant at all (see [Local music folders](#local-music-folders)), and neither
-  does credential storage (see
-  [Secure credential storage](#secure-credential-storage)).
-* **Video codecs, hardware acceleration/hwaccel, subtitle-adjacent tuning
-  beyond what libmpv/libass require to build** — Linthra is audio-only; the
-  ffmpeg/mpv build stays scoped to the container/codec/protocol support
-  Linthra's supported formats and HTTP(S) streaming actually need.
-* **CI** (#444), **automated launch/audio smoke tests** (#445/#446), **local-
-  library sandbox test** (#447) — out of scope here; this file is the minimal
-  "how do I build and validate this locally" note #432/#433 asked for, and
-  [docs/flatpak-development.md](../docs/flatpak-development.md) is the
-  contributor workflow around it.
+The submission itself is tracked in #456. The issues still open for it:
+
+* **Screenshots** (#437), taken in a real desktop session; see
+  [docs/flathub-screenshots.md](../docs/flathub-screenshots.md).
+* **AppStream metadata** (#450).
+* **A clean `flathub-builder-lint`** (#449), and gating CI on its repo mode
+  (#628).
+* **Release plumbing**: version sync (#452), the upstream release process
+  (#453), and the Flathub submission repository (#451).
+
+Two sandbox gaps found since. Neither blocks the submission, but both are
+worth knowing before relying on them:
+
+* **Saving a bug report or diagnostics** writes into Documents, which the
+  Flatpak can't see, so the saved file is lost (#748).
+* **Playing on with the window closed** depends on the desktop letting an app
+  with no windows keep running. Current GNOME and Plasma 6 allow it without
+  asking; Plasma 5.27 asks, and choosing Force quit there ends playback on
+  every later close (#754).
+
+Out of scope on purpose: video codecs, hardware decoding, and subtitle tuning
+beyond what libmpv/libass need to build. Linthra is audio-only, and the
+ffmpeg/mpv build stays scoped to the formats and HTTP(S) streaming it plays.

@@ -7,6 +7,7 @@ import '../../core/app_info.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../appearance/selected_logo_mark.dart';
 import 'hub/settings_category_tile.dart';
+import 'network/metered_network_wording.dart';
 
 /// The Settings hub: a short, scannable list of categories rather than one long
 /// technical form. Each row opens its own page (Connections, Music & playback,
@@ -21,7 +22,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       // A settings row is a label and a control; on a wide window the column
-      // stops growing and centres rather than pulling the two apart.
+      // stops growing rather than pulling the two apart.
       body: AdaptiveContentWidth(
         maxWidth: maxFormWidth,
         child: ListView(
@@ -54,7 +55,7 @@ class SettingsScreen extends StatelessWidget {
             SettingsCategoryTile(
               icon: Icons.download_outlined,
               title: 'Offline & downloads',
-              subtitle: 'Mobile data and offline downloads',
+              subtitle: MeteredNetworkWording.of(context).hubSubtitle,
               onTap: () => context.push(AppRoutes.settingsDownloads),
             ),
             const SizedBox(height: AppSpacing.md),

@@ -10,6 +10,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/incremental_catalog_writer.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/plex_sync_cache_store.dart';
+import 'package:linthra/core/repositories/reconciling_catalog_writer.dart';
 import 'package:linthra/core/sources/plex/plex_api.dart';
 import 'package:linthra/core/sources/plex/plex_exception.dart';
 import 'package:linthra/data/database/linthra_database.dart';
@@ -172,6 +173,58 @@ class _RecordingRepository
 
   @override
   Future<void> removeTracks(List<String> trackIds) async {}
+}
+
+/// The app's write path: batches upserted over the rows already there, then
+/// one prune. [failUpsertAt] makes that upsert (1-based) throw, as a write
+/// failing or the process going away halfway through a sync would leave it.
+class _ReconcilingRepository extends _RecordingRepository
+    implements ReconcilingCatalogWriter {
+  _ReconcilingRepository({super.existing, this.failUpsertAt, this.upsertGate});
+
+  final int? failUpsertAt;
+
+  /// When set, [upsertTracks] awaits it before applying its batch, as the
+  /// app's recording repository awaits its one-time migration before it
+  /// writes, so a test can hold a batch between its check and the write.
+  final Future<void>? upsertGate;
+
+  int upsertBatches = 0;
+  int pruneCount = 0;
+
+  @override
+  Future<void> upsertTracks({
+    required String sourceId,
+    required List<Track> tracks,
+  }) async {
+    upsertBatches++;
+    final Future<void>? gate = upsertGate;
+    if (gate != null) await gate;
+    if (upsertBatches == failUpsertAt) throw StateError('disk full');
+    lastSourceId = sourceId;
+    for (final Track track in tracks) {
+      final int at = stored.indexWhere((Track t) => t.uri == track.uri);
+      if (at >= 0) {
+        stored[at] = track;
+      } else {
+        stored.add(track);
+      }
+    }
+  }
+
+  @override
+  Future<List<String>> removeTracksNotIn({
+    required String sourceId,
+    required Set<String> keepUris,
+  }) async {
+    pruneCount++;
+    final List<String> removed = <String>[
+      for (final Track t in stored)
+        if (!keepUris.contains(t.uri)) t.uri,
+    ];
+    stored.removeWhere((Track t) => !keepUris.contains(t.uri));
+    return removed;
+  }
 }
 
 /// A [FakePlexClient] whose item listings block until [gate] completes, so a
@@ -762,6 +815,146 @@ void main() {
         (await catalog.getTracksForSource('plex')).map((Track t) => t.uri),
         unorderedEquals(<String>['plex:101', 'plex:102']),
       );
+    });
+  });
+
+  group('writing the catalog', () {
+    List<Track> plexRows(int count, String title) => <Track>[
+          for (int i = 0; i < count; i++)
+            Track(id: 'r$i', title: '$title $i', uri: 'plex:r$i'),
+        ];
+
+    test('updates rows in place and prunes once every batch has landed',
+        () async {
+      final repo = _ReconcilingRepository(
+        existing: <Track>[
+          ...plexRows(250, 'Old'),
+          const Track(id: 'gone', title: 'Gone', uri: 'plex:gone'),
+        ],
+      );
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: _trackItems(250),
+          },
+        ),
+        session: _session,
+        repository: repo,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await container.read(plexSyncControllerProvider.notifier).sync();
+
+      expect(container.read(plexSyncControllerProvider).isDone, isTrue);
+      expect(repo.beginCount, 0, reason: 'nothing empties the slice first');
+      expect(repo.upsertBatches, 3);
+      expect(repo.pruneCount, 1);
+      expect(repo.stored, hasLength(250));
+      expect(repo.stored.map((Track t) => t.uri), isNot(contains('plex:gone')));
+    });
+
+    test('a sync cut off halfway never leaves the library shorter', () async {
+      // Before, the first batch replaced the whole Plex slice, so a sync that
+      // stopped after it left 100 of a 250-track library until a manual sync.
+      final repo = _ReconcilingRepository(
+        existing: plexRows(250, 'Old'),
+        failUpsertAt: 2,
+      );
+      final container = _container(
+        client: FakePlexClient(
+          sections: const [_musicSection],
+          itemsByType: <PlexMetadataType, List<PlexMetadata>>{
+            PlexMetadataType.track: _trackItems(250),
+          },
+        ),
+        session: _session,
+        repository: repo,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      await container.read(plexSyncControllerProvider.notifier).sync();
+
+      expect(container.read(plexSyncControllerProvider).isError, isTrue);
+      expect(repo.stored, hasLength(250));
+      expect(repo.pruneCount, 0);
+    });
+
+    test('a disconnect while scanning does not put the rows back', () async {
+      final client = _GatedPlexClient(
+        sections: const [_musicSection],
+        itemsByType: _libraryItems,
+      );
+      final repo = _ReconcilingRepository(existing: plexRows(3, 'Old'));
+      final cacheStore = InMemoryPlexSyncCacheStore();
+      final container = _container(
+        client: client,
+        session: _session,
+        repository: repo,
+        cacheStore: cacheStore,
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      final Future<void> syncing =
+          container.read(plexSyncControllerProvider.notifier).sync();
+      for (int i = 0;
+          i < 50 && !container.read(plexSyncControllerProvider).isScanning;
+          i++) {
+        await _settle();
+      }
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .disconnect();
+      expect(repo.stored, isEmpty);
+
+      client.gate.complete();
+      await syncing;
+
+      expect(repo.stored, isEmpty);
+      expect(repo.upsertBatches, 0);
+      expect(container.read(plexSyncControllerProvider).isDone, isFalse);
+      expect(
+          await cacheStore.readSignature(_session.machineIdentifier), isNull);
+    });
+
+    test('a disconnect while a batch is being written clears that batch too',
+        () async {
+      // The batch has passed its check but not reached storage yet, so the
+      // disconnect's clear must wait for it rather than run first and leave
+      // it to land afterwards.
+      final gate = Completer<void>();
+      final repo = _ReconcilingRepository(upsertGate: gate.future);
+      final container = _container(session: _session, repository: repo);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      final Future<void> syncing =
+          container.read(plexSyncControllerProvider.notifier).sync();
+      for (int i = 0; i < 50 && repo.upsertBatches == 0; i++) {
+        await _settle();
+      }
+      expect(repo.upsertBatches, 1, reason: 'the batch is under way');
+
+      final Future<void> disconnecting =
+          container.read(plexSettingsControllerProvider.notifier).disconnect();
+      // Time for the disconnect to reach its clear while the batch is held.
+      for (int i = 0; i < 10; i++) {
+        await _settle();
+      }
+      gate.complete();
+      await disconnecting;
+      await syncing;
+
+      expect(repo.stored, isEmpty);
+      expect(repo.upsertBatches, 1);
+      expect(container.read(plexSyncControllerProvider).isDone, isFalse);
     });
   });
 

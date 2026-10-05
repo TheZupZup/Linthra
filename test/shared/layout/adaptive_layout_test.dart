@@ -122,7 +122,7 @@ void main() {
       expect(tester.getSize(find.byKey(const Key('content'))).width, 390);
     });
 
-    testWidgets('caps and centres a column on a wide window',
+    testWidgets('a phone or tablet caps and centres the column',
         (WidgetTester tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(2560, 1440);
@@ -143,8 +143,69 @@ void main() {
 
       final Rect box = tester.getRect(find.byKey(const Key('content')));
       expect(box.width, maxContentWidth);
-      // Centred, so the column doesn't hug one edge of the monitor.
       expect(box.center.dx, closeTo(1280, 0.5));
+    });
+
+    for (final TextDirection direction in TextDirection.values) {
+      testWidgets(
+          'a desktop starts the capped column under its title '
+          '($direction)', (WidgetTester tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(2560, 1440);
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(platform: TargetPlatform.linux),
+            home: Directionality(
+              textDirection: direction,
+              child: const Scaffold(
+                body: AdaptiveContentWidth(
+                  child: SizedBox.expand(
+                    key: Key('content'),
+                    child: ColoredBox(color: Colors.red),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        final Rect box = tester.getRect(find.byKey(const Key('content')));
+        expect(box.width, maxContentWidth);
+        if (direction == TextDirection.ltr) {
+          expect(box.left, 0);
+        } else {
+          expect(box.right, 2560);
+        }
+      });
+    }
+
+    testWidgets('a page can still ask for its own alignment',
+        (WidgetTester tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(2560, 1440);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.linux),
+          home: const Scaffold(
+            body: AdaptiveContentWidth(
+              alignment: Alignment.topCenter,
+              child: SizedBox.expand(
+                key: Key('content'),
+                child: ColoredBox(color: Colors.red),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        tester.getRect(find.byKey(const Key('content'))).center.dx,
+        closeTo(1280, 0.5),
+      );
     });
   });
 }

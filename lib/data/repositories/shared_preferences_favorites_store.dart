@@ -10,9 +10,11 @@ import '../../core/sources/music_provider.dart';
 ///
 /// Favourites are a small set of non-secret track identities, so a key/value
 /// document is the right weight (the same reasoning the offline-download set
-/// follows). Stored as `{ "local": [...], "remote": [...] }` so the
-/// device-local favourites and the server-mirrored ones survive a restart and
-/// can be reconciled independently.
+/// follows). Stored as `{ "local": [...], "remote": [...], "pending": {...} }`
+/// so the device-local favourites and the server-mirrored ones survive a
+/// restart and can be reconciled independently, along with the remote writes
+/// still waiting to reach their server. A document without `pending` (written
+/// before it existed) reads as nothing pending.
 ///
 /// Identity is the provider-namespaced [Track.uri] (`jellyfin:101`, a local
 /// path), matching the catalog re-key — so favouriting `jellyfin:101` can never
@@ -62,6 +64,7 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
     final String raw = jsonEncode(<String, dynamic>{
       'local': data.localIds.toList(),
       'remote': data.remoteIds.toList(),
+      'pending': data.pendingWrites,
     });
     await prefs.setString(_key, raw);
   }
@@ -86,7 +89,19 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
     return FavoritesData(
       localIds: _ids(decoded['local']),
       remoteIds: _ids(decoded['remote']),
+      pendingWrites: _pending(decoded['pending']),
     );
+  }
+
+  static Map<String, bool> _pending(Object? value) {
+    if (value is! Map) return <String, bool>{};
+    return <String, bool>{
+      for (final MapEntry<Object?, Object?> entry in value.entries)
+        if (entry.key is String &&
+            (entry.key as String).isNotEmpty &&
+            entry.value is bool)
+          entry.key as String: entry.value as bool,
+    };
   }
 
   static Set<String> _ids(Object? value) {

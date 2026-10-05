@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
@@ -10,6 +11,7 @@ import '../../core/models/track.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../../shared/layout/desktop_presentation.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../settings/playback/auto_skip_controller.dart';
 import 'cast/cast_button.dart';
@@ -50,7 +52,7 @@ class PlayerScreen extends ConsumerWidget {
     final Track? track =
         streamed ?? ref.read(playbackControllerProvider).state.currentTrack;
 
-    return Scaffold(
+    final Widget screen = Scaffold(
       body: Stack(
         children: [
           Positioned.fill(
@@ -70,6 +72,37 @@ class PlayerScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+    // A phone already has the system Back for this.
+    if (!usesDesktopPresentation(context)) return screen;
+    return _EscapeCloses(child: screen);
+  }
+}
+
+/// Lets Escape put Now Playing away on a desktop, as the close button does.
+///
+/// The screen covers the whole window, and without this the only way back
+/// was the mouse. Escape is the desktop's Back, the same key that leaves a
+/// selection (`SelectionEscapeScope`) and closes quick search.
+///
+/// The screen opens with nothing focused, which would leave the key starting
+/// above it and never passing through here, so this takes the keyboard when
+/// the screen opens. It is kept out of the Tab order, so the first Tab still
+/// lands on the close button. Anything inside that answers Escape itself
+/// (an open menu, say) gets it first, and a dialog over the screen keeps it.
+class _EscapeCloses extends StatelessWidget {
+  const _EscapeCloses({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(autofocus: true, skipTraversal: true, child: child),
     );
   }
 }
