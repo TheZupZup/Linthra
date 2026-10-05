@@ -68,6 +68,35 @@ void main() {
     });
   });
 
+  group('hidesOnClose when the desktop refused (#754)', () {
+    test('keep playing quits instead, even mid-song', () {
+      // Inside the Flatpak a hidden window would get the app killed a few
+      // seconds later, without its graceful shutdown.
+      for (final PlaybackStatus status in PlaybackStatus.values) {
+        expect(
+          DesktopClosePolicy.hidesOnClose(
+            DesktopCloseBehavior.keepPlaying,
+            _state(status),
+            backgroundAllowed: false,
+          ),
+          isFalse,
+          reason: 'status $status',
+        );
+      }
+    });
+
+    test('allowed is the same as before anyone asked', () {
+      expect(
+        DesktopClosePolicy.hidesOnClose(
+          DesktopCloseBehavior.keepPlaying,
+          _state(PlaybackStatus.playing),
+          backgroundAllowed: true,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('keepsRunningWhileHidden', () {
     test('playing, buffering and reconnecting all keep the app alive', () {
       for (final PlaybackStatus status in <PlaybackStatus>[

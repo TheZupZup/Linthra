@@ -16,11 +16,18 @@ abstract final class DesktopClosePolicy {
   /// A closed window with nothing playing simply quits, whatever the
   /// preference says. That is the "no hidden zombie process" half of the
   /// requirement, and it is why the preference alone does not decide.
+  ///
+  /// [backgroundAllowed] false means the desktop refused to let Linthra run
+  /// without a window (#754): inside the Flatpak, a hidden Linthra would then
+  /// be killed a few seconds later, mid-song and without its graceful
+  /// shutdown, so the window closes the normal way instead.
   static bool hidesOnClose(
     DesktopCloseBehavior behavior,
-    PlaybackState state,
-  ) {
+    PlaybackState state, {
+    bool backgroundAllowed = true,
+  }) {
     if (behavior != DesktopCloseBehavior.keepPlaying) return false;
+    if (!backgroundAllowed) return false;
     return _isProducingAudio(state);
   }
 

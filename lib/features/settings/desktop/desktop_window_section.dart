@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/desktop_close_behavior.dart';
+import '../../../core/services/background_permission.dart';
 import 'close_behavior_controller.dart';
 import 'desktop_window_providers.dart';
 
@@ -23,6 +24,10 @@ class DesktopWindowSettingsSection extends ConsumerWidget {
         ref.watch(desktopCloseBehaviorControllerProvider);
     final DesktopCloseBehavior selected =
         behavior.valueOrNull ?? DesktopCloseBehavior.defaultBehavior;
+    final bool backgroundRefused =
+        selected == DesktopCloseBehavior.keepPlaying &&
+            ref.watch(desktopBackgroundPermissionProvider).valueOrNull ==
+                BackgroundPermission.denied;
 
     void choose(DesktopCloseBehavior? value) {
       // Ignore taps until the stored choice has loaded, so a fast tap cannot
@@ -79,6 +84,18 @@ class DesktopWindowSettingsSection extends ConsumerWidget {
                 ],
               ),
             ),
+            if (backgroundRefused) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                "Your desktop isn't letting Linthra run with its window "
+                'closed, so closing the window quits instead. Allow Linthra '
+                'to run in the background in your system settings, then '
+                'choose this option again.',
+                key: const Key('desktop-window-background-refused'),
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.error),
+              ),
+            ],
             const Divider(height: AppSpacing.lg),
             const QuitLinthraTile(),
           ],
