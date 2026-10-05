@@ -265,6 +265,36 @@ void main() {
     });
   });
 
+  group('a Linux FFI plugin is a reviewed decision (#681)', () {
+    // An FFI plugin's native code is built into the Linux bundle by CMake,
+    // with whatever the build machine happens to have: jni's, for one, links
+    // the host's JVM wherever a JDK is installed, which CI runners have and
+    // the Flatpak builder does not. A lockfile refresh that brings one in is
+    // refused by the updater (it rewrites generated_plugins.cmake), and a
+    // human PR that brings one in has to say so here, after deciding what the
+    // desktop build and the Flatpak should do with it.
+    const Set<String> reviewed = <String>{};
+
+    test('generated_plugins.cmake lists only reviewed FFI plugins', () {
+      final String cmake =
+          _read(root, p.join('linux', 'flutter', 'generated_plugins.cmake'));
+      final RegExpMatch? list =
+          RegExp(r'list\(APPEND FLUTTER_FFI_PLUGIN_LIST([^)]*)\)')
+              .firstMatch(cmake);
+      expect(list, isNotNull,
+          reason: 'generated_plugins.cmake no longer has an FFI plugin list');
+      final Set<String> ffi = <String>{
+        for (final String name in list!.group(1)!.split(RegExp(r'\s+')))
+          if (name.isNotEmpty) name,
+      };
+
+      expect(ffi.difference(reviewed), isEmpty,
+          reason: 'a new Linux FFI plugin needs a human review of what it '
+              'builds into the desktop bundle and the Flatpak '
+              '(docs/dependency-updates.md, "Held back on purpose")');
+    });
+  });
+
   group('pub is not left to Dependabot', () {
     test('.github/dependabot.yml declares no pub ecosystem', () {
       final String dependabot =
