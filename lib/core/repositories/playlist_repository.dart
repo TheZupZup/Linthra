@@ -1,4 +1,5 @@
 import '../models/playlist.dart';
+import '../models/playlist_move.dart';
 import 'remote_sync_result.dart';
 
 /// Persistence + editing contract for user-created playlists.
@@ -61,7 +62,20 @@ abstract interface class PlaylistRepository {
   );
 
   /// Moves the track at [oldIndex] to [newIndex] within the playlist.
-  Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex);
+  ///
+  /// [shown], when given, is the playlist's track uris in the order the caller
+  /// showed them when it picked both indices, which can lag behind the stored
+  /// order (a second drag before the rows caught up with the first). The move
+  /// is then made by identity: the song shown at [oldIndex] goes right after
+  /// the song shown before its drop point, wherever both are now (see
+  /// [playlistWithMove]). Without it the indices are applied to the stored
+  /// order as they are.
+  Future<void> reorderTracks(
+    String playlistId,
+    int oldIndex,
+    int newIndex, {
+    List<String>? shown,
+  });
 
   /// Records the [state] (and optional friendly, secret-free [error]) for the
   /// playlist with [id], so the UI can show an honest sync status.
