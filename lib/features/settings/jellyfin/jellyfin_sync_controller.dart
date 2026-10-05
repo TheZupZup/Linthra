@@ -120,8 +120,9 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     try {
       tookOver = await _adoptCatalog(source);
     } catch (_) {
-      // Couldn't clear another account's tracks: the sync tries again before
-      // it fetches anything, and reports it if it still can't.
+      // Couldn't clear another account's tracks, or save that they went:
+      // the sync tries again before it fetches anything, and reports it if it
+      // still can't.
       tookOver = true;
     }
     // With another account's tracks gone, this account's library has to come
