@@ -627,4 +627,224 @@ void main() {
           <String>['jellyfin:101']);
     });
   });
+
+  group('the same song queued twice (#744)', () {
+    final Track a = _track('a');
+    final Track b = _track('b');
+    final Track c = _track('c');
+
+    test('shuffle off keeps the copy that was playing', () {
+      for (int seed = 0; seed < 20; seed++) {
+        final PlaybackQueue queue =
+            PlaybackQueue.of(<Track>[a, b, a, c], startIndex: 2)
+                .shuffled(Random(seed))
+                .unshuffled();
+
+        expect(queue.currentIndex, 2, reason: 'seed $seed');
+        expect(queue.history, <Track>[a, b], reason: 'seed $seed');
+        expect(queue.upNext, <Track>[c], reason: 'seed $seed');
+      }
+    });
+
+    test('play next goes after the playing copy, not the first one', () {
+      final PlaybackQueue queue =
+          PlaybackQueue.of(<Track>[a, b, a, c], startIndex: 2)
+              .shuffled(Random(1))
+              .enqueueNext(_track('z'))
+              .unshuffled();
+
+      expect(queue.tracks, <Track>[a, b, a, _track('z'), c]);
+      expect(queue.currentIndex, 2);
+    });
+
+    test('removing a played-next copy of the current song takes that copy', () {
+      final Track y = _track('y');
+      final PlaybackQueue shuffled =
+          PlaybackQueue.of(<Track>[a, b, c, _track('d')], startIndex: 1)
+              .shuffled(Random(3));
+      // Play next on the song that's playing, then on another one: up next
+      // starts [y, b, ...].
+      final PlaybackQueue queued = shuffled.enqueueNext(b).enqueueNext(y);
+      expect(queued.upNext.take(2), <Track>[y, b]);
+
+      final PlaybackQueue off = queued.removeUpNextAt(1).unshuffled();
+
+      // The current entry keeps its own place, and y, which hasn't played,
+      // is still up next.
+      expect(off.history, <Track>[a]);
+      expect(off.current, b);
+      expect(off.upNext, <Track>[y, c, _track('d')]);
+    });
+
+    test('a source fallback swaps the playing copy, not the first one', () {
+      const Track other = Track(id: 'a', title: 'Song a', uri: 'subsonic:a');
+      final PlaybackQueue queue =
+          PlaybackQueue.of(<Track>[a, b, a, c], startIndex: 2)
+              .shuffled(Random(2))
+              .replaceCurrent(other)
+              .unshuffled();
+
+      expect(queue.tracks, <Track>[a, b, other, c]);
+      expect(queue.currentIndex, 2);
+    });
+
+    test('moving to an entry keeps the copies apart', () {
+      // [a, b₂, b₀, c]: the copy of b from the end of the original order
+      // comes first.
+      final PlaybackQueue shuffled =
+          PlaybackQueue.of(<Track>[b, a, b, c], startIndex: 1)
+              .shuffled(Random(13));
+
+      final PlaybackQueue moved = shuffled.movedTo(1).unshuffled();
+
+      expect(moved.currentIndex, 2);
+      expect(moved.upNext, <Track>[c]);
+      expect(shuffled.movedTo(9), same(shuffled));
+      expect(shuffled.movedTo(-1), same(shuffled));
+    });
+
+    test('queues that only differ in which copy is which are not equal', () {
+      // [b, a, a] shuffled: up next is either copy of a first. The queues
+      // read the same, but shuffle off after Next lands somewhere else.
+      final PlaybackQueue start = PlaybackQueue.of(<Track>[b, a, a]);
+      final Map<int, PlaybackQueue> byLanding = <int, PlaybackQueue>{};
+      for (int seed = 0; seed < 20; seed++) {
+        final PlaybackQueue shuffled = start.shuffled(Random(seed));
+        byLanding[shuffled.next().unshuffled().currentIndex] = shuffled;
+      }
+      expect(byLanding.keys, unorderedEquals(<int>[1, 2]));
+
+      final PlaybackQueue first = byLanding[1]!;
+      final PlaybackQueue second = byLanding[2]!;
+      expect(first.tracks, second.tracks);
+      expect(first.originalOrder, second.originalOrder);
+      expect(first, isNot(second));
+    });
+
+    test('a queue built with an original order pairs copies in turn', () {
+      // Built from saved fields, with no ids: the first copy of a in tracks
+      // stands for the first copy in the original order.
+      final PlaybackQueue queue = PlaybackQueue(
+        tracks: <Track>[a, c, a, b],
+        currentIndex: 2,
+        originalOrder: <Track>[a, b, a, c],
+      );
+
+      expect(queue.unshuffled().currentIndex, 2);
+      expect(queue.removeUpNextAt(0).unshuffled().tracks, <Track>[a, a, c]);
+    });
+
+    test('every edit does what it does when each entry is a different song',
+        () {
+      // The same edits run twice: once where every entry is its own song, and
+      // once where the entries are only three songs, queued again and again.
+      // The queue has to do the same thing either way.
+      Track entry(int n) => Track(id: 'e$n', title: 'e$n', uri: '/e$n.mp3');
+      Track song(Track entry) =>
+          _track('s${int.parse(entry.id.substring(1)) % 3}');
+      List<Track> songs(List<Track> entries) => <Track>[
+            for (final Track t in entries) song(t),
+          ];
+
+      for (int seed = 0; seed < 300; seed++) {
+        final Random pick = Random(seed);
+        int made = 0;
+        Track fresh() => entry(made++);
+        PlaybackQueue distinct = PlaybackQueue.of(
+          <Track>[for (int i = 0; i < 6; i++) fresh()],
+          startIndex: pick.nextInt(6),
+        );
+        PlaybackQueue repeated = PlaybackQueue.of(
+          songs(distinct.tracks),
+          startIndex: distinct.currentIndex,
+        );
+        final List<String> steps = <String>[];
+        for (int step = 0; step < 40; step++) {
+          final int up = distinct.upNext.length;
+          final int back = distinct.history.length;
+          switch (pick.nextInt(15)) {
+            case 0:
+              steps.add('next');
+              distinct = distinct.next();
+              repeated = repeated.next();
+            case 1:
+              steps.add('previous');
+              distinct = distinct.previous();
+              repeated = repeated.previous();
+            case 2:
+              steps.add('enqueueNext');
+              final Track t = fresh();
+              distinct = distinct.enqueueNext(t);
+              repeated = repeated.enqueueNext(song(t));
+            case 3:
+              steps.add('appended');
+              final Track t = fresh();
+              distinct = distinct.appended(t);
+              repeated = repeated.appended(song(t));
+            case 4:
+              steps.add('enqueueAllNext');
+              final List<Track> set = <Track>[fresh(), fresh()];
+              distinct = distinct.enqueueAllNext(set);
+              repeated = repeated.enqueueAllNext(songs(set));
+            case 5:
+              steps.add('appendedAll');
+              final List<Track> set = <Track>[fresh(), fresh()];
+              distinct = distinct.appendedAll(set);
+              repeated = repeated.appendedAll(songs(set));
+            case 6:
+              final int i = pick.nextInt(up + 1);
+              steps.add('removeUpNextAt($i)');
+              distinct = distinct.removeUpNextAt(i);
+              repeated = repeated.removeUpNextAt(i);
+            case 7:
+              final int from = pick.nextInt(up + 1);
+              final int to = pick.nextInt(up + 1);
+              steps.add('reorderUpNext($from, $to)');
+              distinct = distinct.reorderUpNext(from, to);
+              repeated = repeated.reorderUpNext(from, to);
+            case 8:
+              final int i = pick.nextInt(up + 1);
+              steps.add('jumpToUpNext($i)');
+              distinct = distinct.jumpToUpNext(i);
+              repeated = repeated.jumpToUpNext(i);
+            case 9:
+              final int i = pick.nextInt(back + 1);
+              steps.add('jumpToHistory($i)');
+              distinct = distinct.jumpToHistory(i);
+              repeated = repeated.jumpToHistory(i);
+            case 10:
+            case 11:
+              final int order = pick.nextInt(1 << 30);
+              steps.add('shuffled($order)');
+              distinct = distinct.shuffled(Random(order));
+              repeated = repeated.shuffled(Random(order));
+            case 12:
+              steps.add('unshuffled');
+              distinct = distinct.unshuffled();
+              repeated = repeated.unshuffled();
+            case 13:
+              steps.add('replaceCurrent');
+              final Track t = fresh();
+              distinct = distinct.replaceCurrent(t);
+              repeated = repeated.replaceCurrent(song(t));
+            case 14:
+              final int i = pick.nextInt(distinct.tracks.length + 1);
+              steps.add('movedTo($i)');
+              distinct = distinct.movedTo(i);
+              repeated = repeated.movedTo(i);
+          }
+          final String reason = 'seed $seed after ${steps.join(', ')}';
+          expect(repeated.tracks, songs(distinct.tracks), reason: reason);
+          expect(repeated.currentIndex, distinct.currentIndex, reason: reason);
+          expect(
+            repeated.originalOrder,
+            distinct.originalOrder == null
+                ? null
+                : songs(distinct.originalOrder!),
+            reason: reason,
+          );
+        }
+      }
+    });
+  });
 }

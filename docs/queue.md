@@ -213,6 +213,9 @@ so nothing behaves differently depending on how you reached it.
   (effective) order. Turning shuffle **off** restores the original
   pre-shuffle order, which drops a manual reorder — that's the defined meaning of
   un-shuffling, not a bug.
+- **A song queued twice is two entries.** Turning shuffle off keeps the copy
+  that is playing in its own place, and removing one copy (or a copy added with
+  Play next) leaves the other copy where it was.
 - **Repeat stays coherent.** Repeat-all still wraps to the start of the
   (reordered) queue; repeat-one still replays the current track.
 
@@ -290,8 +293,6 @@ when you save the queue as a playlist (only stable track ids are saved).
   playlist screen if all tracks are Jellyfin).
 - **Un-shuffling drops a manual reorder** of the up-next list (it restores the
   true pre-shuffle order). This is intentional and documented above.
-- **Duplicate tracks** in a queue share a track id; reorder/remove act on the
-  first matching entry. Queues rarely contain exact duplicates.
 - **Recently played does not survive a restart.** It is memory-only by design.
   Persisting it would mean a second on-disk record of listening history next to
   the play counts that already exist, and the safest version of that feature is

@@ -3086,11 +3086,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
     // Entries passed over become history, as a jump within the queue does.
-    _queue = PlaybackQueue(
-      tracks: _queue.tracks,
-      currentIndex: index,
-      originalOrder: _queue.originalOrder,
-    );
+    _queue = _queue.movedTo(index);
     await _playCurrent(mayStart: mayStart);
   }
 
