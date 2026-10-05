@@ -44,7 +44,8 @@ Open **Settings → Jellyfin** and:
    The synced library stays, so you can still browse it offline. Signing in
    as a different user, or through another server address, removes it before
    that account's own first sync, so one account's tracks never show under
-   another. Signing back in to the same account keeps it.
+   another, and takes its songs out of the play queue too. Signing back in to
+   the same account keeps both.
 
 ## Cloudflare
 

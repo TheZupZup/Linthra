@@ -3,14 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/platform/host_platform.dart';
 import '../../core/repositories/playback_session_store.dart';
+import '../../core/repositories/remote_catalog_owner_store.dart';
 import '../../core/services/playback_session_persistence.dart';
+import '../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../core/sources/music_provider.dart';
+import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../features/player/player_providers.dart';
 import '../../features/settings/jellyfin/jellyfin_settings_controller.dart';
 import '../../features/settings/plex/plex_settings_controller.dart';
 import '../../features/settings/subsonic/subsonic_settings_controller.dart';
 import 'host_platform_provider.dart';
 import 'in_memory_playback_session_store.dart';
+import 'remote_catalog_owner_store_provider.dart';
 import 'shared_preferences_playback_session_store.dart';
 
 /// Durable store of the crash-safe playback session. Defaults to in-memory so
@@ -41,23 +45,45 @@ final playbackSessionPersistenceProvider =
     return null;
   }
 
+  final RemoteCatalogOwnerStore catalogOwners =
+      ref.read(remoteCatalogOwnerStoreProvider);
   final PlaybackSessionPersistence service = PlaybackSessionPersistence(
     store: ref.watch(playbackSessionStoreProvider),
     controller: ref.read(localPlaybackControllerProvider),
     playbackStates: ref.read(localPlaybackControllerProvider).stateStream,
-    isRemoteProviderAvailable: (MusicProvider provider) {
-      if (identical(provider, MusicProviders.jellyfin)) {
-        return ref.read(jellyfinMusicSourceProvider) != null;
-      }
-      if (identical(provider, MusicProviders.subsonic)) {
-        return ref.read(subsonicMusicSourceProvider) != null;
-      }
+    remoteAccountOf: (MusicProvider provider) => _signedInAs(ref, provider),
+    queueOwnerOf: (MusicProvider provider) async {
+      // Plex's library goes whenever its server does, and the queue's Plex
+      // songs with it, so the ones queued are the connected server's.
       if (identical(provider, MusicProviders.plex)) {
-        return ref.read(plexMusicSourceProvider) != null;
+        return _signedInAs(ref, provider);
       }
-      return true;
+      // The queue follows the library (#767): its songs are the account's
+      // whose library this is. That is the signed-in account once it has
+      // taken the library over, and still the last one after it signed out.
+      return await catalogOwners.read(provider.sourceId) ??
+          _signedInAs(ref, provider);
     },
   );
   ref.onDisposeAsync(service.dispose);
   return service;
 });
+
+/// Who [provider]'s songs would play for now, as the same non-secret keys the
+/// sync stores and smart pre-cache use, or null while it is signed out.
+String? _signedInAs(Ref ref, MusicProvider provider) {
+  if (identical(provider, MusicProviders.jellyfin)) {
+    final source = ref.read(jellyfinMusicSourceProvider);
+    return source == null ? null : jellyfinAccountFingerprint(source.session);
+  }
+  if (identical(provider, MusicProviders.subsonic)) {
+    final source = ref.read(subsonicMusicSourceProvider);
+    return source == null ? null : subsonicAccountFingerprint(source.session);
+  }
+  if (identical(provider, MusicProviders.plex)) {
+    // Every profile on one server shares its ratingKeys, so the server is
+    // what the songs belong to.
+    return ref.read(plexMusicSourceProvider)?.session.machineIdentifier;
+  }
+  return null;
+}

@@ -9,6 +9,7 @@ import '../../../core/repositories/reconciling_catalog_writer.dart';
 import '../../../core/repositories/remote_catalog_owner_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/repositories/subsonic_auto_sync_store.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../../core/sources/subsonic/subsonic_catalog_walk.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
@@ -21,6 +22,7 @@ import '../../../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../../../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/library_controller.dart';
+import '../../player/queue_account_switch.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_sync_state.dart';
 
@@ -291,6 +293,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           await _readQuietly(ref.read(subsonicAutoSyncStoreProvider).read);
       final bool othersTracks = previous != null && previous != account;
       if (othersTracks) {
+        // Out of the play queue too, first: left there, their ids would ask
+        // this account's server for its songs under the other one's titles
+        // (#767).
+        await _removeSongsFromQueue();
         await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
           sourceId: source.id,
           tracks: const <Track>[],
@@ -308,6 +314,18 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     });
     if (tookOver) await _refreshLibrary();
     return tookOver;
+  }
+
+  /// Takes Subsonic's songs out of the play queue. Quietly: the library is
+  /// still cleared when this fails.
+  Future<void> _removeSongsFromQueue() async {
+    try {
+      await ref.read(removeProviderSongsFromQueueProvider)(
+        MusicProviders.subsonic,
+      );
+    } catch (_) {
+      // They stay queued, as they did before #767.
+    }
   }
 
   /// Runs [write] once the catalog write handed out before it has finished,

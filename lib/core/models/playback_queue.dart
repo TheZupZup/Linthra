@@ -292,6 +292,39 @@ class PlaybackQueue {
     return PlaybackQueue.single(track);
   }
 
+  /// Takes every track [test] picks out of the queue: up next, history and
+  /// the current one alike. Returns this queue when it picks none.
+  ///
+  /// When the current track goes, the first track left after it becomes
+  /// current, or with none after it the last one left before it; with nothing
+  /// left the queue is [empty]. When shuffled, the same tracks leave
+  /// [originalOrder], so a later unshuffle can't bring them back.
+  ///
+  /// [test] answers by what a track is (its provider, say), never by where it
+  /// sits, so a song leaves both orders together.
+  PlaybackQueue removedWhere(bool Function(Track track) test) {
+    if (!tracks.any(test)) return this;
+    final List<Track> kept = <Track>[];
+    int index = -1;
+    for (int i = 0; i < tracks.length; i++) {
+      if (test(tracks[i])) continue;
+      // The current track when it stays, else the first one kept after it.
+      if (index < 0 && i >= currentIndex) index = kept.length;
+      kept.add(tracks[i]);
+    }
+    if (kept.isEmpty) return empty;
+    return PlaybackQueue(
+      tracks: kept,
+      currentIndex: index < 0 ? kept.length - 1 : index,
+      originalOrder: originalOrder == null
+          ? null
+          : <Track>[
+              for (final Track track in originalOrder!)
+                if (!test(track)) track,
+            ],
+    );
+  }
+
   /// Returns a shuffled copy: the current track stays current (moved to the
   /// front so playback continues uninterrupted) and every other track is
   /// randomised after it. The pre-shuffle order is remembered in

@@ -26,6 +26,7 @@ import 'package:linthra/data/repositories/music_library_repository_provider.dart
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
 import 'package:linthra/data/repositories/remote_catalog_owner_store_provider.dart';
 import 'package:linthra/features/player/favorites_providers.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
@@ -33,6 +34,7 @@ import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
+import '../../player/fake_playback_controller.dart';
 import 'fake_jellyfin_authenticator.dart';
 
 JellyfinSession _sessionFor({
@@ -136,9 +138,11 @@ ProviderContainer _container({
   FakeJellyfinClient? client,
   _SpyDownloadRepository? downloads,
   bool serverPlaylistsAndFavorites = false,
+  List<Override> overrides = const <Override>[],
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
+      ...overrides,
       jellyfinAuthenticatorProvider.overrideWithValue(authenticator),
       jellyfinSessionStoreProvider.overrideWithValue(
         InMemoryJellyfinSessionStore(initialSession: restoredSession),
@@ -667,7 +671,10 @@ void main() {
       );
     });
 
-    ProviderContainer app({JellyfinSession? restoredSession}) {
+    ProviderContainer app({
+      JellyfinSession? restoredSession,
+      List<Override> overrides = const <Override>[],
+    }) {
       final ProviderContainer container = _container(
         authenticator: auth,
         repository: catalog,
@@ -675,6 +682,7 @@ void main() {
         owners: owners,
         restoredSession: restoredSession,
         client: client,
+        overrides: overrides,
       );
       container.read(jellyfinSettingsControllerProvider);
       return container;
@@ -702,8 +710,10 @@ void main() {
         c.read(jellyfinSettingsControllerProvider.notifier).clear();
 
     /// Alice signed in, synced, and signed out: the library keeps her tracks.
-    Future<ProviderContainer> aliceSyncedAndLeft() async {
-      final ProviderContainer c = app();
+    Future<ProviderContainer> aliceSyncedAndLeft({
+      List<Override> overrides = const <Override>[],
+    }) async {
+      final ProviderContainer c = app(overrides: overrides);
       await _settle();
       await signInAs(c, alice);
       expect(await jellyfinUris(), hasLength(2));
@@ -825,6 +835,71 @@ void main() {
       await _drainAutoSync();
 
       expect(await jellyfinUris(), isEmpty);
+    });
+
+    group('the play queue goes with the library (#767)', () {
+      const Track aliceA = Track(id: 'a', title: 'Alice a', uri: 'jellyfin:a');
+      const Track aliceB = Track(id: 'b', title: 'Alice b', uri: 'jellyfin:b');
+      const Track onDisk = Track(id: '/m/x.flac', title: 'x', uri: '/m/x.flac');
+
+      late FakePlaybackController player;
+
+      setUp(() => player = FakePlaybackController());
+      tearDown(() => player.dispose());
+
+      List<Override> withPlayer() => <Override>[
+            localPlaybackControllerProvider.overrideWithValue(player),
+          ];
+
+      test("bob taking over takes alice's songs out, the playing one too",
+          () async {
+        final ProviderContainer c =
+            await aliceSyncedAndLeft(overrides: withPlayer());
+        c.read(localPlaybackControllerProvider);
+        await player.playTracks(<Track>[aliceA, onDisk, aliceB]);
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+        await signInAs(c, bob);
+
+        expect(player.removeTracksCount, 1);
+        expect(player.state.currentTrack?.uri, onDisk.uri);
+        expect(player.state.upNext, isEmpty);
+        expect(player.state.previous, isEmpty);
+      });
+
+      test('alice signing back in keeps her songs queued', () async {
+        final ProviderContainer c =
+            await aliceSyncedAndLeft(overrides: withPlayer());
+        c.read(localPlaybackControllerProvider);
+        await player.playTracks(<Track>[aliceA, aliceB]);
+
+        await signInAs(c, alice);
+
+        expect(player.removeTracksCount, 0);
+        expect(player.state.currentTrack?.uri, aliceA.uri);
+        expect(
+          <String>[for (final Track t in player.state.upNext) t.uri],
+          <String>[aliceB.uri],
+        );
+      });
+
+      test('with no player built yet, none is built to empty it', () async {
+        bool built = false;
+        final ProviderContainer c = await aliceSyncedAndLeft(
+          overrides: <Override>[
+            localPlaybackControllerProvider.overrideWith((Ref ref) {
+              built = true;
+              return player;
+            }),
+          ],
+        );
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+        await signInAs(c, bob);
+
+        expect(await jellyfinUris(), isEmpty);
+        expect(built, isFalse);
+      });
     });
 
     group('a library synced before the owner was recorded', () {

@@ -158,6 +158,9 @@ report** issue template.
       signs in.
 - [ ] Sign in as a **different** user (or to another server) whose library is
       empty → none of the previous account's tracks are left.
+- [ ] With the previous account's songs queued (one playing), sign in as a
+      **different** user → they leave the queue, playback stops on the next
+      song left, and nothing plays under the old titles.
 
 **Security spot-checks** (should always hold)
 - [ ] No password/token/salt appears in any on-screen message, the connected

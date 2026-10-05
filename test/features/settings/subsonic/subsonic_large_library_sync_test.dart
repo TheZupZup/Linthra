@@ -33,6 +33,7 @@ import 'package:linthra/data/repositories/remote_catalog_owner_store_provider.da
 import 'package:linthra/data/repositories/subsonic_auto_sync_store_provider.dart';
 import 'package:linthra/data/repositories/subsonic_session_store_provider.dart';
 import 'package:linthra/data/repositories/subsonic_sync_pending_store_provider.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/diagnostics/diagnostics_collector.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_providers.dart';
@@ -40,6 +41,7 @@ import 'package:linthra/features/settings/subsonic/subsonic_sync_controller.dart
 import 'package:linthra/features/settings/subsonic/subsonic_sync_state.dart';
 
 import '../../../core/sources/subsonic/synthetic_navidrome.dart';
+import '../../player/fake_playback_controller.dart';
 
 const String _server = 'https://music.example.com';
 
@@ -139,6 +141,7 @@ class _App {
     InMemorySubsonicAutoSyncStore? autoSync,
     InMemoryRemoteCatalogOwnerStore? owners,
     SubsonicSession? restoredSession,
+    FakePlaybackController? player,
   })  : db = db ?? _openDatabase(),
         pending = pending ?? InMemorySubsonicSyncPendingStore(),
         owners = owners ?? InMemoryRemoteCatalogOwnerStore(),
@@ -162,6 +165,8 @@ class _App {
       subsonicSyncRetryDelaysProvider.overrideWithValue(
         const <Duration>[Duration.zero, Duration.zero],
       ),
+      if (player != null)
+        localPlaybackControllerProvider.overrideWithValue(player),
     ]);
     addTearDown(container.dispose);
   }
@@ -724,6 +729,31 @@ void main() {
       // Bob's own sync is still on record, for his next launch or resume.
       expect(await app.pending.read(), _account('bob'));
       expect(await app.owners.read('subsonic'), _account('bob'));
+    });
+
+    test("alice's songs leave the play queue when bob takes over (#767)",
+        () async {
+      final FakePlaybackController player = FakePlaybackController();
+      addTearDown(player.dispose);
+      final _App app = _App(SyntheticNavidrome(albums: 30), player: player);
+      await app.signIn();
+      await app.sync.sync();
+      final List<Track> hers = <Track>[
+        for (final Track t in await app.repository.getAllTracks())
+          if (t.uri.startsWith('subsonic:')) t,
+      ];
+      const Track onDisk = Track(id: '/m/x.flac', title: 'x', uri: '/m/x.flac');
+      app.container.read(localPlaybackControllerProvider);
+      await player.playTracks(<Track>[hers[0], onDisk, hers[1]]);
+      await app.signOut();
+      expect(player.removeTracksCount, 0, reason: 'kept on sign-out');
+
+      await app.signIn('bob');
+      await app.settled();
+
+      expect(player.state.currentTrack?.uri, onDisk.uri);
+      expect(player.state.upNext, isEmpty);
+      expect(player.state.previous, isEmpty);
     });
 
     test("bob's library is empty: none of alice's tracks are left", () async {

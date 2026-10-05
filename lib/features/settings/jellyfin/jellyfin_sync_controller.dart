@@ -19,6 +19,7 @@ import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../../library/library_controller.dart';
+import '../../player/queue_account_switch.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_sync_state.dart';
 
@@ -214,6 +215,10 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
           await _readQuietly(ref.read(jellyfinAutoSyncStoreProvider).read);
       final bool othersTracks = previous != null && previous != account;
       if (othersTracks) {
+        // Out of the play queue too, first: left there, their ids would ask
+        // this account's server for its songs under the other one's titles
+        // (#767).
+        await _removeSongsFromQueue();
         await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
           sourceId: source.id,
           tracks: const <Track>[],
@@ -233,6 +238,18 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       await ref.read(libraryControllerProvider.notifier).refresh();
     }
     return tookOver;
+  }
+
+  /// Takes Jellyfin's songs out of the play queue. Quietly: the library is
+  /// still cleared when this fails.
+  Future<void> _removeSongsFromQueue() async {
+    try {
+      await ref.read(removeProviderSongsFromQueueProvider)(
+        MusicProviders.jellyfin,
+      );
+    } catch (_) {
+      // They stay queued, as they did before #767.
+    }
   }
 
   /// Runs [write] once the catalog write handed out before it has finished,

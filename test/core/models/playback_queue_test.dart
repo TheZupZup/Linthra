@@ -627,4 +627,85 @@ void main() {
           <String>['jellyfin:101']);
     });
   });
+
+  group('removedWhere (another account\'s songs leave the queue, #767)', () {
+    Track sub(String id) =>
+        Track(id: id, title: 'Sub $id', uri: 'subsonic:$id');
+    bool isSubsonic(Track t) => t.uri.startsWith('subsonic:');
+    List<String> uris(Iterable<Track> tracks) =>
+        <String>[for (final Track t in tracks) t.uri];
+
+    test('takes them from history and up next, and keeps the current one', () {
+      final PlaybackQueue q = PlaybackQueue(
+        tracks: <Track>[sub('1'), _track('a'), sub('2'), _track('b'), sub('3')],
+        currentIndex: 1,
+      );
+
+      final PlaybackQueue result = q.removedWhere(isSubsonic);
+
+      expect(result.current!.uri, '/a.mp3');
+      expect(uris(result.history), isEmpty);
+      expect(uris(result.upNext), <String>['/b.mp3']);
+    });
+
+    test('the current one going lands on the first one left after it', () {
+      final PlaybackQueue q = PlaybackQueue(
+        tracks: <Track>[_track('a'), sub('1'), sub('2'), _track('b')],
+        currentIndex: 1,
+      );
+
+      final PlaybackQueue result = q.removedWhere(isSubsonic);
+
+      expect(result.current!.uri, '/b.mp3');
+      expect(uris(result.history), <String>['/a.mp3']);
+      expect(result.upNext, isEmpty);
+    });
+
+    test('with nothing left after it, on the last one left before it', () {
+      final PlaybackQueue q = PlaybackQueue(
+        tracks: <Track>[_track('a'), _track('b'), sub('1'), sub('2')],
+        currentIndex: 2,
+      );
+
+      final PlaybackQueue result = q.removedWhere(isSubsonic);
+
+      expect(result.current!.uri, '/b.mp3');
+      expect(uris(result.history), <String>['/a.mp3']);
+      expect(result.upNext, isEmpty);
+    });
+
+    test('with nothing left at all, the queue is empty', () {
+      final PlaybackQueue q = PlaybackQueue(
+        tracks: <Track>[sub('1'), sub('2')],
+        currentIndex: 0,
+      );
+
+      expect(q.removedWhere(isSubsonic), same(PlaybackQueue.empty));
+    });
+
+    test('nothing picked is the same queue', () {
+      final PlaybackQueue q = PlaybackQueue.of(<Track>[_track('a')]);
+
+      expect(q.removedWhere(isSubsonic), same(q));
+      expect(PlaybackQueue.empty.removedWhere(isSubsonic),
+          same(PlaybackQueue.empty));
+    });
+
+    test('a shuffled queue loses them from its original order too', () {
+      final PlaybackQueue shuffled = PlaybackQueue.of(
+        <Track>[_track('a'), sub('1'), _track('b'), sub('2'), _track('c')],
+        startIndex: 2,
+      ).shuffled(Random(7));
+
+      final PlaybackQueue result = shuffled.removedWhere(isSubsonic);
+
+      expect(result.isShuffled, isTrue);
+      expect(result.current!.uri, '/b.mp3');
+      expect(result.tracks.where(isSubsonic), isEmpty);
+      // Shuffle off can't bring them back, and keeps the current one.
+      final PlaybackQueue unshuffled = result.unshuffled();
+      expect(uris(unshuffled.tracks), <String>['/a.mp3', '/b.mp3', '/c.mp3']);
+      expect(unshuffled.current!.uri, '/b.mp3');
+    });
+  });
 }

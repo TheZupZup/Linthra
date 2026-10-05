@@ -21,6 +21,7 @@ class PersistedPlaybackSession {
     this.shuffleEnabled = false,
     this.repeatMode = RepeatMode.off,
     this.originalOrder,
+    this.owners,
     this.schemaVersion = currentSchemaVersion,
   });
 
@@ -46,6 +47,16 @@ class PersistedPlaybackSession {
   /// track identity rules as [tracks].
   final List<Track>? originalOrder;
 
+  /// Whose songs each remote provider's tracks are, by provider source id
+  /// (`subsonic`, …): the same non-secret account fingerprint the sync stores
+  /// keep, or the Plex server's `machineIdentifier`. A remote track id only
+  /// means something there, so a restore under anyone else leaves them out
+  /// (#767). A provider missing from it is one nobody could say for.
+  ///
+  /// Null for a record saved before Linthra wrote this, whose tracks restore
+  /// as they always did.
+  final Map<String, String>? owners;
+
   final int schemaVersion;
 
   bool get isEmpty => tracks.isEmpty;
@@ -53,6 +64,20 @@ class PersistedPlaybackSession {
   Track? get current {
     if (currentIndex < 0 || currentIndex >= tracks.length) return null;
     return tracks[currentIndex];
+  }
+
+  /// This session with [owners] in place of its own.
+  PersistedPlaybackSession withOwners(Map<String, String>? owners) {
+    return PersistedPlaybackSession(
+      tracks: tracks,
+      currentIndex: currentIndex,
+      position: position,
+      shuffleEnabled: shuffleEnabled,
+      repeatMode: repeatMode,
+      originalOrder: originalOrder,
+      owners: owners == null ? null : _safeOwners(owners),
+      schemaVersion: schemaVersion,
+    );
   }
 
   /// Builds a session from live playback, or `null` when there is nothing
@@ -96,6 +121,7 @@ class PersistedPlaybackSession {
         'o': <Map<String, dynamic>>[
           for (final Track track in originalOrder!) logicalTrackToJson(track),
         ],
+      if (owners != null) 'a': Map<String, String>.of(owners!),
     };
   }
 
@@ -191,7 +217,33 @@ class PersistedPlaybackSession {
       shuffleEnabled: shuffleEnabled,
       repeatMode: repeatMode,
       originalOrder: shuffleEnabled ? originalOrder : null,
+      owners: _ownersFromJson(json['a']),
     );
+  }
+
+  /// [raw] as [owners]. Absent is a record from before them (null); anything
+  /// unreadable says nobody's, so its remote tracks wait rather than restore
+  /// under whoever is signed in.
+  static Map<String, String>? _ownersFromJson(Object? raw) {
+    if (raw == null) return null;
+    if (raw is! Map) return const <String, String>{};
+    return _safeOwners(<String, String>{
+      for (final MapEntry<Object?, Object?> entry in raw.entries)
+        if (entry.key is String && entry.value is String)
+          entry.key! as String: entry.value! as String,
+    });
+  }
+
+  /// [owners] without an entry that is blank or could carry a secret. Leaving
+  /// one out only makes its provider's tracks wait.
+  static Map<String, String> _safeOwners(Map<String, String> owners) {
+    return <String, String>{
+      for (final MapEntry<String, String> entry in owners.entries)
+        if (entry.key.isNotEmpty &&
+            entry.value.isNotEmpty &&
+            !_looksTokenBearing(entry.value.toLowerCase()))
+          entry.key: entry.value,
+    };
   }
 
   static bool _allLogical(List<Track> tracks) {

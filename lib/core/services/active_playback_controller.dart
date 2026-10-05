@@ -319,6 +319,10 @@ class ActivePlaybackController implements PlaybackController {
   void clearQueue() => _local.clearQueue();
 
   @override
+  Future<void> removeTracksWhere(bool Function(Track track) test) =>
+      _local.removeTracksWhere(test);
+
+  @override
   void setShuffleEnabled(bool enabled) => _local.setShuffleEnabled(enabled);
 
   @override

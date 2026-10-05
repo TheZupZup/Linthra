@@ -247,6 +247,36 @@ class FakePlaybackController implements LocalPlaybackController {
     ));
   }
 
+  /// How many times [removeTracksWhere] took something out.
+  int removeTracksCount = 0;
+
+  @override
+  Future<void> removeTracksWhere(bool Function(Track track) test) async {
+    final Track? current = _queue.current;
+    final PlaybackQueue updated = _queue.removedWhere(test);
+    if (identical(updated, _queue)) return;
+    removeTracksCount++;
+    _queue = updated;
+    if (current != null && test(current)) {
+      // Like the real engine: the current track's audio goes too, and what
+      // is left is stopped.
+      emit(PlaybackState(
+        currentTrack: _queue.current,
+        upNext: _queue.upNext,
+        previous: _queue.history,
+        hasPrevious: _queue.hasPrevious,
+        shuffleEnabled: _shuffleEnabled,
+        repeatMode: _repeatMode,
+      ));
+      return;
+    }
+    emit(_state.copyWith(
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: _queue.hasPrevious,
+    ));
+  }
+
   @override
   void setShuffleEnabled(bool enabled) {
     if (enabled == _shuffleEnabled) return;
