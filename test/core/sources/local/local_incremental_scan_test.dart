@@ -30,6 +30,26 @@ class _CountingMetadataReader implements LocalMetadataReader {
   }
 }
 
+/// A tag reader that can tell a failed read from a file with no tags, like the
+/// filesystem reader, answering from [byPath] unless [failing] holds the path.
+class _OutcomeMetadataReader
+    implements LocalMetadataReader, LocalMetadataReadOutcomes {
+  final Map<String, LocalAudioMetadata> byPath = <String, LocalAudioMetadata>{};
+  final Set<String> failing = <String>{};
+  final List<String> reads = <String>[];
+
+  @override
+  Future<LocalAudioMetadata?> readFromPath(String path) async =>
+      (await readWithOutcome(path)).metadata;
+
+  @override
+  Future<LocalMetadataRead> readWithOutcome(String path) async {
+    reads.add(path);
+    if (failing.contains(path)) return (metadata: null, failed: true);
+    return (metadata: byPath[path], failed: false);
+  }
+}
+
 /// An in-memory filesystem stat: a path maps to a stamp, and a path with no
 /// entry stats as missing (which is how a deleted file behaves).
 class _FakeStatReader implements LocalFileStatReader {
@@ -267,6 +287,129 @@ void main() {
 
       expect(scan.stamps['/music/a.flac'], _stamp(100, 1000));
       expect(scan.stamps['/music/b.flac'], _stamp(200, 2000));
+    });
+  });
+
+  // #743: a new or changed file whose read failed this time (a share stalling
+  // past the parse limit, an I/O error) was stored as a filename-only row with
+  // its real stamp, so every later scan reused that row and the tags never came
+  // back.
+  group('a read that failed this time (#743)', () {
+    late FakeAudioFileScanner files;
+    late _OutcomeMetadataReader tags;
+    late _FakeStatReader stats;
+    const LocalAudioMetadata xTags = LocalAudioMetadata(
+      title: 'Real Title',
+      artist: 'Real Artist',
+      album: 'Real Album',
+    );
+
+    setUp(() {
+      files = FakeAudioFileScanner(
+        filesByFolder: <String, List<String>>{
+          '/music': <String>['/music/a.flac', '/music/x.flac'],
+        },
+      );
+      tags = _OutcomeMetadataReader()
+        ..byPath['/music/a.flac'] = const LocalAudioMetadata(title: 'A')
+        ..byPath['/music/x.flac'] = xTags;
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/music/a.flac': _stamp(100, 1000),
+        '/music/x.flac': _stamp(200, 2000),
+      });
+    });
+
+    Future<(LocalScan, Map<String, StampedTrack>)> scan(
+      Map<String, StampedTrack> indexed,
+    ) async {
+      tags.reads.clear();
+      final LocalScan result = await LocalMusicSource(
+        folderPath: '/music',
+        scanner: files,
+        metadataReader: tags,
+        statReader: stats,
+        alreadyIndexed: indexed,
+      ).scanTracks();
+      return (
+        result,
+        <String, StampedTrack>{
+          for (final Track track in result.tracks)
+            track.uri:
+                StampedTrack(track: track, stamp: result.stamps[track.uri]),
+        },
+      );
+    }
+
+    Track trackAt(LocalScan scan, String uri) =>
+        scan.tracks.singleWhere((Track t) => t.uri == uri);
+
+    test('a new file whose read failed is read again by the next scan',
+        () async {
+      tags.failing.add('/music/x.flac');
+      final (LocalScan first, Map<String, StampedTrack> stored) =
+          await scan(const <String, StampedTrack>{});
+      expect(trackAt(first, '/music/x.flac').title, isNot('Real Title'),
+          reason: 'built from the file name this time');
+      expect(first.stamps.containsKey('/music/x.flac'), isFalse,
+          reason: 'a stamp would have the next scan reuse that row');
+      expect(first.stamps['/music/a.flac'], _stamp(100, 1000));
+
+      // The share answers again.
+      tags.failing.clear();
+      final (LocalScan second, _) = await scan(stored);
+
+      expect(tags.reads, <String>['/music/x.flac'],
+          reason: 'only the file that failed is read again');
+      final Track x = trackAt(second, '/music/x.flac');
+      expect(x.title, 'Real Title');
+      expect(x.artistName, 'Real Artist');
+      expect(second.stamps['/music/x.flac'], _stamp(200, 2000));
+    });
+
+    test('a changed file whose read failed is read again too', () async {
+      final (_, Map<String, StampedTrack> stored) =
+          await scan(const <String, StampedTrack>{});
+      // Re-tagged on disk, then the read stalls.
+      stats.stamps['/music/x.flac'] = _stamp(210, 3000);
+      tags.failing.add('/music/x.flac');
+      final (LocalScan failed, Map<String, StampedTrack> afterFailure) =
+          await scan(stored);
+      expect(failed.stamps.containsKey('/music/x.flac'), isFalse);
+
+      tags.failing.clear();
+      final (LocalScan retried, _) = await scan(afterFailure);
+
+      expect(tags.reads, <String>['/music/x.flac']);
+      expect(trackAt(retried, '/music/x.flac').title, 'Real Title');
+      expect(retried.stamps['/music/x.flac'], _stamp(210, 3000));
+    });
+
+    test('a file that never reads is tried once more, then left alone',
+        () async {
+      // One the parser loops on, say: the time limit stops it every time.
+      tags.failing.add('/music/x.flac');
+      final (_, Map<String, StampedTrack> first) =
+          await scan(const <String, StampedTrack>{});
+      final (LocalScan second, Map<String, StampedTrack> stored) =
+          await scan(first);
+      expect(tags.reads, <String>['/music/x.flac']);
+      expect(second.stamps['/music/x.flac'], _stamp(200, 2000),
+          reason: 'the second failure in a row keeps its stamp');
+
+      await scan(stored);
+
+      expect(tags.reads, isEmpty, reason: 'no read on every scan from here');
+    });
+
+    test('a file read fine with no tags is settled at once', () async {
+      tags.byPath.remove('/music/x.flac');
+      final (LocalScan first, Map<String, StampedTrack> stored) =
+          await scan(const <String, StampedTrack>{});
+      expect(first.stamps['/music/x.flac'], _stamp(200, 2000));
+
+      await scan(stored);
+
+      expect(tags.reads, isEmpty);
     });
   });
 

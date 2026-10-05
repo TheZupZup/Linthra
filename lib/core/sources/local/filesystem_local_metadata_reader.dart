@@ -39,6 +39,7 @@ import 'vorbis_comment_fields.dart';
 class FilesystemLocalMetadataReader
     implements
         LocalMetadataReader,
+        LocalMetadataReadOutcomes,
         LocalArtworkMaintainer,
         LocalArtworkInventory {
   FilesystemLocalMetadataReader({
@@ -100,7 +101,16 @@ class FilesystemLocalMetadataReader
       _artworkCache.missing(referenced);
 
   @override
-  Future<LocalAudioMetadata?> readFromPath(String path) async {
+  Future<LocalAudioMetadata?> readFromPath(String path) async =>
+      (await readWithOutcome(path)).metadata;
+
+  /// A read that came to nothing because the file could not be read: not a
+  /// regular file (any more), a parse refused, thrown, stopped at its time
+  /// limit or lost with its isolate, or an I/O error on the way.
+  static const LocalMetadataRead _failed = (metadata: null, failed: true);
+
+  @override
+  Future<LocalMetadataRead> readWithOutcome(String path) async {
     try {
       final File file = File(path);
       // `await`, and an asynchronous `stat()` rather than `statSync()`, is
@@ -124,7 +134,7 @@ class FilesystemLocalMetadataReader
       // and the size and mtime that identify which bytes any cached cover was
       // extracted from.
       final FileStat stat = await file.stat();
-      if (stat.type != FileSystemEntityType.file) return null;
+      if (stat.type != FileSystemEntityType.file) return _failed;
       final LocalFileStamp stamp = LocalFileStamp(
         sizeBytes: stat.size,
         modifiedAtMs: stat.modified.millisecondsSinceEpoch,
@@ -141,7 +151,7 @@ class FilesystemLocalMetadataReader
 
       final _Parsed? parsed =
           await _parseStoppably(path, getImage: needsArtwork);
-      if (parsed == null) return null;
+      if (parsed == null) return _failed;
       final LocalAudioMetadata? parsedTags = parsed.tags;
       // FLAC's comment block is readable in the clear, so prefer the real
       // ARTIST/ALBUMARTIST over what the package merged. See
@@ -173,11 +183,12 @@ class FilesystemLocalMetadataReader
         duration: textMetadata.duration,
         artworkUri: artworkUri,
       );
-      return result.isEmpty ? null : result;
+      // Read, and found nothing: a settled answer, unlike a failed read.
+      return (metadata: result.isEmpty ? null : result, failed: false);
     } catch (_) {
       // Any failure is "no tags", never a failed scan. The path is not logged:
       // a user's file path is private data (see CONTRIBUTING, Privacy).
-      return null;
+      return _failed;
     }
   }
 

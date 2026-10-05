@@ -19,6 +19,9 @@ import '../../data/repositories/music_library_repository_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
+import 'download_catalog.dart';
+
+export 'download_catalog.dart' show ActiveDownload, DownloadCatalog;
 
 /// The live download status of a single track, for the Library row indicator.
 /// The family argument is the track's provider-aware cache key
@@ -47,26 +50,29 @@ final trackDownloadProgressProvider = StreamProvider.autoDispose
       .distinct();
 });
 
-/// The catalog tracks that are fully available offline, recomputed whenever the
-/// download status map changes. Powers the Downloads screen's finished list.
-final downloadedTracksProvider = StreamProvider<List<Track>>((ref) async* {
+/// The download status map joined with the catalog tracks it is about, which
+/// both Downloads lists read. Shared, so the catalog is read once for both,
+/// and only when a status shows up for a key it wasn't read for (see
+/// [joinDownloadsWithCatalog]).
+final downloadCatalogProvider = StreamProvider<DownloadCatalog>((ref) {
   final repository = ref.watch(downloadRepositoryProvider);
   final library = ref.watch(musicLibraryRepositoryProvider);
-  await for (final statuses in repository.statusStream) {
-    final downloadedKeys = statuses.entries
-        .where((e) => e.value == DownloadStatus.downloaded)
-        .map((e) => e.key)
-        .toSet();
-    final tracks = await library.getAllTracks();
-    yield tracks
-        .where((t) => downloadedKeys.contains(CachedTrack.cacheKeyForTrack(t)))
-        .toList();
-  }
+  return joinDownloadsWithCatalog(
+    repository.statusStream,
+    library.getAllTracks,
+  );
 });
 
-/// A track that is in flight or needs attention — queued, downloading, or
-/// failed — paired with its live status.
-typedef ActiveDownload = ({Track track, DownloadStatus status});
+/// The catalog tracks that are fully available offline, recomputed whenever the
+/// download status map changes. Powers the Downloads screen's finished list.
+///
+/// The same list instance while the set of downloaded tracks stays the same, so
+/// a download starting elsewhere doesn't rebuild the finished list.
+final downloadedTracksProvider = Provider<AsyncValue<List<Track>>>((ref) {
+  return ref
+      .watch(downloadCatalogProvider)
+      .whenData((DownloadCatalog catalog) => catalog.downloaded);
+});
 
 /// The catalog tracks that are queued, downloading, or failed — i.e. not yet
 /// finished — recomputed whenever the status map changes. Ordered downloading →
@@ -74,52 +80,13 @@ typedef ActiveDownload = ({Track track, DownloadStatus status});
 /// stable across rebuilds. Powers the Downloads screen's "In progress" section,
 /// which makes the bounded-parallel caching visible (and cancel/retry reachable)
 /// in one place; finished downloads come from [downloadedTracksProvider].
-final activeDownloadsProvider =
-    StreamProvider<List<ActiveDownload>>((ref) async* {
-  final repository = ref.watch(downloadRepositoryProvider);
-  final library = ref.watch(musicLibraryRepositoryProvider);
-  await for (final statuses in repository.statusStream) {
-    // notDownloaded is never present in the map, so "not downloaded *yet*" is
-    // exactly queued/downloading/failed.
-    final active = <String, DownloadStatus>{
-      for (final entry in statuses.entries)
-        if (entry.value != DownloadStatus.downloaded) entry.key: entry.value,
-    };
-    if (active.isEmpty) {
-      yield const <ActiveDownload>[];
-      continue;
-    }
-    final tracks = await library.getAllTracks();
-    final byKey = <String, Track>{
-      for (final t in tracks) CachedTrack.cacheKeyForTrack(t): t,
-    };
-    yield <ActiveDownload>[
-      for (final entry in active.entries)
-        if (byKey[entry.key] != null)
-          (track: byKey[entry.key]!, status: entry.value),
-    ]..sort(_compareActiveDownloads);
-  }
+final activeDownloadsProvider = Provider<AsyncValue<List<ActiveDownload>>>((
+  ref,
+) {
+  return ref
+      .watch(downloadCatalogProvider)
+      .whenData((DownloadCatalog catalog) => catalog.active);
 });
-
-int _activeStatusRank(DownloadStatus status) {
-  switch (status) {
-    case DownloadStatus.downloading:
-      return 0;
-    case DownloadStatus.queued:
-      return 1;
-    case DownloadStatus.failed:
-      return 2;
-    case DownloadStatus.downloaded:
-    case DownloadStatus.notDownloaded:
-      return 3;
-  }
-}
-
-int _compareActiveDownloads(ActiveDownload a, ActiveDownload b) {
-  final int byStatus =
-      _activeStatusRank(a.status).compareTo(_activeStatusRank(b.status));
-  return byStatus != 0 ? byStatus : a.track.id.compareTo(b.track.id);
-}
 
 /// Live offline-cache usage + per-track metadata (size, pinned, timestamps),
 /// re-emitted whenever the cache changes. Powers the Settings cache card and

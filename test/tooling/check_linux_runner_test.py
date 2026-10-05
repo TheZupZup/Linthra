@@ -176,6 +176,7 @@ FOLDER_PICKER_CHANNEL = """\
 static constexpr const char* kChannelName =
     "{channel}";
 static constexpr const char* kPickFolderMethod = "{method}";
+static constexpr const char* kSaveFileMethod = "saveFile";
 """
 
 FOLDER_PICKER_DART = """\
@@ -188,6 +189,19 @@ class MethodChannelLinuxFolderPicker implements FolderPickerService {{
 
 FOLDER_PICKER_CHANNEL_NAME = f"{APP_ID}/linux_folder_picker"
 FOLDER_PICKER_METHOD_NAME = "pickFolder"
+
+# The save dialog (#748): the folder picker channel's second method, called
+# from its own Dart class on the folder picker's channel.
+FILE_SAVER_DART = """\
+class MethodChannelLinuxFileSaver implements TextFileSaver {{
+  static const String saveFileMethod = '{method}';
+
+  static const MethodChannel _defaultChannel =
+      MethodChannel({channel});
+}}
+"""
+FILE_SAVER_METHOD_NAME = "saveFile"
+FILE_SAVER_CHANNEL = "MethodChannelLinuxFolderPicker.channelName"
 
 # The two halves of the window-lifecycle channel (#401). Drift here is quieter
 # than the folder picker's: the app still runs, every close still destroys the
@@ -364,6 +378,7 @@ def build_checkout(
     runner_cmakelists: str | None = None,
     folder_picker_channel: str | None = None,
     folder_picker_dart: str | None = None,
+    file_saver_dart: str | None = None,
     window_lifecycle_channel: str | None = None,
     window_lifecycle_dart: str | None = None,
 ) -> Path:
@@ -412,6 +427,16 @@ def build_checkout(
         if folder_picker_dart is not None
         else FOLDER_PICKER_DART.format(
             channel=FOLDER_PICKER_CHANNEL_NAME, method=FOLDER_PICKER_METHOD_NAME
+        ),
+        encoding="utf-8",
+    )
+    (
+        directory / "lib" / "core" / "services" / "method_channel_linux_file_saver.dart"
+    ).write_text(
+        file_saver_dart
+        if file_saver_dart is not None
+        else FILE_SAVER_DART.format(
+            method=FILE_SAVER_METHOD_NAME, channel=FILE_SAVER_CHANNEL
         ),
         encoding="utf-8",
     )
@@ -2004,6 +2029,62 @@ class FolderPickerChannelTest(CheckoutCase):
         problems = checker.check(self.root)
         self.assertEqual(len(problems), 1)
         self.assertIn("folder_picker_channel_new", problems[0])
+
+
+class FileSaverChannelTest(CheckoutCase):
+    """The save dialog on the folder picker channel (#748).
+
+    A drift here also builds and runs: every save just reports that it
+    couldn't save, and the only way left to get a report out is Copy.
+    """
+
+    def test_a_renamed_method_on_the_dart_side_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            file_saver_dart=FILE_SAVER_DART.format(
+                method="saveAs", channel=FILE_SAVER_CHANNEL
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("save dialog method name", problems[0])
+        self.assertIn("saveAs", problems[0])
+
+    def test_a_renamed_method_on_the_native_side_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            folder_picker_channel=FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME, method=FOLDER_PICKER_METHOD_NAME
+            ).replace('"saveFile"', '"chooseSaveFile"'),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("save dialog method name", problems[0])
+        self.assertIn("chooseSaveFile", problems[0])
+
+    def test_a_saver_on_a_channel_of_its_own_is_caught(self) -> None:
+        build_checkout(
+            self.root,
+            file_saver_dart=FILE_SAVER_DART.format(
+                method=FILE_SAVER_METHOD_NAME,
+                channel=f"'{APP_ID}/linux_file_saver'",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn(FILE_SAVER_CHANNEL, problems[0])
+
+    def test_a_channel_named_only_in_a_comment_does_not_count(self) -> None:
+        build_checkout(
+            self.root,
+            file_saver_dart=FILE_SAVER_DART.format(
+                method=FILE_SAVER_METHOD_NAME,
+                channel=f"// {FILE_SAVER_CHANNEL}\n      '{APP_ID}/other'",
+            ),
+        )
+        problems = checker.check(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn(FILE_SAVER_CHANNEL, problems[0])
 
 
 class WindowLifecycleChannelTest(CheckoutCase):

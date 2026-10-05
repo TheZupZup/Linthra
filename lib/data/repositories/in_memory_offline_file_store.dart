@@ -42,4 +42,11 @@ class InMemoryOfflineFileStore implements OfflineFileStore {
   Future<void> delete(String fileName) async {
     _files.remove(fileName);
   }
+
+  /// Every file here was written by this run, so none is ever abandoned.
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) async {}
 }

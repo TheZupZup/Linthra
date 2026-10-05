@@ -25,8 +25,10 @@ privacy guarantees behind it.
    - **Open GitHub issue** — opens your browser at a **prefilled but
      unsubmitted** [new issue](https://github.com/thezupzup/linthra/issues/new).
      You review and submit it yourself.
-   - **Save report file** — writes `linthra-bug-report.md` into the app's private
-     documents directory.
+   - **Save report file** — on Linux, opens the save dialog so you choose where
+     `linthra-bug-report.md` goes (inside the Flatpak this is the desktop's own
+     file chooser, through the portal, so no folder access is needed). On
+     Android it is written into the app's private documents directory.
 
 ## Report format
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 
 import '../../core/models/playlist.dart';
+import '../../core/models/playlist_move.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
@@ -395,21 +396,36 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   Future<void> reorderTracks(
     String playlistId,
     int oldIndex,
-    int newIndex,
-  ) async {
+    int newIndex, {
+    List<String>? shown,
+  }) async {
     await _ensureLoaded();
     final Playlist? playlist = _byId(playlistId);
     if (playlist == null) return;
-    final List<String> ids = <String>[...playlist.trackIds];
-    if (oldIndex < 0 || oldIndex >= ids.length) return;
     // Mirror ReorderableListView's index convention: a downward move reports a
     // newIndex one past the intended slot once the item is removed.
     int target = newIndex;
     if (target > oldIndex) target -= 1;
-    target = target.clamp(0, ids.length - 1);
-    if (target == oldIndex) return;
-    final String moved = ids.removeAt(oldIndex);
-    ids.insert(target, moved);
+    final List<String> ids;
+    if (shown != null) {
+      // The order the caller saw may not be the stored one any more, so the
+      // song it moved is found by identity (#749).
+      final List<String>? moved = playlistWithMove(
+        playlist.trackIds,
+        shown: shown,
+        from: oldIndex,
+        to: target,
+      );
+      if (moved == null || listEquals(moved, playlist.trackIds)) return;
+      ids = moved;
+    } else {
+      ids = <String>[...playlist.trackIds];
+      if (oldIndex < 0 || oldIndex >= ids.length) return;
+      target = target.clamp(0, ids.length - 1);
+      if (target == oldIndex) return;
+      final String moved = ids.removeAt(oldIndex);
+      ids.insert(target, moved);
+    }
     await _mutate(
       playlistId,
       (Playlist p) => p.copyWith(trackIds: ids, updatedAt: _now()),

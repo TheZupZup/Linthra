@@ -44,6 +44,7 @@ class PlaybackState {
     this.volume = 1.0,
     this.muted = false,
     this.interruptedByTransientFocus = false,
+    this.playWhenReady = true,
     this.failure,
     this.autoSkip,
   });
@@ -121,6 +122,23 @@ class PlaybackState {
   /// `LinthraAudioHandler._isSessionPlaying`.
   final bool interruptedByTransientFocus;
 
+  /// Whether sound starts (or carries on) once the engine has what it needs:
+  /// the listener's latest transport intent, as opposed to what the engine is
+  /// doing right now.
+  ///
+  /// Only a busy [status] ([isBusy]) needs it. The engine reports buffering
+  /// whether or not it is meant to play afterwards, so a stalled stream the
+  /// listener paused, or a seek while paused that has to rebuffer, reads busy
+  /// exactly like a stall during playback. This is what tells the two apart,
+  /// so the Android media session can report the first as paused (Play in the
+  /// notification, a headset click that plays, the foreground service let go)
+  /// and keep the second playing (#751).
+  ///
+  /// Defaults to true, which is how a busy state read before this flag
+  /// existed: an output that does not track the intent separately (a cast
+  /// receiver) keeps reporting its busy states as playing.
+  final bool playWhenReady;
+
   /// Why the current track isn't playing and what the listener can do about it,
   /// set when [status] is [PlaybackStatus.error]. [copyWith] carries it only
   /// while the copy is still an error for the same track, so a stale failure can
@@ -188,6 +206,7 @@ class PlaybackState {
     double? volume,
     bool? muted,
     bool? interruptedByTransientFocus,
+    bool? playWhenReady,
     PlaybackFailure? failure,
   }) {
     final PlaybackStatus nextStatus = status ?? this.status;
@@ -211,6 +230,7 @@ class PlaybackState {
       muted: muted ?? this.muted,
       interruptedByTransientFocus:
           interruptedByTransientFocus ?? this.interruptedByTransientFocus,
+      playWhenReady: playWhenReady ?? this.playWhenReady,
       failure: nextStatus == PlaybackStatus.error
           ? (failure ?? (sameFailedTrack ? this.failure : null))
           : null,
@@ -240,6 +260,7 @@ class PlaybackState {
       volume: volume,
       muted: muted,
       interruptedByTransientFocus: value,
+      playWhenReady: playWhenReady,
       failure: failure,
       autoSkip: autoSkip,
     );
@@ -268,6 +289,7 @@ class PlaybackState {
       volume: volume,
       muted: muted,
       interruptedByTransientFocus: interruptedByTransientFocus,
+      playWhenReady: playWhenReady,
       failure: failure,
       autoSkip: autoSkip,
     );
@@ -294,8 +316,36 @@ class PlaybackState {
       volume: volume,
       muted: muted,
       interruptedByTransientFocus: interruptedByTransientFocus,
+      playWhenReady: playWhenReady,
       failure: failure,
       autoSkip: value,
+    );
+  }
+
+  /// Returns this state carrying [value] as its [playWhenReady].
+  ///
+  /// Like the other re-stamps it keeps [failure]. The controller stamps every
+  /// emission through here from the intent its loads read, so no emit path can
+  /// publish a busy state that disagrees with what the listener last asked for.
+  PlaybackState withPlayWhenReady(bool value) {
+    if (value == playWhenReady) return this;
+    return PlaybackState(
+      status: status,
+      currentTrack: currentTrack,
+      upNext: upNext,
+      previous: previous,
+      hasPrevious: hasPrevious,
+      position: position,
+      duration: duration,
+      source: source,
+      shuffleEnabled: shuffleEnabled,
+      repeatMode: repeatMode,
+      volume: volume,
+      muted: muted,
+      interruptedByTransientFocus: interruptedByTransientFocus,
+      playWhenReady: value,
+      failure: failure,
+      autoSkip: autoSkip,
     );
   }
 
@@ -327,6 +377,7 @@ class PlaybackState {
           other.volume == volume &&
           other.muted == muted &&
           other.interruptedByTransientFocus == interruptedByTransientFocus &&
+          other.playWhenReady == playWhenReady &&
           other.failure == failure &&
           other.autoSkip == autoSkip);
 
@@ -346,6 +397,7 @@ class PlaybackState {
       volume,
       muted,
       interruptedByTransientFocus,
+      playWhenReady,
       failure,
       autoSkip,
     );

@@ -103,6 +103,9 @@ main() {
 
   if android_sdk_available; then
     run_step "flutter build apk --debug" "$FLUTTER" build apk --debug
+    # The JVM unit tests under android/app/src/test, as CI runs them after
+    # its build (the SAF cover cache, #742).
+    run_step "Android unit tests" android/gradlew -p android :app:testDebugUnitTest
   else
     warn "Android SDK not detected (ANDROID_HOME/ANDROID_SDK_ROOT unset, no sdkmanager/adb)."
     warn "Skipping 'flutter build apk --debug'. analyze/format/tests still ran above."

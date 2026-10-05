@@ -30,4 +30,19 @@ abstract interface class OfflineFileStore {
 
   /// Deletes the cache file [fileName] if it exists; a no-op when it doesn't.
   Future<void> delete(String fileName);
+
+  /// Deletes what an earlier run left in the offline directory that no cache
+  /// record accounts for: the temp file of a write cut off mid-way, and, unless
+  /// [temporaryOnly], a finished file not named in [referenced] (a download
+  /// whose record was never saved). Nothing else ever counts, clears or evicts
+  /// those, so without this they stay on disk for good (#747).
+  ///
+  /// Runs at most once per store, and only ever takes files untouched since
+  /// before the store was created, so it can never take a file this run is
+  /// writing.
+  /// Best-effort: a file it can't remove is left as it is, and it never throws.
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  });
 }

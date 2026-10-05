@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -60,14 +62,16 @@ Future<void> _pump(
   required InMemoryPlaylistStore store,
   required FakePlaybackController controller,
   List<Track> tracks = _tracks,
+  FakeMusicLibraryRepository? library,
   TargetPlatform? platform,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
         playlistStoreProvider.overrideWithValue(store),
-        musicLibraryRepositoryProvider
-            .overrideWithValue(FakeMusicLibraryRepository(tracks: tracks)),
+        musicLibraryRepositoryProvider.overrideWithValue(
+          library ?? FakeMusicLibraryRepository(tracks: tracks),
+        ),
         playbackControllerProvider.overrideWithValue(controller),
       ],
       child: MaterialApp.router(
@@ -107,6 +111,41 @@ Future<void> _dragToEnd(WidgetTester tester, {required int from}) async {
   await gesture.moveBy(Offset(0, travel / 2));
   await tester.pump(const Duration(milliseconds: 16));
   await gesture.moveBy(Offset(0, travel / 2));
+  await tester.pumpAndSettle();
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+/// A catalog whose full read can be held open once [hold] is set, the way
+/// reading a large library takes a while, so the rows lag behind a move.
+class _SlowCatalog extends FakeMusicLibraryRepository {
+  _SlowCatalog({required super.tracks});
+
+  Completer<void>? hold;
+
+  @override
+  Future<List<Track>> getAllTracks() async {
+    final Completer<void>? gate = hold;
+    if (gate != null) await gate.future;
+    return super.getAllTracks();
+  }
+}
+
+/// Drags the handle on the row showing [title] past the top of the list.
+Future<void> _dragToTop(WidgetTester tester, String title) async {
+  final TestGesture gesture = await tester.startGesture(
+    tester.getCenter(
+      find.descendant(
+        of: find.ancestor(
+            of: find.text(title), matching: find.byType(ListTile)),
+        matching: find.byIcon(Icons.drag_handle),
+      ),
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 16));
+  await gesture.moveBy(const Offset(0, -300));
+  await tester.pump(const Duration(milliseconds: 16));
+  await gesture.moveBy(const Offset(0, -300));
   await tester.pumpAndSettle();
   await gesture.up();
   await tester.pumpAndSettle();
@@ -423,6 +462,46 @@ void main() {
       expect(
         await _storedOrder(store),
         <String>['file:///c.mp3', 'file:///a.mp3', 'file:///b.mp3'],
+      );
+    });
+
+    // #749: the rows only show a move once the playlist's songs are read
+    // again. A second drag before that came from the old order, and its
+    // indices applied to the new stored order moved another song.
+    testWidgets('two drags before the rows catch up move the dragged song',
+        (tester) async {
+      final InMemoryPlaylistStore store = await _seededStore(
+        trackIds: <String>['file:///a.mp3', 'file:///b.mp3', 'file:///c.mp3'],
+      );
+      final _SlowCatalog library = _SlowCatalog(tracks: _tracks);
+      await _pump(
+        tester,
+        store: store,
+        controller: FakePlaybackController(),
+        library: library,
+      );
+      library.hold = Completer<void>();
+
+      await _dragToTop(tester, 'Song C');
+      expect(
+        await _storedOrder(store),
+        <String>['file:///c.mp3', 'file:///a.mp3', 'file:///b.mp3'],
+      );
+      // The rows are still the old order: the dropped row snapped back.
+      expect(
+        tester.getCenter(find.text('Song C')).dy,
+        greaterThan(tester.getCenter(find.text('Song B')).dy),
+      );
+
+      // The row still showing Song C, dragged to the top again.
+      await _dragToTop(tester, 'Song C');
+      library.hold!.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        await _storedOrder(store),
+        <String>['file:///c.mp3', 'file:///a.mp3', 'file:///b.mp3'],
+        reason: 'Song C was already at the top; Song B must not move',
       );
     });
 

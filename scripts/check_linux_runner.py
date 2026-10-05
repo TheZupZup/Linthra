@@ -62,7 +62,9 @@ nothing else: the folder-picker method channel (#438). The runner answers on
 `MethodChannelLinuxFolderPicker.channelName`; if those drift, or the source
 file stops being compiled into the runner, nothing fails to build — every pick
 just reports "no chooser here" and silently falls back to `file_picker`, which
-inside the Flatpak has no `zenity`/`kdialog` to run.
+inside the Flatpak has no `zenity`/`kdialog` to run. The same channel's save
+dialog (#748) is held to its method name too, and `MethodChannelLinuxFileSaver`
+to calling it on that channel.
 
 It also checks two things that are about *how* the runner builds rather than
 what it is called:
@@ -105,6 +107,10 @@ WINDOW_STATE_POLICY_SOURCE = (
 )
 FOLDER_PICKER_DART = (
     Path("lib") / "core" / "services" / "method_channel_linux_folder_picker.dart"
+)
+# The save dialog (#748) is the same channel's second method.
+FILE_SAVER_DART = (
+    Path("lib") / "core" / "services" / "method_channel_linux_file_saver.dart"
 )
 WINDOW_LIFECYCLE_CHANNEL_SOURCE = (
     Path("linux") / "runner" / "window_lifecycle_channel.cc"
@@ -234,6 +240,10 @@ FOLDER_PICKER_NATIVE_CHANNEL = r'kChannelName\s*=\s*\n?\s*"([^"]+)"'
 FOLDER_PICKER_NATIVE_METHOD = r'kPickFolderMethod\s*=\s*"([^"]+)"'
 FOLDER_PICKER_DART_CHANNEL = r"String channelName\s*=\s*\n?\s*'([^']+)'"
 FOLDER_PICKER_DART_METHOD = r"String pickFolderMethod\s*=\s*'([^']+)'"
+FILE_SAVER_NATIVE_METHOD = r'kSaveFileMethod\s*=\s*"([^"]+)"'
+FILE_SAVER_DART_METHOD = r"String saveFileMethod\s*=\s*'([^']+)'"
+# The saver reaches the runner on the folder picker's channel, by its name.
+FILE_SAVER_DART_CHANNEL = "MethodChannelLinuxFolderPicker.channelName"
 
 # The window-lifecycle channel (#401), checked the same way and for the same
 # reason. This one is worse when it drifts than the folder picker: nothing
@@ -926,6 +936,30 @@ def folder_picker_problems(root: Path) -> list[str]:
                 f"{FOLDER_PICKER_CHANNEL_SOURCE} but {dart_value!r} in "
                 f"{FOLDER_PICKER_DART}"
             )
+
+    # The save dialog (#748): the same wire, a second method. A drift here
+    # means every save reports that it couldn't save.
+    saver = _read(root, FILE_SAVER_DART)
+    native_save = _extract(
+        native,
+        FILE_SAVER_NATIVE_METHOD,
+        "the save dialog method name",
+        FOLDER_PICKER_CHANNEL_SOURCE,
+    )
+    dart_save = _extract(
+        saver, FILE_SAVER_DART_METHOD, "the save dialog method name", FILE_SAVER_DART
+    )
+    if native_save != dart_save:
+        problems.append(
+            f"save dialog method name is {native_save!r} in "
+            f"{FOLDER_PICKER_CHANNEL_SOURCE} but {dart_save!r} in {FILE_SAVER_DART}"
+        )
+    if FILE_SAVER_DART_CHANNEL not in _blank(saver):
+        problems.append(
+            f"{FILE_SAVER_DART} does not open its channel by "
+            f"{FILE_SAVER_DART_CHANNEL}, so it may not be calling the channel "
+            "the runner answers on"
+        )
 
     # my_application.cc has to actually register it; a compiled-but-unreferenced
     # channel is the same silence.

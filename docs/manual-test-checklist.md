@@ -416,7 +416,10 @@ cache's knowledge survives a restart; it never holds a URL or token.
   feature status — and **no** token, password, `Authorization` header, or full
   authenticated URL (see §12).
 - ☐ "Save diagnostics" writes the same snapshot and confirms with a **redacted**
-  location (basename only, never the private app directory path).
+  location (basename only, never the private app directory path). On Linux it
+  opens the save dialog first (the portal's inside the Flatpak); the file lands
+  where you chose and survives closing the app, and cancelling the dialog shows
+  no message.
 - ☐ Cache settings: change the limit (persists); clear cache (confirms first).
 - ☐ Pre-cache settings: toggle + count persist.
 - ☐ Version display matches the build; about/privacy links present.
