@@ -434,6 +434,35 @@ void main() {
       ]);
     });
 
+    test(
+        "a switch while the cover is looked up on disk never files the new "
+        "server's cover as the old one's", () async {
+      String? server = 'server-a';
+      final List<Uri> fetched = <Uri>[];
+      final MediaArtworkCache cache = MediaArtworkCache(
+        resolveUrl: (Uri reference) =>
+            Uri.parse('https://$server.example/cover/${reference.path}'),
+        serverOf: (Uri reference) => server,
+        fetch: (Uri url) async {
+          fetched.add(url);
+          return <int>[..._imageBytes, ...utf8.encode(url.host)];
+        },
+        directory: directory,
+      );
+
+      // Asked for under server A, then the account switches before the disk
+      // lookup comes back.
+      final Future<Uri?> resolving = cache.resolve(_reference);
+      server = 'server-b';
+      await resolving;
+
+      server = 'server-a';
+      expect(cache.cached(_reference), isNull);
+      expect(
+          fetched.map((Uri u) => u.host), isNot(contains('server-b.example')));
+      expect(cachedFiles(), isEmpty);
+    });
+
     test('signed out, nothing is handed out or fetched', () async {
       String? server = 'server-a';
       int fetches = 0;

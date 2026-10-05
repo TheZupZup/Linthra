@@ -167,6 +167,10 @@ class MediaArtworkCache implements MediaArtworkSource {
     // means "not a resolvable reference / signed out" -> no artwork.
     final Uri? url = _resolveUrl(reference);
     if (url == null) return null;
+    // [key] named the server [reference] was asked for under, before the
+    // disk lookup above; the URL names the one signed in now. A switch in
+    // between would file the other server's cover under this one's key.
+    if (_keyFor(reference) != key) return null;
     final List<int>? bytes = await _fetch(url);
     if (bytes == null ||
         bytes.isEmpty ||

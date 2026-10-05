@@ -231,6 +231,13 @@ class ArtworkDiskCache {
       final File file = _fileFor(hash);
       if (await file.exists() && await _isFresh(file)) return;
       final Uri url = _resolveFetchUrl(key);
+      // [hash] named the server [key] was asked for under; the URL names the
+      // one signed in now. Both are read from the live session with nothing
+      // awaited between these two lines, so a switch while the disk was
+      // checked above shows here, and the other server's cover is never filed
+      // under this one. The URL carries its server, so what it fetches later
+      // is still this one's.
+      if (_hashFor(key) != hash) return;
       if (!url.isScheme('http') && !url.isScheme('https')) {
         // An unresolved reference (e.g. signed out) resolves to itself, which
         // is never fetchable — nothing to warm; a later render (signed back

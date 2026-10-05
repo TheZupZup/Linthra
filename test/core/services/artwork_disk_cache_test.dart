@@ -322,6 +322,22 @@ void main() {
       expect(fetchedUrls, hasLength(1));
     });
 
+    test(
+        "a switch while a warm looks at the disk never files the new server's "
+        'cover as the old one\'s', () async {
+      final ArtworkDiskCache cache = build();
+
+      // Warmed under server A, then the account switches before the disk
+      // check comes back.
+      final Future<void> warming = cache.warm(al12);
+      server = 'server-b';
+      await warming;
+
+      server = 'server-a';
+      expect(cache.cachedFile(al12), isNull);
+      expect(fetchedUrls, isEmpty);
+    });
+
     test('past the cap, the covers fetched longest ago go first', () async {
       // Each cover is 1,000 bytes. Fetched with room to spare...
       fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
