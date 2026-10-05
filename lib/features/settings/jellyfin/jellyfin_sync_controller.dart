@@ -142,9 +142,15 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   void _queueIfAnotherAccount(String? recordFingerprint) {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) return;
-    if (jellyfinAccountFingerprint(source.session) == _runningAccount) return;
+    final String account = jellyfinAccountFingerprint(source.session);
+    if (account == _runningAccount) return;
     _rerunQueued = true;
-    _rerunRecordFingerprint = recordFingerprint;
+    // A manual Sync pressed while this account's first auto-sync waits must
+    // not drop its fingerprint, or that sync would go unrecorded and the
+    // account would pull its whole library again on its next sign-in.
+    if (recordFingerprint != null || _rerunRecordFingerprint != account) {
+      _rerunRecordFingerprint = recordFingerprint;
+    }
   }
 
   Future<void> _syncOnce({String? recordFingerprint}) async {
@@ -221,8 +227,11 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       );
 
       // Remember this account only now that the sync landed, so an auto-sync
-      // that failed above is retried on the next fresh connection.
-      if (recordFingerprint != null) {
+      // that failed above is retried on the next fresh connection. And only
+      // when it is the account this run synced: a re-run queued for one
+      // account syncs whichever is signed in by the time it starts.
+      if (recordFingerprint != null &&
+          recordFingerprint == jellyfinAccountFingerprint(source.session)) {
         try {
           await ref
               .read(jellyfinAutoSyncStoreProvider)
