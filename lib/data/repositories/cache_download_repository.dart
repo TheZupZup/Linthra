@@ -492,7 +492,9 @@ class CacheDownloadRepository
     // request for the same track (a double tap, or a second caller) bails out
     // here instead of starting a duplicate fetch.
     final _CacheOperation? running = _inFlight[key];
-    if (running != null && !_orphaned(running, track, preloaded: false)) {
+    if (running != null &&
+        !running.abandoned &&
+        !_orphaned(running, track, preloaded: false)) {
       // A fresh, explicit request supersedes a pending cancellation of the
       // request still running (the user removed it and immediately asked
       // again): that request goes ahead, and its row shows where it really is
@@ -734,17 +736,41 @@ class CacheDownloadRepository
       atSlot = await _networkDecision();
       if (atSlot != _NetworkDecision.allowed || operation.canceled) return;
       _setPhase(key, operation, DownloadStatus.downloading);
-      final RemoteTrackData data = await _downloader.fetch(
-        track,
-        onProgress: (int received, int? total) {
-          if (identical(_inFlight[key], operation)) {
-            _reportProgress(track, received, total);
-          }
-        },
-      );
-      // Commit serially so concurrent downloads can't jointly overshoot the
-      // limit; the (slow) byte fetch above already ran in parallel.
-      await _commit(() => _cacheRemote(track, data, operation: operation));
+      // A file bigger than the whole cache can't fit whatever is evicted, so
+      // it is stopped as soon as that shows rather than downloaded in full
+      // first (#745). The exact fit is still decided at commit, against the
+      // limit as it stands then.
+      final int limit = await _preferences.maxCacheBytes();
+      final _Downloaded downloaded;
+      try {
+        downloaded = await _download(
+          track,
+          operation,
+          refuseOver: limit,
+          stillWanted: () =>
+              !_canceledOrOrphaned(operation, track, preloaded: false),
+          onProgress: (int received, int? total) {
+            if (identical(_inFlight[key], operation)) {
+              _reportProgress(track, received, total);
+            }
+          },
+        );
+      } on _TooBig {
+        if (identical(_inFlight[key], operation)) {
+          _set(key, DownloadStatus.notDownloaded);
+        }
+        throw const CacheStorageException();
+      }
+      try {
+        // Commit serially so concurrent downloads can't jointly overshoot the
+        // limit; the (slow) byte fetch above already ran in parallel.
+        await _commit(
+          () => _cacheRemote(track, downloaded, operation: operation),
+        );
+      } finally {
+        // Published by the commit, or not wanted after all.
+        await downloaded.draft.discard();
+      }
     });
     switch (atSlot) {
       case _NetworkDecision.allowed:
@@ -753,6 +779,82 @@ class CacheDownloadRepository
         return DownloadRequestOutcome.waitingForWifi;
       case _NetworkDecision.offline:
         return DownloadRequestOutcome.waitingForConnection;
+    }
+  }
+
+  /// Fetches [track] into a new draft file, a chunk at a time: a download is
+  /// never held in memory whole, where a big hi-res file, three at once plus a
+  /// pre-cache, could take several gigabytes and get the app killed (#745).
+  ///
+  /// Stops as soon as the size the server announced, or the bytes received so
+  /// far, pass [refuseOver], throwing [_TooBig]: such a file can't fit, so the
+  /// rest isn't worth the time or the data. Stops too, throwing
+  /// [_Abandoned], once [stillWanted] says its bytes would be thrown away
+  /// anyway (a removed download, a session that is gone), rather than
+  /// pulling the rest of the file first.
+  ///
+  /// The draft is gone when this throws; otherwise the caller publishes or
+  /// discards it.
+  Future<_Downloaded> _download(
+    Track track,
+    _CacheOperation operation, {
+    required int refuseOver,
+    required bool Function() stillWanted,
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    bool tooBig = false;
+    int shown = -1;
+    void progress(int received, int? total) {
+      if ((total ?? received) > refuseOver) {
+        tooBig = true;
+        throw const _TooBig();
+      }
+      // A source that already counted further while it fetched isn't sent
+      // back to an earlier count.
+      if (received < shown) return;
+      shown = received;
+      onProgress?.call(received, total);
+    }
+
+    void checkWanted() {
+      if (stillWanted()) return;
+      operation.abandoned = true;
+      throw const _Abandoned();
+    }
+
+    final RemoteTrackData data;
+    try {
+      data = await _downloader.fetch(track, onProgress: progress);
+    } on Object {
+      // A source that reports progress while it fetches hands the refusal
+      // back inside its own error.
+      if (tooBig) throw const _TooBig();
+      rethrow;
+    }
+    final Stream<List<int>> body = data.body;
+    final int? total = data.length;
+    bool reading = false;
+    OfflineFileDraft? draft;
+    try {
+      // Refused on the announced size before any of the body is read.
+      progress(0, total);
+      checkWanted();
+      draft = await _files.createDraft(_fileBaseName(track, operation.origin));
+      int received = 0;
+      reading = true;
+      await for (final List<int> chunk in body) {
+        received += chunk.length;
+        progress(received, total);
+        checkWanted();
+        await draft.add(chunk);
+      }
+      return _Downloaded(draft, data.fileExtension);
+    } on Object {
+      // A body never listened to is cancelled, so its connection is closed
+      // rather than left open; leaving the loop above cancels one being read.
+      if (!reading) await body.listen(null).cancel();
+      await draft?.discard();
+      rethrow;
     }
   }
 
@@ -765,7 +867,7 @@ class CacheDownloadRepository
   /// that can't fit returns quietly (it's best-effort).
   Future<void> _cacheRemote(
     Track track,
-    RemoteTrackData data, {
+    _Downloaded downloaded, {
     required _CacheOperation operation,
     bool preloaded = false,
     Set<String> protectKeys = const <String>{},
@@ -795,7 +897,7 @@ class CacheDownloadRepository
         return;
       }
     }
-    final int incoming = data.bytes.length;
+    final int incoming = downloaded.draft.length;
     final int maxBytes = await _preferences.maxCacheBytes();
     // Asked again after every await below: a sign-out can land in any of them.
     if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
@@ -852,10 +954,8 @@ class CacheDownloadRepository
       return;
     }
 
-    final String fileName = await _files.write(
-      _fileBaseName(track, operation.origin),
-      data.bytes,
-      extension: data.fileExtension,
+    final String fileName = await downloaded.draft.publish(
+      extension: downloaded.fileExtension,
     );
     if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
         (preloaded && !_passes(isStillWanted))) {
@@ -930,32 +1030,37 @@ class CacheDownloadRepository
           _precacheRoom(await _preferences.maxCacheBytes(), protectKeys);
       if (room <= 0) return;
       if (operation.canceled || !_passes(isStillWanted)) return;
-      final RemoteTrackData data = await _downloader.fetch(
+      // Its size isn't known until the server says so, and other tracks'
+      // sizes say little about it. So once it's clear this track can't fit,
+      // the download stops there instead of pulling the rest just to throw it
+      // away. The exact fit is still decided at commit, where the room may
+      // have changed.
+      final _Downloaded downloaded = await _download(
         track,
-        // Its size isn't known until the server says so, and other tracks'
-        // sizes say little about it. So once the body is arriving and it's
-        // clear this track can't fit, stop the download there instead of
-        // pulling the rest just to throw it away. Checked on bytes, not on the
-        // headers alone, so the stream is cancelled rather than left unread.
-        // The exact fit is still decided at commit, where the room may have
-        // changed.
-        onProgress: (int received, int? total) {
-          if (received > 0 && (total ?? received) > room) {
-            throw const _PreloadTooBig();
-          }
-        },
+        operation,
+        refuseOver: room,
+        // Its bytes would be thrown away at commit once the session that asked
+        // for them is gone, so they stop arriving then too. A queue that has
+        // only moved on still keeps the copy if it fits in free space.
+        stillWanted: () =>
+            !_canceledOrOrphaned(operation, track, preloaded: true) &&
+            _passes(isStillWanted),
       );
-      // Share the one commit lock so a preload write can't race a user
-      // download's and overshoot the limit.
-      await _commit(() => _cacheRemote(
-            track,
-            data,
-            operation: operation,
-            preloaded: true,
-            protectKeys: protectKeys,
-            isStillWanted: isStillWanted,
-            mayMakeRoom: mayMakeRoom,
-          ));
+      try {
+        // Share the one commit lock so a preload write can't race a user
+        // download's and overshoot the limit.
+        await _commit(() => _cacheRemote(
+              track,
+              downloaded,
+              operation: operation,
+              preloaded: true,
+              protectKeys: protectKeys,
+              isStillWanted: isStillWanted,
+              mayMakeRoom: mayMakeRoom,
+            ));
+      } finally {
+        await downloaded.draft.discard();
+      }
     } catch (_) {
       // Best-effort: a failed preload caches nothing and changes no status; the
       // track still streams normally when it's reached.
@@ -1411,6 +1516,11 @@ class _CacheOperation {
   /// Where a user download stands (`queued`, then `downloading`), or `null`
   /// before it has a row. Unused by a pre-cache, which never has one.
   DownloadStatus? phase;
+
+  /// Set when the fetch stopped because this was cancelled, so its bytes are
+  /// gone: a fresh request for the track then starts its own download rather
+  /// than taking this one back.
+  bool abandoned = false;
 }
 
 /// Whether the network policy lets a download run now, and why not when it
@@ -1418,8 +1528,25 @@ class _CacheOperation {
 /// connection (offline).
 enum _NetworkDecision { allowed, needsWifi, offline }
 
-/// Thrown from a pre-cache's progress callback to stop a download that can't
-/// fit. Never surfaces: the pre-cache swallows it like any failed fetch.
-class _PreloadTooBig implements Exception {
-  const _PreloadTooBig();
+/// Stops a download that can't fit (see [CacheDownloadRepository._download]).
+/// A user download surfaces it as a [CacheStorageException]; a pre-cache
+/// swallows it like any failed fetch.
+class _TooBig implements Exception {
+  const _TooBig();
+}
+
+/// Stops a download whose bytes would be thrown away anyway (see
+/// [CacheDownloadRepository._download]).
+class _Abandoned implements Exception {
+  const _Abandoned();
+}
+
+/// A fetched track waiting in its draft to be committed.
+class _Downloaded {
+  const _Downloaded(this.draft, this.fileExtension);
+
+  final OfflineFileDraft draft;
+
+  /// The extension the server's content type implies, for the file's name.
+  final String? fileExtension;
 }

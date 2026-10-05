@@ -27,6 +27,8 @@ import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
+import '../../support/offline_file_writes.dart';
+
 /// A connectivity stand-in whose reported status the test can flip at will.
 class _FakeConnectivity implements ConnectivityService {
   _FakeConnectivity(this.status);
@@ -101,16 +103,22 @@ class _FakeRemoteDownloader implements RemoteTrackDownloader {
 
 /// Wraps [InMemoryDownloadPreferences] and can hold [maxCacheBytes] open.
 ///
-/// That call is the first await inside a cache commit, so gating it parks a
-/// commit *before* it evicts anything, which is the window a request queued
-/// behind it has to survive.
+/// A user download reads the limit twice: before its fetch, to stop a file
+/// that can't fit at all, and as the first await inside its cache commit.
+/// Gating the commit's read (the second, so [letThrough] is 1) parks a commit
+/// *before* it evicts anything, which is the window a request queued behind
+/// it has to survive.
 class _GatedPreferences implements DownloadPreferences {
   _GatedPreferences(this._inner);
 
   final InMemoryDownloadPreferences _inner;
 
-  /// When set, [maxCacheBytes] awaits it before answering.
+  /// When set, [maxCacheBytes] awaits it before answering, once [letThrough]
+  /// calls have gone straight through.
   Completer<void>? gate;
+
+  /// How many calls answer at once before [gate] holds one.
+  int letThrough = 0;
 
   /// Completes once [maxCacheBytes] has actually been reached and parked, so a
   /// test never races the commit it means to hold.
@@ -120,8 +128,12 @@ class _GatedPreferences implements DownloadPreferences {
   Future<int> maxCacheBytes() async {
     final Completer<void>? pending = gate;
     if (pending != null) {
-      if (!reachedGate.isCompleted) reachedGate.complete();
-      await pending.future;
+      if (letThrough > 0) {
+        letThrough--;
+      } else {
+        if (!reachedGate.isCompleted) reachedGate.complete();
+        await pending.future;
+      }
     }
     return _inner.maxCacheBytes();
   }
@@ -167,8 +179,8 @@ class _SpyOfflineFileStore implements OfflineFileStore {
   List<int>? bytesFor(String fileName) => _inner.bytesFor(fileName);
 
   @override
-  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
-      _inner.write(trackId, bytes, extension: extension);
+  Future<OfflineFileDraft> createDraft(String trackId) =>
+      _inner.createDraft(trackId);
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -299,8 +311,8 @@ class _AccountDownloader implements RemoteTrackDownloader {
   }
 }
 
-/// Holds the first [write] until [release] completes, after the bytes are on
-/// disk but before it returns: the moment a commit has written the file and
+/// Holds the first publish until [release] completes, after the bytes are in
+/// place but before it returns: the moment a commit has written the file and
 /// not yet recorded it.
 class _GatedWriteFileStore implements OfflineFileStore {
   _GatedWriteFileStore(this._inner);
@@ -310,16 +322,13 @@ class _GatedWriteFileStore implements OfflineFileStore {
   final Completer<void> release = Completer<void>();
 
   @override
-  Future<String> write(String trackId, List<int> bytes,
-      {String? extension}) async {
-    final String name =
-        await _inner.write(trackId, bytes, extension: extension);
-    if (!reachedWrite.isCompleted) {
-      reachedWrite.complete();
-      await release.future;
-    }
-    return name;
-  }
+  Future<OfflineFileDraft> createDraft(String trackId) async =>
+      _HookedDraft(await _inner.createDraft(trackId), () async {
+        if (!reachedWrite.isCompleted) {
+          reachedWrite.complete();
+          await release.future;
+        }
+      });
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -1220,7 +1229,9 @@ void main() {
         expect(downloader.fetchCount, 1);
 
         // Park j2's commit before it evicts anything, with j1 still in place.
-        gated.gate = Completer<void>();
+        gated
+          ..letThrough = 1
+          ..gate = Completer<void>();
         final Future<DownloadRequestOutcome> second =
             repository.requestDownload(_jellyfin('j2'));
         await gated.reachedGate.future;
@@ -1688,7 +1699,9 @@ void main() {
         expect(await repository.statusFor('a'), DownloadStatus.downloaded);
 
         // b only fits by evicting a. Park its commit before it evicts.
-        gated.gate = Completer<void>();
+        gated
+          ..letThrough = 1
+          ..gate = Completer<void>();
         final Future<void> request = repository.requestDownload(_jellyfin('b'));
         await gated.reachedGate.future;
         await repository.removeDownload(_jellyfin('b'));
@@ -1719,7 +1732,9 @@ void main() {
         );
 
         // Park j1's commit after it has checked for a cancellation.
-        gated.gate = Completer<void>();
+        gated
+          ..letThrough = 1
+          ..gate = Completer<void>();
         final Future<void> request =
             repository.requestDownload(_jellyfin('j1'));
         await gated.reachedGate.future;
@@ -3311,8 +3326,8 @@ class _SlowDeleteFileStore implements OfflineFileStore {
   final Completer<void> reachedDelete = Completer<void>();
 
   @override
-  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
-      _inner.write(trackId, bytes, extension: extension);
+  Future<OfflineFileDraft> createDraft(String trackId) =>
+      _inner.createDraft(trackId);
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -3356,8 +3371,8 @@ class _HeldDeletesFileStore implements OfflineFileStore {
       (_reached[fileName] ??= Completer<void>()).future;
 
   @override
-  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
-      _inner.write(trackId, bytes, extension: extension);
+  Future<OfflineFileDraft> createDraft(String trackId) =>
+      _inner.createDraft(trackId);
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);
@@ -3380,6 +3395,32 @@ class _HeldDeletesFileStore implements OfflineFileStore {
     bool temporaryOnly = false,
   }) =>
       _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
+}
+
+/// A draft that runs [_onPublished] once its inner draft is published, before
+/// publish returns: the moment a commit has written the file and not yet
+/// recorded it.
+class _HookedDraft implements OfflineFileDraft {
+  _HookedDraft(this._inner, this._onPublished);
+
+  final OfflineFileDraft _inner;
+  final Future<void> Function() _onPublished;
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  Future<void> add(List<int> chunk) => _inner.add(chunk);
+
+  @override
+  Future<String> publish({String? extension}) async {
+    final String name = await _inner.publish(extension: extension);
+    await _onPublished();
+    return name;
+  }
+
+  @override
+  Future<void> discard() => _inner.discard();
 }
 
 /// Lets the broadcast stream deliver any pending events.

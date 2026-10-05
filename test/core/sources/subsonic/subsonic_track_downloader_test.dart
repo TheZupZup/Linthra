@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_stream_source.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_track_downloader.dart';
 
@@ -27,6 +28,11 @@ const _track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
 final _downloadUri = Uri.parse(
   'https://music.example.com/rest/download.view?id=s1&t=secret-token&s=salt1',
 );
+
+/// The whole body of [data], read the way the offline cache reads it.
+Future<List<int>> _bodyOf(RemoteTrackData data) async => <int>[
+      for (final List<int> chunk in await data.body.toList()) ...chunk,
+    ];
 
 void main() {
   test('isRemote is true only for subsonic tracks', () {
@@ -54,7 +60,7 @@ void main() {
 
     final data = await downloader.fetch(_track);
 
-    expect(utf8.decode(data.bytes), 'audio-bytes');
+    expect(utf8.decode(await _bodyOf(data)), 'audio-bytes');
     expect(data.fileExtension, 'flac');
   });
 
@@ -184,7 +190,7 @@ void main() {
 
         final data = await downloader.fetch(_track);
 
-        expect(data.bytes, <int>[1, 2, 3]);
+        expect(await _bodyOf(data), <int>[1, 2, 3]);
       });
     }
   });
@@ -231,5 +237,75 @@ void main() {
         expect(cancelled, isTrue);
       });
     }
+  });
+
+  group('the body is handed back as it arrives (#745)', () {
+    final Uri uri = _downloadUri;
+
+    test('fetch returns before the body has arrived', () async {
+      final StreamController<List<int>> body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final MockClient client = MockClient.streaming(
+        (http.BaseRequest request, http.ByteStream _) async =>
+            http.StreamedResponse(
+          body.stream,
+          200,
+          contentLength: 8,
+          headers: <String, String>{'content-type': 'audio/flac'},
+        ),
+      );
+
+      final RemoteTrackData data = await SubsonicTrackDownloader(
+        () => _FakeStreamSource(downloadUri: uri),
+        httpClient: client,
+      ).fetch(_track).timeout(const Duration(seconds: 5));
+
+      expect(data.length, 8);
+      expect(data.fileExtension, 'flac');
+      final Future<List<int>> read = _bodyOf(data);
+      body
+        ..add(<int>[1, 2, 3, 4])
+        ..add(<int>[5, 6, 7, 8]);
+      await body.close();
+      expect(await read, <int>[1, 2, 3, 4, 5, 6, 7, 8]);
+    });
+
+    test('an error while it arrives does not leak the URL', () async {
+      final StreamController<List<int>> body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final MockClient client = MockClient.streaming(
+        (http.BaseRequest request, http.ByteStream _) async =>
+            http.StreamedResponse(
+          body.stream,
+          200,
+          headers: <String, String>{'content-type': 'audio/flac'},
+        ),
+      );
+      final RemoteTrackData data = await SubsonicTrackDownloader(
+        () => _FakeStreamSource(downloadUri: uri),
+        httpClient: client,
+      ).fetch(_track);
+
+      final Future<List<int>> read = _bodyOf(data);
+      body
+        ..add(<int>[1, 2])
+        // A real ClientException can embed the full (credentialed) URL.
+        ..addError(http.ClientException('Connection closed for $uri', uri));
+
+      await expectLater(
+        read,
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            allOf(
+              startsWith('Download failed'),
+              isNot(contains('secret-token')),
+              isNot(contains('t=secret')),
+            ),
+          ),
+        ),
+      );
+    });
   });
 }

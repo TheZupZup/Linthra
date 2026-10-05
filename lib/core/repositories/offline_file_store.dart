@@ -12,11 +12,15 @@
 /// track id. An access token or authenticated URL must never appear in a file
 /// name, a path, or anything this store persists.
 abstract interface class OfflineFileStore {
-  /// Writes [bytes] for [trackId] into the offline directory and returns the
-  /// file name (relative to that directory) they were stored under. The name is
-  /// derived from [trackId] — plus [extension] when the source reported one —
-  /// never from a token.
-  Future<String> write(String trackId, List<int> bytes, {String? extension});
+  /// Starts a cache file for [trackId], to be filled a chunk at a time as a
+  /// download arrives, so the download never sits in memory whole (#745).
+  ///
+  /// Until it is published, the draft is a temp file of its own in the
+  /// offline directory that nothing reads, counts or serves, so two drafts of
+  /// the same track (a download and a pre-cache) never share one. A draft
+  /// left behind by a crash is cleared like any other temp file
+  /// ([removeAbandoned]).
+  Future<OfflineFileDraft> createDraft(String trackId);
 
   /// The absolute path of a previously stored [fileName], or `null` when no
   /// such file exists (e.g. the OS reclaimed it), so playback can fall back to
@@ -45,4 +49,29 @@ abstract interface class OfflineFileStore {
     Set<String> referenced, {
     bool temporaryOnly = false,
   });
+}
+
+/// A cache file being written (see [OfflineFileStore.createDraft]).
+abstract interface class OfflineFileDraft {
+  /// How many bytes have been added so far.
+  int get length;
+
+  /// Appends [chunk]. Completes once it is written, so a fast server waits for
+  /// the disk instead of piling up in memory.
+  Future<void> add(List<int> chunk);
+
+  /// Moves the finished draft into place as the track's cache file and returns
+  /// its file name (relative to the offline directory). The name is derived
+  /// from the draft's track id (plus [extension] when the source reported
+  /// one), never from a token. The move is atomic, so the playback locator
+  /// only ever sees the whole file or none.
+  ///
+  /// An empty draft (an interrupted fetch can end with zero bytes) is refused,
+  /// since a 0-byte file would read as cached. A failed publish discards the
+  /// draft.
+  Future<String> publish({String? extension});
+
+  /// Deletes the draft. A no-op once it is published or discarded, so it is
+  /// safe in a `finally`. Never throws.
+  Future<void> discard();
 }

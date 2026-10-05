@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -32,9 +33,9 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
   /// Whether [removeAbandoned] has run.
   bool _sweptAbandoned = false;
 
-  /// Suffix for the in-progress temp file an atomic [write] renames from. A
-  /// leftover (from a crash mid-write) is never referenced by download metadata,
-  /// so it is never served, and [removeAbandoned] clears it at the next launch.
+  /// Suffix of a draft's temp file, which publishing renames from. A leftover
+  /// (from a crash mid-download) is never referenced by download metadata, so
+  /// it is never served, and [removeAbandoned] clears it at the next launch.
   static const String _tempSuffix = '.part';
 
   static Future<Directory> _defaultDirectory() async {
@@ -43,57 +44,25 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
   }
 
   @override
-  Future<String> write(
-    String trackId,
-    List<int> bytes, {
-    String? extension,
-  }) async {
-    // Validate before writing anything: an empty download (an interrupted or
-    // truncated fetch can hand back zero bytes) is never a valid cache file —
-    // and would masquerade as one, since the playback locator only checks that
-    // a file *exists*. Refusing it here surfaces as a failed write the caller
-    // streams past, rather than a 0-byte file that fails at play time.
-    if (bytes.isEmpty) {
-      throw const FileSystemException('Refusing to cache an empty download.');
-    }
+  Future<OfflineFileDraft> createDraft(String trackId) async {
     final Directory dir = await _directory();
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
-    final String fileName = _fileNameFor(trackId, extension);
-    final File target = File(p.join(dir.path, fileName));
-
-    // Atomic publish: write to a temporary sibling, validate it, then rename it
-    // into place. A rename within one directory is atomic on the POSIX
-    // filesystems Linthra targets, so the playback locator only ever sees the
-    // fully-written file or no file — never a half-written one, even if the
-    // process is killed mid-write. The metadata that marks the track cached is
-    // written by the repository only *after* this returns, so a crash between
-    // the rename and that write just leaves an unreferenced file the next
-    // download (same name) overwrites — it is never mistaken for cached.
-    final File temp = File('${target.path}$_tempSuffix');
-    try {
-      await temp.writeAsBytes(bytes, flush: true);
-      // Confirm the temp holds every byte before publishing it, so a short
-      // write (e.g. the disk filled mid-write) is caught and discarded here
-      // rather than renamed into the cache to fail later.
-      final int written = await temp.length();
-      if (written != bytes.length) {
-        throw FileSystemException(
-          'Cached file is incomplete ($written/${bytes.length} bytes).',
-          target.path,
-        );
-      }
-      await temp.rename(target.path);
-    } on Object {
-      // Never leave a partial temp behind on any failure (validation or I/O).
-      if (await temp.exists()) {
-        await temp.delete();
-      }
-      rethrow;
-    }
-    return fileName;
+    // A name of its own for every draft: a download and a pre-cache of the
+    // same track can be fetching at once. Still ends in the temp suffix, so
+    // nothing ever mistakes it for a cache file and a leftover is cleared.
+    final String serial =
+        '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+        '${_draftRandom.nextInt(1 << 30).toRadixString(36)}';
+    final File temp = File(
+      p.join(dir.path, '${_safeId(trackId)}.$serial$_tempSuffix'),
+    );
+    final RandomAccessFile file = await temp.open(mode: FileMode.writeOnly);
+    return _FileDraft(dir.path, trackId, temp, file);
   }
+
+  static final Random _draftRandom = Random();
 
   @override
   Future<String?> pathFor(String fileName) async {
@@ -156,10 +125,106 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
   /// token): keeps only filename-safe characters, so an odd id can't smuggle
   /// path separators or escape the offline directory.
   static String _fileNameFor(String trackId, String? extension) {
-    final String safeId = trackId.replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
     final String ext = (extension != null && extension.isNotEmpty)
         ? '.${extension.replaceAll(RegExp('[^A-Za-z0-9]'), '')}'
         : '';
-    return '$safeId$ext';
+    return '${_safeId(trackId)}$ext';
+  }
+
+  static String _safeId(String trackId) =>
+      trackId.replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
+}
+
+/// A draft on disk: a temp file in the offline directory, written as the
+/// download arrives and renamed into place when it is published.
+class _FileDraft implements OfflineFileDraft {
+  _FileDraft(this._directory, this._trackId, this._temp, this._file);
+
+  final String _directory;
+  final String _trackId;
+  final File _temp;
+  RandomAccessFile? _file;
+  int _length = 0;
+
+  /// Published or discarded: either way the temp file is no longer this
+  /// draft's to write or delete.
+  bool _settled = false;
+
+  @override
+  int get length => _length;
+
+  @override
+  Future<void> add(List<int> chunk) async {
+    final RandomAccessFile? file = _file;
+    if (_settled || file == null) {
+      throw StateError('This cache file is no longer being written.');
+    }
+    await file.writeFrom(chunk);
+    _length += chunk.length;
+  }
+
+  @override
+  Future<String> publish({String? extension}) async {
+    if (_settled) {
+      throw StateError('This cache file is no longer being written.');
+    }
+    try {
+      final RandomAccessFile? file = _file;
+      _file = null;
+      if (file != null) {
+        await file.flush();
+        await file.close();
+      }
+      // Validate before publishing anything: an empty download (an
+      // interrupted or truncated fetch can end with zero bytes) is never a
+      // valid cache file, and would masquerade as one, since the playback
+      // locator only checks that a file exists.
+      if (_length == 0) {
+        throw const FileSystemException('Refusing to cache an empty download.');
+      }
+      // Confirm the temp holds every byte before publishing it, so a short
+      // write (the disk filled up, say) is caught here rather than renamed
+      // into the cache to fail later.
+      final int written = await _temp.length();
+      if (written != _length) {
+        throw FileSystemException(
+          'Cached file is incomplete ($written/$_length bytes).',
+          _temp.path,
+        );
+      }
+      // Atomic publish: a rename within one directory is atomic on the POSIX
+      // filesystems Linthra targets, so the playback locator only ever sees
+      // the fully written file or no file, even if the process is killed
+      // here. The metadata that marks the track cached is written by the
+      // repository only after this returns, so a crash between the rename and
+      // that write leaves a file no record names, which the next launch
+      // clears.
+      final String fileName =
+          FileSystemOfflineFileStore._fileNameFor(_trackId, extension);
+      await _temp.rename(p.join(_directory, fileName));
+      _settled = true;
+      return fileName;
+    } on Object {
+      await discard();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> discard() async {
+    if (_settled) return;
+    _settled = true;
+    final RandomAccessFile? file = _file;
+    _file = null;
+    try {
+      await file?.close();
+    } on Object {
+      // Closing only matters so the delete below can go through.
+    }
+    try {
+      if (await _temp.exists()) await _temp.delete();
+    } on FileSystemException {
+      // Left for the next launch's sweep of temp files.
+    }
   }
 }

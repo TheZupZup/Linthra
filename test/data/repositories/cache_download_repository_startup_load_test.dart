@@ -16,6 +16,8 @@ import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 
+import '../../support/offline_file_writes.dart';
+
 /// A connectivity stand-in whose reported status the test can flip at will.
 class _FakeConnectivity implements ConnectivityService {
   _FakeConnectivity(this.status);
@@ -79,8 +81,8 @@ class _GatedSizeFileStore implements OfflineFileStore {
   final Map<int, Completer<void>> gates = <int, Completer<void>>{};
 
   @override
-  Future<String> write(String trackId, List<int> bytes, {String? extension}) =>
-      _inner.write(trackId, bytes, extension: extension);
+  Future<OfflineFileDraft> createDraft(String trackId) =>
+      _inner.createDraft(trackId);
 
   @override
   Future<String?> pathFor(String fileName) => _inner.pathFor(fileName);

@@ -33,6 +33,11 @@ class _FakeDownloadSource implements PlexDownloadSource {
 
 const _track = Track(id: '301', title: 'Nightcall', uri: 'plex:301');
 
+/// The whole body of [data], read the way the offline cache reads it.
+Future<List<int>> _bodyOf(RemoteTrackData data) async => <int>[
+      for (final List<int> chunk in await data.body.toList()) ...chunk,
+    ];
+
 void main() {
   group('PlexTrackDownloader', () {
     test('isRemote is true only for Plex tracks', () {
@@ -76,7 +81,7 @@ void main() {
 
       expect(source.verifyCount, 1);
       expect(requested, uri);
-      expect(data.bytes, <int>[10, 20, 30]);
+      expect(await _bodyOf(data), <int>[10, 20, 30]);
       expect(data.fileExtension, 'flac');
     });
 
@@ -222,7 +227,7 @@ void main() {
         final data = await PlexTrackDownloader(() => source, httpClient: client)
             .fetch(_track);
 
-        expect(data.bytes, <int>[1, 2, 3]);
+        expect(await _bodyOf(data), <int>[1, 2, 3]);
       });
     }
   });
@@ -272,5 +277,78 @@ void main() {
         expect(cancelled, isTrue);
       });
     }
+  });
+
+  group('the body is handed back as it arrives (#745)', () {
+    final Uri uri = Uri.parse(
+      'https://plex.example.com:32400/library/parts/9/file.flac'
+      '?download=1&X-Plex-Token=SECRET-TOKEN',
+    );
+
+    test('fetch returns before the body has arrived', () async {
+      final StreamController<List<int>> body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final MockClient client = MockClient.streaming(
+        (http.BaseRequest request, http.ByteStream _) async =>
+            http.StreamedResponse(
+          body.stream,
+          200,
+          contentLength: 8,
+          headers: <String, String>{'content-type': 'audio/flac'},
+        ),
+      );
+
+      final RemoteTrackData data = await PlexTrackDownloader(
+        () => _FakeDownloadSource(downloadUri: uri),
+        httpClient: client,
+      ).fetch(_track).timeout(const Duration(seconds: 5));
+
+      expect(data.length, 8);
+      expect(data.fileExtension, 'flac');
+      final Future<List<int>> read = _bodyOf(data);
+      body
+        ..add(<int>[1, 2, 3, 4])
+        ..add(<int>[5, 6, 7, 8]);
+      await body.close();
+      expect(await read, <int>[1, 2, 3, 4, 5, 6, 7, 8]);
+    });
+
+    test('an error while it arrives does not leak the URL', () async {
+      final StreamController<List<int>> body = StreamController<List<int>>();
+      addTearDown(body.close);
+      final MockClient client = MockClient.streaming(
+        (http.BaseRequest request, http.ByteStream _) async =>
+            http.StreamedResponse(
+          body.stream,
+          200,
+          headers: <String, String>{'content-type': 'audio/flac'},
+        ),
+      );
+      final RemoteTrackData data = await PlexTrackDownloader(
+        () => _FakeDownloadSource(downloadUri: uri),
+        httpClient: client,
+      ).fetch(_track);
+
+      final Future<List<int>> read = _bodyOf(data);
+      body
+        ..add(<int>[1, 2])
+        // A real ClientException can embed the full (credentialed) URL.
+        ..addError(http.ClientException('Connection closed for $uri', uri));
+
+      await expectLater(
+        read,
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            allOf(
+              startsWith('Plex download failed'),
+              isNot(contains('SECRET-TOKEN')),
+              isNot(contains('X-Plex-Token')),
+            ),
+          ),
+        ),
+      );
+    });
   });
 }
