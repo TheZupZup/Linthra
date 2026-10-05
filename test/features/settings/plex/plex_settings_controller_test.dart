@@ -200,6 +200,72 @@ class _SlowWriteStore implements PlexSessionStore {
   }
 }
 
+/// A [FakePlexClient] whose sections listing waits for [gate], so a test can
+/// land the listing at a chosen point of another action.
+class _GatedSectionsClient extends FakePlexClient {
+  _GatedSectionsClient({super.sections});
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<List<PlexDirectory>> fetchSections({
+    required String baseUrl,
+    required String token,
+  }) async {
+    await gate.future;
+    return super.fetchSections(baseUrl: baseUrl, token: token);
+  }
+}
+
+/// A [PlexSessionStore] that holds every write and clear until the test lets
+/// it through, and applies them strictly in the order they are let through,
+/// the way a keyring that queues its operations does. [releaseNext] lets the
+/// oldest one through, so a test can play back the order the controller
+/// issued them in.
+class _FifoGatedStore implements PlexSessionStore {
+  _FifoGatedStore(this._session);
+
+  PlexSession? _session;
+  final List<(Completer<void>, String)> _held = <(Completer<void>, String)>[];
+
+  /// What each held operation is, oldest first: `write:<keys>` or `clear`.
+  List<String> get pending => <String>[
+        for (final (Completer<void> gate, String what) in _held)
+          if (!gate.isCompleted) what,
+      ];
+
+  bool releaseNext() {
+    for (final (Completer<void> gate, String _) in _held) {
+      if (!gate.isCompleted) {
+        gate.complete();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _hold(String what) {
+    final Completer<void> gate = Completer<void>();
+    _held.add((gate, what));
+    return gate.future;
+  }
+
+  @override
+  Future<PlexSession?> read() async => _session;
+
+  @override
+  Future<void> write(PlexSession session) async {
+    await _hold('write:${session.selectedSectionKeys.join(',')}');
+    _session = session;
+  }
+
+  @override
+  Future<void> clear() async {
+    await _hold('clear');
+    _session = null;
+  }
+}
+
 /// A [PlexSessionStore] whose read blocks until released, simulating a slow
 /// secure-storage read on a real device so user actions can race the startup
 /// restore. The read returns what was persisted when it *started* (a stale
@@ -1016,6 +1082,162 @@ void main() {
       final state = container.read(plexSettingsControllerProvider);
       expect(state.selectedSectionKeys, <String>['5', '9']);
       expect(state.errorMessage, isNull);
+    });
+  });
+
+  // #750: a selection save checked the session before its keyring write, so a
+  // save that passed that check while Disconnect was clearing the keyring wrote
+  // the token back after the clear and set the session again.
+  group('Disconnect while the saved session is being written (#750)', () {
+    Future<
+        ({
+          ProviderContainer container,
+          PlexSettingsController notifier,
+          _FifoGatedStore store,
+        })> connected({
+      List<String> selected = const <String>[],
+      FakePlexClient? client,
+    }) async {
+      final _FifoGatedStore store =
+          _FifoGatedStore(_session.copyWith(selectedSectionKeys: selected));
+      final ProviderContainer container = _container(
+        client: client ??
+            FakePlexClient(
+              sections: const <PlexDirectory>[
+                _musicSection,
+                _secondMusicSection,
+              ],
+            ),
+        store: store,
+      );
+      final PlexSettingsController notifier =
+          container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+      return (container: container, notifier: notifier, store: store);
+    }
+
+    /// Lets the store's held operations through one at a time, oldest first,
+    /// until [actions] have all finished.
+    Future<List<String>> releaseInOrder(
+      _FifoGatedStore store,
+      List<Future<Object?>> actions,
+    ) async {
+      final List<String> applied = <String>[];
+      bool done = false;
+      unawaited(Future.wait(actions).whenComplete(() => done = true));
+      for (int i = 0; i < 100 && !done; i++) {
+        await _settle();
+        final List<String> pending = store.pending;
+        if (pending.isNotEmpty) {
+          applied.add(pending.first);
+          store.releaseNext();
+        }
+      }
+      expect(done, isTrue, reason: 'the actions never finished');
+      return applied;
+    }
+
+    test('two libraries ticked then Disconnect leaves nothing to reconnect',
+        () async {
+      final setup = await connected();
+
+      final Future<void> first =
+          setup.notifier.toggleSection('5', included: true);
+      await _settle();
+      final Future<void> second =
+          setup.notifier.toggleSection('9', included: true);
+      await _settle();
+      // The button is enabled: nothing is syncing yet.
+      final Future<void> disconnect = setup.notifier.disconnect();
+
+      final List<String> applied = await releaseInOrder(
+        setup.store,
+        <Future<void>>[first, second, disconnect],
+      );
+
+      expect(applied, <String>['write:5', 'write:5,9', 'clear'],
+          reason: 'the clear lands after every save asked for before it');
+      expect(setup.notifier.session, isNull);
+      expect(await setup.store.read(), isNull,
+          reason: 'the token must not be back in the keyring');
+      expect(setup.container.read(plexMusicSourceProvider), isNull);
+      expect(
+        setup.container.read(plexSettingsControllerProvider).phase,
+        isNot(PlexConnectionPhase.connected),
+      );
+    });
+
+    test('a library ticked after Disconnect was tapped saves nothing',
+        () async {
+      final setup = await connected(selected: const <String>['5']);
+
+      final Future<void> disconnect = setup.notifier.disconnect();
+      await _settle();
+      // The card still shows the libraries while the keyring clears.
+      final Future<void> tick =
+          setup.notifier.toggleSection('9', included: true);
+
+      final List<String> applied = await releaseInOrder(
+        setup.store,
+        <Future<void>>[disconnect, tick],
+      );
+
+      expect(applied, <String>['clear']);
+      expect(setup.notifier.session, isNull);
+      expect(await setup.store.read(), isNull);
+    });
+
+    test('a listing that lands while Disconnect clears never writes it back',
+        () async {
+      // '7' is no longer on the server, so the listing prunes it.
+      final _GatedSectionsClient client = _GatedSectionsClient(
+        sections: const <PlexDirectory>[_musicSection],
+      );
+      final setup = await connected(
+        selected: const <String>['5', '7'],
+        client: client,
+      );
+
+      final Future<void> refresh = setup.notifier.refreshSections();
+      await _settle();
+      final Future<void> disconnect = setup.notifier.disconnect();
+      await _settle();
+      expect(setup.store.pending, <String>['clear']);
+      // The listing comes back while the keyring is still clearing.
+      client.gate.complete();
+
+      final List<String> applied = await releaseInOrder(
+        setup.store,
+        <Future<void>>[refresh, disconnect],
+      );
+
+      expect(applied, <String>['clear']);
+      expect(setup.notifier.session, isNull);
+      expect(await setup.store.read(), isNull);
+    });
+
+    test('a connect to another server lands after the saves asked before it',
+        () async {
+      final setup = await connected();
+
+      final Future<void> first =
+          setup.notifier.toggleSection('5', included: true);
+      await _settle();
+      final Future<void> second =
+          setup.notifier.toggleSection('9', included: true);
+      await _settle();
+      // The fake server answers as another machine than the saved session's.
+      final Future<bool> connect =
+          setup.notifier.connect(url: 'plex.other.example', token: _token);
+
+      await releaseInOrder(
+        setup.store,
+        <Future<Object?>>[first, second, connect],
+      );
+
+      expect(setup.notifier.session?.machineIdentifier, 'fake-machine-id');
+      expect((await setup.store.read())?.machineIdentifier, 'fake-machine-id',
+          reason: "the old server's save must not overwrite the new session");
     });
   });
 
