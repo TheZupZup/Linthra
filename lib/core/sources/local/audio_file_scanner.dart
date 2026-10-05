@@ -157,6 +157,10 @@ FolderScanException rootFaultException(String folder, LocalRootFault fault) {
       message = "Linthra couldn't read the selected folder. Access to it may "
           'have been revoked, or the storage was removed. Try selecting the '
           'folder again.';
+    case LocalRootFault.empty:
+      message = 'The selected folder is empty, though your library has music '
+          "from it. If it's a drive or network share, it may not be mounted. "
+          'Its music was kept.';
   }
   return FolderScanException(message, folder: folder, code: fault.code);
 }

@@ -44,7 +44,15 @@ enum LocalRootFault {
   /// It failed for a reason nothing here can name. Kept distinct from the other
   /// three so an unrecognised failure is never dressed up as a diagnosis the
   /// app cannot actually make.
-  unknown;
+  unknown,
+
+  /// The folder is there and can be read, but holds no files at all, while
+  /// the library has music from it (#737). Most often a drive or network share
+  /// that is not mounted: its mount point stays behind as an empty folder
+  /// rather than going away, so it reads as an empty library instead of a
+  /// missing one. The music stays until the folder holds files again, or the
+  /// user says it really is empty.
+  empty;
 
   /// The stable string this fault travels as on [FolderScanException.code], so
   /// the scanner and the availability probe classify a folder the same way
@@ -59,6 +67,8 @@ enum LocalRootFault {
         return 'storage_unavailable';
       case LocalRootFault.unknown:
         return 'folder_unreadable';
+      case LocalRootFault.empty:
+        return 'folder_empty';
     }
   }
 

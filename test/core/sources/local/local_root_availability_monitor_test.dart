@@ -21,12 +21,18 @@ class _FakeRootProbe implements LocalRootProbe {
   _FakeRootProbe({
     Set<String>? present,
     Set<String>? unanswerable,
+    Set<String>? holdingNothing,
     this.fault = LocalRootFault.missing,
   })  : present = present ?? <String>{},
-        unanswerable = unanswerable ?? <String>{};
+        unanswerable = unanswerable ?? <String>{},
+        holdingNothing = holdingNothing ?? <String>{};
 
   /// The paths that are reachable right now.
   Set<String> present;
+
+  /// The [present] paths that hold no files at all: an unmounted share's
+  /// mount point, or a folder that is simply empty.
+  Set<String> holdingNothing;
 
   /// What an absent path reports. A drive that was unplugged and one whose
   /// permissions changed are both "not reachable" to this state machine, and
@@ -41,12 +47,21 @@ class _FakeRootProbe implements LocalRootProbe {
   /// looks anywhere but at the configured folder.
   final List<String> asked = <String>[];
 
+  /// The paths it was also asked whether they hold any files.
+  final List<String> askedHoldsNothing = <String>[];
+
   @override
-  Future<LocalRootReading?> inspect(String root) async {
+  Future<LocalRootReading?> inspect(
+    String root, {
+    bool askHoldsNothing = false,
+  }) async {
     asked.add(root);
+    if (askHoldsNothing) askedHoldsNothing.add(root);
     if (unanswerable.contains(root)) return null;
     return present.contains(root)
-        ? const LocalRootReading.available()
+        ? LocalRootReading.available(
+            holdsNothing: askHoldsNothing && holdingNothing.contains(root),
+          )
         : LocalRootReading.blocked(fault);
   }
 }
@@ -67,7 +82,10 @@ class _BlockingRootProbe implements LocalRootProbe {
   void release() => _firstAnswer.complete();
 
   @override
-  Future<LocalRootReading?> inspect(String root) async {
+  Future<LocalRootReading?> inspect(
+    String root, {
+    bool askHoldsNothing = false,
+  }) async {
     asked.add(root);
     if (!_blocked) {
       _blocked = true;
@@ -578,6 +596,133 @@ void main() {
 
       expect(published, isEmpty);
       expect(monitor.isPolling, isFalse);
+    });
+  });
+
+  group(
+      'a folder a scan found empty while the library has music from it (#737)',
+      () {
+    const String nas = '/mnt/nas';
+
+    /// A share that isn't mounted: its mount point is there, readable, empty.
+    Future<LocalRootAvailabilityMonitor> foundEmpty(
+      _FakeRootProbe probe, {
+      List<List<String>>? returned,
+    }) async {
+      final LocalRootAvailabilityMonitor monitor = LocalRootAvailabilityMonitor(
+        probe: probe,
+        pollInterval: const Duration(milliseconds: 10),
+        onRootsReturned: (List<String> roots) async => returned?.add(roots),
+      );
+      addTearDown(monitor.dispose);
+      await monitor.syncRoots(<String>[nas]);
+      monitor.noteScanOutcome(
+        readRoots: const <String>[],
+        unreadableRoots: const <String, LocalRootFault>{
+          nas: LocalRootFault.empty,
+        },
+      );
+      return monitor;
+    }
+
+    test('stays empty while it still holds nothing, and asks for no scan',
+        () async {
+      final _FakeRootProbe probe = _FakeRootProbe(
+        present: <String>{nas},
+        holdingNothing: <String>{nas},
+      );
+      final List<List<String>> returned = <List<String>>[];
+      final LocalRootAvailabilityMonitor monitor =
+          await foundEmpty(probe, returned: returned);
+      probe.asked.clear();
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await monitor.recheck(nas);
+      await monitor.refresh();
+
+      expect(probe.asked, isNotEmpty, reason: 'it is still being polled');
+      expect(monitor.availability.faultFor(nas), LocalRootFault.empty);
+      expect(returned, isEmpty);
+      expect(monitor.isPolling, isTrue);
+    });
+
+    test('is back, and rescanned once, when it holds files again', () async {
+      final _FakeRootProbe probe = _FakeRootProbe(
+        present: <String>{nas},
+        holdingNothing: <String>{nas},
+      );
+      final List<List<String>> returned = <List<String>>[];
+      final LocalRootAvailabilityMonitor monitor =
+          await foundEmpty(probe, returned: returned);
+
+      probe.holdingNothing = <String>{};
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(monitor.availability.isAvailable(nas), isTrue);
+      expect(returned, <List<String>>[
+        <String>[nas],
+      ]);
+      expect(monitor.isPolling, isFalse);
+    });
+
+    test('a folder that is fine is never asked whether it holds files',
+        () async {
+      final _FakeRootProbe probe = _FakeRootProbe(present: <String>{nas});
+      final LocalRootAvailabilityMonitor monitor =
+          LocalRootAvailabilityMonitor(probe: probe);
+      addTearDown(monitor.dispose);
+
+      await monitor.syncRoots(<String>[nas]);
+      await monitor.refresh();
+
+      expect(probe.asked, isNotEmpty);
+      expect(probe.askedHoldsNothing, isEmpty);
+    });
+
+    test('a folder that is just empty is simply there', () async {
+      final _FakeRootProbe probe = _FakeRootProbe(
+        present: <String>{nas},
+        holdingNothing: <String>{nas},
+      );
+      final List<List<String>> returned = <List<String>>[];
+      final LocalRootAvailabilityMonitor monitor = LocalRootAvailabilityMonitor(
+        probe: probe,
+        pollInterval: const Duration(milliseconds: 10),
+        onRootsReturned: (List<String> roots) async => returned.add(roots),
+      );
+      addTearDown(monitor.dispose);
+
+      await monitor.syncRoots(<String>[nas]);
+      await monitor.refresh();
+
+      expect(monitor.availability.isAvailable(nas), isTrue);
+      expect(monitor.isPolling, isFalse);
+      expect(returned, isEmpty);
+    });
+
+    test('a folder away for another reason that comes back empty is back',
+        () async {
+      // The scan it is refreshed by decides from there.
+      final _FakeRootProbe probe = _FakeRootProbe();
+      final List<List<String>> returned = <List<String>>[];
+      final LocalRootAvailabilityMonitor monitor = LocalRootAvailabilityMonitor(
+        probe: probe,
+        pollInterval: const Duration(milliseconds: 10),
+        onRootsReturned: (List<String> roots) async => returned.add(roots),
+      );
+      addTearDown(monitor.dispose);
+      await monitor.syncRoots(<String>[nas]);
+      expect(monitor.availability.faultFor(nas), LocalRootFault.missing);
+
+      probe
+        ..present = <String>{nas}
+        ..holdingNothing = <String>{nas};
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(monitor.availability.isAvailable(nas), isTrue);
+      expect(returned, <List<String>>[
+        <String>[nas],
+      ]);
     });
   });
 }

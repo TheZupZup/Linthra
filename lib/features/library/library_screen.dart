@@ -427,6 +427,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       onReselect: (String folder) => ref
           .read(localMusicControllerProvider.notifier)
           .reselectFolder(folder),
+      onConfirmEmpty: (String folder) => ref
+          .read(localMusicControllerProvider.notifier)
+          .confirmFolderEmpty(folder),
     );
   }
 
@@ -829,12 +832,17 @@ class _LibraryRootsUnavailable extends StatelessWidget {
     required this.faults,
     required this.onRetry,
     required this.onReselect,
+    required this.onConfirmEmpty,
     this.busy = false,
   });
 
   final Map<String, LocalRootFault> faults;
   final void Function(String folder) onRetry;
   final void Function(String folder) onReselect;
+
+  /// For a folder found empty while the library has music from it, when the
+  /// user emptied it on purpose.
+  final void Function(String folder) onConfirmEmpty;
 
   /// Whether a recovery command is already running. The actions stand down
   /// while it is, and a spinner says why.
@@ -873,6 +881,7 @@ class _LibraryRootsUnavailable extends StatelessWidget {
                   ),
                   onRetry: busy ? null : () => onRetry(entry.key),
                   onReselect: busy ? null : () => onReselect(entry.key),
+                  onConfirmEmpty: busy ? null : () => onConfirmEmpty(entry.key),
                 ),
               ],
             ),

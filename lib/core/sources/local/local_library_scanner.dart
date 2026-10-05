@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../../models/local_file_stamp.dart';
 import '../../models/track.dart';
+import 'audio_file_scanner.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
 import 'local_catalog_reconciliation.dart';
@@ -185,9 +186,17 @@ class LocalLibraryScanner {
   /// when it cannot be read: the scan then reports [
   /// LocalLibraryScan.retentionUnavailable] rather than quietly dropping that
   /// folder's music.
+  ///
+  /// A filesystem folder whose walk found no files at all, while the library
+  /// has music from it, is not read as a folder that was emptied: it is what an
+  /// unmounted drive or network share looks like when its mount point stays
+  /// behind (#737). It is reported unavailable for [LocalRootFault.empty] and
+  /// its music is kept, unless it is in [acceptEmpty], the folders the user has
+  /// said really are empty.
   Future<LocalLibraryScan> scan({
     required List<String> roots,
     List<StampedTrack>? previousTracks,
+    Set<String> acceptEmpty = const <String>{},
   }) async {
     final List<String> effective = LocalMusicRoots.normalize(roots);
     if (effective.isEmpty) {
@@ -222,9 +231,20 @@ class LocalLibraryScanner {
     // subfolder that stopped answering. See [_dropMovedAway].
     final Set<String> unseen = <String>{};
 
+    final Set<String> confirmedEmpty = <String>{
+      for (final String root in acceptEmpty) LocalMusicRoots.canonicalize(root),
+    };
     for (final String root in effective) {
       try {
         final LocalScan scan = await scanRoot(root);
+        if (scan.foundNoFiles &&
+            scan.isComplete &&
+            !confirmedEmpty.contains(root) &&
+            _hadMusic(root, effective, previousTracks)) {
+          // Raised like any folder that could not be read, so its music is
+          // kept below the same way.
+          throw rootFaultException(root, LocalRootFault.empty);
+        }
         refreshedRoots.add(root);
         int imported = 0;
         for (final Track track in scan.tracks) {
@@ -358,6 +378,24 @@ class LocalLibraryScanner {
                   LocalMusicRoots.ownerOf(uri, refreshedRoots) != null,
             ),
     );
+  }
+
+  /// Whether the library had music from the filesystem folder [root] before
+  /// this scan. When the previous tracks could not be read it may have had,
+  /// and an empty walk is then not taken as the music being gone either.
+  static bool _hadMusic(
+    String root,
+    List<String> roots,
+    List<StampedTrack>? previousTracks,
+  ) {
+    if (!FolderLocation.parse(root).isFilesystemPath) return false;
+    if (previousTracks == null) return true;
+    for (final StampedTrack stamped in previousTracks) {
+      if (LocalMusicRoots.ownerOf(stamped.track.uri, roots) == root) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Drops the rows in [unseen] whose file this same scan found at a new path,

@@ -24,6 +24,7 @@ class LocalRootProblemPresentation {
     required this.explanation,
     required this.guidance,
     required this.canReselect,
+    this.canConfirmEmpty = false,
   });
 
   /// The status glyph for this kind of problem.
@@ -44,6 +45,11 @@ class LocalRootProblemPresentation {
   /// that user to a folder picker would be answering a different question.
   final bool canReselect;
 
+  /// Whether telling Linthra the folder really is empty is a way out. Only for
+  /// a folder found empty while the library has music from it, where the
+  /// alternative is a share that isn't mounted (see [LocalRootFault.empty]).
+  final bool canConfirmEmpty;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -52,11 +58,18 @@ class LocalRootProblemPresentation {
           other.title == title &&
           other.explanation == explanation &&
           other.guidance == guidance &&
-          other.canReselect == canReselect);
+          other.canReselect == canReselect &&
+          other.canConfirmEmpty == canConfirmEmpty);
 
   @override
-  int get hashCode =>
-      Object.hash(icon, title, explanation, guidance, canReselect);
+  int get hashCode => Object.hash(
+        icon,
+        title,
+        explanation,
+        guidance,
+        canReselect,
+        canConfirmEmpty,
+      );
 
   @override
   String toString() => 'LocalRootProblemPresentation($title)';
@@ -165,6 +178,19 @@ LocalRootProblemPresentation localRootProblemPresentation(
             'say why. Its music stays in your library.',
         guidance: 'Retry, or select the folder again to restore access.',
         canReselect: true,
+      );
+    case LocalRootFault.empty:
+      return const LocalRootProblemPresentation(
+        icon: Icons.folder_outlined,
+        title: 'Folder is empty',
+        explanation: 'This folder is there but empty, though your library has '
+            "music from it. If it's a drive or network share, it may not be "
+            'mounted. Its music stays in your library.',
+        guidance: 'Mount the drive or share and Linthra picks the folder up on '
+            'its own. If you emptied it on purpose, say so to take its music '
+            'out of your library.',
+        canReselect: true,
+        canConfirmEmpty: true,
       );
   }
 }

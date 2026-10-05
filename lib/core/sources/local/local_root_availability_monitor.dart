@@ -223,7 +223,10 @@ class LocalRootAvailabilityMonitor {
     final List<String> returned = <String>[];
     bool changed = false;
     for (final String root in roots) {
-      final LocalRootReading? answer = await _probe.inspect(root);
+      final LocalRootReading? answer = await _probe.inspect(
+        root,
+        askHoldsNothing: _roots[root]?.fault == LocalRootFault.empty,
+      );
       if (_disposed) return const <String>[];
       if (answer == null) {
         // This platform cannot speak for this root. Forget it rather than
@@ -231,10 +234,21 @@ class LocalRootAvailabilityMonitor {
         changed |= _roots.remove(root) != null;
         continue;
       }
-      final bool wasUnavailable = _roots[root]?.isUnavailable ?? false;
-      final bool settled = _settle(root, fault: answer.fault);
+      final LocalRootState? before = _roots[root];
+      final bool wasUnavailable = before?.isUnavailable ?? false;
+      // A folder a scan found empty while the library has music from it stays
+      // that way while it still holds nothing: on its own, the probe can't
+      // tell a mount point waiting for its share from a folder that is just
+      // empty, and taking it for back would rescan it on every poll (#737).
+      // The share coming back brings files, and that reads as back.
+      final LocalRootFault? fault = answer.isAvailable &&
+              answer.holdsNothing &&
+              before?.fault == LocalRootFault.empty
+          ? LocalRootFault.empty
+          : answer.fault;
+      final bool settled = _settle(root, fault: fault);
       changed |= settled;
-      if (settled && answer.isAvailable && wasUnavailable) returned.add(root);
+      if (settled && fault == null && wasUnavailable) returned.add(root);
     }
     if (changed) _publish();
     return returned;
