@@ -30,6 +30,7 @@ import '../data/repositories/playlist_repository_provider.dart';
 import '../data/repositories/plex_session_store_provider.dart';
 import '../data/repositories/plex_sync_cache_store_provider.dart';
 import '../data/repositories/preferred_source_store_provider.dart';
+import '../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../data/repositories/selected_music_folder_repository_provider.dart';
 import '../data/repositories/share_service_provider.dart';
 import '../data/repositories/subsonic_auto_sync_store_provider.dart';
@@ -99,6 +100,7 @@ List<Override> productionApplicationOverrides({
     secureSubsonicSessionStoreOverride,
     sharedPreferencesSubsonicAutoSyncStoreOverride,
     sharedPreferencesSubsonicSyncPendingStoreOverride,
+    sharedPreferencesRemoteCatalogOwnerStoreOverride,
     securePlexSessionStoreOverride,
     sharedPreferencesPlexSyncCacheStoreOverride,
     // The audiobook seam's own credential, stored the same encrypted way as

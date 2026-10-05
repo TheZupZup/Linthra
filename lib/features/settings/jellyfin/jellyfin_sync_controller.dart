@@ -1,17 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/album.dart';
+import '../../../core/models/artist.dart';
 import '../../../core/models/playlist.dart';
+import '../../../core/models/track.dart';
 import '../../../core/repositories/jellyfin_auto_sync_store.dart';
+import '../../../core/repositories/remote_catalog_owner_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_sync_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../../library/library_controller.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_sync_state.dart';
@@ -64,6 +70,14 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   bool _rerunQueued = false;
   String? _rerunRecordFingerprint;
 
+  /// The catalog write most recently handed out; the next one waits for it
+  /// (see [_writeInTurn]).
+  ///
+  /// Like [_syncing], it lives on the notifier, which Riverpod keeps across
+  /// `ref.invalidate`: a sign-in's [_adoptCatalog] still takes its turn behind
+  /// a write that the previous account's sync had already started.
+  Future<void> _lastWrite = Future<void>.value();
+
   @override
   JellyfinSyncState build() => const JellyfinSyncState();
 
@@ -81,6 +95,10 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// playlists and favourites, which signing out cleared. Changing the server
   /// URL or signing in as a different user is a new account, and syncs again.
   /// The manual [sync] stays available for an on-demand refresh. Never throws.
+  ///
+  /// It runs on every sign-in, so it is also where the library stops showing
+  /// another account's tracks: signing out keeps them, and they go here,
+  /// before this account's sync, which may write nothing (#741).
   Future<void> autoSyncIfNeeded() async {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) {
@@ -97,7 +115,17 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       // yet" and let the sync proceed — re-running it is safe and idempotent.
       lastSynced = null;
     }
-    if (lastSynced == fingerprint) {
+    bool tookOver;
+    try {
+      tookOver = await _adoptCatalog(source);
+    } catch (_) {
+      // Couldn't clear another account's tracks: the sync tries again before
+      // it fetches anything, and reports it if it still can't.
+      tookOver = true;
+    }
+    // With another account's tracks gone, this account's library has to come
+    // back even if it was synced once before.
+    if (!tookOver && lastSynced == fingerprint) {
       // This account's first sync already happened; don't resync on its own.
       // Its playlists and favourites are another matter: this runs on a
       // sign-in, signing out cleared them, and they are cheap to pull, so they
@@ -130,9 +158,98 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         record = _rerunRecordFingerprint;
         _rerunRecordFingerprint = null;
       } while (_rerunQueued);
+    } catch (_) {
+      // _syncOnce settles its own failures; this only catches one raised
+      // after the container was disposed (a sign-in's auto-sync still going
+      // at shutdown), keeping "never throws".
     } finally {
       _syncing = false;
       _runningAccount = null;
+    }
+  }
+
+  /// Called on sign-out, which keeps the library: makes sure the tracks it
+  /// keeps are recorded as [account]'s, so the next account to sign in clears
+  /// them rather than inheriting them. Only fills in a missing record, which
+  /// is what a library synced before #741 has. Never throws.
+  Future<void> rememberCatalogOwner(String account) async {
+    try {
+      final RemoteCatalogOwnerStore owners =
+          ref.read(remoteCatalogOwnerStoreProvider);
+      if (await owners.read(MusicProviders.jellyfin.sourceId) == null) {
+        await owners.write(MusicProviders.jellyfin.sourceId, account);
+      }
+    } catch (_) {
+      // Best-effort: without it, the next sign-in falls back to the account
+      // that last auto-synced to decide whose tracks these are.
+    }
+  }
+
+  /// Makes the Jellyfin slice of the catalog [source]'s account's before
+  /// anything is written for it, and returns whether another account's
+  /// tracks had to go (#741).
+  ///
+  /// Signing out keeps the slice, so the library stays there offline, but its
+  /// rows are still the previous account's, and the next account's sync only
+  /// replaces them when it writes something. An empty library, or a first
+  /// sync that failed, left them showing under the new account.
+  ///
+  /// Runs in turn with the catalog writes ([_writeInTurn]), so a write that
+  /// the previous account's sync had already started lands before the clear,
+  /// never after it.
+  Future<bool> _adoptCatalog(JellyfinMusicSource source) async {
+    final bool tookOver = await _writeInTurn(() async {
+      // Signed out or switched again meanwhile: the account signed in now
+      // adopts the slice on its own.
+      if (!_isStillCurrent(source)) return false;
+      final String account = jellyfinAccountFingerprint(source.session);
+      final RemoteCatalogOwnerStore owners =
+          ref.read(remoteCatalogOwnerStoreProvider);
+      final String? owner = await _readQuietly(() => owners.read(source.id));
+      if (owner == account) return false;
+      // Nothing recorded the owner before #741. Then the account whose first
+      // sync landed last is the best guess, and with no guess at all the
+      // tracks are taken to be this account's own: nothing is removed.
+      final String? previous = owner ??
+          await _readQuietly(ref.read(jellyfinAutoSyncStoreProvider).read);
+      final bool othersTracks = previous != null && previous != account;
+      if (othersTracks) {
+        await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+          sourceId: source.id,
+          tracks: const <Track>[],
+          albums: const <Album>[],
+          artists: const <Artist>[],
+        );
+      }
+      try {
+        await owners.write(source.id, account);
+      } catch (_) {
+        // Best-effort: the next sync asks again, and clears nothing of this
+        // account's that it isn't about to replace.
+      }
+      return othersTracks;
+    });
+    if (tookOver) {
+      await ref.read(libraryControllerProvider.notifier).refresh();
+    }
+    return tookOver;
+  }
+
+  /// Runs [write] once the catalog write handed out before it has finished,
+  /// so the writes for the Jellyfin slice never overlap: [_adoptCatalog]'s
+  /// clear can't be overtaken by a write that was already under way.
+  Future<T> _writeInTurn<T>(Future<T> Function() write) {
+    final Future<T> turn = _lastWrite.then((_) => write());
+    _lastWrite = turn.then<void>((_) {}, onError: (Object _) {});
+    return turn;
+  }
+
+  /// [read]'s answer, or null when the store couldn't be read.
+  static Future<String?> _readQuietly(Future<String?> Function() read) async {
+    try {
+      return await read();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -165,6 +282,10 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     _runningAccount = jellyfinAccountFingerprint(source.session);
     state = const JellyfinSyncState.syncing();
     try {
+      // Normally done at sign-in already. Here too, so another account's
+      // tracks are gone before this sync can fail or come back empty.
+      await _adoptCatalog(source);
+
       // One tolerant pull: tracks (the catalog that matters) plus best-effort
       // albums/artists, and a count of entries too malformed to map. A bad item
       // is skipped here, not thrown; a global failure (auth/unreachable/5xx)
@@ -186,14 +307,25 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       // Upsert only when there's something to store, so an empty (or
       // all-skipped) fetch can never wipe an existing catalog. The write
       // replaces the slice atomically, so the old library stays visible until a
-      // valid new one is ready to commit.
+      // valid new one is ready to commit. The slice is this account's (see
+      // [_adoptCatalog]), so what an empty fetch keeps is its own library.
       if (library.tracks.isNotEmpty) {
-        await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
-              sourceId: source.id,
-              tracks: library.tracks,
-              albums: library.albums,
-              artists: library.artists,
-            );
+        final bool wrote = await _writeInTurn(() async {
+          // Asked again in turn: an account that signed in while this write
+          // waited has taken the slice over.
+          if (!_isStillCurrent(source)) return false;
+          await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+                sourceId: source.id,
+                tracks: library.tracks,
+                albums: library.albums,
+                artists: library.artists,
+              );
+          return true;
+        });
+        if (!wrote) {
+          state = const JellyfinSyncState();
+          return;
+        }
         // Reload the Library so the freshly synced tracks show up immediately.
         await ref.read(libraryControllerProvider.notifier).refresh();
       }

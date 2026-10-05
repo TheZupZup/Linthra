@@ -153,8 +153,11 @@ report** issue template.
       (airplane mode confirms it plays offline).
 - [ ] **Cast** a track to a Chromecast (if available) → it plays on the
       receiver.
-- [ ] Sign out & clear → library/session cleared; a stale "Synced N" line is
-      gone.
+- [ ] Sign out & clear → session cleared and a stale "Synced N" line is gone.
+      The synced library stays (browsable offline) until another account
+      signs in.
+- [ ] Sign in as a **different** user (or to another server) whose library is
+      empty → none of the previous account's tracks are left.
 
 **Security spot-checks** (should always hold)
 - [ ] No password/token/salt appears in any on-screen message, the connected
