@@ -101,6 +101,10 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// removed.
   int _catalogGeneration = 0;
 
+  /// The catalog write most recently handed out; the next one waits for it
+  /// (see [_writeInTurn]).
+  Future<void> _lastWrite = Future<void>.value();
+
   /// How many tracks are written per batch. 100 keeps each main-isolate
   /// serialization step small while bounding the number of progress refreshes.
   static const int _writeBatchSize = 100;
@@ -137,7 +141,8 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   /// sync" with a future server's identical content.
   Future<void> removeSyncedCatalog() async {
     // Before anything is awaited, so a sync between two of its batches sees
-    // it before it writes again.
+    // it before it writes again. A batch already under way finishes first,
+    // and the clear below takes it too ([_writeInTurn]).
     _catalogGeneration++;
     await _writeCatalogInBatches(const <Track>[]);
     _lastSyncedSignature =
@@ -325,13 +330,39 @@ class PlexSyncController extends Notifier<PlexSyncState> {
       ref.read(plexMusicSourceProvider)?.session.machineIdentifier ==
           source.session.machineIdentifier;
 
+  /// Runs [write] once every catalog write handed out before it has finished,
+  /// and only if [mayWrite] still allows it by then. Returns whether it ran.
+  ///
+  /// A check made just before a write can't stop the write once it has
+  /// started, and the repository may await something else before the write
+  /// reaches storage (the app's first migrates old "Recently added" keys). A
+  /// removal starting in that gap would clear the slice first, and the stale
+  /// batch would land after it. Taking turns, a removal runs after the write
+  /// already under way and clears that too, and a write still waiting for its
+  /// turn sees the removal's new generation and is skipped.
+  Future<bool> _writeInTurn(
+    bool Function() mayWrite,
+    Future<void> Function() write,
+  ) {
+    final Future<bool> turn = _lastWrite.then((_) async {
+      if (!mayWrite()) return false;
+      await write();
+      return true;
+    });
+    // A failed write reaches its own caller through [turn]; the writes after
+    // it still get their turn.
+    _lastWrite = turn.then<void>((_) {}, onError: (Object _) {});
+    return turn;
+  }
+
   /// Replaces the Plex slice of the catalog with [tracks] in chunks, refreshing
   /// the Library screen after the first chunk so it isn't blank while the rest
   /// streams in. Other sources' rows are untouched (the write is scoped by
   /// `sourceId`).
   ///
-  /// Asks [stillCurrent] before each write and stops, returning false, once it
-  /// says no. Returns true when the slice holds exactly [tracks].
+  /// Asks [stillCurrent] as each write's turn comes ([_writeInTurn]) and stops,
+  /// returning false, once it says no. Returns true when the slice holds
+  /// exactly [tracks].
   ///
   /// The app's repository reconciles ([_reconcileCatalog]). One that can only
   /// replace in batches, or only replace whole (some test fakes), falls back
@@ -353,13 +384,16 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     }
 
     if (repository is! IncrementalCatalogWriter) {
-      if (!mayWrite()) return false;
-      await repository.upsertCatalog(
-        sourceId: PlexMusicSource.sourceId,
-        tracks: tracks,
-        albums: const <Album>[],
-        artists: const <Artist>[],
+      final bool wrote = await _writeInTurn(
+        mayWrite,
+        () => repository.upsertCatalog(
+          sourceId: PlexMusicSource.sourceId,
+          tracks: tracks,
+          albums: const <Album>[],
+          artists: const <Artist>[],
+        ),
       );
+      if (!wrote) return false;
       await _refreshLibrary();
       return true;
     }
@@ -369,31 +403,36 @@ class PlexSyncController extends Notifier<PlexSyncState> {
     final List<List<Track>> batches = _chunk(tracks, _writeBatchSize);
 
     if (batches.isEmpty) {
-      if (!mayWrite()) return false;
       // No tracks — still clear the slice (deselected, or an empty library).
-      await writer.beginCatalogReplacement(
-        sourceId: PlexMusicSource.sourceId,
-        tracks: const <Track>[],
+      final bool cleared = await _writeInTurn(
+        mayWrite,
+        () => writer.beginCatalogReplacement(
+          sourceId: PlexMusicSource.sourceId,
+          tracks: const <Track>[],
+        ),
       );
+      if (!cleared) return false;
       await _refreshLibrary();
       return true;
     }
 
     for (int i = 0; i < batches.length; i++) {
-      if (!mayWrite()) return false;
-      if (i == 0) {
-        await writer.beginCatalogReplacement(
-          sourceId: PlexMusicSource.sourceId,
-          tracks: batches[i],
-        );
-        // First chunk visible immediately.
-        await _refreshLibrary();
-      } else {
-        await writer.appendToCatalog(
-          sourceId: PlexMusicSource.sourceId,
-          tracks: batches[i],
-        );
-      }
+      final List<Track> batch = batches[i];
+      final bool wrote = await _writeInTurn(
+        mayWrite,
+        i == 0
+            ? () => writer.beginCatalogReplacement(
+                  sourceId: PlexMusicSource.sourceId,
+                  tracks: batch,
+                )
+            : () => writer.appendToCatalog(
+                  sourceId: PlexMusicSource.sourceId,
+                  tracks: batch,
+                ),
+      );
+      if (!wrote) return false;
+      // First chunk visible immediately.
+      if (i == 0) await _refreshLibrary();
     }
 
     // One final refresh once every chunk has landed (a single-chunk sync
@@ -418,19 +457,26 @@ class PlexSyncController extends Notifier<PlexSyncState> {
   ) async {
     final List<List<Track>> batches = _chunk(tracks, _writeBatchSize);
     for (int i = 0; i < batches.length; i++) {
-      if (!mayWrite()) return false;
-      await writer.upsertTracks(
-        sourceId: PlexMusicSource.sourceId,
-        tracks: batches[i],
+      final List<Track> batch = batches[i];
+      final bool wrote = await _writeInTurn(
+        mayWrite,
+        () => writer.upsertTracks(
+          sourceId: PlexMusicSource.sourceId,
+          tracks: batch,
+        ),
       );
+      if (!wrote) return false;
       // The first batch is on screen at once, beside the rows still there.
       if (i == 0) await _refreshLibrary();
     }
-    if (!mayWrite()) return false;
-    await writer.removeTracksNotIn(
-      sourceId: PlexMusicSource.sourceId,
-      keepUris: <String>{for (final Track track in tracks) track.uri},
+    final bool pruned = await _writeInTurn(
+      mayWrite,
+      () => writer.removeTracksNotIn(
+        sourceId: PlexMusicSource.sourceId,
+        keepUris: <String>{for (final Track track in tracks) track.uri},
+      ),
     );
+    if (!pruned) return false;
     await _refreshLibrary();
     return true;
   }

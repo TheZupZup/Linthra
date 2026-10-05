@@ -180,9 +180,15 @@ class _RecordingRepository
 /// failing or the process going away halfway through a sync would leave it.
 class _ReconcilingRepository extends _RecordingRepository
     implements ReconcilingCatalogWriter {
-  _ReconcilingRepository({super.existing, this.failUpsertAt});
+  _ReconcilingRepository({super.existing, this.failUpsertAt, this.upsertGate});
 
   final int? failUpsertAt;
+
+  /// When set, [upsertTracks] awaits it before applying its batch, as the
+  /// app's recording repository awaits its one-time migration before it
+  /// writes, so a test can hold a batch between its check and the write.
+  final Future<void>? upsertGate;
+
   int upsertBatches = 0;
   int pruneCount = 0;
 
@@ -192,6 +198,8 @@ class _ReconcilingRepository extends _RecordingRepository
     required List<Track> tracks,
   }) async {
     upsertBatches++;
+    final Future<void>? gate = upsertGate;
+    if (gate != null) await gate;
     if (upsertBatches == failUpsertAt) throw StateError('disk full');
     lastSourceId = sourceId;
     for (final Track track in tracks) {
@@ -913,6 +921,40 @@ void main() {
       expect(container.read(plexSyncControllerProvider).isDone, isFalse);
       expect(
           await cacheStore.readSignature(_session.machineIdentifier), isNull);
+    });
+
+    test('a disconnect while a batch is being written clears that batch too',
+        () async {
+      // The batch has passed its check but not reached storage yet, so the
+      // disconnect's clear must wait for it rather than run first and leave
+      // it to land afterwards.
+      final gate = Completer<void>();
+      final repo = _ReconcilingRepository(upsertGate: gate.future);
+      final container = _container(session: _session, repository: repo);
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      final Future<void> syncing =
+          container.read(plexSyncControllerProvider.notifier).sync();
+      for (int i = 0; i < 50 && repo.upsertBatches == 0; i++) {
+        await _settle();
+      }
+      expect(repo.upsertBatches, 1, reason: 'the batch is under way');
+
+      final Future<void> disconnecting =
+          container.read(plexSettingsControllerProvider.notifier).disconnect();
+      // Time for the disconnect to reach its clear while the batch is held.
+      for (int i = 0; i < 10; i++) {
+        await _settle();
+      }
+      gate.complete();
+      await disconnecting;
+      await syncing;
+
+      expect(repo.stored, isEmpty);
+      expect(repo.upsertBatches, 1);
+      expect(container.read(plexSyncControllerProvider).isDone, isFalse);
     });
   });
 
