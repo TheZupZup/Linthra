@@ -119,6 +119,11 @@ class ArtworkDiskCache {
   /// Covers written since the cap was last enforced.
   int _writesSinceTrim = 0;
 
+  /// Whether this run enforced the cap at its first use yet. A cache filled
+  /// before there was a cap (or under a bigger one) is brought under it then,
+  /// not only after a write, which a cache of fresh hits never makes.
+  bool _trimmedAtFirstUse = false;
+
   /// The cap enforcement running now, if any.
   Future<void>? _trimming;
 
@@ -156,6 +161,7 @@ class ArtworkDiskCache {
   /// A hit older than [refreshAfter] is still returned, and fetched again in
   /// the background ([warm]), so a cover changed on the server replaces it.
   File? cachedFile(Uri key) {
+    _trimAtFirstUse();
     final String? hash = _hashFor(key);
     if (hash == null) return null;
     final File file = _fileFor(hash);
@@ -192,6 +198,7 @@ class ArtworkDiskCache {
   /// A cover older than [refreshAfter] is fetched again and replaced, and kept
   /// as it is when the new fetch fails.
   Future<void> warm(Uri key) {
+    _trimAtFirstUse();
     final String? hash = _hashFor(key);
     if (hash == null) return Future<void>.value();
     final Future<void>? inFlight = _warming[hash];
@@ -244,6 +251,15 @@ class ArtworkDiskCache {
     } catch (_) {
       // Best-effort: leave it to retry on a later render.
     }
+  }
+
+  /// Enforces the cap once, in the background, the first time the cache is
+  /// used in this run (see [_trimmedAtFirstUse]).
+  void _trimAtFirstUse() {
+    if (_trimmedAtFirstUse) return;
+    _trimmedAtFirstUse = true;
+    if (_trimming != null) return;
+    unawaited(_runTrim());
   }
 
   /// Enforces the cap after the first write and every [_trimEvery] after it,

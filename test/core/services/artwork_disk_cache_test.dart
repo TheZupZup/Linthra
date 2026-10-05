@@ -359,16 +359,52 @@ void main() {
       final ArtworkDiskCache cache = build(maxBytes: 3000);
 
       await cache.warm(al12);
-      // The trim runs in the background once the write lands.
-      for (int i = 0; i < 100 && dir.listSync().length > 2; i++) {
+      // The trim runs in the background, from the first use on.
+      for (int i = 0; i < 100 && _coverBytes(dir) > 3000; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
 
       expect(cache.cachedFile(al12), isNotNull);
-      expect(dir.listSync().whereType<File>(), hasLength(2));
+      expect(_coverBytes(dir), lessThanOrEqualTo(3000));
+    });
+
+    test(
+        'a cache already past the cap is brought under it at first use, with '
+        'nothing written', () async {
+      // Covers fetched before there was a cap: all fresh, so every one is a
+      // hit and nothing is ever written again.
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      fetchedUrls.clear();
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+
+      expect(cache.cachedFile(covers.last), isNotNull);
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+      expect(fetchedUrls, isEmpty);
+      // The ones fetched last stay.
+      expect(cache.cachedFile(covers.last), isNotNull);
     });
   });
 }
+
+/// The bytes the covers in [dir] take.
+int _coverBytes(Directory dir) => <int>[
+      for (final FileSystemEntity entity in dir.listSync())
+        if (entity is File && entity.path.endsWith('.img')) entity.lengthSync(),
+    ].fold(0, (int sum, int size) => sum + size);
 
 String _sha256Hex(String input) {
   // Mirrors ArtworkDiskCache's private hashing without depending on it, so a
