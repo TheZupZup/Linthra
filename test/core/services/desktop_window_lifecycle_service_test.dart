@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/desktop_close_behavior.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/background_permission.dart';
 import 'package:linthra/core/services/desktop_window_controller.dart';
 import 'package:linthra/core/services/desktop_window_lifecycle_service.dart';
 
@@ -39,6 +40,24 @@ class _RecordingWindow implements DesktopWindowController {
   Future<void> quit() async => quitCount++;
 
   Future<void> dispose() => _visibility.close();
+}
+
+/// The desktop's answers, given when the test says so.
+class _Desktop implements BackgroundPermissionRequester {
+  int asked = 0;
+  Completer<BackgroundPermission> _answer = Completer<BackgroundPermission>();
+
+  @override
+  Future<BackgroundPermission> request() {
+    asked++;
+    return _answer.future;
+  }
+
+  Future<void> answer(BackgroundPermission permission) async {
+    _answer.complete(permission);
+    _answer = Completer<BackgroundPermission>();
+    await pumpEventQueue();
+  }
 }
 
 const Track _track = Track(id: 't1', title: 'A Song', uri: '/music/a.flac');
@@ -233,6 +252,91 @@ void main() {
     await service.raise();
 
     expect(window.showCount, 1);
+  });
+
+  group('asking the desktop first (#754)', () {
+    late _Desktop desktop;
+
+    setUp(() async {
+      await service.dispose();
+      desktop = _Desktop();
+      service = DesktopWindowLifecycleService(
+        window: window,
+        playback: playback,
+        background: desktop,
+      );
+      service.start();
+      playback.emit(_playing());
+      await pumpEventQueue();
+      window.hideOnClose.clear();
+    });
+
+    test('choosing to keep playing asks, and hides meanwhile as before',
+        () async {
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+
+      expect(desktop.asked, 1);
+      expect(window.hideOnClose, <bool>[true]);
+      expect(service.backgroundPermission, BackgroundPermission.unknown);
+    });
+
+    test('a refusal makes closing the window quit, mid-song', () async {
+      final List<BackgroundPermission> told = <BackgroundPermission>[];
+      service.backgroundPermissionChanges.listen(told.add);
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+
+      await desktop.answer(BackgroundPermission.denied);
+
+      expect(window.hideOnClose, <bool>[true, false]);
+      expect(service.backgroundPermission, BackgroundPermission.denied);
+      expect(told, <BackgroundPermission>[BackgroundPermission.denied]);
+    });
+
+    test('an answer the desktop could not give changes nothing', () async {
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+
+      await desktop.answer(BackgroundPermission.unknown);
+
+      expect(window.hideOnClose, <bool>[true]);
+    });
+
+    test('choosing again asks again, and a later yes undoes the no', () async {
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+      await desktop.answer(BackgroundPermission.denied);
+      // The listener allows it in their system settings, then chooses again.
+      service.setCloseBehavior(DesktopCloseBehavior.quit);
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+
+      await desktop.answer(BackgroundPermission.allowed);
+
+      expect(desktop.asked, 2);
+      expect(window.hideOnClose.last, isTrue);
+      expect(service.backgroundPermission, BackgroundPermission.allowed);
+    });
+
+    test('quitting is never asked about', () async {
+      service.setCloseBehavior(DesktopCloseBehavior.quit);
+      await pumpEventQueue();
+
+      expect(desktop.asked, 0);
+    });
+
+    test('an answer after quit was asked for pushes nothing', () async {
+      service.installShutdown(() async {});
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+      await service.quit();
+      window.hideOnClose.clear();
+
+      await desktop.answer(BackgroundPermission.denied);
+
+      expect(window.hideOnClose, isEmpty);
+    });
   });
 
   test('the window is left alone when the container is disposed', () async {

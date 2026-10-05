@@ -1783,6 +1783,19 @@ What that buys, in the order the requirements ask for it:
   engine, give back the MPRIS bus name, close the database) *before* the
   process ends, rather than leaving it to whatever time the engine gets on the
   way down.
+* **Asked first inside the Flatpak.** xdg-desktop-portal watches sandboxed
+  apps that have no window open. With the app's `background` permission set
+  to "no" it kills them (SIGKILL, so no graceful shutdown) a few seconds
+  after the window goes, and on Plasma 5.27 a "Force quit" on its
+  notification stores that "no". So with "Keep playing" on (chosen, or
+  restored at startup), Linthra asks the Background portal
+  (`RequestBackground`, no autostart). An app with nothing stored is allowed
+  without a prompt and "yes" is stored, which keeps the monitor away. If the
+  desktop says no, closing the window quits the normal way and the settings
+  card says why; choosing the option again asks again, for after the
+  permission was changed in the system settings. A desktop whose portal has
+  no Background backend has no monitor either, and a native build never
+  asks (#754).
 * **No duplicate instance.** The runner is single-instance, so launching
   Linthra while it is already running (from the launcher, a terminal, or a
   desktop file) reaches the running process as an activation and presents the
@@ -1816,6 +1829,9 @@ desktop can answer, to re-check before a Linux milestone release:
 | Close the window while a track plays | Quit | Linthra quits, audio stops |
 | Quit from the media widget, or "Quit Linthra now" | Either | Playback stops, the window goes, the MPRIS name is released |
 | Reopen after any quit | Either | Normal cold start; the crash-safe session restores paused, as it always did |
+| Flatpak on GNOME (Silverblue) or Plasma 6 (Kinoite): close while playing, wait 10 s | Keep playing | Playback continues, no prompt. `flatpak permission-show io.github.thezupzup.linthra` lists `background` as `yes` |
+| Flatpak on Plasma 5.27: close while playing, wait 10 s | Keep playing | No "running in the background" notification any more; playback continues |
+| Flatpak, after `flatpak permission-set background background io.github.thezupzup.linthra no`: choose Keep playing again, then close while playing | Keep playing | The card says the desktop isn't letting Linthra run with its window closed; closing the window quits normally (MPRIS entry gone, no kill) |
 
 ## Track change notifications
 
