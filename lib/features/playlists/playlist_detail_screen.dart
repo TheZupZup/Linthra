@@ -757,7 +757,10 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   /// Out-of-range moves are dropped here as well as in the repository, so a
   /// chord at either end of the list — or an index left stale by a playlist
   /// that changed under the open screen — is simply harmless.
-  bool _move(int from, int to) {
+  ///
+  /// [shown] is the order [from] and [to] index into, when it is the rows as
+  /// they are on screen: the repository then moves that song by identity.
+  bool _move(int from, int to, {List<String>? shown}) {
     final int count = widget.tracks.length;
     if (from < 0 || from >= count) return false;
     if (to < 0 || to >= count || to == from) return false;
@@ -768,6 +771,7 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
           widget.playlistId,
           from,
           to > from ? to + 1 : to,
+          shown: shown,
         );
     return true;
   }
@@ -785,9 +789,18 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   /// A pointer drop, carrying keyboard focus along with the row that held it.
   /// Nothing happens when no handle has focus, so a plain mouse drag never
   /// pulls focus into the list.
+  ///
+  /// The indices are the rows', which only show a move once the playlist's
+  /// songs are read again: a second drag before that comes from the old order,
+  /// and applied to the stored one it moved whichever song had taken the
+  /// dragged one's place (#749). So the move goes by the song the drag was
+  /// started on, as the rows showed it.
   void _moveByPointer(int from, int to) {
     final int focused = _walk.focusedIndex;
-    if (!_move(from, to)) return;
+    final List<String> shown = <String>[
+      for (final Track track in widget.tracks) track.uri,
+    ];
+    if (!_move(from, to, shown: shown)) return;
     if (focused < 0) return;
     _followTo(
       ReorderFocusWalk.positionAfterMove(focused, from: from, to: to),

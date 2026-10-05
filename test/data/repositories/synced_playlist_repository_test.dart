@@ -1118,6 +1118,56 @@ void main() {
       expect(client.setSongsCalls.last.songIds, <String>['b', 'c', 'a']);
     });
 
+    test(
+        'a drag from an order the screen had not caught up on pushes the '
+        'song it was started on (#749)', () async {
+      client.createdPlaylistId = 'p-1';
+      final Playlist created = await repository.createPlaylist(
+        'Mix',
+        source: PlaylistSource.subsonic,
+      );
+      await repository.addTracks(
+        created.id,
+        <String>['subsonic:a', 'subsonic:b', 'subsonic:c'],
+      );
+      const List<String> shown = <String>[
+        'subsonic:a',
+        'subsonic:b',
+        'subsonic:c',
+      ];
+      // 'c' to the top, then again from the rows that still show it last.
+      await repository.reorderTracks(created.id, 2, 0, shown: shown);
+      await repository.reorderTracks(created.id, 2, 0, shown: shown);
+
+      expect(client.setSongsCalls.last.songIds, <String>['c', 'a', 'b']);
+      expect(
+        (await repository.getPlaylistById(created.id))!.trackIds,
+        <String>['subsonic:c', 'subsonic:a', 'subsonic:b'],
+      );
+    });
+
+    test('a move by identity keeps the copy of a doubled song it was on',
+        () async {
+      client.playlists = const <SubsonicPlaylistDto>[
+        SubsonicPlaylistDto(id: 'p-1', name: 'Party'),
+      ];
+      client.playlistSongIds = <String, List<String>>{
+        'p-1': <String>['a', 'b', 'c', 'b'],
+      };
+      await repository.refreshFromRemote();
+      final Playlist party = (await repository.getAllPlaylists()).single;
+
+      // The second 'b' to the top.
+      await repository.reorderTracks(
+        party.id,
+        3,
+        0,
+        shown: party.trackIds,
+      );
+
+      expect(client.setSongsCalls.last.songIds, <String>['b', 'a', 'b', 'c']);
+    });
+
     test('renaming a synced playlist pushes to the server', () async {
       client.createdPlaylistId = 'p-1';
       final Playlist created = await repository.createPlaylist(

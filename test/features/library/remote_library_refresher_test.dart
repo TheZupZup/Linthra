@@ -85,7 +85,12 @@ class _CountingPlaylists implements PlaylistRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex) =>
+  Future<void> reorderTracks(
+    String playlistId,
+    int oldIndex,
+    int newIndex, {
+    List<String>? shown,
+  }) =>
       throw UnimplementedError();
 
   @override
