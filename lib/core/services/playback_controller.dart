@@ -123,6 +123,18 @@ abstract interface class PlaybackController {
   /// Empties the up-next queue, leaving the current track playing.
   void clearQueue();
 
+  /// Takes every track [test] picks out of the queue, wherever it sits, the
+  /// current one included. Used when a remote provider's songs stop being the
+  /// signed-in account's, so none of them can play against another account's
+  /// server (#767). [test] answers by what a track is (its provider), never
+  /// by where it sits.
+  ///
+  /// When the current track goes, its audio goes with it: playback stops and
+  /// lands, stopped, on the first track left after it (Play loads it), or on
+  /// the last one left before it; with nothing left the queue is empty. A
+  /// no-op when [test] picks nothing.
+  Future<void> removeTracksWhere(bool Function(Track track) test);
+
   /// Turns shuffle on or off. Shuffle is a playback mode, not a one-shot: it
   /// reorders the current queue (keeping the current track playing) and stays in
   /// effect for any queue loaded afterwards. The new state is reflected in

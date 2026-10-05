@@ -1987,6 +1987,14 @@ through the normal signed-in provider path. Missing local files, signed-out
 providers, and wrong-version/corrupt records drop only the invalid rows (or the
 whole session) and never block startup.
 
+The session also records whose songs its server tracks are: the same one-way
+account fingerprint the sync stores keep, or the Plex server's
+`machineIdentifier`, never a name, address or token. A server song only means
+something on its own server, so when another account or server is signed in at
+launch, those tracks are left out of the restored queue. Like a file on an
+unplugged drive, they stay in the record for the launch their own account is
+back on, until a new queue replaces it.
+
 Automated coverage: `test/core/models/persisted_playback_session_test.dart`,
 `test/data/repositories/shared_preferences_playback_session_store_test.dart`,
 `test/core/services/playback_session_persistence_test.dart`.

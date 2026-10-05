@@ -6,8 +6,10 @@ import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/music_library_repository.dart';
 import '../../../core/repositories/reconciling_catalog_writer.dart';
+import '../../../core/repositories/remote_catalog_owner_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/repositories/subsonic_auto_sync_store.dart';
+import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../../core/sources/subsonic/subsonic_catalog_walk.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
@@ -16,9 +18,11 @@ import '../../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
+import '../../../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../../../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/library_controller.dart';
+import '../../player/queue_account_switch.dart';
 import 'subsonic_settings_controller.dart';
 import 'subsonic_sync_state.dart';
 
@@ -86,6 +90,14 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// more straight away instead of waiting for the next return to the app.
   bool _resumeRequested = false;
 
+  /// The catalog write most recently handed out; the next one waits for it
+  /// (see [_writeInTurn]).
+  ///
+  /// Like [_syncing], it lives on the notifier, which Riverpod keeps across
+  /// `ref.invalidate`: a sign-in's [_adoptCatalog] still takes its turn behind
+  /// a batch that the previous account's walk had already started writing.
+  Future<void> _lastWrite = Future<void>.value();
+
   /// Tracks per batch. Each batch costs a transaction plus a pass over the
   /// whole "recently added" record (the Recording repository loads and saves
   /// it per write), so small batches make a big library's sync quadratic: at
@@ -111,6 +123,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// playlists and favourites, which signing out cleared. Changing the server
   /// URL or signing in as a different user is a new account, and syncs again.
   /// The manual [sync] stays available for an on-demand refresh. Never throws.
+  ///
+  /// It runs on every sign-in, so it is also where the library stops showing
+  /// another account's tracks: signing out keeps them, and they go here,
+  /// before this account's walk, which may write nothing (#741).
   Future<void> autoSyncIfNeeded() async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
@@ -127,7 +143,17 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       // yet" and let the sync proceed — re-running it is safe and idempotent.
       lastSynced = null;
     }
-    if (lastSynced == fingerprint) {
+    bool tookOver;
+    try {
+      tookOver = await _adoptCatalog(source);
+    } catch (_) {
+      // Couldn't clear another account's tracks: the sync tries again before
+      // it walks anything, and reports it if it still can't.
+      tookOver = true;
+    }
+    // With another account's tracks gone, this account's library has to come
+    // back even if it was synced once before.
+    if (!tookOver && lastSynced == fingerprint) {
       // This account's first sync already happened; don't resync on its own.
       // Its playlists and favourites are another matter: this runs on a
       // sign-in, signing out cleared them, and they are cheap to pull, so they
@@ -219,6 +245,107 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     }
   }
 
+  /// Called on sign-out, which keeps the library: makes sure the tracks it
+  /// keeps are recorded as [account]'s, so the next account to sign in clears
+  /// them rather than inheriting them. Only fills in a missing record, which
+  /// is what a library synced before #741 has. Never throws.
+  Future<void> rememberCatalogOwner(String account) async {
+    try {
+      final RemoteCatalogOwnerStore owners =
+          ref.read(remoteCatalogOwnerStoreProvider);
+      if (await owners.read(SubsonicMusicSource.sourceId) == null) {
+        await owners.write(SubsonicMusicSource.sourceId, account);
+      }
+    } catch (_) {
+      // Best-effort: without it, the next sign-in falls back to the account
+      // that last auto-synced to decide whose tracks these are.
+    }
+  }
+
+  /// Makes the Subsonic slice of the catalog [source]'s account's before
+  /// anything is written for it, and returns whether another account's
+  /// tracks had to go (#741).
+  ///
+  /// Signing out keeps the slice, so the library stays there offline, but its
+  /// rows are still the previous account's, and the next account's walk only
+  /// prunes them once it completes with something in it. An empty library, or
+  /// a first walk that failed or stopped, left them under the new account:
+  /// unplayable, or worse, on a server with sequential ids, playing the new
+  /// server's song with the same id under the old title.
+  ///
+  /// Runs in turn with the catalog writes ([_writeInTurn]), so a batch that
+  /// the previous account's walk had already started writing lands before the
+  /// clear, never after it.
+  Future<bool> _adoptCatalog(SubsonicMusicSource source) async {
+    final String account = subsonicAccountFingerprint(source.session);
+    final bool tookOver = await _writeInTurn(() async {
+      // Signed out or switched again meanwhile: the account signed in now
+      // adopts the slice on its own.
+      if (!_isCurrentAccount(account)) return false;
+      final RemoteCatalogOwnerStore owners =
+          ref.read(remoteCatalogOwnerStoreProvider);
+      final String? owner = await _readQuietly(() => owners.read(source.id));
+      if (owner == account) return false;
+      // Nothing recorded the owner before #741. Then the account whose first
+      // sync landed last is the best guess, and with no guess at all the
+      // tracks are taken to be this account's own: nothing is removed.
+      final String? previous = owner ??
+          await _readQuietly(ref.read(subsonicAutoSyncStoreProvider).read);
+      final bool othersTracks = previous != null && previous != account;
+      if (othersTracks) {
+        // Out of the play queue too, first: left there, their ids would ask
+        // this account's server for its songs under the other one's titles
+        // (#767).
+        await _removeSongsFromQueue();
+        await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
+          sourceId: source.id,
+          tracks: const <Track>[],
+          albums: const <Album>[],
+          artists: const <Artist>[],
+        );
+      }
+      try {
+        await owners.write(source.id, account);
+      } catch (_) {
+        // Best-effort: the next sync asks again, and clears nothing of this
+        // account's that it isn't about to replace.
+      }
+      return othersTracks;
+    });
+    if (tookOver) await _refreshLibrary();
+    return tookOver;
+  }
+
+  /// Takes Subsonic's songs out of the play queue. Quietly: the library is
+  /// still cleared when this fails.
+  Future<void> _removeSongsFromQueue() async {
+    try {
+      await ref.read(removeProviderSongsFromQueueProvider)(
+        MusicProviders.subsonic,
+      );
+    } catch (_) {
+      // They stay queued, as they did before #767.
+    }
+  }
+
+  /// Runs [write] once the catalog write handed out before it has finished,
+  /// so the writes for the Subsonic slice never overlap: [_adoptCatalog]'s
+  /// clear can't be overtaken by a batch that was already under way.
+  Future<T> _writeInTurn<T>(Future<T> Function() write) {
+    final Future<T> turn = _lastWrite.then((_) => write());
+    _lastWrite = turn.then<void>((_) {}, onError: (Object _) {});
+    return turn;
+  }
+
+  /// [read]'s answer, or null when the store couldn't be read.
+  static Future<String?> _readQuietly(Future<String?> Function() read) async {
+    try {
+      return await read();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// A request that lands while a sync runs is normally covered by that sync.
   /// Only when the signed-in account is no longer the one being synced does it
   /// queue a fresh run (the old walk is about to stop on its own).
@@ -258,6 +385,9 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
 
     state = const SubsonicSyncState.syncing();
     try {
+      // Normally done at sign-in already. Here too, so another account's
+      // tracks are gone before this walk can fail, stop or find nothing.
+      await _adoptCatalog(source);
       await _markPending(account);
       final SubsonicCatalogWalk walk = await source.walkTracks(
         batchSize: syncBatchSize,
@@ -265,7 +395,14 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
         onBatch: (List<Track> batch) async {
           if (!_isCurrentAccount(account)) return false;
           if (writer != null) {
-            await writer.upsertTracks(sourceId: source.id, tracks: batch);
+            // Asked again in turn: an account that signed in while this
+            // batch waited has taken the slice over.
+            final bool wrote = await _writeInTurn(() async {
+              if (!_isCurrentAccount(account)) return false;
+              await writer.upsertTracks(sourceId: source.id, tracks: batch);
+              return true;
+            });
+            if (!wrote) return false;
           } else {
             collected.addAll(batch);
           }
@@ -294,16 +431,29 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       if (walk.isComplete && seen.isNotEmpty) {
         // Proven complete: whatever the walk didn't see is gone from the
         // server. (An empty walk never prunes: a server that suddenly lists
-        // nothing is more likely broken than emptied.)
-        if (writer != null) {
-          await writer.removeTracksNotIn(sourceId: source.id, keepUris: seen);
-        } else {
-          await repository.upsertCatalog(
-            sourceId: source.id,
-            tracks: collected,
-            albums: const <Album>[],
-            artists: const <Artist>[],
-          );
+        // nothing is more likely broken than emptied. The slice is this
+        // account's, see [_adoptCatalog], so what it keeps is its own.)
+        final bool pruned = await _writeInTurn(() async {
+          if (!_isCurrentAccount(account)) return false;
+          if (writer != null) {
+            await writer.removeTracksNotIn(
+              sourceId: source.id,
+              keepUris: seen,
+            );
+          } else {
+            await repository.upsertCatalog(
+              sourceId: source.id,
+              tracks: collected,
+              albums: const <Album>[],
+              artists: const <Artist>[],
+            );
+          }
+          return true;
+        });
+        if (!pruned) {
+          // Signed out or switched account just now; as for a stopped walk.
+          state = const SubsonicSyncState();
+          return;
         }
       }
       if (seen.isNotEmpty) await _refreshLibrary();

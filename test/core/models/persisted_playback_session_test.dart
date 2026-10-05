@@ -244,4 +244,63 @@ void main() {
       expect(roundTrip!.artworkUri, isNull);
     });
   });
+
+  group('owners (#767)', () {
+    const Track sub = Track(id: '1', title: 'One', uri: 'subsonic:1');
+
+    Map<String, dynamic> recordWith(Object? owners) => <String, dynamic>{
+          'v': PersistedPlaybackSession.currentSchemaVersion,
+          'i': 0,
+          't': <Map<String, dynamic>>[logicalTrackToJson(sub)],
+          if (owners != null) 'a': owners,
+        };
+
+    test('go out and come back with the record', () {
+      final PersistedPlaybackSession session = const PersistedPlaybackSession(
+        tracks: <Track>[sub],
+        currentIndex: 0,
+      ).withOwners(<String, String>{'subsonic': 'f00d'});
+
+      final PersistedPlaybackSession? back =
+          PersistedPlaybackSession.fromJson(session.toJson());
+
+      expect(back!.owners, <String, String>{'subsonic': 'f00d'});
+    });
+
+    test('a record from before them has none, and writes none', () {
+      final PersistedPlaybackSession? back =
+          PersistedPlaybackSession.fromJson(recordWith(null));
+
+      expect(back!.owners, isNull);
+      expect(back.toJson().containsKey('a'), isFalse);
+    });
+
+    test("one that can't be read says nobody's, not anybody's", () {
+      expect(
+        PersistedPlaybackSession.fromJson(recordWith('garbage'))!.owners,
+        isEmpty,
+      );
+      expect(
+        PersistedPlaybackSession.fromJson(
+          recordWith(<String, Object?>{'subsonic': 42, 'plex': 'm1'}),
+        )!
+            .owners,
+        <String, String>{'plex': 'm1'},
+      );
+    });
+
+    test('never keeps anything that looks like a token', () {
+      final PersistedPlaybackSession session = const PersistedPlaybackSession(
+        tracks: <Track>[sub],
+        currentIndex: 0,
+      ).withOwners(<String, String>{
+        'subsonic': 'x?api_key=secret',
+        'jellyfin': '',
+        'plex': 'm1',
+      });
+
+      expect(session.owners, <String, String>{'plex': 'm1'});
+      expect(session.toJson().toString(), isNot(contains('secret')));
+    });
+  });
 }

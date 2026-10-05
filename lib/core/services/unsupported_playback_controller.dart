@@ -160,6 +160,17 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   @override
   void clearQueue() {}
 
+  // No queue here, only the track the last refusal named: that one goes too.
+  @override
+  Future<void> removeTracksWhere(bool Function(Track track) test) async {
+    final Track? current = _state.currentTrack;
+    if (current == null || !test(current)) return;
+    _emit(PlaybackState(
+      shuffleEnabled: _state.shuffleEnabled,
+      repeatMode: _state.repeatMode,
+    ));
+  }
+
   @override
   void setShuffleEnabled(bool enabled) {
     _emit(PlaybackState(

@@ -349,6 +349,53 @@ class PlaybackQueue {
     return PlaybackQueue.single(track);
   }
 
+  /// Takes every track [test] picks out of the queue: up next, history and
+  /// the current one alike. Returns this queue when it picks none.
+  ///
+  /// When the current track goes, the first track left after it becomes
+  /// current, or with none after it the last one left before it; with nothing
+  /// left the queue is [empty]. When shuffled, the same tracks leave
+  /// [originalOrder], so a later unshuffle can't bring them back.
+  ///
+  /// [test] answers by what a track is (its provider, say), never by where it
+  /// sits, so a song leaves both orders together. Every entry left keeps its
+  /// id, so copies of a song queued twice stay apart (#744).
+  PlaybackQueue removedWhere(bool Function(Track track) test) {
+    if (!tracks.any(test)) return this;
+    final List<int> ids = _entryIds;
+    final List<Track> kept = <Track>[];
+    final List<int> keptIds = <int>[];
+    int index = -1;
+    for (int i = 0; i < tracks.length; i++) {
+      if (test(tracks[i])) continue;
+      // The current track when it stays, else the first one kept after it.
+      if (index < 0 && i >= currentIndex) index = kept.length;
+      kept.add(tracks[i]);
+      keptIds.add(ids[i]);
+    }
+    if (kept.isEmpty) return empty;
+    final List<Track>? original = originalOrder;
+    final List<int>? originalIds = _originalEntryIds;
+    List<Track>? keptOriginal;
+    List<int>? keptOriginalIds;
+    if (original != null && originalIds != null) {
+      keptOriginal = <Track>[];
+      keptOriginalIds = <int>[];
+      for (int i = 0; i < original.length; i++) {
+        if (test(original[i])) continue;
+        keptOriginal.add(original[i]);
+        keptOriginalIds.add(originalIds[i]);
+      }
+    }
+    return PlaybackQueue._(
+      kept,
+      index < 0 ? kept.length - 1 : index,
+      keptOriginal,
+      keptIds,
+      keptOriginalIds,
+    );
+  }
+
   /// Returns a shuffled copy: the current track stays current (moved to the
   /// front so playback continues uninterrupted) and every other track is
   /// randomised after it. The pre-shuffle order is remembered in

@@ -28,6 +28,7 @@ import 'package:linthra/data/repositories/plex_session_store_provider.dart';
 import 'package:linthra/data/repositories/preferred_source_store_provider.dart';
 import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/features/library/source_preference_controller.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_controller.dart';
 import 'package:linthra/features/settings/plex/plex_settings_providers.dart';
 import 'package:linthra/features/settings/plex/plex_settings_state.dart';
@@ -37,6 +38,7 @@ import 'package:linthra/features/settings/plex/plex_sync_state.dart';
 import '../../../core/services/remote_cache/fake_remote_cache_store.dart';
 import '../../../core/sources/plex/fake_plex_client.dart';
 import '../../../core/sources/plex/fake_plex_tv_client.dart';
+import '../../player/fake_playback_controller.dart';
 
 const String _token = 'super-secret-plex-token';
 const String _accountToken = 'super-secret-account-token';
@@ -400,11 +402,13 @@ ProviderContainer _container({
   FakePlexTvClient? tvClient,
   ExternalLinkLauncher? launcher,
   RemoteCacheIndex? cacheIndex,
+  List<Override> overrides = const <Override>[],
 }) {
   final FakePlexClient plexClient =
       client ?? FakePlexClient(sections: const [_musicSection]);
   final container = ProviderContainer(
     overrides: <Override>[
+      ...overrides,
       plexClientProvider.overrideWithValue(plexClient),
       plexSessionStoreProvider
           .overrideWithValue(store ?? InMemoryPlexSessionStore()),
@@ -2749,6 +2753,81 @@ void main() {
       for (final String secret in secrets) {
         expect(text, isNot(contains(secret)));
       }
+    });
+  });
+
+  group("the play queue loses the old server's songs (#767)", () {
+    // A ratingKey is a number its server hands out: plex:101 on another
+    // server is another song.
+    const Track serverA101 =
+        Track(id: '101', title: 'Server A 101', uri: 'plex:101');
+    const Track serverA102 =
+        Track(id: '102', title: 'Server A 102', uri: 'plex:102');
+    const Track onDisk = Track(id: '/m/x.flac', title: 'x', uri: '/m/x.flac');
+
+    late FakePlaybackController player;
+
+    setUp(() => player = FakePlaybackController());
+    tearDown(() => player.dispose());
+
+    Future<ProviderContainer> queuedOn(String server) async {
+      final ProviderContainer container = _container(
+        client: FakePlexClient(
+          identity: PlexServerIdentity(machineIdentifier: server),
+          sections: const [_musicSection],
+        ),
+        store: InMemoryPlexSessionStore(initialSession: _session),
+        overrides: <Override>[
+          localPlaybackControllerProvider.overrideWithValue(player),
+        ],
+      );
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .ensureLoaded();
+      container.read(localPlaybackControllerProvider);
+      await player.playTracks(<Track>[serverA101, onDisk, serverA102]);
+      return container;
+    }
+
+    test('connecting to another server takes them out, the playing one too',
+        () async {
+      final ProviderContainer container = await queuedOn('other-machine');
+
+      final bool ok = await container
+          .read(plexSettingsControllerProvider.notifier)
+          .connect(url: 'https://new.example.com:32400', token: 'other-token');
+      await _settle();
+
+      expect(ok, isTrue);
+      expect(player.state.currentTrack?.uri, onDisk.uri);
+      expect(player.state.upNext, isEmpty);
+      expect(player.state.previous, isEmpty);
+    });
+
+    test('connecting to the same server again keeps them', () async {
+      final ProviderContainer container =
+          await queuedOn(_session.machineIdentifier);
+
+      final bool ok = await container
+          .read(plexSettingsControllerProvider.notifier)
+          .connect(url: _session.baseUrl, token: 'new-token');
+      await _settle();
+
+      expect(ok, isTrue);
+      expect(player.removeTracksCount, 0);
+      expect(player.state.currentTrack?.uri, serverA101.uri);
+    });
+
+    test('disconnecting takes them out with the library', () async {
+      final ProviderContainer container =
+          await queuedOn(_session.machineIdentifier);
+
+      await container
+          .read(plexSettingsControllerProvider.notifier)
+          .disconnect();
+
+      expect(player.state.currentTrack?.uri, onDisk.uri);
+      expect(player.state.upNext, isEmpty);
     });
   });
 }

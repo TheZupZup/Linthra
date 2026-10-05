@@ -345,8 +345,10 @@ void main() {
       await _signIn(container, url: 'other.example.com', username: 'bob');
       await _drainAutoSync();
 
-      // The new account is a fresh connection, so it auto-syncs once more.
-      expect(repo.upsertCount, 2);
+      // The new account is a fresh connection, so it auto-syncs once more,
+      // after the first account's tracks were cleared (#741).
+      expect(repo.upsertCount, 3);
+      expect(repo.lastTracks, isNotEmpty);
       expect(
         await store.read(),
         subsonicAccountFingerprint(

@@ -7,6 +7,7 @@ import '../../../core/models/jellyfin_session.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
+import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../../core/sources/jellyfin/jellyfin_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_exception.dart';
@@ -221,7 +222,12 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   /// favourites and imported Jellyfin playlists are dropped (on-device
   /// favourites and local-only playlists are kept), and the now-stale
   /// "Synced N tracks" status is reset.
+  ///
+  /// The synced library itself stays, so it can still be browsed offline. It
+  /// stays as this account's: a different account signing in next clears it
+  /// before its own sync (#741).
   Future<void> clear() async {
+    final JellyfinSession? signingOut = _session;
     try {
       await ref.read(jellyfinSessionStoreProvider).clear();
     } catch (error) {
@@ -235,6 +241,11 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       return;
     }
     _session = null;
+    if (signingOut != null) {
+      await ref
+          .read(jellyfinSyncControllerProvider.notifier)
+          .rememberCatalogOwner(jellyfinAccountFingerprint(signingOut));
+    }
     try {
       // Scope the drop to Jellyfin so a still-connected Subsonic/Navidrome
       // account keeps its server hearts and imported playlists.

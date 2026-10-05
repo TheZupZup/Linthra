@@ -18,16 +18,25 @@ import 'local_playback_controller.dart';
 /// are left out of the engine but kept in the record; only a record that can't
 /// be read at all is cleared, and restore never blocks startup.
 class PlaybackSessionPersistence {
+  /// [remoteAccountOf] says who a remote provider's songs would play for now
+  /// (the signed-in account's fingerprint, the Plex server's
+  /// `machineIdentifier`), or null while it is signed out. [queueOwnerOf]
+  /// says whose songs a remote provider's queued tracks are, which a save
+  /// records for the next restore to check (#767). Without [remoteAccountOf]
+  /// every remote track counts as playable; without [queueOwnerOf] nothing is
+  /// recorded, and records restore as they always did.
   PlaybackSessionPersistence({
     required PlaybackSessionStore store,
     required LocalPlaybackController controller,
     required Stream<PlaybackState> playbackStates,
-    bool Function(MusicProvider provider)? isRemoteProviderAvailable,
+    String? Function(MusicProvider provider)? remoteAccountOf,
+    Future<String?> Function(MusicProvider provider)? queueOwnerOf,
     bool Function(String localUri)? localFileExists,
     Duration positionSaveInterval = const Duration(seconds: 10),
   })  : _store = store,
         _controller = controller,
-        _isRemoteProviderAvailable = isRemoteProviderAvailable,
+        _remoteAccountOf = remoteAccountOf,
+        _queueOwnerOf = queueOwnerOf,
         _localFileExists = localFileExists ?? _defaultLocalFileExists,
         _positionSaveInterval = positionSaveInterval {
     _subscription = playbackStates.listen(_onPlaybackState);
@@ -35,7 +44,8 @@ class PlaybackSessionPersistence {
 
   final PlaybackSessionStore _store;
   final LocalPlaybackController _controller;
-  final bool Function(MusicProvider provider)? _isRemoteProviderAvailable;
+  final String? Function(MusicProvider provider)? _remoteAccountOf;
+  final Future<String?> Function(MusicProvider provider)? _queueOwnerOf;
   final bool Function(String localUri) _localFileExists;
 
   /// How long a run of pure position ticks is coalesced before the session is
@@ -68,14 +78,22 @@ class PlaybackSessionPersistence {
   bool _restoring = false;
   bool _disposed = false;
 
+  /// Bumped by every save and clear, so a save that waited on [_queueOwnerOf]
+  /// can tell a newer one went out meanwhile and not land on top of it.
+  int _writes = 0;
+
+  /// Whose songs the queue saved last holds, as recorded with it.
+  Map<String, String>? _lastOwners;
+
   /// Loads any persisted session, sanitizes it, and restores it paused onto
   /// the local engine. Best-effort: failures are swallowed and the bad record
   /// is cleared so startup can never be blocked by restore.
   ///
   /// A track that can't play at launch (a file on a drive that isn't plugged
-  /// in, a server whose sign-in couldn't be read yet) is away, not gone: it is
-  /// left out of the engine but stays in the saved session until the listener
-  /// picks a different queue, even when nothing at all could be restored.
+  /// in, a server whose sign-in couldn't be read yet, another account's song)
+  /// is away, not gone: it is left out of the engine but stays in the saved
+  /// session until the listener picks a different queue, even when nothing at
+  /// all could be restored.
   Future<void> restore() async {
     if (_disposed) return;
     _restoring = true;
@@ -93,8 +111,8 @@ class PlaybackSessionPersistence {
       // Asked once per track, so the restored queue and the map back into
       // [saved] can't disagree about a drive that appears mid-restore.
       final Map<String, bool> verdicts = <String, bool>{};
-      bool restorable(Track track) =>
-          verdicts.putIfAbsent(track.uri, () => _isTrackRestorable(track));
+      bool restorable(Track track) => verdicts.putIfAbsent(
+          track.uri, () => _isTrackRestorable(track, saved.owners));
       final PersistedPlaybackSession? session =
           PersistedPlaybackSession.fromJson(
         saved.toJson(),
@@ -153,6 +171,8 @@ class PlaybackSessionPersistence {
       _positionTimer = null;
       _pendingPositionState = null;
       _lastPersisted = null;
+      _lastOwners = null;
+      _writes++;
       unawaited(_clearQuietly());
       return;
     }
@@ -187,7 +207,7 @@ class PlaybackSessionPersistence {
       // which emit as fast as a slider drags — and rewriting an identical
       // session for each of those is a disk write per pointer move.
       if (_lastPersisted!.position == state.position) return;
-      unawaited(_persist(state));
+      unawaited(_persist(state, positionOnly: true));
     }
   }
 
@@ -197,12 +217,18 @@ class PlaybackSessionPersistence {
     final PlaybackState? state = _pendingPositionState;
     _pendingPositionState = null;
     if (state == null || _disposed) return;
-    unawaited(_persist(state));
+    unawaited(_persist(state, positionOnly: true));
   }
 
-  Future<void> _persist(PlaybackState state) async {
+  /// Saves [state]. [positionOnly] when the queue is the one saved last, only
+  /// further along it, so whose songs it holds is what was recorded then.
+  Future<void> _persist(
+    PlaybackState state, {
+    bool positionOnly = false,
+  }) async {
     final Track? current = state.currentTrack;
     if (current == null) return;
+    final int write = ++_writes;
 
     // A queue that ran out is kept where Play takes it up again. Saved at the
     // end of its last track, the next launch put that track back there,
@@ -236,7 +262,24 @@ class PlaybackSessionPersistence {
       originalOrder: null,
     );
     if (session == null) return;
-    await _save(session, state);
+    final Future<String?> Function(MusicProvider provider)? ownerOf =
+        _queueOwnerOf;
+    if (ownerOf == null) {
+      await _save(session, state);
+      return;
+    }
+    final Map<String, String>? recorded = _lastOwners;
+    if (positionOnly && recorded != null) {
+      // Nothing to ask: a clean shutdown flushes this way, when there may be
+      // nobody left to ask.
+      await _save(session.withOwners(recorded), state);
+      return;
+    }
+    final Map<String, String> owners = await _ownersOf(session.tracks, ownerOf);
+    // A newer save or a clear went out while this one asked: this one is
+    // behind it.
+    if (write != _writes) return;
+    await _save(session.withOwners(owners), state);
   }
 
   Future<void> _save(
@@ -246,9 +289,32 @@ class PlaybackSessionPersistence {
     try {
       await _store.save(session);
       _lastPersisted = state;
+      _lastOwners = session.owners;
     } catch (_) {
       // Non-fatal: persistence must never break playback.
     }
+  }
+
+  /// Whose songs the remote providers' tracks among [tracks] are, as
+  /// [ownerOf] says. A provider it can't answer for is left out, so at the
+  /// next restore its tracks wait rather than play for whoever is signed in.
+  static Future<Map<String, String>> _ownersOf(
+    List<Track> tracks,
+    Future<String?> Function(MusicProvider provider) ownerOf,
+  ) async {
+    final Set<MusicProvider> providers = <MusicProvider>{
+      for (final Track track in tracks) MusicProviders.forTrackUri(track.uri),
+    }..remove(MusicProviders.local);
+    final Map<String, String> owners = <String, String>{};
+    for (final MusicProvider provider in providers) {
+      try {
+        final String? owner = await ownerOf(provider);
+        if (owner != null) owners[provider.sourceId] = owner;
+      } catch (_) {
+        // Left out: its tracks wait.
+      }
+    }
+    return owners;
   }
 
   Future<void> _clearQuietly() async {
@@ -280,15 +346,26 @@ class PlaybackSessionPersistence {
     );
   }
 
-  bool _isTrackRestorable(Track track) {
+  /// Whether [track] can go back in the queue now. [owners] is whose songs
+  /// the record says its remote tracks are.
+  bool _isTrackRestorable(Track track, Map<String, String>? owners) {
     if (!isLogicalTrackUri(track.uri)) return false;
     final MusicProvider provider = MusicProviders.forTrackUri(track.uri);
     if (identical(provider, MusicProviders.local)) {
       return _localFileExists(track.uri);
     }
-    final bool Function(MusicProvider)? available = _isRemoteProviderAvailable;
-    if (available == null) return true;
-    return available(provider);
+    final String? Function(MusicProvider provider)? accountOf =
+        _remoteAccountOf;
+    if (accountOf == null) return true;
+    // Signed out, or its sign-in couldn't be read yet.
+    final String? account = accountOf(provider);
+    if (account == null) return false;
+    // Saved before the record said whose songs these are: as before.
+    if (owners == null) return true;
+    // Another account's or server's songs (or nobody could say whose): their
+    // ids would ask this one for other songs. They stay in the record for
+    // when their own account is back.
+    return owners[provider.sourceId] == account;
   }
 
   static bool _defaultLocalFileExists(String uri) {
@@ -324,7 +401,7 @@ class PlaybackSessionPersistence {
     _positionTimer = null;
     final PlaybackState? pending = _pendingPositionState;
     _pendingPositionState = null;
-    if (pending != null) await _persist(pending);
+    if (pending != null) await _persist(pending, positionOnly: true);
     await _subscription?.cancel();
     _subscription = null;
   }
@@ -378,6 +455,8 @@ class _HeldSession {
           : (state.position < Duration.zero ? Duration.zero : state.position),
       shuffleEnabled: state.shuffleEnabled,
       repeatMode: state.repeatMode,
+      // Still the same songs, the ones left out included: still theirs.
+      owners: saved.owners,
     );
   }
 }

@@ -239,6 +239,28 @@ If the queue becomes empty (everything up next removed, or **Clear**), the
 playing now. Playback is not interrupted. On the desktop pane it also empties
 the Recently played list, so Clear keeps meaning the same thing in both shapes.
 
+## Switching account or server
+
+A queued server song is only an id (`subsonic:101`, `plex:101`), and an id only
+means something on its own server. Left in the queue after a switch, it would
+ask the new server for its own song 101, under the old song's title, and its
+scrobble, favourite, cover and lyrics would go there too. So the queue follows
+the library:
+
+- **Jellyfin or Navidrome/Subsonic:** signing out keeps the library and the
+  queue. When **another** account (or another server address) signs in, the
+  previous account's library is removed, and its songs leave the queue at the
+  same moment. Signing back in to the same account keeps both.
+- **Plex:** disconnecting removes the synced library, and its songs leave the
+  queue with it. Connecting to a **different** server does the same;
+  reconnecting to the same server keeps them.
+
+The song playing at that moment goes too: playback stops and the queue lands,
+stopped, on the next song left (Play starts it). Local files and other
+providers' songs stay where they were. On Linux the saved session records whose
+songs it holds, so a restart under another account leaves them out as well
+(see [Crash-safe playback restore](linux-desktop.md#crash-safe-playback-restore)).
+
 ## Save queue as playlist
 
 **Save queue as playlist** creates a **local** playlist from the whole queue

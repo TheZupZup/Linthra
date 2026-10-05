@@ -7,6 +7,7 @@ import '../../../core/models/subsonic_session.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/music_provider.dart';
+import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../../core/sources/subsonic/subsonic_api.dart';
 import '../../../core/sources/subsonic/subsonic_exception.dart';
 import '../../../core/sources/subsonic/subsonic_music_source.dart';
@@ -209,7 +210,12 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   /// Drops this account's server-mirrored favourites and imported Navidrome
   /// playlists (scoped to Subsonic, so a still-connected Jellyfin account keeps
   /// its own); on-device favourites and local-only playlists are kept.
+  ///
+  /// The synced library itself stays, so it can still be browsed offline. It
+  /// stays as this account's: a different account signing in next clears it
+  /// before its own sync (#741).
   Future<void> clear() async {
+    final SubsonicSession? signingOut = _session;
     try {
       await ref.read(subsonicSessionStoreProvider).clear();
     } catch (error) {
@@ -223,6 +229,11 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       return;
     }
     _session = null;
+    if (signingOut != null) {
+      await ref
+          .read(subsonicSyncControllerProvider.notifier)
+          .rememberCatalogOwner(subsonicAccountFingerprint(signingOut));
+    }
     try {
       await ref
           .read(favoritesRepositoryProvider)

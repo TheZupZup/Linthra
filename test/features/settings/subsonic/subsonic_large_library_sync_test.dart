@@ -6,6 +6,8 @@
 // batches are saved as they arrive, stale rows are pruned only after a provably
 // complete walk, and an unfinished sync is resumed on the next launch/resume.
 
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,14 +23,17 @@ import 'package:linthra/core/sources/subsonic/subsonic_account_fingerprint.dart'
 import 'package:linthra/data/database/linthra_database.dart';
 import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 import 'package:linthra/data/repositories/in_memory_library_added_store.dart';
+import 'package:linthra/data/repositories/in_memory_remote_catalog_owner_store.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_auto_sync_store.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_session_store.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_sync_pending_store.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/recording_music_library_repository.dart';
+import 'package:linthra/data/repositories/remote_catalog_owner_store_provider.dart';
 import 'package:linthra/data/repositories/subsonic_auto_sync_store_provider.dart';
 import 'package:linthra/data/repositories/subsonic_session_store_provider.dart';
 import 'package:linthra/data/repositories/subsonic_sync_pending_store_provider.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/diagnostics/diagnostics_collector.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_providers.dart';
@@ -36,6 +41,7 @@ import 'package:linthra/features/settings/subsonic/subsonic_sync_controller.dart
 import 'package:linthra/features/settings/subsonic/subsonic_sync_state.dart';
 
 import '../../../core/sources/subsonic/synthetic_navidrome.dart';
+import '../../player/fake_playback_controller.dart';
 
 const String _server = 'https://music.example.com';
 
@@ -62,12 +68,22 @@ class _SpyRepository
   final List<List<Track>> upserts = <List<Track>>[];
   int prunes = 0;
 
+  /// When set, a batch write waits here before it lands, so a test can sign
+  /// in another account while that write is under way.
+  Completer<void>? gate;
+  bool parked = false;
+
   @override
   Future<void> upsertTracks({
     required String sourceId,
     required List<Track> tracks,
-  }) {
+  }) async {
     upserts.add(List<Track>.of(tracks));
+    final Completer<void>? held = gate;
+    if (held != null) {
+      parked = true;
+      await held.future;
+    }
     return _inner.upsertTracks(sourceId: sourceId, tracks: tracks);
   }
 
@@ -123,9 +139,12 @@ class _App {
     LinthraDatabase? db,
     InMemorySubsonicSyncPendingStore? pending,
     InMemorySubsonicAutoSyncStore? autoSync,
+    InMemoryRemoteCatalogOwnerStore? owners,
     SubsonicSession? restoredSession,
+    FakePlaybackController? player,
   })  : db = db ?? _openDatabase(),
         pending = pending ?? InMemorySubsonicSyncPendingStore(),
+        owners = owners ?? InMemoryRemoteCatalogOwnerStore(),
         // Pre-seeded for alice so signing in doesn't start an auto-sync; each
         // test starts the sync it wants explicitly.
         autoSync =
@@ -141,10 +160,13 @@ class _App {
       ),
       subsonicAutoSyncStoreProvider.overrideWithValue(this.autoSync),
       subsonicSyncPendingStoreProvider.overrideWithValue(this.pending),
+      remoteCatalogOwnerStoreProvider.overrideWithValue(this.owners),
       musicLibraryRepositoryProvider.overrideWithValue(repository),
       subsonicSyncRetryDelaysProvider.overrideWithValue(
         const <Duration>[Duration.zero, Duration.zero],
       ),
+      if (player != null)
+        localPlaybackControllerProvider.overrideWithValue(player),
     ]);
     addTearDown(container.dispose);
   }
@@ -153,6 +175,7 @@ class _App {
   final LinthraDatabase db;
   final InMemorySubsonicSyncPendingStore pending;
   final InMemorySubsonicAutoSyncStore autoSync;
+  final InMemoryRemoteCatalogOwnerStore owners;
   late final _SpyRepository repository;
   late final ProviderContainer container;
 
@@ -175,6 +198,20 @@ class _App {
 
   Future<void> signOut() =>
       container.read(subsonicSettingsControllerProvider.notifier).clear();
+
+  /// Waits for the sync a sign-in started on its own to finish. Only after a
+  /// sign-out or on a fresh app, where the card starts idle.
+  Future<void> settled() async {
+    for (int i = 0; i < 2000; i++) {
+      final SubsonicSyncStatus status = state.status;
+      if (status != SubsonicSyncStatus.idle &&
+          status != SubsonicSyncStatus.syncing) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    fail('the sync never finished');
+  }
 
   Future<Set<String>> subsonicUris() async => <String>{
         for (final Track t in await repository.getAllTracks())
@@ -756,6 +793,146 @@ void main() {
         const SubsonicSyncState.error('m').diagnosticsLabel(pendingRetry: true),
         'failed: syncFailed (0 saved, will retry)',
       );
+    });
+  });
+
+  group('switching account (#741)', () {
+    test(
+        "bob's first walk fails from its first album: none of alice's "
+        'tracks are left', () async {
+      // Alice's 30 albums answer; every getAlbum after hers fails.
+      final _App app =
+          _App(SyntheticNavidrome(albums: 30, failAlbumCallsFrom: 31));
+      await app.signIn();
+      await app.sync.sync();
+      expect(await app.subsonicRows(), 300);
+      await app.signOut();
+      expect(await app.subsonicRows(), 300, reason: 'kept on sign-out');
+
+      await app.signIn('bob');
+      await app.settled();
+
+      expect(app.state.status, SubsonicSyncStatus.error);
+      expect(await app.subsonicRows(), 0);
+      // Bob's own sync is still on record, for his next launch or resume.
+      expect(await app.pending.read(), _account('bob'));
+      expect(await app.owners.read('subsonic'), _account('bob'));
+    });
+
+    test("alice's songs leave the play queue when bob takes over (#767)",
+        () async {
+      final FakePlaybackController player = FakePlaybackController();
+      addTearDown(player.dispose);
+      final _App app = _App(SyntheticNavidrome(albums: 30), player: player);
+      await app.signIn();
+      await app.sync.sync();
+      final List<Track> hers = <Track>[
+        for (final Track t in await app.repository.getAllTracks())
+          if (t.uri.startsWith('subsonic:')) t,
+      ];
+      const Track onDisk = Track(id: '/m/x.flac', title: 'x', uri: '/m/x.flac');
+      app.container.read(localPlaybackControllerProvider);
+      await player.playTracks(<Track>[hers[0], onDisk, hers[1]]);
+      await app.signOut();
+      expect(player.removeTracksCount, 0, reason: 'kept on sign-out');
+
+      await app.signIn('bob');
+      await app.settled();
+
+      expect(player.state.currentTrack?.uri, onDisk.uri);
+      expect(player.state.upNext, isEmpty);
+      expect(player.state.previous, isEmpty);
+    });
+
+    test("bob's library is empty: none of alice's tracks are left", () async {
+      final _App alice = _App(SyntheticNavidrome(albums: 30));
+      await alice.signIn();
+      await alice.sync.sync();
+      await alice.signOut();
+
+      // Later, bob signs in to a server where he has no music yet.
+      final _App bob = _App(
+        SyntheticNavidrome(albums: 0),
+        db: alice.db,
+        pending: alice.pending,
+        autoSync: alice.autoSync,
+        owners: alice.owners,
+      );
+      await bob.signIn('bob');
+      await bob.settled();
+
+      expect(bob.state.status, SubsonicSyncStatus.success);
+      expect(await bob.subsonicRows(), 0);
+    });
+
+    test("a batch already being written lands before bob's clear, not after",
+        () async {
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 30, failAlbumCallsFrom: 31);
+      final _App app = _App(server);
+      await app.signIn();
+      app.repository.gate = Completer<void>();
+      final Future<void> running = app.sync.sync();
+      while (!app.repository.parked) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      await app.signOut();
+      await app.signIn('bob');
+      // Bob's sign-in gets as far as it can before alice's batch lands.
+      await pumpEventQueue(times: 100);
+      app.repository.gate!.complete();
+      await running;
+      await app.settled();
+
+      expect(await app.subsonicRows(), 0);
+    });
+
+    test('alice resuming her own interrupted sync keeps what it saved',
+        () async {
+      final _App killed =
+          _App(SyntheticNavidrome(albums: 1000, failAlbumCallsFrom: 500));
+      await killed.signIn();
+      await killed.sync.sync();
+      expect(await killed.subsonicRows(), 4000);
+
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 1000, stallAtAlbumCall: 1);
+      final _App relaunch = _App(
+        server,
+        db: killed.db,
+        pending: killed.pending,
+        autoSync: killed.autoSync,
+        owners: killed.owners,
+        restoredSession: _session('alice'),
+      );
+      await relaunch.restore();
+      final Future<void> resumed = relaunch.sync.resumeIncompleteSync();
+      await server.stalled;
+
+      // Nothing of hers was cleared before the walk started again.
+      expect(await relaunch.subsonicRows(), 4000);
+      server.releaseStall();
+      await resumed;
+      expect(relaunch.state.status, SubsonicSyncStatus.success);
+      _expectSameSet(await relaunch.subsonicUris(), server.urisFor('alice'));
+    });
+
+    test("a library synced before the owner was recorded is cleared for bob",
+        () async {
+      // Alice's library from before the update: the rows and the auto-sync
+      // record are there, no owner is.
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 30, failAlbumCallsFrom: 1);
+      final _App app = _App(server);
+      await app.seed('subsonic', <String>[
+        for (int a = 0; a < 3; a++) SyntheticNavidrome.songUri('alice', a, 0),
+      ]);
+
+      await app.signIn('bob');
+      await app.settled();
+
+      expect(await app.subsonicRows(), 0);
     });
   });
 }
