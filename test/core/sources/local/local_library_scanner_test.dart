@@ -7,6 +7,7 @@ import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_catalog_reconciliation.dart';
 import 'package:linthra/core/sources/local/local_library_scanner.dart';
 import 'package:linthra/core/sources/local/local_music_source.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
 
 Track _track(String path) => Track(id: path, title: path, uri: path);
@@ -752,6 +753,136 @@ void main() {
 
       expect(scan.reconciliation.moves, isEmpty);
       expect(scan.reconciliation.removedUris, <String>[from]);
+    });
+  });
+
+  group('a folder whose walk found no files at all (#737)', () {
+    const String nas = '/mnt/nas';
+    const String home = '/home/me/Music';
+
+    /// What an unmounted share's mount point gives a walk: a folder that is
+    /// there and readable, with nothing in it.
+    LocalScan emptyWalk() => const LocalScan(
+          tracks: <Track>[],
+          foundNoFiles: true,
+          report: LocalScanReport(
+            folderSelected: true,
+            isContentUri: false,
+            filesVisited: 0,
+            foldersVisited: 1,
+            audioCandidates: 0,
+            importedTracks: 0,
+            skippedUnsupported: 0,
+            readFailures: 0,
+          ),
+        );
+
+    final List<StampedTrack> previous = <StampedTrack>[
+      _indexed('$nas/a.flac'),
+      _indexed('$nas/b.flac'),
+      _indexed('$nas/c.flac'),
+      _indexed('$home/d.mp3'),
+    ];
+
+    LocalRootScan scanning({Set<String> empty = const <String>{nas}}) =>
+        (String root) async => empty.contains(root)
+            ? emptyWalk()
+            : _scanOf(const <String>['$home/d.mp3']);
+
+    test('keeps its music and reports it empty', () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(scanning()).scan(
+        roots: const <String>[home, nas],
+        previousTracks: previous,
+      );
+
+      expect(_uris(scan), <String>[
+        '$home/d.mp3',
+        '$nas/a.flac',
+        '$nas/b.flac',
+        '$nas/c.flac',
+      ]);
+      expect(scan.isWritable, isTrue);
+      expect(scan.unavailableRoots, <String>[nas]);
+      expect(scan.rootFaults, <String, LocalRootFault>{
+        nas: LocalRootFault.empty,
+      });
+      final LocalRootOutcome outcome =
+          scan.roots.firstWhere((LocalRootOutcome o) => o.root == nas);
+      expect(outcome.error, LocalScanError.folderUnavailable);
+      expect(outcome.importedTracks, 3);
+    });
+
+    test('on its own, writes nothing', () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(scanning()).scan(
+        roots: const <String>[nas],
+        previousTracks: previous,
+      );
+
+      expect(scan.isWritable, isFalse);
+      expect(scan.report.fault, LocalRootFault.empty);
+    });
+
+    test('takes its music out once the user says it is empty', () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(scanning()).scan(
+        roots: const <String>[home, nas],
+        previousTracks: previous,
+        acceptEmpty: const <String>{nas},
+      );
+
+      expect(_uris(scan), <String>['$home/d.mp3']);
+      expect(scan.hasUnavailableRoots, isFalse);
+      expect(scan.isWritable, isTrue);
+    });
+
+    test('is just empty when the library has no music from it', () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(scanning()).scan(
+        roots: const <String>[home, nas],
+        previousTracks: <StampedTrack>[_indexed('$home/d.mp3')],
+      );
+
+      expect(_uris(scan), <String>['$home/d.mp3']);
+      expect(scan.hasUnavailableRoots, isFalse);
+    });
+
+    test('a walk that found files that are not music is not empty', () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(
+        (String root) async => root == nas
+            // Covers and playlists left behind: the music was deleted.
+            ? _scanOf(const <String>[])
+            : _scanOf(const <String>['$home/d.mp3']),
+      ).scan(
+        roots: const <String>[home, nas],
+        previousTracks: previous,
+      );
+
+      expect(_uris(scan), <String>['$home/d.mp3']);
+      expect(scan.hasUnavailableRoots, isFalse);
+    });
+
+    test('keeps it out of the way when the previous tracks are unreadable',
+        () async {
+      final LocalLibraryScan scan = await LocalLibraryScanner(scanning()).scan(
+        roots: const <String>[home, nas],
+      );
+
+      expect(scan.rootFaults, <String, LocalRootFault>{
+        nas: LocalRootFault.empty,
+      });
+      expect(scan.retentionUnavailable, isTrue);
+      expect(scan.isWritable, isFalse);
+    });
+
+    test('a SAF tree is left to its own rules', () async {
+      const String tree =
+          'content://com.android.externalstorage.documents/tree/primary%3AMusic';
+      final LocalLibraryScan scan = await LocalLibraryScanner(
+        (String root) async => emptyWalk(),
+      ).scan(
+        roots: const <String>[tree],
+        previousTracks: <StampedTrack>[_indexed('$tree/document/a.flac')],
+      );
+
+      expect(scan.hasUnavailableRoots, isFalse);
     });
   });
 }

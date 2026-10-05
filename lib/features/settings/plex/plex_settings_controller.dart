@@ -15,6 +15,7 @@ import '../../../core/sources/plex/plex_tv_api.dart';
 import '../../../data/repositories/plex_session_store_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../library/source_preference_controller.dart';
+import '../../player/queue_account_switch.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
@@ -633,6 +634,11 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       ));
       return false;
     }
+    if (previous != null && !sameServer) {
+      // The old server's ratingKeys are other songs on this one: none of them
+      // may stay queued to be asked of it (#767).
+      await _removeSongsFromQueue();
+    }
 
     // The just-connected server becomes the active/default provider for picking
     // among duplicate sources, so a song that also lives on another server now
@@ -955,6 +961,9 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);
+    // Its songs leave the queue with the library: the next server connected
+    // may be another one, whose ratingKeys are other songs (#767).
+    await _removeSongsFromQueue();
     // The old "Synced N tracks" status described the session that just ended.
     ref.invalidate(plexSyncControllerProvider);
     bool catalogCleared = true;
@@ -1012,6 +1021,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       await ref.read(plexSyncControllerProvider.notifier).removeSyncedCatalog();
     } catch (_) {
       // Best-effort: stale rows are replaced by the next successful sync.
+    }
+  }
+
+  /// Takes Plex's songs out of the play queue. Quietly: connecting or
+  /// disconnecting goes on when this fails.
+  Future<void> _removeSongsFromQueue() async {
+    try {
+      await ref.read(removeProviderSongsFromQueueProvider)(MusicProviders.plex);
+    } catch (_) {
+      // They stay queued, as they did before #767.
     }
   }
 

@@ -4,6 +4,8 @@
 // Each kind of selection is answered by the probe that already existed for it,
 // so there is one rule set for "can Linthra read this folder?" rather than one
 // for the Settings card and another for the removable-drive state.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/android_media_library.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
@@ -59,12 +61,14 @@ PlatformLocalRootProbe _probe({
   AndroidMusicPermissionStatus mediaPermission =
       AndroidMusicPermissionStatus.allowed,
   bool probesFilesystemPaths = true,
+  Future<bool> Function(String path)? holdsNoFiles,
 }) {
   return PlatformLocalRootProbe(
     readability: readability ?? _FakeReadability(true),
     safPermissions: _FakeSafPermissions(safGranted),
     mediaLibrary: _FakeMediaLibrary(mediaPermission),
     probesFilesystemPaths: probesFilesystemPaths,
+    holdsNoFiles: holdsNoFiles ?? (String _) async => false,
   );
 }
 
@@ -154,6 +158,87 @@ void main() {
       final probe = _probe(readability: _ThrowingReadability());
 
       expect(await probe.inspect('/media/usb/Music'), isNull);
+    });
+  });
+
+  group('whether a readable folder holds any files (#737)', () {
+    test('is part of what a filesystem folder answers', () async {
+      final List<String> asked = <String>[];
+      final PlatformLocalRootProbe probe = _probe(
+        holdsNoFiles: (String path) async {
+          asked.add(path);
+          return true;
+        },
+      );
+
+      expect(
+        await probe.inspect('/mnt/nas', askHoldsNothing: true),
+        const LocalRootReading.available(holdsNothing: true),
+      );
+      expect(asked, <String>['/mnt/nas']);
+    });
+
+    test('is only asked when the caller wants it', () async {
+      bool asked = false;
+      final PlatformLocalRootProbe probe = _probe(
+        holdsNoFiles: (String _) async => asked = true,
+      );
+
+      expect(
+        await probe.inspect('/mnt/nas'),
+        const LocalRootReading.available(),
+      );
+      expect(asked, isFalse);
+    });
+
+    test('is not asked of a folder that cannot be listed', () async {
+      bool asked = false;
+      final PlatformLocalRootProbe probe = _probe(
+        readability: _FakeReadability(false),
+        holdsNoFiles: (String _) async => asked = true,
+      );
+
+      expect(
+        await probe.inspect('/mnt/nas', askHoldsNothing: true),
+        const LocalRootReading.blocked(LocalRootFault.missing),
+      );
+      expect(asked, isFalse);
+    });
+
+    group('on disk', () {
+      late Directory base;
+
+      setUp(() async {
+        base = await Directory.systemTemp.createTemp('linthra_holds_nothing');
+      });
+
+      tearDown(() async {
+        if (await base.exists()) await base.delete(recursive: true);
+      });
+
+      test('an empty folder holds nothing', () async {
+        expect(await holdsNoFilesOnDisk(base.path), isTrue);
+      });
+
+      test('nor does one with only empty folders in it', () async {
+        await Directory('${base.path}/nas/Albums').create(recursive: true);
+        await Directory('${base.path}/usb').create();
+
+        expect(await holdsNoFilesOnDisk(base.path), isTrue);
+      });
+
+      test('a file anywhere under it is something', () async {
+        await Directory('${base.path}/Artist/Album').create(recursive: true);
+        await File('${base.path}/Artist/Album/cover.jpg').writeAsBytes(
+          const <int>[1],
+        );
+
+        expect(await holdsNoFilesOnDisk(base.path), isFalse);
+      });
+
+      test('a folder it cannot look into is not called empty', () async {
+        expect(await holdsNoFilesOnDisk('${base.path}/missing'), isFalse);
+      });
     });
   });
 }

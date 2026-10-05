@@ -68,6 +68,7 @@ was avoided.
 | Desktop notifications | `--talk-name=org.freedesktop.Notifications` | The Notification portal, which every Flatpak may use without a finish-arg. `lib/core/services/notifications/dbus_desktop_notifier.dart` calls it first and only falls back to the spec interface outside the sandbox, where the session bus is directly reachable. |
 | The app's own database, caches and downloads | `--persist=`, `--filesystem=~/.local/share/linthra` | The private XDG tree Flatpak gives every app under `~/.var/app/<app-id>/`, reached through `path_provider`. |
 | Opening a link (bug report, docs) | `--talk-name=org.freedesktop.portal.OpenURI` | The OpenURI portal, again available without a grant. |
+| Playing on with the window closed | `--talk-name=org.freedesktop.portal.Background` | The Background portal's `RequestBackground`, asked when "Keep playing in the background" is on, so the portal's background monitor doesn't kill a hidden Linthra mid-song (#754). `lib/core/services/portal_background_permission.dart`. |
 
 The pattern is the same each time: a portal turns a permission the app would
 hold permanently into a grant the user makes once, for one thing.
@@ -168,6 +169,7 @@ check is cheaper and runs on every PR in the main CI workflow instead
 | Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex/Audiobookshelf server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
 | Secure credentials | none | Sign in, quit, relaunch, and confirm the session survived, which is what proves libsecret's portal-backed store worked with no `--talk-name` |
 | MPRIS | none | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
+| Background running | `test/core/services/portal_background_permission_test.dart`, against a stand-in portal that answers the way xdg-desktop-portal 1.18 does, and which also holds the bus calls to what xdg-dbus-proxy lets out of the sandbox | The desktop's own background monitor, which needs a GNOME or Plasma session: see the matrix in [linux-desktop.md](./linux-desktop.md#closing-the-window) |
 | Notifications | none | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
 
 The two gaps that matter for [#456](https://github.com/TheZupZup/Linthra/issues/456)

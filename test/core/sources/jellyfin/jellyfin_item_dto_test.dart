@@ -31,6 +31,7 @@ void main() {
       expect(dto.productionYear, 1999);
       expect(dto.childCount, 12);
       expect(dto.hasPrimaryImage, isTrue);
+      expect(dto.primaryImageTag, 'abc');
     });
 
     test('skips an item with no Id', () {

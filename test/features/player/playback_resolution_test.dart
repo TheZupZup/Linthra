@@ -15,6 +15,7 @@ import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
 import 'package:linthra/data/repositories/store_cached_track_locator.dart';
 
 import '../../support/fake_local_file_presence.dart';
+import '../../support/offline_file_writes.dart';
 
 /// A signed-in Jellyfin stream source that mints a canned URL at play time and
 /// records whether it was consulted, so a test can prove a cached track never

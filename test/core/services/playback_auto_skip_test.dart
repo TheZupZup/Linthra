@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:audio_service/audio_service.dart' as audio;
 import 'package:flutter_test/flutter_test.dart';
@@ -112,11 +113,12 @@ void main() {
   late _Engine engine;
   late _Resolver resolver;
 
-  JustAudioPlaybackController build({bool autoSkip = true}) {
+  JustAudioPlaybackController build({bool autoSkip = true, Random? random}) {
     final JustAudioPlaybackController controller = JustAudioPlaybackController(
       player: engine,
       resolver: resolver,
       automaticRecovery: _policy,
+      random: random,
     )..setAutomaticSkipEnabled(autoSkip);
     addTearDown(controller.dispose);
     return controller;
@@ -335,6 +337,25 @@ void main() {
 
       expect(controller.state.currentTrack, expected);
       expect(engine.loaded, <String>[_url(expected)]);
+    });
+
+    test('a skip onto a song queued twice keeps that copy for shuffle off',
+        () async {
+      // [b, a, b, c] from a, shuffled to [a, b₂, b₀, c]: the skip lands on
+      // the copy of b from the end of the original order.
+      final JustAudioPlaybackController controller = build(random: Random(13))
+        ..setShuffleEnabled(true);
+      resolver.down.add(a.uri);
+      await controller.playTracks(<Track>[b, a, b, c], startIndex: 1);
+      await _settle();
+
+      await _pastCountdown();
+      expect(controller.state.currentTrack, b);
+
+      controller.setShuffleEnabled(false);
+
+      expect(controller.state.previous, <Track>[b, a]);
+      expect(controller.state.upNext, <Track>[c]);
     });
   });
 

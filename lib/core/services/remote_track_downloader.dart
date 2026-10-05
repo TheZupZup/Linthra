@@ -1,11 +1,39 @@
 import '../models/track.dart';
 
-/// The bytes of a downloaded remote track, with an optional file-extension hint
+/// The body of a downloaded remote track, with an optional file-extension hint
 /// (from the server's content type) so the cache can name the file sensibly.
+///
+/// A real download hands its body back while it is still arriving
+/// ([RemoteTrackData.streamed]), and the offline cache writes it to disk a
+/// chunk at a time: a hi-res file can be a gigabyte, and several download at
+/// once (#745).
 class RemoteTrackData {
-  const RemoteTrackData({required this.bytes, this.fileExtension});
+  /// A body already in memory as [bytes].
+  const RemoteTrackData({required List<int> bytes, this.fileExtension})
+      : _bytes = bytes,
+        _body = null,
+        _length = null;
 
-  final List<int> bytes;
+  /// A body still arriving: [body] can be listened to once, and whoever caches
+  /// it either reads it or cancels it, so the connection is closed either
+  /// way. [length] is the size the server announced, when it did.
+  const RemoteTrackData.streamed({
+    required Stream<List<int>> body,
+    int? length,
+    this.fileExtension,
+  })  : _bytes = null,
+        _body = body,
+        _length = length;
+
+  final List<int>? _bytes;
+  final Stream<List<int>>? _body;
+  final int? _length;
+
+  /// The body, a chunk at a time.
+  Stream<List<int>> get body => _body ?? Stream<List<int>>.value(_bytes!);
+
+  /// The body's size in bytes, or null when the server didn't announce one.
+  int? get length => _bytes?.length ?? _length;
 
   /// A lowercase extension without the dot (e.g. `mp3`, `flac`), or `null` when
   /// the server didn't say. Used only to name the cache file.
@@ -29,17 +57,23 @@ abstract interface class RemoteTrackDownloader {
   /// already local and need no download.
   bool isRemote(Track track);
 
-  /// Fetches [track]'s bytes for offline caching, resolving the authenticated
-  /// URL on demand. Throws when the track can't be downloaded (not signed in,
-  /// server unreachable, …); the error never carries the URL or token.
+  /// Fetches [track] for offline caching, resolving the authenticated URL on
+  /// demand. Throws when the track can't be downloaded (not signed in, server
+  /// unreachable, a response that isn't audio, …); the error never carries the
+  /// URL or token.
   ///
-  /// [onProgress] is invoked as bytes arrive, with the running [received] count
-  /// and the [total] size when the server reported one (otherwise `null`,
-  /// meaning indeterminate). It carries byte counts only — never a URL or
-  /// token — so it is safe to surface in the UI. Implementations may omit it
-  /// (a one-shot fetch simply never calls it). If [onProgress] throws, the
-  /// fetch stops there and fails: that is how a caller abandons bytes it
-  /// already knows it can't use.
+  /// Returns once the response has been checked, with its body still
+  /// arriving: the caller reads it. The body's errors are just as free of the
+  /// URL and token as the ones thrown here.
+  ///
+  /// [onProgress] is for a source that already has bytes on the way before it
+  /// returns, with the running [received] count and the [total] size when
+  /// known (otherwise `null`, meaning indeterminate). It carries byte counts
+  /// only, never a URL or token, so it is safe to surface in the UI. A
+  /// source that hands its body back as it arrives never calls it: the body
+  /// is counted by whoever reads it. If [onProgress] throws, the fetch stops
+  /// there and fails: that is how a caller abandons bytes it already knows it
+  /// can't use.
   Future<RemoteTrackData> fetch(
     Track track, {
     void Function(int received, int? total)? onProgress,

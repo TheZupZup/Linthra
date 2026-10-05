@@ -10,6 +10,7 @@ import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/remote_catalog_owner_store.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_api.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
@@ -17,11 +18,15 @@ import 'package:linthra/data/repositories/download_repository_provider.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_auto_sync_store.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
+import 'package:linthra/data/repositories/in_memory_music_library_repository.dart';
+import 'package:linthra/data/repositories/in_memory_remote_catalog_owner_store.dart';
 import 'package:linthra/data/repositories/jellyfin_auto_sync_store_provider.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/playlist_repository_provider.dart';
+import 'package:linthra/data/repositories/remote_catalog_owner_store_provider.dart';
 import 'package:linthra/features/player/favorites_providers.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_controller.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_providers.dart';
 import 'package:linthra/features/settings/jellyfin/jellyfin_settings_state.dart';
@@ -29,6 +34,7 @@ import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
+import '../../player/fake_playback_controller.dart';
 import 'fake_jellyfin_authenticator.dart';
 
 JellyfinSession _sessionFor({
@@ -125,17 +131,22 @@ class _SpyDownloadRepository implements DownloadRepository {
 
 ProviderContainer _container({
   required FakeJellyfinAuthenticator authenticator,
-  required _RecordingRepository repository,
+  required MusicLibraryRepository repository,
   InMemoryJellyfinAutoSyncStore? autoSyncStore,
+  RemoteCatalogOwnerStore? owners,
+  JellyfinSession? restoredSession,
   FakeJellyfinClient? client,
   _SpyDownloadRepository? downloads,
   bool serverPlaylistsAndFavorites = false,
+  List<Override> overrides = const <Override>[],
 }) {
   final container = ProviderContainer(
     overrides: <Override>[
+      ...overrides,
       jellyfinAuthenticatorProvider.overrideWithValue(authenticator),
-      jellyfinSessionStoreProvider
-          .overrideWithValue(InMemoryJellyfinSessionStore()),
+      jellyfinSessionStoreProvider.overrideWithValue(
+        InMemoryJellyfinSessionStore(initialSession: restoredSession),
+      ),
       jellyfinClientProvider.overrideWithValue(
         client ??
             FakeJellyfinClient(
@@ -149,6 +160,8 @@ ProviderContainer _container({
       ),
       jellyfinAutoSyncStoreProvider
           .overrideWithValue(autoSyncStore ?? InMemoryJellyfinAutoSyncStore()),
+      if (owners != null)
+        remoteCatalogOwnerStoreProvider.overrideWithValue(owners),
       musicLibraryRepositoryProvider.overrideWithValue(repository),
       if (downloads != null)
         downloadRepositoryProvider.overrideWithValue(downloads),
@@ -336,8 +349,10 @@ void main() {
       await _signIn(container, url: 'other.example.com', username: 'bob');
       await _drainAutoSync();
 
-      // The new account is a fresh connection, so it auto-syncs once more.
-      expect(repo.upsertCount, 2);
+      // The new account is a fresh connection, so it auto-syncs once more,
+      // after the first account's tracks were cleared (#741).
+      expect(repo.upsertCount, 3);
+      expect(repo.lastTracks, hasLength(2));
       expect(
         await store.read(),
         jellyfinAccountFingerprint(
@@ -384,7 +399,9 @@ void main() {
       client.itemsGate!.complete();
       await _drainAutoSync();
 
-      expect(repo.upsertCount, 1, reason: "only Bob's library is written");
+      // Alice's tracks are cleared at Bob's sign-in (#741); after that only
+      // Bob's library is written, never Alice's stale result.
+      expect(repo.upsertCount, 2, reason: "only Bob's library is written");
       expect(await store.read(), jellyfinAccountFingerprint(bob));
       expect(
         container.read(jellyfinSyncControllerProvider).status,
@@ -627,4 +644,410 @@ void main() {
       expect(repo.upsertCount, 1);
     });
   });
+
+  group('switching account (#741)', () {
+    final JellyfinSession alice = _sessionFor();
+    final JellyfinSession bob = _sessionFor(
+      baseUrl: 'https://other.example.com',
+      userId: 'user-2',
+      userName: 'bob',
+    );
+
+    late InMemoryMusicLibraryRepository catalog;
+    late InMemoryJellyfinAutoSyncStore autoSync;
+    late InMemoryRemoteCatalogOwnerStore owners;
+    late FakeJellyfinAuthenticator auth;
+    late FakeJellyfinClient client;
+
+    setUp(() {
+      catalog = InMemoryMusicLibraryRepository();
+      autoSync = InMemoryJellyfinAutoSyncStore();
+      owners = InMemoryRemoteCatalogOwnerStore();
+      auth = FakeJellyfinAuthenticator(session: alice);
+      client = FakeJellyfinClient(
+        itemsByKind: <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+        },
+      );
+    });
+
+    ProviderContainer app({
+      JellyfinSession? restoredSession,
+      List<Override> overrides = const <Override>[],
+    }) {
+      final ProviderContainer container = _container(
+        authenticator: auth,
+        repository: catalog,
+        autoSyncStore: autoSync,
+        owners: owners,
+        restoredSession: restoredSession,
+        client: client,
+        overrides: overrides,
+      );
+      container.read(jellyfinSettingsControllerProvider);
+      return container;
+    }
+
+    Future<List<String>> jellyfinUris() async => <String>[
+          for (final Track t in await catalog.getTracksForSource('jellyfin'))
+            t.uri,
+        ];
+
+    Future<void> signInAs(ProviderContainer c, JellyfinSession session) async {
+      auth.session = session;
+      expect(
+        await _signIn(
+          c,
+          url: Uri.parse(session.baseUrl).host,
+          username: session.userName!,
+        ),
+        isTrue,
+      );
+      await _drainAutoSync();
+    }
+
+    Future<void> signOut(ProviderContainer c) =>
+        c.read(jellyfinSettingsControllerProvider.notifier).clear();
+
+    /// Alice signed in, synced, and signed out: the library keeps her tracks.
+    Future<ProviderContainer> aliceSyncedAndLeft({
+      List<Override> overrides = const <Override>[],
+    }) async {
+      final ProviderContainer c = app(overrides: overrides);
+      await _settle();
+      await signInAs(c, alice);
+      expect(await jellyfinUris(), hasLength(2));
+      await signOut(c);
+      expect(await jellyfinUris(), hasLength(2), reason: 'kept on sign-out');
+      return c;
+    }
+
+    test("bob's library is empty: none of alice's tracks are left", () async {
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+      await signInAs(c, bob);
+
+      expect(await jellyfinUris(), isEmpty);
+      expect(
+        c.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.success,
+      );
+      expect(await autoSync.read(), jellyfinAccountFingerprint(bob));
+      expect(await owners.read('jellyfin'), jellyfinAccountFingerprint(bob));
+    });
+
+    test("bob's first sync fails: none of alice's tracks are left", () async {
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      client.itemsError = JellyfinException.serverError(500);
+
+      await signInAs(c, bob);
+
+      expect(await jellyfinUris(), isEmpty);
+      expect(
+        c.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.error,
+      );
+      // Not recorded as synced, so bob's next sign-in tries again.
+      expect(await autoSync.read(), jellyfinAccountFingerprint(alice));
+    });
+
+    test('bob signing in over alice, without signing out, clears her too',
+        () async {
+      final ProviderContainer c = app();
+      await _settle();
+      await signInAs(c, alice);
+      client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+      await signInAs(c, bob);
+
+      expect(await jellyfinUris(), isEmpty);
+    });
+
+    test('alice signing back in keeps her library and syncs nothing', () async {
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      final int fetches = client.requestedKinds.length;
+
+      await signInAs(c, alice);
+
+      expect(
+        await jellyfinUris(),
+        unorderedEquals(<String>['jellyfin:a', 'jellyfin:b']),
+      );
+      expect(client.requestedKinds, hasLength(fetches));
+    });
+
+    test('alice back after bob gets her own library, not his', () async {
+      // Alice auto-synced first. Bob's first sync failed and he synced by
+      // hand, so alice is still the account recorded as auto-synced, but the
+      // library holds bob's tracks.
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      client.itemsError = JellyfinException.serverError(500);
+      await signInAs(c, bob);
+      client
+        ..itemsError = null
+        ..itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{
+          JellyfinItemKind.audio: <JellyfinItemDto>[_audio('x')],
+        };
+      await c.read(jellyfinSyncControllerProvider.notifier).sync();
+      await signOut(c);
+      expect(await jellyfinUris(), <String>['jellyfin:x']);
+      expect(await autoSync.read(), jellyfinAccountFingerprint(alice));
+
+      client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{
+        JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],
+      };
+      await signInAs(c, alice);
+
+      expect(
+        await jellyfinUris(),
+        unorderedEquals(<String>['jellyfin:a', 'jellyfin:b']),
+      );
+    });
+
+    test('a write already under way lands before the clear, not after it',
+        () async {
+      final _GatedCatalog gated = _GatedCatalog(catalog);
+      final ProviderContainer c = _container(
+        authenticator: auth,
+        repository: gated,
+        autoSyncStore: autoSync,
+        owners: owners,
+        client: client,
+      );
+      c.read(jellyfinSettingsControllerProvider);
+      await _settle();
+
+      // Alice's sync is writing her library when she signs out and bob signs
+      // in (to an empty library).
+      gated.gate = Completer<void>();
+      auth.session = alice;
+      await _signIn(c);
+      await _drainAutoSync();
+      expect(gated.parked, isTrue);
+      await signOut(c);
+      client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+      auth.session = bob;
+      await _signIn(c, url: 'other.example.com', username: 'bob');
+      // Bob's sign-in gets as far as it can before alice's write lands.
+      await _drainAutoSync();
+      gated.gate!.complete();
+      await _drainAutoSync();
+
+      expect(await jellyfinUris(), isEmpty);
+    });
+
+    test(
+        "bob's tracks are never written while the record still says they are "
+        "alice's", () async {
+      final _FlakyOwners flaky = _FlakyOwners();
+      owners = flaky;
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      flaky.failWrites = true;
+
+      await signInAs(c, bob);
+
+      // Her tracks are gone, and his sync failed rather than write his
+      // tracks under her name.
+      expect(await jellyfinUris(), isEmpty);
+      expect(await owners.read('jellyfin'), jellyfinAccountFingerprint(alice));
+      expect(
+        c.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.error,
+      );
+
+      // Once the record can be saved, his next sync takes the library over.
+      flaky.failWrites = false;
+      await c.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      expect(await jellyfinUris(), hasLength(2));
+      expect(await owners.read('jellyfin'), jellyfinAccountFingerprint(bob));
+    });
+
+    group('the play queue goes with the library (#767)', () {
+      const Track aliceA = Track(id: 'a', title: 'Alice a', uri: 'jellyfin:a');
+      const Track aliceB = Track(id: 'b', title: 'Alice b', uri: 'jellyfin:b');
+      const Track onDisk = Track(id: '/m/x.flac', title: 'x', uri: '/m/x.flac');
+
+      late FakePlaybackController player;
+
+      setUp(() => player = FakePlaybackController());
+      tearDown(() => player.dispose());
+
+      List<Override> withPlayer() => <Override>[
+            localPlaybackControllerProvider.overrideWithValue(player),
+          ];
+
+      test("bob taking over takes alice's songs out, the playing one too",
+          () async {
+        final ProviderContainer c =
+            await aliceSyncedAndLeft(overrides: withPlayer());
+        c.read(localPlaybackControllerProvider);
+        await player.playTracks(<Track>[aliceA, onDisk, aliceB]);
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+        await signInAs(c, bob);
+
+        expect(player.removeTracksCount, 1);
+        expect(player.state.currentTrack?.uri, onDisk.uri);
+        expect(player.state.upNext, isEmpty);
+        expect(player.state.previous, isEmpty);
+      });
+
+      test('alice signing back in keeps her songs queued', () async {
+        final ProviderContainer c =
+            await aliceSyncedAndLeft(overrides: withPlayer());
+        c.read(localPlaybackControllerProvider);
+        await player.playTracks(<Track>[aliceA, aliceB]);
+
+        await signInAs(c, alice);
+
+        expect(player.removeTracksCount, 0);
+        expect(player.state.currentTrack?.uri, aliceA.uri);
+        expect(
+          <String>[for (final Track t in player.state.upNext) t.uri],
+          <String>[aliceB.uri],
+        );
+      });
+
+      test('with no player built yet, none is built to empty it', () async {
+        bool built = false;
+        final ProviderContainer c = await aliceSyncedAndLeft(
+          overrides: <Override>[
+            localPlaybackControllerProvider.overrideWith((Ref ref) {
+              built = true;
+              return player;
+            }),
+          ],
+        );
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+        await signInAs(c, bob);
+
+        expect(await jellyfinUris(), isEmpty);
+        expect(built, isFalse);
+      });
+    });
+
+    group('a library synced before the owner was recorded', () {
+      Future<void> seedAlicesLibrary() => catalog.upsertCatalog(
+            sourceId: 'jellyfin',
+            tracks: <Track>[
+              const Track(id: 'a', title: 'a', uri: 'jellyfin:a'),
+              const Track(id: 'b', title: 'b', uri: 'jellyfin:b'),
+            ],
+            albums: const <Album>[],
+            artists: const <Artist>[],
+          );
+
+      test('is kept for the account that auto-synced it', () async {
+        await seedAlicesLibrary();
+        autoSync = InMemoryJellyfinAutoSyncStore(
+          jellyfinAccountFingerprint(alice),
+        );
+        final ProviderContainer c = app();
+        await _settle();
+        final int fetches = client.requestedKinds.length;
+
+        await signInAs(c, alice);
+
+        expect(await jellyfinUris(), hasLength(2));
+        expect(client.requestedKinds, hasLength(fetches));
+        expect(
+          await owners.read('jellyfin'),
+          jellyfinAccountFingerprint(alice),
+        );
+      });
+
+      test('is cleared for another account', () async {
+        await seedAlicesLibrary();
+        autoSync = InMemoryJellyfinAutoSyncStore(
+          jellyfinAccountFingerprint(alice),
+        );
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+        final ProviderContainer c = app();
+        await _settle();
+
+        await signInAs(c, bob);
+
+        expect(await jellyfinUris(), isEmpty);
+      });
+
+      test("is recorded as the signed-in account's when it signs out",
+          () async {
+        // Nothing to guess from: no auto-sync was ever recorded. Alice is
+        // signed in since before the update, and signs out.
+        await seedAlicesLibrary();
+        final ProviderContainer c = app(restoredSession: alice);
+        await c
+            .read(jellyfinSettingsControllerProvider.notifier)
+            .ensureLoaded();
+        await signOut(c);
+        client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{};
+
+        await signInAs(c, bob);
+
+        expect(await jellyfinUris(), isEmpty);
+      });
+    });
+  });
+}
+
+/// The owner store, with writes that can be made to fail (a full disk, a
+/// storage error), so a test can see what a takeover does when the record of
+/// whose tracks the slice holds can't be saved.
+class _FlakyOwners extends InMemoryRemoteCatalogOwnerStore {
+  bool failWrites = false;
+
+  @override
+  Future<void> write(String sourceId, String fingerprint) {
+    if (failWrites) throw StateError('could not save');
+    return super.write(sourceId, fingerprint);
+  }
+}
+
+/// The in-memory catalog, with a gate a sync's write can be held at, so a
+/// test can sign in another account while that write is under way.
+class _GatedCatalog implements MusicLibraryRepository {
+  _GatedCatalog(this._inner);
+
+  final InMemoryMusicLibraryRepository _inner;
+  Completer<void>? gate;
+  bool parked = false;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) async {
+    final Completer<void>? held = gate;
+    if (held != null && tracks.isNotEmpty) {
+      parked = true;
+      await held.future;
+    }
+    await _inner.upsertCatalog(
+      sourceId: sourceId,
+      tracks: tracks,
+      albums: albums,
+      artists: artists,
+    );
+  }
+
+  @override
+  Future<List<Track>> getAllTracks() => _inner.getAllTracks();
+
+  @override
+  Future<List<Album>> getAllAlbums() => _inner.getAllAlbums();
+
+  @override
+  Future<List<Artist>> getAllArtists() => _inner.getAllArtists();
+
+  @override
+  Future<Track?> getTrackByUri(String uri) => _inner.getTrackByUri(uri);
+
+  @override
+  Future<void> removeTracks(List<String> trackIds) =>
+      _inner.removeTracks(trackIds);
 }

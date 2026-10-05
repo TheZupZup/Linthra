@@ -5,6 +5,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/services/artwork_disk_cache.dart';
 
+/// Bytes that start like a PNG, which is all the cache checks before saving a
+/// cover.
+const List<int> _cover = <int>[0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4];
+
 void main() {
   group('ArtworkDiskCache', () {
     late Directory dir;
@@ -25,7 +29,7 @@ void main() {
     setUp(() async {
       dir = await Directory.systemTemp.createTemp('artwork_disk_cache_test');
       fetchedUrls = <Uri>[];
-      fetch = (Uri url) => <int>[1, 2, 3, 4];
+      fetch = (Uri url) => _cover;
     });
 
     tearDown(() async {
@@ -48,7 +52,7 @@ void main() {
       expect(fetchedUrls, [key]);
       final File? cached = cache.cachedFile(key);
       expect(cached, isNotNull);
-      expect(await cached!.readAsBytes(), <int>[1, 2, 3, 4]);
+      expect(await cached!.readAsBytes(), _cover);
     });
 
     test('a cache hit avoids a second network fetch', () async {
@@ -107,7 +111,7 @@ void main() {
       await cache.warm(key);
       final File? healed = cache.cachedFile(key);
       expect(healed, isNotNull);
-      expect(await healed!.readAsBytes(), <int>[1, 2, 3, 4]);
+      expect(await healed!.readAsBytes(), _cover);
     });
 
     test('a failed fetch caches nothing and never throws', () async {
@@ -154,7 +158,7 @@ void main() {
       expect(cached.path, isNot(contains('getCoverArt')));
       expect(cached.path, contains(_sha256Hex('subsonic-cover:al-123')));
       // The bytes on disk are exactly the image, no URL text embedded.
-      expect(await cached.readAsBytes(), <int>[1, 2, 3, 4]);
+      expect(await cached.readAsBytes(), _cover);
       // Nothing else was written to the directory (no manifest/index file).
       final List<FileSystemEntity> entries = await dir.list().toList();
       expect(entries, hasLength(1));
@@ -187,7 +191,297 @@ void main() {
       expect(second!.path, firstPath);
     });
   });
+
+  group('ArtworkDiskCache per server, fresh and bounded (#739)', () {
+    late Directory dir;
+    late List<Uri> fetchedUrls;
+    late List<int>? Function(Uri url) fetch;
+    late String? server;
+    late DateTime now;
+
+    ArtworkDiskCache build({int maxBytes = 1 << 20}) => ArtworkDiskCache(
+          directory: dir,
+          resolveFetchUrl: (Uri key) =>
+              Uri.parse('https://$server.example/cover/${key.path}'),
+          serverOf: (Uri key) => key.isScheme('subsonic-cover') ? server : '',
+          fetch: (Uri url) async {
+            fetchedUrls.add(url);
+            return fetch(url);
+          },
+          maxBytes: maxBytes,
+          now: () => now,
+        );
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('artwork_disk_cache_739');
+      fetchedUrls = <Uri>[];
+      fetch = (Uri url) => <int>[..._cover, ...utf8.encode(url.host)];
+      server = 'server-a';
+      now = DateTime.now();
+    });
+
+    tearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+
+    final Uri al12 = Uri.parse('subsonic-cover:al-12');
+
+    test("another server's al-12 is another cover", () async {
+      final ArtworkDiskCache cache = build();
+      await cache.warm(al12);
+      final List<int> fromA = await cache.cachedFile(al12)!.readAsBytes();
+
+      server = 'server-b';
+      expect(cache.cachedFile(al12), isNull);
+      await cache.warm(al12);
+
+      expect(fetchedUrls.map((Uri u) => u.host), <String>[
+        'server-a.example',
+        'server-b.example',
+      ]);
+      expect(await cache.cachedFile(al12)!.readAsBytes(), isNot(fromA));
+      // And server A's is still there for when it is connected again.
+      server = 'server-a';
+      expect(await cache.cachedFile(al12)!.readAsBytes(), fromA);
+    });
+
+    test('signed out, a reference is neither read nor fetched', () async {
+      final ArtworkDiskCache cache = build();
+      await cache.warm(al12);
+      server = null;
+
+      expect(cache.cachedFile(al12), isNull);
+      await cache.warm(al12);
+      expect(fetchedUrls, hasLength(1));
+    });
+
+    test('a URL keeps the file name it had before servers were told apart',
+        () async {
+      final ArtworkDiskCache cache = build();
+      final Uri jellyfin =
+          Uri.parse('https://jf.example/Items/1/Images/Primary');
+
+      await cache.warm(jellyfin);
+
+      expect(
+        cache.cachedFile(jellyfin)!.path,
+        endsWith('${_sha256Hex(jellyfin.toString())}.img'),
+      );
+    });
+
+    test('bytes that are not an image are never saved', () async {
+      // An error page sent with an image content type.
+      fetch = (Uri url) => utf8.encode('<html>502 Bad Gateway</html>');
+      final ArtworkDiskCache cache = build();
+
+      await cache.warm(al12);
+
+      expect(cache.cachedFile(al12), isNull);
+      expect(
+          await dir.exists() ? await dir.list().toList() : <Object>[], isEmpty);
+    });
+
+    test('an old cover is still shown and fetched again in the background',
+        () async {
+      final ArtworkDiskCache cache = build();
+      await cache.warm(al12);
+      fetch = (Uri url) => <int>[..._cover, 9, 9, 9];
+
+      now = now.add(
+        ArtworkDiskCache.defaultRefreshAfter + const Duration(minutes: 1),
+      );
+      final File? stale = cache.cachedFile(al12);
+      expect(stale, isNotNull);
+      await cache.warm(al12);
+
+      expect(fetchedUrls, hasLength(2));
+      expect(await cache.cachedFile(al12)!.readAsBytes(),
+          <int>[..._cover, 9, 9, 9]);
+    });
+
+    test('an old cover is kept when fetching it again fails', () async {
+      final ArtworkDiskCache cache = build();
+      await cache.warm(al12);
+      final List<int> before = await cache.cachedFile(al12)!.readAsBytes();
+      fetch = (Uri url) => null;
+
+      now = now.add(const Duration(days: 365));
+      await cache.warm(al12);
+
+      expect(await cache.cachedFile(al12)!.readAsBytes(), before);
+    });
+
+    test('a fresh cover is not fetched again', () async {
+      final ArtworkDiskCache cache = build();
+      await cache.warm(al12);
+
+      now = now.add(const Duration(days: 1));
+      cache.cachedFile(al12);
+      await cache.warm(al12);
+
+      expect(fetchedUrls, hasLength(1));
+    });
+
+    test(
+        "a switch while a warm looks at the disk never files the new server's "
+        'cover as the old one\'s', () async {
+      final ArtworkDiskCache cache = build();
+
+      // Warmed under server A, then the account switches before the disk
+      // check comes back.
+      final Future<void> warming = cache.warm(al12);
+      server = 'server-b';
+      await warming;
+
+      server = 'server-a';
+      expect(cache.cachedFile(al12), isNull);
+      expect(fetchedUrls, isEmpty);
+    });
+
+    test('past the cap, the covers fetched longest ago go first', () async {
+      // Each cover is 1,000 bytes. Fetched with room to spare...
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        // In this order, a minute apart.
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(DateTime(2026, 10, 1, 12, i));
+      }
+      // ...then the next launch has room for four.
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+
+      await cache.trim();
+
+      expect(
+        <bool>[for (final Uri cover in covers) cache.cachedFile(cover) != null],
+        <bool>[false, false, false, true, true, true],
+      );
+    });
+
+    test('the cap is enforced after the first write on its own', () async {
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      // Leftovers from an earlier run, already over the cap.
+      await dir.create(recursive: true);
+      for (int i = 0; i < 5; i++) {
+        final File old = File('${dir.path}/old$i.img')
+          ..writeAsBytesSync(List<int>.filled(1000, 1));
+        old.setLastModifiedSync(DateTime(2020, 1, 1, 0, i));
+      }
+      final ArtworkDiskCache cache = build(maxBytes: 3000);
+
+      await cache.warm(al12);
+      // The trim runs in the background, from the first use on.
+      for (int i = 0; i < 100 && _coverBytes(dir) > 3000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(cache.cachedFile(al12), isNotNull);
+      expect(_coverBytes(dir), lessThanOrEqualTo(3000));
+    });
+
+    test(
+        'a cache already past the cap is brought under it at first use, with '
+        'nothing written', () async {
+      // Covers fetched before there was a cap: all fresh, so every one is a
+      // hit and nothing is ever written again.
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      fetchedUrls.clear();
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+
+      expect(cache.cachedFile(covers.last), isNotNull);
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+      expect(fetchedUrls, isEmpty);
+      // The ones fetched last stay.
+      expect(cache.cachedFile(covers.last), isNotNull);
+    });
+
+    test(
+        'a cover handed out as that trim starts is left for the image to '
+        'read', () async {
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+
+      // The first screen shows the cover fetched longest ago, still fresh:
+      // the image reads the file only once this has returned it.
+      final File handedOut = cache.cachedFile(covers.first)!;
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(handedOut.existsSync(), isTrue);
+      // The cap holds all the same, with the next ones gone instead.
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+      expect(
+        <bool>[for (final Uri cover in covers) cache.cachedFile(cover) != null],
+        <bool>[true, false, false, false, true, true],
+      );
+    });
+
+    test('a cover handed out a while ago is trimmed like any other', () async {
+      fetch = (Uri url) => <int>[..._cover, ...List<int>.filled(992, 7)];
+      final ArtworkDiskCache roomy = build();
+      final List<Uri> covers = <Uri>[
+        for (int i = 0; i < 6; i++) Uri.parse('subsonic-cover:al-$i'),
+      ];
+      for (int i = 0; i < covers.length; i++) {
+        await roomy.warm(covers[i]);
+        roomy
+            .cachedFile(covers[i])!
+            .setLastModifiedSync(now.subtract(Duration(minutes: 10 - i)));
+      }
+      final ArtworkDiskCache cache = build(maxBytes: 4000);
+      final File handedOut = cache.cachedFile(covers.first)!;
+      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(handedOut.existsSync(), isTrue);
+
+      // Long since read, and the cache past the cap again.
+      now = now.add(const Duration(minutes: 5));
+      await roomy.warm(Uri.parse('subsonic-cover:al-6'));
+      await roomy.warm(Uri.parse('subsonic-cover:al-7'));
+      await cache.trim();
+
+      expect(handedOut.existsSync(), isFalse);
+      expect(_coverBytes(dir), lessThanOrEqualTo(4000));
+    });
+  });
 }
+
+/// The bytes the covers in [dir] take.
+int _coverBytes(Directory dir) => <int>[
+      for (final FileSystemEntity entity in dir.listSync())
+        if (entity is File && entity.path.endsWith('.img')) entity.lengthSync(),
+    ].fold(0, (int sum, int size) => sum + size);
 
 String _sha256Hex(String input) {
   // Mirrors ArtworkDiskCache's private hashing without depending on it, so a

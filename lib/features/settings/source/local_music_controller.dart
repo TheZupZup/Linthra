@@ -211,6 +211,21 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
     await _scan(folders);
   }
 
+  /// The user says [folder] really is empty: its music was deleted on purpose,
+  /// not left behind on a drive or share that isn't mounted (#737). Scans the
+  /// selection once with that folder allowed to come back empty, which takes
+  /// its music out of the library. Only while it still holds nothing: a share
+  /// mounted again in the meantime is simply read.
+  Future<void> confirmFolderEmpty(String folder) async {
+    state = const LocalMusicActionState(busy: true);
+    final List<String> folders = _selectedFolders();
+    if (folders.isEmpty) {
+      state = const LocalMusicActionState();
+      return;
+    }
+    await _scan(folders, acceptEmpty: <String>{folder});
+  }
+
   /// Replaces one folder with a folder the user picks, leaving the others
   /// alone.
   ///
@@ -409,12 +424,15 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
 
   /// Scans [folders] as one library, turns the resulting report into the card's
   /// status line, and hands the report back so a caller can act on the outcome.
-  Future<LocalScanReport?> _scan(List<String> folders) async {
+  Future<LocalScanReport?> _scan(
+    List<String> folders, {
+    Set<String> acceptEmpty = const <String>{},
+  }) async {
     // Use this operation's result, never the last globally recorded report:
     // a superseded scan must not look successful or persist a source switch.
     final report = await ref
         .read(libraryControllerProvider.notifier)
-        .scanFoldersWithReport(folders);
+        .scanFoldersWithReport(folders, acceptEmpty: acceptEmpty);
     if (report == null) {
       state = const LocalMusicActionState();
       return null;
@@ -508,6 +526,9 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       case LocalRootFault.unknown:
         return "Linthra still couldn't read that folder. Try selecting it "
             'again.';
+      case LocalRootFault.empty:
+        return "That folder is still empty. Mount the drive or share it's "
+            'on, or tell Linthra it is empty on purpose.';
     }
   }
 
@@ -527,6 +548,9 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
       case LocalRootFault.unknown:
         return "Linthra couldn't read that folder, so your library was left as "
             'it was. Try again, or pick another folder.';
+      case LocalRootFault.empty:
+        return 'That folder is empty, so your library was left as it was. '
+            'Mount the drive or share it is on, or pick another folder.';
     }
   }
 

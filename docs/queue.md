@@ -213,6 +213,9 @@ so nothing behaves differently depending on how you reached it.
   (effective) order. Turning shuffle **off** restores the original
   pre-shuffle order, which drops a manual reorder — that's the defined meaning of
   un-shuffling, not a bug.
+- **A song queued twice is two entries.** Turning shuffle off keeps the copy
+  that is playing in its own place, and removing one copy (or a copy added with
+  Play next) leaves the other copy where it was.
 - **Repeat stays coherent.** Repeat-all still wraps to the start of the
   (reordered) queue; repeat-one still replays the current track.
 
@@ -235,6 +238,28 @@ If the queue becomes empty (everything up next removed, or **Clear**), the
 **Clear** drops the up-next list **and** the history, keeping only the track
 playing now. Playback is not interrupted. On the desktop pane it also empties
 the Recently played list, so Clear keeps meaning the same thing in both shapes.
+
+## Switching account or server
+
+A queued server song is only an id (`subsonic:101`, `plex:101`), and an id only
+means something on its own server. Left in the queue after a switch, it would
+ask the new server for its own song 101, under the old song's title, and its
+scrobble, favourite, cover and lyrics would go there too. So the queue follows
+the library:
+
+- **Jellyfin or Navidrome/Subsonic:** signing out keeps the library and the
+  queue. When **another** account (or another server address) signs in, the
+  previous account's library is removed, and its songs leave the queue at the
+  same moment. Signing back in to the same account keeps both.
+- **Plex:** disconnecting removes the synced library, and its songs leave the
+  queue with it. Connecting to a **different** server does the same;
+  reconnecting to the same server keeps them.
+
+The song playing at that moment goes too: playback stops and the queue lands,
+stopped, on the next song left (Play starts it). Local files and other
+providers' songs stay where they were. On Linux the saved session records whose
+songs it holds, so a restart under another account leaves them out as well
+(see [Crash-safe playback restore](linux-desktop.md#crash-safe-playback-restore)).
 
 ## Save queue as playlist
 
@@ -290,8 +315,6 @@ when you save the queue as a playlist (only stable track ids are saved).
   playlist screen if all tracks are Jellyfin).
 - **Un-shuffling drops a manual reorder** of the up-next list (it restores the
   true pre-shuffle order). This is intentional and documented above.
-- **Duplicate tracks** in a queue share a track id; reorder/remove act on the
-  first matching entry. Queues rarely contain exact duplicates.
 - **Recently played does not survive a restart.** It is memory-only by design.
   Persisting it would mean a second on-disk record of listening history next to
   the play counts that already exist, and the safest version of that feature is

@@ -123,20 +123,53 @@ check_provenance() {
   fi
 }
 
+# A package's analysis_options.yaml while check_analysis holds a copy of it,
+# so a run that stops part way (an error, Ctrl-C) still puts it back.
+held_options=""
+held_copy=""
+
+restore_options() {
+  if [ -n "$held_copy" ]; then
+    cp "$held_copy" "$held_options"
+    rm -f "$held_copy"
+    held_copy=""
+  fi
+}
+trap restore_options EXIT
+
 # Analyze the package on its own terms, with the pinned toolchain.
+#
+# Its analysis_options.yaml is put back however this ends. Flutter rewrites
+# that file on every `pub get` (its analysis options migration adds build/**
+# and the platform folders to the excludes), while the vendored copy has to
+# stay upstream + upstream.patch, which check_provenance verifies. Left
+# rewritten, a local run dirties the tree and passes, and the commit that
+# sweeps the edit in fails CI (#760).
 check_analysis() {
   local package_dir="$1" name="$2"
+  local options="$package_dir/analysis_options.yaml"
 
-  [ -f "$package_dir/analysis_options.yaml" ] \
+  [ -f "$options" ] \
     || fail "$name: no analysis_options.yaml — the root one excludes third_party/**, so the package would not be analyzed at all"
 
-  info "$name: resolving dependencies"
-  ( cd "$package_dir" && "$FLUTTER" pub get --enforce-lockfile >/dev/null ) \
-    || fail "$name: flutter pub get --enforce-lockfile failed"
+  held_options="$options"
+  held_copy="$(mktemp)"
+  cp "$options" "$held_copy"
 
-  info "$name: analyzing"
-  ( cd "$package_dir" && "$FLUTTER" analyze ) \
-    || fail "$name: flutter analyze reported issues"
+  local status=0
+  info "$name: resolving dependencies"
+  if ! ( cd "$package_dir" && "$FLUTTER" pub get --enforce-lockfile >/dev/null ); then
+    status=1
+  else
+    info "$name: analyzing"
+    ( cd "$package_dir" && "$FLUTTER" analyze ) || status=2
+  fi
+  restore_options
+
+  case "$status" in
+    1) fail "$name: flutter pub get --enforce-lockfile failed" ;;
+    2) fail "$name: flutter analyze reported issues" ;;
+  esac
 }
 
 main() {

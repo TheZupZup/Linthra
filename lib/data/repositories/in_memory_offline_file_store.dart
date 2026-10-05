@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../core/repositories/offline_file_store.dart';
 
 /// A non-persistent [OfflineFileStore] for development and tests.
@@ -17,11 +19,10 @@ class InMemoryOfflineFileStore implements OfflineFileStore {
   List<int>? bytesFor(String fileName) => _files[fileName];
 
   @override
-  Future<String> write(
-    String trackId,
-    List<int> bytes, {
-    String? extension,
-  }) async {
+  Future<OfflineFileDraft> createDraft(String trackId) async =>
+      _MemoryDraft(this, trackId);
+
+  String _publish(String trackId, List<int> bytes, String? extension) {
     final String safeId = trackId.replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
     final String ext = (extension != null && extension.isNotEmpty)
         ? '.${extension.replaceAll(RegExp('[^A-Za-z0-9]'), '')}'
@@ -49,4 +50,40 @@ class InMemoryOfflineFileStore implements OfflineFileStore {
     Set<String> referenced, {
     bool temporaryOnly = false,
   }) async {}
+}
+
+/// A draft held in memory until it is published into the store's map.
+class _MemoryDraft implements OfflineFileDraft {
+  _MemoryDraft(this._store, this._trackId);
+
+  final InMemoryOfflineFileStore _store;
+  final String _trackId;
+  final BytesBuilder _bytes = BytesBuilder();
+  bool _settled = false;
+
+  @override
+  int get length => _bytes.length;
+
+  @override
+  Future<void> add(List<int> chunk) async {
+    if (_settled) {
+      throw StateError('This cache file is no longer being written.');
+    }
+    _bytes.add(chunk);
+  }
+
+  @override
+  Future<String> publish({String? extension}) async {
+    if (_settled) {
+      throw StateError('This cache file is no longer being written.');
+    }
+    _settled = true;
+    return _store._publish(_trackId, _bytes.takeBytes(), extension);
+  }
+
+  @override
+  Future<void> discard() async {
+    _settled = true;
+    _bytes.clear();
+  }
 }

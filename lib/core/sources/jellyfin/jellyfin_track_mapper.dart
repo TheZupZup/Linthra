@@ -93,6 +93,10 @@ abstract final class JellyfinTrackMapper {
     if (!item.hasPrimaryImage) {
       return null;
     }
-    return JellyfinEndpoints.primaryImage(baseUrl, itemId: item.id);
+    return JellyfinEndpoints.primaryImage(
+      baseUrl,
+      itemId: item.id,
+      tag: item.primaryImageTag,
+    );
   }
 }

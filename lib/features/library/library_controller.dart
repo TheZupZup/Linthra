@@ -260,9 +260,14 @@ class LibraryController extends Notifier<LibraryState> {
   /// old file back, `touch -r` after an in-place edit) would otherwise go
   /// unnoticed. It is also the honest answer to "the library looks wrong",
   /// since it rebuilds the whole slice from the files themselves.
+  ///
+  /// [acceptEmpty] names folders the user has said really are empty, so a walk
+  /// that finds nothing there takes their music out (see
+  /// [LocalLibraryScanner.scan]).
   Future<LocalScanReport?> scanFoldersWithReport(
     List<String> folderPaths, {
     bool full = false,
+    Set<String> acceptEmpty = const <String>{},
   }) async {
     // Through invalidatePendingScans, so starting a scan also stops the native
     // walk it replaces. A SAF-to-SAF switch would supersede on its own (the
@@ -340,6 +345,7 @@ class LibraryController extends Notifier<LibraryState> {
       final LocalLibraryScan scan = await scanner.scan(
         roots: roots,
         previousTracks: previousTracks,
+        acceptEmpty: acceptEmpty,
       );
       if (generation != _scanGeneration) return null;
 

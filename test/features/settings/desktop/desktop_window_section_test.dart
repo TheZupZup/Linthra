@@ -5,16 +5,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/desktop_close_behavior.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/background_permission.dart';
 import 'package:linthra/core/services/desktop_window_controller.dart';
+import 'package:linthra/data/repositories/background_permission_provider.dart';
 import 'package:linthra/data/repositories/desktop_window_controller_provider.dart';
 import 'package:linthra/data/repositories/desktop_window_preferences_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_desktop_window_preferences.dart';
 import 'package:linthra/features/player/player_providers.dart';
+import 'package:linthra/features/settings/desktop/close_behavior_controller.dart';
+import 'package:linthra/features/settings/desktop/desktop_window_providers.dart';
 import 'package:linthra/features/settings/desktop/desktop_window_section.dart';
 import 'package:linthra/features/settings/hub/music_and_playback_screen.dart';
 
 import '../../player/fake_playback_controller.dart';
+
+/// A desktop that answers at once, with whatever its settings say now.
+class _Desktop implements BackgroundPermissionRequester {
+  _Desktop(this.answer);
+
+  BackgroundPermission answer;
+  int asked = 0;
+
+  @override
+  Future<BackgroundPermission> request() async {
+    asked++;
+    return answer;
+  }
+}
 
 /// Records what the card asked the window to do.
 class _RecordingWindow implements DesktopWindowController {
@@ -44,6 +62,7 @@ void main() {
       DesktopCloseBehavior stored = DesktopCloseBehavior.quit,
       Widget child = const DesktopWindowSettingsSection(),
       HostPlatform host = HostPlatform.linux,
+      BackgroundPermissionRequester? desktop,
     }) async {
       preferences = InMemoryDesktopWindowPreferences(closeBehavior: stored);
       window = _RecordingWindow();
@@ -57,6 +76,8 @@ void main() {
           // The quit path reaches the playback controller; the real one on
           // Linux opens libmpv.
           playbackControllerProvider.overrideWithValue(playback),
+          if (desktop != null)
+            backgroundPermissionRequesterProvider.overrideWithValue(desktop),
         ],
       );
       addTearDown(container.dispose);
@@ -98,6 +119,74 @@ void main() {
         await preferences.closeBehavior(),
         DesktopCloseBehavior.keepPlaying,
       );
+    });
+
+    group('when the desktop refuses background running (#754)', () {
+      final Finder refused =
+          find.byKey(const Key('desktop-window-background-refused'));
+
+      Future<void> chooseKeepPlaying(
+        WidgetTester tester,
+        BackgroundPermission answer, {
+        _Desktop? desktop,
+      }) async {
+        final ProviderContainer container =
+            await pump(tester, desktop: desktop ?? _Desktop(answer));
+        // As bootstrap wires it: the service follows the stored choice.
+        container.listen<AsyncValue<DesktopCloseBehavior>>(
+          desktopCloseBehaviorControllerProvider,
+          (_, AsyncValue<DesktopCloseBehavior> next) => container
+              .read(desktopWindowLifecycleServiceProvider)
+              .setCloseBehavior(next.valueOrNull ?? DesktopCloseBehavior.quit),
+          fireImmediately: true,
+        );
+        await tester.tap(find.text('Keep playing in the background'));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('the card says closing the window quits instead',
+          (tester) async {
+        await chooseKeepPlaying(tester, BackgroundPermission.denied);
+
+        expect(refused, findsOneWidget);
+      });
+
+      testWidgets('says nothing when it is allowed', (tester) async {
+        await chooseKeepPlaying(tester, BackgroundPermission.allowed);
+
+        expect(refused, findsNothing);
+      });
+
+      testWidgets(
+          'once it is allowed in the system settings, Check again asks again '
+          'and the note goes', (tester) async {
+        final _Desktop desktop = _Desktop(BackgroundPermission.denied);
+        await chooseKeepPlaying(
+          tester,
+          BackgroundPermission.denied,
+          desktop: desktop,
+        );
+        expect(refused, findsOneWidget);
+        expect(desktop.asked, 1);
+
+        // Allowed in the system settings. The option is still the selected
+        // one, so choosing it again would change nothing.
+        desktop.answer = BackgroundPermission.allowed;
+        await tester.tap(find.text('Check again'));
+        await tester.pumpAndSettle();
+
+        expect(desktop.asked, 2);
+        expect(refused, findsNothing);
+      });
+
+      testWidgets('says nothing once quitting is chosen again', (tester) async {
+        await chooseKeepPlaying(tester, BackgroundPermission.denied);
+
+        await tester.tap(find.text('Quit Linthra'));
+        await tester.pumpAndSettle();
+
+        expect(refused, findsNothing);
+      });
     });
 
     testWidgets('Quit now ends the app', (tester) async {

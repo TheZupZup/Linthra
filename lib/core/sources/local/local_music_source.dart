@@ -26,6 +26,7 @@ class LocalScan {
     this.unreadableDirectories = const <String>[],
     this.hasUnlocatedReadFailures = false,
     this.vanished = const <String>{},
+    this.foundNoFiles = false,
   });
 
   final List<Track> tracks;
@@ -61,6 +62,12 @@ class LocalScan {
   /// path). The walk saw them, and then they were not there to read: moved or
   /// deleted while the scan ran, or on a drive that went away.
   final Set<String> vanished;
+
+  /// A walk of a filesystem folder that found no files at all, not even ones
+  /// that aren't music. Said only of a walk that read everything ([isComplete]):
+  /// that is the state a drive or network share that isn't mounted leaves its
+  /// mount point in, and not just a folder with no music in it (#737).
+  final bool foundNoFiles;
 
   /// Whether the walk read the whole folder, so that a file it did not return
   /// is really gone.
@@ -318,6 +325,7 @@ class LocalMusicSource implements MusicSource {
       stamps: stamps,
       unreadableDirectories: List<String>.unmodifiable(unreadable),
       vanished: Set<String>.unmodifiable(vanished),
+      foundNoFiles: files.isEmpty && unreadable.isEmpty,
       report: LocalScanReport(
         folderSelected: true,
         isContentUri: isContentUri,

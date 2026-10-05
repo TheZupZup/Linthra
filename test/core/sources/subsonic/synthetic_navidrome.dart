@@ -16,6 +16,11 @@ import 'package:linthra/core/sources/subsonic/subsonic_track_mapper.dart';
 ///
 /// Song ids embed the requesting username, so two accounts on the same server
 /// see disjoint catalogs (an account switch is observable in the rows).
+///
+/// The album list is served in list order from [listing], which a test can
+/// change between pages ([afterAlbumListCall], [removeFromListing],
+/// [moveToFrontOfListing]) to model a server whose library changes while a
+/// walk reads it (#752).
 class SyntheticNavidrome {
   SyntheticNavidrome({
     required this.albums,
@@ -29,8 +34,14 @@ class SyntheticNavidrome {
     this.rateLimitAlbumCallsFrom,
     this.rejectCredentialsFromAlbumCall,
     this.stallAtAlbumCall,
+    this.brokenAlbums = const <int>{},
+    this.rejectCredentialsOnPing = false,
+    this.failAlbumListCallsFrom,
+    this.rejectCredentialsFromAlbumListCall,
+    this.afterAlbumListCall,
   })  : missingAlbums = missingAlbums ?? <int>{},
-        failingAlbumCalls = failingAlbumCalls ?? <int>{};
+        failingAlbumCalls = failingAlbumCalls ?? <int>{},
+        listing = List<int>.generate(albums, (int a) => a);
 
   final int albums;
   final int songsPerAlbum;
@@ -44,11 +55,14 @@ class SyntheticNavidrome {
   final Set<int> missingAlbums;
 
   /// 1-based `getAlbum` call numbers that fail at the transport level (a reset
-  /// socket), once each.
+  /// socket), once each. The network is down for that moment, so a `ping`
+  /// sent before the next `getAlbum` call (the walk asking whether the server
+  /// still answers) fails the same way.
   final Set<int> failingAlbumCalls;
 
-  /// From this 1-based `getAlbum` call on, every call fails at the transport
-  /// level: the network went away (or Android froze the app) mid-walk.
+  /// From this 1-based `getAlbum` call on, every request fails at the
+  /// transport level: the network went away (or Android froze the app)
+  /// mid-walk.
   final int? failAlbumCallsFrom;
 
   /// 1-based `getAlbum` call numbers that answer HTTP 503, once each.
@@ -58,7 +72,7 @@ class SyntheticNavidrome {
   /// 429, once each.
   final Set<int> rateLimitedAlbumCalls;
 
-  /// From this 1-based `getAlbum` call on, every call answers HTTP 429.
+  /// From this 1-based `getAlbum` call on, every request answers HTTP 429.
   final int? rateLimitAlbumCallsFrom;
 
   /// From this 1-based `getAlbum` call on, the server rejects the credential
@@ -68,6 +82,54 @@ class SyntheticNavidrome {
   /// The 1-based `getAlbum` call that blocks until [releaseStall] (or forever,
   /// standing in for a process that was killed mid-request).
   final int? stallAtAlbumCall;
+
+  /// Album indexes whose `getAlbum` always answers HTTP 500 (a record the
+  /// server chokes on), while everything else on the server works (#740).
+  final Set<int> brokenAlbums;
+
+  /// The `ping` rejects the credential (Subsonic error 40), as a password
+  /// changed while an album was failing would.
+  final bool rejectCredentialsOnPing;
+
+  /// From this 1-based `getAlbumList2` call on, the album list answers HTTP
+  /// 503 (everything else keeps working).
+  final int? failAlbumListCallsFrom;
+
+  /// From this 1-based `getAlbumList2` call on, the album list rejects the
+  /// credential (Subsonic error 40), as a password changed mid-sync would.
+  final int? rejectCredentialsFromAlbumListCall;
+
+  /// Called after each `getAlbumList2` page is served, with the 1-based call
+  /// number, so a test can change the library between pages.
+  final void Function(SyntheticNavidrome server, int listCall)?
+      afterAlbumListCall;
+
+  /// The album indexes `getAlbumList2` lists, in list (alphabetical) order.
+  final List<int> listing;
+
+  /// The album was deleted on the server: it leaves the list, and `getAlbum`
+  /// answers "not found" for it.
+  void removeFromListing(int album) {
+    listing.remove(album);
+    missingAlbums.add(album);
+  }
+
+  /// The album was renamed so that it now sorts first.
+  void moveToFrontOfListing(int album) {
+    listing
+      ..remove(album)
+      ..insert(0, album);
+  }
+
+  /// Set by [failAlbumCallsFrom]: everything fails from then on.
+  bool _down = false;
+
+  /// Set by a [failingAlbumCalls] call, until the next `getAlbum` call: pings
+  /// fail meanwhile.
+  bool _blip = false;
+
+  /// Set by [rateLimitAlbumCallsFrom]: everything is rate limited from then on.
+  bool _rateLimited = false;
 
   final Completer<void> _stall = Completer<void>();
   final Completer<void> _stalled = Completer<void>();
@@ -107,15 +169,30 @@ class SyntheticNavidrome {
     calls[method] = (calls[method] ?? 0) + 1;
     final Map<String, String> query = request.url.queryParameters;
     final String user = query['u'] ?? 'nobody';
+    if (method != 'getAlbum') {
+      if (_down || (_blip && method == 'ping')) {
+        throw const SocketException('Connection reset by peer');
+      }
+      if (_rateLimited) return http.Response('Too Many Requests', 429);
+    }
     switch (method) {
       case 'getAlbumList2':
+        if (failAlbumListCallsFrom != null &&
+            albumListCalls >= failAlbumListCallsFrom!) {
+          return http.Response('Service Unavailable', 503);
+        }
+        if (rejectCredentialsFromAlbumListCall != null &&
+            albumListCalls >= rejectCredentialsFromAlbumListCall!) {
+          return _failed(40, 'Wrong username or password');
+        }
         final int size = int.parse(query['size']!);
         final int offset = ignoreOffset ? 0 : int.parse(query['offset']!);
-        final int end = (offset + size).clamp(0, albums);
-        return _ok(<String, Object?>{
+        final int start = offset.clamp(0, listing.length);
+        final int end = (offset + size).clamp(start, listing.length);
+        final http.Response page = _ok(<String, Object?>{
           'albumList2': <String, Object?>{
             'album': <Object?>[
-              for (int a = offset; a < end; a++)
+              for (final int a in listing.sublist(start, end))
                 <String, Object?>{
                   'id': 'al-$a',
                   'name': 'Album ${a.toString().padLeft(6, '0')}',
@@ -124,23 +201,33 @@ class SyntheticNavidrome {
             ],
           },
         });
+        afterAlbumListCall?.call(this, albumListCalls);
+        return page;
       case 'getAlbum':
         final int call = albumCalls;
+        _blip = false;
         if (call == stallAtAlbumCall) {
           if (!_stalled.isCompleted) _stalled.complete();
           await _stall.future;
         }
-        if (failingAlbumCalls.remove(call) ||
-            (failAlbumCallsFrom != null && call >= failAlbumCallsFrom!)) {
+        if (failAlbumCallsFrom != null && call >= failAlbumCallsFrom!) {
+          _down = true;
+          throw const SocketException('Connection reset by peer');
+        }
+        if (failingAlbumCalls.remove(call)) {
+          _blip = true;
           throw const SocketException('Connection reset by peer');
         }
         if (rejectCredentialsFromAlbumCall != null &&
             call >= rejectCredentialsFromAlbumCall!) {
           return _failed(40, 'Wrong username or password');
         }
-        if (rateLimitedAlbumCalls.contains(call) ||
-            (rateLimitAlbumCallsFrom != null &&
-                call >= rateLimitAlbumCallsFrom!)) {
+        if (rateLimitAlbumCallsFrom != null &&
+            call >= rateLimitAlbumCallsFrom!) {
+          _rateLimited = true;
+          return http.Response('Too Many Requests', 429);
+        }
+        if (rateLimitedAlbumCalls.contains(call)) {
           return http.Response('Too Many Requests', 429);
         }
         if (serverErrorAlbumCalls.contains(call)) {
@@ -149,6 +236,9 @@ class SyntheticNavidrome {
         final int a = int.parse(query['id']!.substring('al-'.length));
         if (missingAlbums.contains(a)) {
           return _failed(70, 'Album not found');
+        }
+        if (brokenAlbums.contains(a)) {
+          return http.Response('Internal Server Error', 500);
         }
         return _ok(<String, Object?>{
           'album': <String, Object?>{
@@ -176,8 +266,13 @@ class SyntheticNavidrome {
         return _ok(<String, Object?>{
           'starred2': <String, Object?>{'song': <Object?>[]},
         });
+      case 'ping':
+        if (rejectCredentialsOnPing) {
+          return _failed(40, 'Wrong username or password');
+        }
+        return _ok(<String, Object?>{});
       default:
-        // ping and anything else: a plain ok envelope.
+        // Anything else: a plain ok envelope.
         return _ok(<String, Object?>{});
     }
   }

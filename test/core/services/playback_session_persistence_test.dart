@@ -102,8 +102,8 @@ void main() {
         store: store,
         controller: controller,
         playbackStates: const Stream<PlaybackState>.empty(),
-        isRemoteProviderAvailable: (MusicProvider p) =>
-            !identical(p, MusicProviders.jellyfin),
+        remoteAccountOf: (MusicProvider p) =>
+            identical(p, MusicProviders.jellyfin) ? null : 'someone',
         localFileExists: (String uri) => uri == localOk.uri,
       );
 
@@ -216,7 +216,7 @@ void main() {
           store: store,
           controller: controller,
           playbackStates: controller.stateStream,
-          isRemoteProviderAvailable: (_) => false,
+          remoteAccountOf: (_) => null,
           localFileExists: (_) => true,
           positionSaveInterval: Duration.zero,
         );
@@ -793,7 +793,312 @@ void main() {
       expect(store.saves, greaterThan(afterFirst));
     });
   });
+
+  group("another account's songs (#767)", () {
+    // A remote track id only means something on its own server: restored
+    // under another account, `subsonic:1` would ask that server for its own
+    // song 1, under this one's title.
+    const Track sub1 = Track(
+      id: '1',
+      title: 'Alice one',
+      uri: 'subsonic:1',
+      duration: Duration(minutes: 3),
+    );
+    const Track sub2 = Track(
+      id: '2',
+      title: 'Alice two',
+      uri: 'subsonic:2',
+      duration: Duration(minutes: 3),
+    );
+    const Track plex7 = Track(
+      id: '7',
+      title: 'Server A seven',
+      uri: 'plex:7',
+      duration: Duration(minutes: 3),
+    );
+
+    List<String> savedUris(PersistedPlaybackSession? session) =>
+        <String>[for (final Track t in session!.tracks) t.uri];
+
+    Future<void> settle() async {
+      for (int i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    PlaybackSessionPersistence persistenceFor(
+      InMemoryPlaybackSessionStore store,
+      FakePlaybackController controller, {
+      required String? Function(MusicProvider provider) signedInAs,
+      Future<String?> Function(MusicProvider provider)? queueOwnerOf,
+      Duration positionSaveInterval = Duration.zero,
+    }) {
+      final PlaybackSessionPersistence persistence = PlaybackSessionPersistence(
+        store: store,
+        controller: controller,
+        playbackStates: controller.stateStream,
+        remoteAccountOf: signedInAs,
+        queueOwnerOf: queueOwnerOf,
+        localFileExists: (_) => true,
+        positionSaveInterval: positionSaveInterval,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(persistence.dispose);
+      return persistence;
+    }
+
+    test("a save records whose songs each provider's tracks are", () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController controller = FakePlaybackController();
+      final List<MusicProvider> asked = <MusicProvider>[];
+      persistenceFor(
+        store,
+        controller,
+        signedInAs: (_) => 'alice',
+        queueOwnerOf: (MusicProvider provider) async {
+          asked.add(provider);
+          return identical(provider, MusicProviders.plex)
+              ? 'server-a'
+              : 'alice';
+        },
+      );
+
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: sub1,
+        upNext: <Track>[localOk, plex7],
+      ));
+      await settle();
+
+      final PersistedPlaybackSession? saved = await store.load();
+      expect(saved!.owners, <String, String>{
+        'subsonic': 'alice',
+        'plex': 'server-a',
+      });
+      // Only the providers in the queue are asked; a local file is nobody's.
+      expect(asked.toSet(), <MusicProvider>{
+        MusicProviders.subsonic,
+        MusicProviders.plex,
+      });
+    });
+
+    test('restored under another account, its songs wait in the record',
+        () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[sub1, localOk, sub2],
+          currentIndex: 0,
+          position: Duration(seconds: 12),
+          owners: <String, String>{'subsonic': 'alice'},
+        ),
+      );
+      final FakePlaybackController controller = FakePlaybackController();
+      final PlaybackSessionPersistence persistence =
+          persistenceFor(store, controller, signedInAs: (_) => 'bob');
+
+      await persistence.restore();
+      await settle();
+
+      expect(controller.state.currentTrack?.uri, localOk.uri);
+      expect(controller.state.previous, isEmpty);
+      expect(controller.state.upNext, isEmpty);
+      // Kept for when alice is back, and still recorded as hers.
+      final PersistedPlaybackSession? kept = await store.load();
+      expect(savedUris(kept), <String>[sub1.uri, localOk.uri, sub2.uri]);
+      expect(kept!.owners, <String, String>{'subsonic': 'alice'});
+    });
+
+    test('restored under the same account, they come back', () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[sub1, localOk, sub2],
+          currentIndex: 0,
+          owners: <String, String>{'subsonic': 'alice'},
+        ),
+      );
+      final FakePlaybackController controller = FakePlaybackController();
+      final PlaybackSessionPersistence persistence =
+          persistenceFor(store, controller, signedInAs: (_) => 'alice');
+
+      await persistence.restore();
+
+      expect(controller.state.currentTrack?.uri, sub1.uri);
+      expect(_uriList(controller.state.upNext), <String>[
+        localOk.uri,
+        sub2.uri,
+      ]);
+    });
+
+    test('a record from before owners were kept restores as it always did',
+        () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[sub1, localOk],
+          currentIndex: 0,
+        ),
+      );
+      final FakePlaybackController controller = FakePlaybackController();
+      final PlaybackSessionPersistence persistence =
+          persistenceFor(store, controller, signedInAs: (_) => 'bob');
+
+      await persistence.restore();
+
+      expect(controller.state.currentTrack?.uri, sub1.uri);
+    });
+
+    test('songs nobody could say whose are wait', () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[sub1, localOk],
+          currentIndex: 0,
+          owners: <String, String>{},
+        ),
+      );
+      final FakePlaybackController controller = FakePlaybackController();
+      final PlaybackSessionPersistence persistence =
+          persistenceFor(store, controller, signedInAs: (_) => 'alice');
+
+      await persistence.restore();
+
+      expect(controller.state.currentTrack?.uri, localOk.uri);
+      expect(controller.state.upNext, isEmpty);
+    });
+
+    test(
+        "the other server's songs left out at one launch come back at the "
+        'next one on their server', () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[localOk, plex7],
+          currentIndex: 0,
+          owners: <String, String>{'plex': 'server-a'},
+        ),
+      );
+      final FakePlaybackController onServerB = FakePlaybackController();
+      final PlaybackSessionPersistence first = persistenceFor(
+        store,
+        onServerB,
+        signedInAs: (_) => 'server-b',
+        queueOwnerOf: (_) async => 'server-b',
+      );
+      await first.restore();
+      expect(onServerB.state.upNext, isEmpty);
+
+      // Listening on through what was restored saves progress into the
+      // whole record, still as server A's.
+      onServerB.emit(onServerB.state.copyWith(
+        position: const Duration(seconds: 40),
+      ));
+      await settle();
+      await first.dispose();
+      final PersistedPlaybackSession? saved = await store.load();
+      expect(savedUris(saved), <String>[localOk.uri, plex7.uri]);
+      expect(saved!.owners, <String, String>{'plex': 'server-a'});
+      expect(saved.position, const Duration(seconds: 40));
+
+      final FakePlaybackController onServerA = FakePlaybackController();
+      final PlaybackSessionPersistence second =
+          persistenceFor(store, onServerA, signedInAs: (_) => 'server-a');
+      await second.restore();
+      expect(_uriList(onServerA.state.upNext), <String>[plex7.uri]);
+    });
+
+    test('a save that waited on its owners never lands over a newer one',
+        () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController controller = FakePlaybackController();
+      final Completer<String?> slow = Completer<String?>();
+      int asks = 0;
+      persistenceFor(
+        store,
+        controller,
+        signedInAs: (_) => 'alice',
+        queueOwnerOf: (_) => ++asks == 1 ? slow.future : Future.value('alice'),
+      );
+
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: sub1,
+      ));
+      await settle();
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: sub2,
+      ));
+      await settle();
+      expect((await store.load())!.current!.uri, sub2.uri);
+
+      slow.complete('alice');
+      await settle();
+
+      expect((await store.load())!.current!.uri, sub2.uri);
+    });
+
+    test('a queue emptied while a save waited stays cleared', () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController controller = FakePlaybackController();
+      final Completer<String?> slow = Completer<String?>();
+      persistenceFor(
+        store,
+        controller,
+        signedInAs: (_) => 'alice',
+        queueOwnerOf: (_) => slow.future,
+      );
+
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.paused,
+        currentTrack: sub1,
+      ));
+      await settle();
+      controller.emit(PlaybackState.idle);
+      await settle();
+      slow.complete('alice');
+      await settle();
+
+      expect(await store.load(), isNull);
+    });
+
+    test('the flush at shutdown asks nobody, and keeps whose they are',
+        () async {
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore();
+      final FakePlaybackController controller = FakePlaybackController();
+      int asks = 0;
+      final PlaybackSessionPersistence persistence = persistenceFor(
+        store,
+        controller,
+        signedInAs: (_) => 'alice',
+        queueOwnerOf: (_) async {
+          // Past the first save there may be nobody left to ask.
+          if (++asks > 1) throw StateError('shutting down');
+          return 'alice';
+        },
+        positionSaveInterval: const Duration(hours: 1),
+      );
+
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: sub1,
+        position: Duration(seconds: 1),
+      ));
+      await settle();
+      controller.emit(const PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: sub1,
+        position: Duration(seconds: 2),
+      ));
+      await settle();
+      await persistence.dispose();
+
+      final PersistedPlaybackSession? saved = await store.load();
+      expect(saved!.position, const Duration(seconds: 2));
+      expect(saved.owners, <String, String>{'subsonic': 'alice'});
+      expect(asks, 1);
+    });
+  });
 }
+
+List<String> _uriList(Iterable<Track> tracks) =>
+    <String>[for (final Track t in tracks) t.uri];
 
 /// A store that counts writes, so a test can assert how often the session
 /// document is actually rewritten (the cost the debounce exists to bound).

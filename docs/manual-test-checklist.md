@@ -402,7 +402,14 @@ cache's knowledge survives a restart; it never holds a URL or token.
   "Syncing your Jellyfin library…", then a summary). *(New this release.)*
 - ☐ Closing/reopening Settings, or relaunching the app, does **not** start
   another full sync for the same account. *(New this release.)*
-- ☐ Connecting a **different** server/user starts a fresh first sync.
+- ☐ Connecting a **different** server/user starts a fresh first sync, and none
+  of the previous account's tracks are left, even when the new library is
+  empty or that first sync fails.
+- ☐ With the previous account's songs queued (one playing), connecting a
+  **different** server/user (Jellyfin, Navidrome, or a different Plex server)
+  takes them out of the queue: playback stops on the next song left. Signing
+  back in to the same account keeps the queue. On Linux, a restart under the
+  other account doesn't bring them back either.
 - ☐ A failed first sync shows "Connected, but the library sync didn't finish."
   with a **Retry** that works. *(New this release.)*
 - ☐ Subsonic/Navidrome connect: test, sign in, sign out & clear.

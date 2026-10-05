@@ -764,6 +764,7 @@ errno, a path or an OS message.
 | **Permission denied** | The folder is there and this process may not read it: directory permissions changed, or a grant was withdrawn (`EACCES`, `EPERM`). | Fix the permissions and Retry, or select the folder again through the chooser. |
 | **Storage isn't responding** | The path resolves but the storage behind it does not answer: a network share that is down, a stale mount, a device returning I/O errors (`EIO`, `ESTALE`, `ETIMEDOUT`, `ENOTCONN`, …). | Reconnect it, or wait: Linthra re-asks an absent folder on its own and picks it up as soon as it answers. |
 | **Folder can't be read** | Anything else. Deliberately *not* dressed up as one of the three above. | Retry, or select the folder again. |
+| **Folder is empty** | The folder is there and readable but a complete walk found no files at all, while the library has music from it: most often an fstab share or a disk whose mount point stays behind empty while nothing is mounted. Its music is kept. | Mount it, and Linthra picks it up on its own once it holds files again. If you emptied it on purpose, **It's empty on purpose** takes its music out. |
 
 An Android SAF tree and Android's device-wide MediaStore selection do not use the
 filesystem wording at all: a `content://` tree cannot go missing, only lose its
@@ -1782,6 +1783,22 @@ What that buys, in the order the requirements ask for it:
   engine, give back the MPRIS bus name, close the database) *before* the
   process ends, rather than leaving it to whatever time the engine gets on the
   way down.
+* **Asked first inside the Flatpak.** xdg-desktop-portal watches sandboxed
+  apps that have no window open. With the app's `background` permission set
+  to "no" it kills them (SIGKILL, so no graceful shutdown) a few seconds
+  after the window goes, and on Plasma 5.27 a "Force quit" on its
+  notification stores that "no". So with "Keep playing" on (chosen, or
+  restored at startup), Linthra asks the Background portal
+  (`RequestBackground`, no autostart). An app with nothing stored is allowed
+  without a prompt and "yes" is stored, which keeps the monitor away. If the
+  desktop says no, closing the window quits the normal way and the settings
+  card says why, with a **Check again** button that asks again, for after the
+  permission was changed in the system settings (the option is still the
+  chosen one, so choosing it again would change nothing). A window that hid
+  while the "no" was still on its way (from the desktop, or on to the runner)
+  quits the normal way too, rather than leave Linthra to be killed. A desktop
+  whose portal has no Background backend has no monitor either, and a native
+  build never asks (#754).
 * **No duplicate instance.** The runner is single-instance, so launching
   Linthra while it is already running (from the launcher, a terminal, or a
   desktop file) reaches the running process as an activation and presents the
@@ -1815,6 +1832,10 @@ desktop can answer, to re-check before a Linux milestone release:
 | Close the window while a track plays | Quit | Linthra quits, audio stops |
 | Quit from the media widget, or "Quit Linthra now" | Either | Playback stops, the window goes, the MPRIS name is released |
 | Reopen after any quit | Either | Normal cold start; the crash-safe session restores paused, as it always did |
+| Flatpak on GNOME (Silverblue) or Plasma 6 (Kinoite): close while playing, wait 10 s | Keep playing | Playback continues, no prompt. `flatpak permission-show io.github.thezupzup.linthra` lists `background` as `yes` |
+| Flatpak on Plasma 5.27: close while playing, wait 10 s | Keep playing | No "running in the background" notification any more; playback continues |
+| Flatpak, after `flatpak permission-set background background io.github.thezupzup.linthra no`: choose Keep playing again, then close while playing | Keep playing | The card says the desktop isn't letting Linthra run with its window closed; closing the window quits normally (MPRIS entry gone, no kill) |
+| Then `flatpak permission-set background background io.github.thezupzup.linthra yes` and press **Check again** on the card | Keep playing | The note goes; closing the window while playing hides it again |
 
 ## Track change notifications
 
@@ -1969,6 +1990,14 @@ queue as **paused** (never autoplay); pressing play re-resolves remote tracks
 through the normal signed-in provider path. Missing local files, signed-out
 providers, and wrong-version/corrupt records drop only the invalid rows (or the
 whole session) and never block startup.
+
+The session also records whose songs its server tracks are: the same one-way
+account fingerprint the sync stores keep, or the Plex server's
+`machineIdentifier`, never a name, address or token. A server song only means
+something on its own server, so when another account or server is signed in at
+launch, those tracks are left out of the restored queue. Like a file on an
+unplugged drive, they stay in the record for the launch their own account is
+back on, until a new queue replaces it.
 
 Automated coverage: `test/core/models/persisted_playback_session_test.dart`,
 `test/data/repositories/shared_preferences_playback_session_store_test.dart`,

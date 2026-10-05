@@ -94,6 +94,8 @@ class LocalMusicSettingsSection extends ConsumerWidget {
                 // still be the one reporting.
                 onRetry: action.busy ? null : controller.retryFolder,
                 onReselect: action.busy ? null : controller.reselectFolder,
+                onConfirmEmpty:
+                    action.busy ? null : controller.confirmFolderEmpty,
                 // Removing a folder is a desktop affordance: Android holds a
                 // single grant at a time, which "Forget local music" covers.
                 onRemove: host.isAndroid || action.busy
@@ -277,6 +279,7 @@ class _SelectedFoldersView extends StatelessWidget {
     this.onRetry,
     this.onReselect,
     this.onRemove,
+    this.onConfirmEmpty,
   });
 
   final List<String> folders;
@@ -293,6 +296,10 @@ class _SelectedFoldersView extends StatelessWidget {
   final void Function(String folder)? onRetry;
   final void Function(String folder)? onReselect;
   final void Function(String folder)? onRemove;
+
+  /// The way out of a folder found empty while the library has music from it,
+  /// when the user emptied it on purpose.
+  final void Function(String folder)? onConfirmEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -320,6 +327,8 @@ class _SelectedFoldersView extends StatelessWidget {
               onRetry: onRetry == null ? null : () => onRetry!(folder),
               onReselect: onReselect == null ? null : () => onReselect!(folder),
               onRemove: onRemove == null ? null : () => onRemove!(folder),
+              onConfirmEmpty:
+                  onConfirmEmpty == null ? null : () => onConfirmEmpty!(folder),
             ),
           ),
         if (report != null) ...[
@@ -338,6 +347,7 @@ class _SelectedFolderRow extends StatelessWidget {
     this.onRetry,
     this.onReselect,
     this.onRemove,
+    this.onConfirmEmpty,
   });
 
   final FolderLocation location;
@@ -347,6 +357,7 @@ class _SelectedFolderRow extends StatelessWidget {
   final VoidCallback? onRetry;
   final VoidCallback? onReselect;
   final VoidCallback? onRemove;
+  final VoidCallback? onConfirmEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -399,6 +410,7 @@ class _SelectedFolderRow extends StatelessWidget {
             onRetry: onRetry,
             onReselect: onReselect,
             onRemove: onRemove,
+            onConfirmEmpty: onConfirmEmpty,
           ),
         ],
       ],

@@ -1949,6 +1949,44 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   @override
+  Future<void> removeTracksWhere(bool Function(Track track) test) async {
+    final Track? current = _queue.current;
+    final PlaybackQueue updated = _queue.removedWhere(test);
+    if (identical(updated, _queue)) return;
+    _queue = updated;
+    if (current == null || !test(current)) {
+      // Only what plays before and after it went; the current track's audio
+      // is untouched.
+      _dropAutoSkipWithoutTarget();
+      _emit(_state.copyWith(
+        upNext: _queue.upNext,
+        previous: _queue.history,
+        hasPrevious: _queue.hasPrevious,
+      ));
+      return;
+    }
+    // The current track went too, and nothing of it may play on, be retried
+    // or be loaded again: stop it, and land on what is left as a stop leaves
+    // a queue, so Play loads it.
+    try {
+      await _stopEngine();
+    } catch (_) {
+      // The queue lost it all the same, and what is shown has to say so: the
+      // engine's reports are ignored from the stop on, and Play loads what is
+      // left. Noted for the diagnostics, by a fixed label only.
+      StabilityDiagnostics.playbackError('stop');
+    }
+    _emit(PlaybackState(
+      currentTrack: _queue.current,
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
+    ));
+  }
+
+  @override
   void setShuffleEnabled(bool enabled) {
     if (enabled == _shuffleEnabled) return;
     _shuffleEnabled = enabled;
@@ -3086,11 +3124,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
     // Entries passed over become history, as a jump within the queue does.
-    _queue = PlaybackQueue(
-      tracks: _queue.tracks,
-      currentIndex: index,
-      originalOrder: _queue.originalOrder,
-    );
+    _queue = _queue.movedTo(index);
     await _playCurrent(mayStart: mayStart);
   }
 
@@ -3415,6 +3449,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   @override
   Future<void> stop() async {
+    await _stopEngine();
+    final stopped = PlaybackState(
+      currentTrack: _state.currentTrack,
+      upNext: _queue.upNext,
+      previous: _queue.history,
+      hasPrevious: _queue.hasPrevious,
+      shuffleEnabled: _shuffleEnabled,
+      repeatMode: _repeatMode,
+    );
+    _emit(stopped);
+  }
+
+  /// Everything [stop] does but say so: what is left stopped is up to the
+  /// caller.
+  Future<void> _stopEngine() async {
     _playWhenLoaded = false;
     _resetPositionFlush();
     // A stop is definitive: drop any focus resume intent and supersede any
@@ -3450,15 +3499,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     } finally {
       _engineStopping = false;
     }
-    final stopped = PlaybackState(
-      currentTrack: _state.currentTrack,
-      upNext: _queue.upNext,
-      previous: _queue.history,
-      hasPrevious: _queue.hasPrevious,
-      shuffleEnabled: _shuffleEnabled,
-      repeatMode: _repeatMode,
-    );
-    _emit(stopped);
   }
 
   @override

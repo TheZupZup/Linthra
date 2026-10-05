@@ -98,13 +98,24 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
   /// is then fetched in turn:
   ///
   ///  * a transient failure (unreachable, server error) is retried after each of
-  ///    [retryDelays]; if it still fails, the [SubsonicException] propagates and
-  ///    the walk ends there, with every earlier batch already delivered;
+  ///    [retryDelays];
   ///  * "not found" (Subsonic error 70, which the client reports as
   ///    [SubsonicErrorKind.streamUnavailable]) means the album was removed while
   ///    the walk ran: it is counted in [SubsonicCatalogWalk.missingAlbumCount]
   ///    and skipped;
-  ///  * anything else (auth, not Subsonic, TLS, ...) propagates immediately.
+  ///  * a failure that outlasts the retries is put to the server: if it still
+  ///    answers a ping, the album is the problem, and it is counted in
+  ///    [SubsonicCatalogWalk.failedAlbumCount] and skipped, so one bad album
+  ///    can't keep the rest of the library from syncing (#740). If the server
+  ///    doesn't answer either, the [SubsonicException] propagates and the walk
+  ///    ends there, with every earlier batch already delivered;
+  ///  * a rejected credential, a blocked or untrusted connection or a bad
+  ///    address propagate immediately: they are never about one album.
+  ///
+  /// Once every album has been read, the album list is read again, and any
+  /// album in it the walk hadn't seen is read too. Between two pages of the
+  /// first reading, an album deleted or renamed earlier in the list shifts the
+  /// others, and one at the page boundary is never listed (#752).
   ///
   /// [onBatch] returns false to stop the walk early (the account changed); the
   /// result then reports [SubsonicCatalogWalk.stopped]. [albumPageSize] and
@@ -116,9 +127,143 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
     int albumPageSize = SubsonicMusicSource.albumPageSize,
     int maxAlbumPages = SubsonicMusicSource.maxAlbumPages,
   }) async {
+    final (List<String> listed, bool truncated) = await _listAlbums(
+      retryDelays: retryDelays,
+      albumPageSize: albumPageSize,
+      maxAlbumPages: maxAlbumPages,
+    );
+
+    final Set<String> listedIds = <String>{...listed};
+    final Set<String> walked = <String>{};
+    int trackCount = 0;
+    int missingAlbumCount = 0;
+    int failedAlbumCount = 0;
+    bool listingConfirmed = true;
+    SubsonicCatalogWalk result({bool stopped = false}) => SubsonicCatalogWalk(
+          albumCount: listedIds.length,
+          missingAlbumCount: missingAlbumCount,
+          failedAlbumCount: failedAlbumCount,
+          trackCount: trackCount,
+          truncated: truncated,
+          listingConfirmed: listingConfirmed,
+          stopped: stopped,
+        );
+
+    List<Track> batch = <Track>[];
+
+    /// Reads [albumIds] into batches. False when [onBatch] asked to stop.
+    Future<bool> walk(Iterable<String> albumIds) async {
+      for (final String albumId in albumIds) {
+        if (!walked.add(albumId)) continue;
+        final List<SubsonicSongDto> songs;
+        try {
+          songs = await _withRetry(
+            () => _client.getAlbumSongs(session, albumId),
+            // A server that has failed several albums while answering pings
+            // isn't having a blip; waiting out the retries on every album
+            // after that would stretch a broken library over hours.
+            failedAlbumCount < _albumFailuresRetried
+                ? retryDelays
+                : const <Duration>[],
+          );
+        } on SubsonicException catch (error, stackTrace) {
+          if (error.kind == SubsonicErrorKind.streamUnavailable) {
+            missingAlbumCount++;
+            continue;
+          }
+          if (!_mayBeThisAlbum(error.kind)) rethrow;
+          try {
+            await _withRetry(() => _client.verifySession(session), retryDelays);
+          } on SubsonicException catch (verifyError) {
+            // The ping found what the user has to fix (a rejected credential,
+            // a connection or answer gone bad): that is what they hear about.
+            if (!_isTransient(verifyError.kind)) rethrow;
+            // The server doesn't answer either: the walk ends here, and the
+            // sync is retried later.
+            Error.throwWithStackTrace(error, stackTrace);
+          }
+          failedAlbumCount++;
+          continue;
+        }
+        for (final SubsonicSongDto song in songs) {
+          batch.add(SubsonicTrackMapper.toTrack(song));
+        }
+        if (batch.length >= batchSize) {
+          if (!await onBatch(batch)) return false;
+          trackCount += batch.length;
+          batch = <Track>[];
+        }
+      }
+      return true;
+    }
+
+    if (!await walk(listed)) return result(stopped: true);
+    if (!truncated) {
+      // A truncated list would only hit the page cap again.
+      List<String>? relisted;
+      try {
+        final (List<String> ids, bool relistTruncated) = await _listAlbums(
+          retryDelays: retryDelays,
+          albumPageSize: albumPageSize,
+          maxAlbumPages: maxAlbumPages,
+        );
+        if (relistTruncated) listingConfirmed = false;
+        relisted = ids;
+      } on SubsonicException catch (error) {
+        // A rejected credential, a blocked or untrusted connection or a
+        // server that stopped speaking Subsonic is the user's to hear about,
+        // as it is from the first reading. A server that only dropped out
+        // leaves what was read kept; the walk just can't vouch for having
+        // seen every album, and is resumed later.
+        if (!_isTransient(error.kind)) rethrow;
+        listingConfirmed = false;
+      }
+      if (relisted != null) {
+        listedIds.addAll(relisted);
+        // The albums only this reading found fail the way the others do.
+        if (!await walk(relisted)) return result(stopped: true);
+      }
+    }
+    if (batch.isNotEmpty) {
+      if (!await onBatch(batch)) return result(stopped: true);
+      trackCount += batch.length;
+    }
+    return result();
+  }
+
+  /// How many albums may fail (each after its retries) before the rest get a
+  /// single attempt each.
+  static const int _albumFailuresRetried = 3;
+
+  /// Whether a failure of one `getAlbum` call can be about that album alone.
+  /// Credentials, a blocked or untrusted connection and a bad address are
+  /// about the whole server, whichever album hit them first.
+  static bool _mayBeThisAlbum(SubsonicErrorKind kind) {
+    switch (kind) {
+      case SubsonicErrorKind.notReachable:
+      case SubsonicErrorKind.serverError:
+      case SubsonicErrorKind.notSubsonic:
+      case SubsonicErrorKind.unsupportedResponse:
+      case SubsonicErrorKind.unexpected:
+        return true;
+      case SubsonicErrorKind.invalidUrl:
+      case SubsonicErrorKind.cleartextBlocked:
+      case SubsonicErrorKind.insecureConnection:
+      case SubsonicErrorKind.unauthorized:
+      case SubsonicErrorKind.streamUnavailable:
+        return false;
+    }
+  }
+
+  /// Reads the whole album list, de-duplicated by id in list order, and
+  /// whether it stopped at the page cap with a full last page.
+  Future<(List<String>, bool)> _listAlbums({
+    required List<Duration> retryDelays,
+    required int albumPageSize,
+    required int maxAlbumPages,
+  }) async {
     final List<String> albumIds = <String>[];
-    final Set<String> seenAlbumIds = <String>{};
-    bool truncated = true;
+    final Set<String> seen = <String>{};
     for (int page = 0; page < maxAlbumPages; page++) {
       final SubsonicAlbumPage albums = await _withRetry(
         () => _client.getAlbumListPage(
@@ -129,51 +274,11 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
         retryDelays,
       );
       for (final SubsonicAlbumDto album in albums.albums) {
-        if (seenAlbumIds.add(album.id)) albumIds.add(album.id);
+        if (seen.add(album.id)) albumIds.add(album.id);
       }
-      if (albums.entryCount < albumPageSize) {
-        truncated = false;
-        break;
-      }
+      if (albums.entryCount < albumPageSize) return (albumIds, false);
     }
-
-    int trackCount = 0;
-    int missingAlbumCount = 0;
-    SubsonicCatalogWalk result({bool stopped = false}) => SubsonicCatalogWalk(
-          albumCount: albumIds.length,
-          missingAlbumCount: missingAlbumCount,
-          trackCount: trackCount,
-          truncated: truncated,
-          stopped: stopped,
-        );
-
-    List<Track> batch = <Track>[];
-    for (final String albumId in albumIds) {
-      final List<SubsonicSongDto> songs;
-      try {
-        songs = await _withRetry(
-          () => _client.getAlbumSongs(session, albumId),
-          retryDelays,
-        );
-      } on SubsonicException catch (error) {
-        if (error.kind != SubsonicErrorKind.streamUnavailable) rethrow;
-        missingAlbumCount++;
-        continue;
-      }
-      for (final SubsonicSongDto song in songs) {
-        batch.add(SubsonicTrackMapper.toTrack(song));
-      }
-      if (batch.length >= batchSize) {
-        if (!await onBatch(batch)) return result(stopped: true);
-        trackCount += batch.length;
-        batch = <Track>[];
-      }
-    }
-    if (batch.isNotEmpty) {
-      if (!await onBatch(batch)) return result(stopped: true);
-      trackCount += batch.length;
-    }
-    return result();
+    return (albumIds, true);
   }
 
   /// Runs [request], retrying a transient failure once per entry in [delays]
@@ -187,13 +292,17 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
       try {
         return await request();
       } on SubsonicException catch (error) {
-        final bool transient = error.kind == SubsonicErrorKind.notReachable ||
-            error.kind == SubsonicErrorKind.serverError;
-        if (!transient || attempt >= delays.length) rethrow;
+        if (!_isTransient(error.kind) || attempt >= delays.length) rethrow;
         await Future<void>.delayed(delays[attempt]);
       }
     }
   }
+
+  /// Whether a failure of [kind] can pass on its own (the server dropped out,
+  /// or answered with an error), so a later attempt may succeed.
+  static bool _isTransient(SubsonicErrorKind kind) =>
+      kind == SubsonicErrorKind.notReachable ||
+      kind == SubsonicErrorKind.serverError;
 
   @override
   Future<List<Album>> fetchAlbums() async {

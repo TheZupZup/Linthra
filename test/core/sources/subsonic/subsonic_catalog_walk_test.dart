@@ -54,8 +54,7 @@ Set<String> _uris(List<List<Track>> batches) => <String>{
 
 void main() {
   group('SubsonicMusicSource.walkTracks', () {
-    test('hands a large library out in bounded batches, one album-list pass',
-        () async {
+    test('hands a large library out in bounded batches', () async {
       // 3,000 albums x 10 = 30,000 tracks.
       final SyntheticNavidrome server = SyntheticNavidrome(albums: 3000);
 
@@ -71,9 +70,10 @@ void main() {
         expect(batch.length, inInclusiveRange(2000, 2000 + 10));
       }
       expect(batches.last.length, lessThanOrEqualTo(2000 + 10));
-      // Six full pages plus the empty one that ends the list, and one getAlbum
-      // per album. No second album-list pass, no artist pass.
-      expect(server.albumListCalls, 7);
+      // Six full pages plus the empty one that ends the list, read twice (the
+      // second time to catch an album that moved during the first, #752), and
+      // one getAlbum per album. No artist pass.
+      expect(server.albumListCalls, 2 * 7);
       expect(server.albumCalls, 3000);
       expect(server.calls.containsKey('getArtists'), isFalse);
     });
@@ -84,7 +84,8 @@ void main() {
 
       final (SubsonicCatalogWalk walk, _) = await _walk(server);
 
-      expect(server.albumListCalls, 3); // 500, 500, then an empty page.
+      // 500, 500, then an empty page; twice.
+      expect(server.albumListCalls, 2 * 3);
       expect(walk.truncated, isFalse);
       expect(walk.isComplete, isTrue);
     });
@@ -188,8 +189,10 @@ void main() {
       // 29 albums read: five full batches of 50 went out, the partial one
       // (40 tracks) was still being filled.
       expect(_uris(batches).length, 250);
-      // The failing call plus its two retries.
+      // The failing call plus its two retries, then a ping (and its retries)
+      // that found the server gone too, so it isn't one album's fault.
       expect(server.albumCalls, 29 + 3);
+      expect(server.calls['ping'], 3);
     });
 
     test('a rate-limited request (HTTP 429) is retried', () async {
@@ -219,6 +222,162 @@ void main() {
         )),
       );
       expect(server.albumCalls, 4);
+    });
+
+    test(
+        'an album that always fails is left out and the walk goes on, '
+        'not complete (#740)', () async {
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 50, brokenAlbums: <int>{25});
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server);
+
+      expect(walk.failedAlbumCount, 1);
+      expect(walk.isComplete, isFalse);
+      // It would only fail the same way on every resume.
+      expect(walk.worthResuming, isFalse);
+      _expectSameSet(
+          _uris(batches), server.urisFor('alice', exceptAlbums: <int>{25}));
+      // The broken album with its two retries, and one ping to make sure the
+      // server itself still answers.
+      expect(server.albumCalls, 50 + 2);
+      expect(server.calls['ping'], 1);
+    });
+
+    test('once three albums have failed, the rest get one attempt each',
+        () async {
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 50,
+        brokenAlbums: <int>{1, 2, 3, 4, 5},
+      );
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server);
+
+      expect(walk.failedAlbumCount, 5);
+      expect(
+        _uris(batches),
+        hasLength(server.urisFor('alice').length - 5 * 10),
+      );
+      expect(server.albumCalls, 50 + 3 * 2);
+    });
+
+    test(
+        'an album deleted between two pages shifts the next one back; the '
+        'second reading walks it (#752)', () async {
+      // Album 10 goes after the first page is listed, so album 500 moves into
+      // that first page and the second page starts at 501.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        afterAlbumListCall: (SyntheticNavidrome server, int call) {
+          if (call == 1) server.removeFromListing(10);
+        },
+      );
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server, batchSize: 2000);
+
+      expect(walk.isComplete, isTrue);
+      expect(walk.missingAlbumCount, 1);
+      expect(walk.albumCount, 1000);
+      _expectSameSet(
+          _uris(batches), server.urisFor('alice', exceptAlbums: <int>{10}));
+    });
+
+    test('an album renamed to sort first between two pages is walked (#752)',
+        () async {
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        afterAlbumListCall: (SyntheticNavidrome server, int call) {
+          if (call == 1) server.moveToFrontOfListing(900);
+        },
+      );
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server, batchSize: 2000);
+
+      expect(walk.isComplete, isTrue);
+      _expectSameSet(_uris(batches), server.urisFor('alice'));
+      // Album 499 shifted into the second page as well, and is read once.
+      expect(server.albumCalls, 1000);
+    });
+
+    test('a second reading that fails keeps what was read, unconfirmed',
+        () async {
+      // 1,000 albums: the first reading takes three list calls.
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 1000, failAlbumListCallsFrom: 4);
+
+      final (SubsonicCatalogWalk walk, List<List<Track>> batches) =
+          await _walk(server, batchSize: 2000);
+
+      expect(walk.listingConfirmed, isFalse);
+      expect(walk.isComplete, isFalse);
+      // Reading it again at the next resume can confirm it.
+      expect(walk.worthResuming, isTrue);
+      _expectSameSet(_uris(batches), server.urisFor('alice'));
+    });
+
+    test(
+        'a credential rejected at the second reading is reported, as at the '
+        'first', () async {
+      // 1,000 albums: the first reading takes three list calls.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        rejectCredentialsFromAlbumListCall: 4,
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
+    });
+
+    test(
+        'an album only the second reading finds still reports a rejected '
+        'credential', () async {
+      // Album 900 sorts first after the first page is listed, so only the
+      // second reading lists it, and its getAlbum (the 1,000th) is refused.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        rejectCredentialsFromAlbumCall: 1000,
+        afterAlbumListCall: (SyntheticNavidrome server, int call) {
+          if (call == 1) server.moveToFrontOfListing(900);
+        },
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
+    });
+
+    test(
+        'an album that keeps failing while the ping rejects the credential '
+        'reports the credential, not the album', () async {
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 10,
+        brokenAlbums: <int>{3},
+        rejectCredentialsOnPing: true,
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
     });
 
     test('onBatch returning false stops the walk', () async {

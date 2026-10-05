@@ -556,4 +556,49 @@ void main() {
       expect(scan.report.readFailures, 1);
     });
   });
+
+  group('a walk that found no files at all (#737)', () {
+    test('says so', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/mnt/nas',
+        scanner: _FakeScanner(const <String>[]),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isTrue);
+      expect(scan.tracks, isEmpty);
+    });
+
+    test('files that are not music are still files', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/mnt/nas',
+        scanner: _FakeScanner(const <String>['/mnt/nas/cover.jpg']),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isFalse);
+    });
+
+    test(
+        'a walk that could not read part of the folder found nothing it can '
+        'vouch for', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/mnt/nas',
+        scanner: _FakeScanner(
+          const <String>[],
+          unreadable: const <String>['/mnt/nas/Albums'],
+        ),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isFalse);
+    });
+
+    test('a SAF tree read through Android never says so', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: FakeSafDocumentLister(),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isFalse);
+    });
+  });
 }

@@ -765,6 +765,16 @@ To silence the report, disable **Actions → Update automation health → ⋯ �
 Disable workflow**. Disabling it stops the reporting, not the updaters; they are
 separate workflows and keep running (or keep failing) either way.
 
+### Held back on purpose
+
+A package that would drag native code into the build without review is held
+back in `pubspec.yaml`, with the reason next to the constraint, so the weekly
+refresh can move everything else.
+
+| Package | Held at | Why | To lift it |
+| --- | --- | --- | --- |
+| `path_provider_android` | `<2.3.0` | 2.3 moves to JNI and depends on `jni`, whose native library would ship in the APK and which is a Linux FFI plugin. On Linux, CMake builds it only where the build machine has a JDK, linking that machine's JVM, so a CI-built bundle and a Flatpak would differ. This is what stopped the Dart updater for eight weeks (#681). | Check `libdartjni.so` against the reproducible F-Droid build (build IDs, as `libflacJNI.so` needed in #703), decide what the Linux build and the Flatpak do with the plugin, then raise the constraint in a human PR that also commits the regenerated `linux/flutter/generated_plugins.cmake` and adds `jni` to the reviewed FFI plugins in `test/tooling/dependency_update_guardrails_test.dart`. |
+
 ## Automatic merging, and why there is none
 
 Nothing in this repository merges itself. That is stated in several places
