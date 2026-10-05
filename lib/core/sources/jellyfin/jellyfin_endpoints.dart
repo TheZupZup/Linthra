@@ -284,8 +284,28 @@ abstract final class JellyfinEndpoints {
 
   /// `GET /Items/<itemId>/Images/Primary` — the token-free cover-art URL. Needs
   /// no auth, so it is safe to persist on a track and cache.
-  static Uri primaryImage(String baseUrl, {required String itemId}) =>
-      _join(baseUrl, '/Items/$itemId/Images/Primary');
+  ///
+  /// [tag] is the image's current tag: a cover replaced on the server gets a
+  /// new one, and so a new URL, which the artwork cache fetches afresh (#739).
+  /// The image is asked for no larger than [coverMaxExtent] on either side,
+  /// the most any Linthra surface draws a cover at, rather than the original
+  /// scan (often several megabytes, and one per track).
+  static Uri primaryImage(
+    String baseUrl, {
+    required String itemId,
+    String? tag,
+  }) =>
+      _join(baseUrl, '/Items/$itemId/Images/Primary').replace(
+        queryParameters: <String, String>{
+          if (tag != null && tag.isNotEmpty) 'tag': tag,
+          'maxWidth': '$coverMaxExtent',
+          'maxHeight': '$coverMaxExtent',
+        },
+      );
+
+  /// The largest cover asked for, per side. Matches `maxArtworkDecodeExtent`,
+  /// the bound every cover is decoded at.
+  static const int coverMaxExtent = 1024;
 
   /// The direct-play audio stream URL: `/Audio/<id>/stream?static=true&…`.
   ///

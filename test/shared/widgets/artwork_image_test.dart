@@ -17,6 +17,10 @@ const _subsonicSession = SubsonicSession(
   token: 'the-secret-token',
 );
 
+/// Bytes that start like a PNG, which is all the disk cache checks before
+/// saving a cover (#739).
+const List<int> _coverBytes = <int>[0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
+
 void main() {
   // The resolver and the disk cache are process-globals on the single artwork
   // seam; always clear them so one test can't leak its hook into the next.
@@ -292,7 +296,7 @@ void main() {
       });
       final cache = ArtworkDiskCache(
         directory: dir,
-        fetch: (Uri url) async => <int>[1, 2, 3],
+        fetch: (Uri url) async => _coverBytes,
       );
       installArtworkDiskCache(cache);
       final key = Uri.parse('https://server.example/Items/1/Images/Primary');
@@ -309,7 +313,7 @@ void main() {
         'warms the cache in the background for next time', () async {
       final cache = ArtworkDiskCache(
         directory: dir,
-        fetch: (Uri url) async => <int>[1, 2, 3],
+        fetch: (Uri url) async => _coverBytes,
       );
       installArtworkDiskCache(cache);
       final key = Uri.parse('https://server.example/Items/1/Images/Primary');
@@ -364,7 +368,7 @@ void main() {
             SubsonicArtwork.resolve(ref, _subsonicSession) ?? ref,
         fetch: (Uri url) async {
           fetchedUrls.add(url);
-          return <int>[1, 2, 3];
+          return _coverBytes;
         },
       );
       installArtworkDiskCache(cache);

@@ -193,8 +193,10 @@ Concretely, Linthra:
   weaves the salt+token in only when an image is actually rendered);
 - never puts a credential in a cache filename or cache metadata (the offline
   audio cache file extension comes from the response content type, not the URL;
-  the media-session artwork cache filename is a hash of the credential-free
-  `subsonic-cover:` reference — never the server URL or auth query);
+  both artwork caches name a file by a hash of the credential-free
+  `subsonic-cover:` reference together with a hash of the server's address, so
+  another server's cover with the same id is another file, never the server
+  URL or auth query);
 - never surfaces a credential or credentialed URL in a UI error message;
 - resolves stream/download URLs **only at play/download time**, and cover-art
   URLs **only at render time**.

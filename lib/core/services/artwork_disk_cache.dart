@@ -43,17 +43,50 @@ import 'package:path_provider/path_provider.dart';
 ///  - A missing or corrupt (0-byte / unreadable) cache entry is always treated
 ///    as a miss, never surfaced as an error — the caller falls back to a fresh
 ///    fetch and, ultimately, its placeholder.
+///
+/// Per server, fresh and bounded (#739):
+///  - A Subsonic or Plex reference (`subsonic-cover:al-12`) names a cover on
+///    *a* server, not on which one, so it is cached under the server it
+///    resolves against now ([serverOf]): another server's `al-12` is another
+///    file. A plain URL (Jellyfin's) already names its server and keeps the
+///    file name it always had.
+///  - Bytes are saved only when they start like an image (JPEG, PNG, GIF,
+///    WebP, BMP), so an error page served with an image content type is never
+///    kept as a cover.
+///  - A cover older than [refreshAfter] is still shown, and fetched again in
+///    the background, so one changed on the server shows up eventually.
+///  - The cache is capped at [maxBytes]. Past the cap, the files fetched
+///    longest ago go first: a cover in use is fetched again every
+///    [refreshAfter], so what goes is what hasn't been shown for a while.
 class ArtworkDiskCache {
   ArtworkDiskCache({
     required Directory directory,
     Uri Function(Uri key)? resolveFetchUrl,
+    String? Function(Uri key)? serverOf,
     Future<List<int>?> Function(Uri url)? fetch,
     http.Client? httpClient,
+    this.maxBytes = defaultMaxBytes,
+    this.refreshAfter = defaultRefreshAfter,
+    DateTime Function()? now,
   })  : _directory = directory,
         _resolveFetchUrl = resolveFetchUrl ?? _identity,
+        _serverOf = serverOf ?? _anyServer,
+        _now = now ?? DateTime.now,
         _httpClient = httpClient ?? http.Client() {
     _fetch = fetch ?? _defaultFetch;
   }
+
+  /// How much the cache may hold before the oldest covers are removed.
+  static const int defaultMaxBytes = 256 * 1024 * 1024;
+
+  /// How old a cover may get before it is fetched again in the background.
+  static const Duration defaultRefreshAfter = Duration(days: 30);
+
+  /// The cap; see [defaultMaxBytes].
+  final int maxBytes;
+
+  /// See [defaultRefreshAfter].
+  final Duration refreshAfter;
 
   /// The app's persistent artwork-cache directory. Nothing is created yet —
   /// [_warmNow] creates it lazily on first write. Call once at startup and pass
@@ -72,8 +105,25 @@ class ArtworkDiskCache {
   /// live session's credential at fetch time, never persisted.
   final Uri Function(Uri key) _resolveFetchUrl;
 
+  /// The non-secret identity of the server [key] resolves against right now:
+  /// a hash of a Subsonic server's address, a Plex `machineIdentifier`, or ''
+  /// for a URL that names its own server. Null when nothing would resolve it
+  /// (signed out): then nothing is read from or written to disk for it.
+  final String? Function(Uri key) _serverOf;
+
+  final DateTime Function() _now;
+
   final http.Client _httpClient;
   late final Future<List<int>?> Function(Uri url) _fetch;
+
+  /// Covers written since the cap was last enforced.
+  int _writesSinceTrim = 0;
+
+  /// The cap enforcement running now, if any.
+  Future<void>? _trimming;
+
+  /// Enforce the cap after this many writes (and after the first one).
+  static const int _trimEvery = 50;
 
   /// In-flight warms, keyed by the cache key's hash, so a burst of rebuilds for
   /// the same reference (e.g. a scrolling list) share one fetch instead of
@@ -85,18 +135,50 @@ class ArtworkDiskCache {
 
   File _fileFor(String hash) => File(p.join(_directory.path, '$hash.img'));
 
+  /// The file name hash for [key] on [server], or null when nothing would
+  /// resolve [key] now.
+  String? _hashFor(Uri key) {
+    final String? server;
+    try {
+      server = _serverOf(key);
+    } catch (_) {
+      return null;
+    }
+    if (server == null) return null;
+    return _hash(key, server);
+  }
+
   /// The cached file for [key] if a non-empty copy already exists on disk, or
   /// `null` on a miss or a corrupt (0-byte / unreadable) entry. A cheap
   /// synchronous stat, so `artworkImageProvider` can consult it while building
   /// an `ImageProvider` with no `await`.
+  ///
+  /// A hit older than [refreshAfter] is still returned, and fetched again in
+  /// the background ([warm]), so a cover changed on the server replaces it.
   File? cachedFile(Uri key) {
-    final File file = _fileFor(_hash(key));
+    final String? hash = _hashFor(key);
+    if (hash == null) return null;
+    final File file = _fileFor(hash);
+    final FileStat stat;
     try {
-      if (file.lengthSync() > 0) return file;
+      stat = file.statSync();
     } on FileSystemException {
-      // Missing, or an odd permissions error — either way, not a usable hit.
+      // An odd permissions error: not a usable hit.
+      return null;
     }
-    return null;
+    // Missing (notFound) or empty: not a usable hit either.
+    if (stat.type != FileSystemEntityType.file || stat.size <= 0) return null;
+    if (_now().difference(stat.modified) >= refreshAfter) {
+      unawaited(warm(key));
+    }
+    return file;
+  }
+
+  /// Whether [file] holds a cover that is recent enough to keep as it is.
+  Future<bool> _isFresh(File file) async {
+    final FileStat stat = await file.stat();
+    if (stat.type != FileSystemEntityType.file || stat.size <= 0) return false;
+    return _now().difference(stat.modified) < refreshAfter;
   }
 
   /// Fetches [key]'s bytes and writes them to the persistent cache, so the
@@ -106,8 +188,12 @@ class ArtworkDiskCache {
   /// hit never spends the network twice. Never throws — every failure (an
   /// unresolvable reference, a network error, a non-image response, a write
   /// failure) just leaves the entry to warm again on a later call.
+  ///
+  /// A cover older than [refreshAfter] is fetched again and replaced, and kept
+  /// as it is when the new fetch fails.
   Future<void> warm(Uri key) {
-    final String hash = _hash(key);
+    final String? hash = _hashFor(key);
+    if (hash == null) return Future<void>.value();
     final Future<void>? inFlight = _warming[hash];
     if (inFlight != null) return inFlight;
     final Future<void> future = _runWarm(key, hash);
@@ -136,7 +222,7 @@ class ArtworkDiskCache {
   Future<void> _warmNow(Uri key, String hash) async {
     try {
       final File file = _fileFor(hash);
-      if (await file.exists() && await file.length() > 0) return;
+      if (await file.exists() && await _isFresh(file)) return;
       final Uri url = _resolveFetchUrl(key);
       if (!url.isScheme('http') && !url.isScheme('https')) {
         // An unresolved reference (e.g. signed out) resolves to itself, which
@@ -145,7 +231,7 @@ class ArtworkDiskCache {
         return;
       }
       final List<int>? bytes = await _fetch(url);
-      if (bytes == null || bytes.isEmpty) return;
+      if (bytes == null || bytes.isEmpty || !looksLikeImage(bytes)) return;
       if (!await _directory.exists()) {
         await _directory.create(recursive: true);
       }
@@ -154,19 +240,110 @@ class ArtworkDiskCache {
       final File tmp = File('${file.path}.tmp');
       await tmp.writeAsBytes(bytes, flush: true);
       await tmp.rename(file.path);
+      _wrote();
     } catch (_) {
       // Best-effort: leave it to retry on a later render.
     }
   }
 
+  /// Enforces the cap after the first write and every [_trimEvery] after it,
+  /// in the background and one run at a time.
+  void _wrote() {
+    final bool first = _writesSinceTrim == 0 && _trimming == null;
+    _writesSinceTrim++;
+    if (!first && _writesSinceTrim < _trimEvery) return;
+    if (_trimming != null) return;
+    _writesSinceTrim = 0;
+    unawaited(_runTrim());
+  }
+
+  Future<void> _runTrim() async {
+    final Future<void> run = trim();
+    _trimming = run;
+    try {
+      await run;
+    } finally {
+      _trimming = null;
+    }
+  }
+
+  /// Removes the covers fetched longest ago until the cache is within
+  /// [maxBytes] again, leaving some room so the next writes don't trim at
+  /// once. Never throws.
+  Future<void> trim() async {
+    try {
+      if (!await _directory.exists()) return;
+      final List<(File, FileStat)> covers = <(File, FileStat)>[];
+      int total = 0;
+      await for (final FileSystemEntity entity in _directory.list()) {
+        if (entity is! File || !entity.path.endsWith('.img')) continue;
+        final FileStat stat = await entity.stat();
+        if (stat.type != FileSystemEntityType.file) continue;
+        covers.add((entity, stat));
+        total += stat.size;
+      }
+      if (total <= maxBytes) return;
+      covers.sort(
+        ((File, FileStat) a, (File, FileStat) b) =>
+            a.$2.modified.compareTo(b.$2.modified),
+      );
+      final int target = maxBytes - maxBytes ~/ 10;
+      for (final (File file, FileStat stat) in covers) {
+        if (total <= target) break;
+        // One being fetched again right now is left to its warm.
+        if (_warming.containsKey(p.basenameWithoutExtension(file.path))) {
+          continue;
+        }
+        try {
+          await file.delete();
+          total -= stat.size;
+        } on FileSystemException {
+          // Gone already, or not ours to delete: leave it.
+        }
+      }
+    } catch (_) {
+      // Best-effort: the next write tries again.
+    }
+  }
+
+  /// Whether [bytes] start the way a JPEG, PNG, GIF, WebP or BMP file does.
+  ///
+  /// Not a full decode (this runs where no image codec is available), but
+  /// enough to keep a body that only claimed to be an image, such as an error
+  /// page sent with `image/jpeg`, out of the cache.
+  static bool looksLikeImage(List<int> bytes) {
+    bool startsWith(List<int> prefix, [int offset = 0]) {
+      if (bytes.length < offset + prefix.length) return false;
+      for (int i = 0; i < prefix.length; i++) {
+        if (bytes[offset + i] != prefix[i]) return false;
+      }
+      return true;
+    }
+
+    return startsWith(const <int>[0xFF, 0xD8, 0xFF]) || // JPEG
+        startsWith(const <int>[0x89, 0x50, 0x4E, 0x47]) || // \x89PNG
+        startsWith(const <int>[0x47, 0x49, 0x46, 0x38]) || // GIF8
+        (startsWith(const <int>[0x52, 0x49, 0x46, 0x46]) && // RIFF....WEBP
+            startsWith(const <int>[0x57, 0x45, 0x42, 0x50], 8)) ||
+        startsWith(const <int>[0x42, 0x4D]); // BMP
+  }
+
   /// A credential-free, filename-safe cache key: the SHA-256 of [key]'s string
-  /// form. [key] itself never carries a token (see class docs), so neither does
-  /// the hash — and hashing also keeps an odd reference from escaping the cache
-  /// directory.
-  static String _hash(Uri key) =>
-      sha256.convert(utf8.encode(key.toString())).toString();
+  /// form, after the identity of its [server] when it has one. Neither carries
+  /// a token (see class docs), so the hash doesn't either. Hashing also keeps
+  /// an odd reference from escaping the cache directory.
+  ///
+  /// A key with no server ('') hashes as it always did, so a URL's cover keeps
+  /// the file it had before servers were told apart.
+  static String _hash(Uri key, String server) => sha256
+      .convert(utf8.encode(
+        server.isEmpty ? key.toString() : '$server\u0000$key',
+      ))
+      .toString();
 
   static Uri _identity(Uri key) => key;
+
+  static String? _anyServer(Uri key) => '';
 
   /// The default fetcher: a plain GET (over the reused [_httpClient]) that
   /// returns the body bytes only for a 2xx image response. Any transport error,

@@ -116,8 +116,21 @@ void main() {
       final Uri uri = JellyfinEndpoints.primaryImage(_base, itemId: 'item-7');
       expect(uri.path, '/Items/item-7/Images/Primary');
       // Artwork needs no auth, so it carries no token at all (safe to
-      // persist/cache) — neither the canonical ApiKey nor the legacy api_key.
-      expect(uri.hasQuery, isFalse);
+      // persist/cache): only the size bound, no ApiKey or api_key.
+      expect(uri.queryParameters, <String, String>{
+        'maxWidth': '1024',
+        'maxHeight': '1024',
+      });
+    });
+
+    test('primaryImage carries the image tag, so a new cover is a new URL', () {
+      final Uri before =
+          JellyfinEndpoints.primaryImage(_base, itemId: 'item-7', tag: 'a1');
+      final Uri after =
+          JellyfinEndpoints.primaryImage(_base, itemId: 'item-7', tag: 'b2');
+
+      expect(before.queryParameters['tag'], 'a1');
+      expect(before, isNot(after));
     });
   });
 
