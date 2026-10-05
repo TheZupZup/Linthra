@@ -179,6 +179,12 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
 
   void _onVisibility(DesktopWindowVisibility visibility) {
     _hidden = visibility == DesktopWindowVisibility.hidden;
+    // A refusal makes closing quit, but a close can still reach the runner
+    // before it hears so, and hide the window: the same late refusal as in
+    // [_askBackground], the other way round.
+    if (_hidden && _permission == BackgroundPermission.denied) {
+      unawaited(quit());
+    }
   }
 
   void _sync(PlaybackState state) {

@@ -357,6 +357,23 @@ void main() {
       expect(window.quitCount, 1);
     });
 
+    test(
+        'a close that hides the window before the runner hears of a refusal '
+        'quits the normal way', () async {
+      int shutdowns = 0;
+      service.installShutdown(() async => shutdowns++);
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+      await desktop.answer(BackgroundPermission.denied);
+      expect(window.quitCount, 0);
+
+      // The close reached the runner ahead of the new answer, so it hid.
+      await window.report(DesktopWindowVisibility.hidden);
+
+      expect(shutdowns, 1);
+      expect(window.quitCount, 1);
+    });
+
     test('a refusal with the window on screen only changes the next close',
         () async {
       service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
