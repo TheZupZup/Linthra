@@ -29,7 +29,13 @@ dependencies:
   # reads from). drift is the typed query layer; sqlite3_flutter_libs bundles
   # the native SQLite engine on device; path_provider locates the on-device
   # database file.
-  drift: ^2.18.0
+  #
+  # Held below 2.32 (#681). drift 2.32 needs sqlite3 3.x, whose build hook
+  # downloads a precompiled SQLite from GitHub at build time unless told
+  # otherwise, beside the one sqlite3_flutter_libs builds from source. The
+  # Flatpak builds with the network off and F-Droid builds from source, so
+  # that move needs its own PR. See docs/dependency-updates.md.
+  drift: ">=2.18.0 <2.32.0"
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.4
   # Held below 2.3 (#681). path_provider_android 2.3 moves to JNI, which brings
@@ -161,8 +167,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   # Drift code generation. Run via the manual "Generate Drift files" workflow;
-  # produces the *.g.dart files that back LinthraDatabase.
-  drift_dev: ^2.18.0
+  # produces the *.g.dart files that back LinthraDatabase. Held with drift
+  # (#681).
+  drift_dev: ">=2.18.0 <2.32.0"
   build_runner: ^2.4.13
   # Test-only. audio_service's platform seam, already in the graph as one of its
   # own dependencies. The Android media-session boundary test needs it directly

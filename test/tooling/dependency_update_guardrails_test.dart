@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -295,6 +296,42 @@ void main() {
     });
   });
 
+  group('a native build hook is a reviewed decision (#681)', () {
+    // A package with a `hook/build.dart` runs it on every build, and the hook
+    // may fetch or compile native code of its own. sqlite3 3.x, which drift
+    // 2.32 needs, downloads a precompiled SQLite from GitHub unless told
+    // otherwise. The Flatpak builds with the network off and F-Droid builds
+    // from source, and a lockfile refresh that brings a hook in changes
+    // nothing but pubspec.lock, so none of the updater's file guards see it.
+    // It fails here instead, and a human PR that brings one in names it here,
+    // after deciding what the builds do with it.
+    const Map<String, String> reviewed = <String, String>{
+      // path_provider_foundation's Objective-C runtime: its hook builds only
+      // for iOS and macOS, and returns at once for Android and Linux.
+      'objective_c': 'no-op outside iOS/macOS',
+    };
+
+    test('no resolved package ships a build hook nobody reviewed', () {
+      final File config =
+          File(p.join(root, '.dart_tool', 'package_config.json'));
+      expect(config.existsSync(), isTrue,
+          reason: 'package_config.json is missing: run flutter pub get');
+      final Object? packages = (jsonDecode(config.readAsStringSync())
+          as Map<String, dynamic>)['packages'];
+      final Set<String> hooked = <String>{
+        for (final Object? package in packages! as List<Object?>)
+          if (package is Map<String, dynamic> &&
+              _shipsBuildHook(config, package))
+            package['name']! as String,
+      };
+
+      expect(hooked.difference(reviewed.keys.toSet()), isEmpty,
+          reason: 'a package with a native build hook needs a human review '
+              'of what it builds or downloads, for the F-Droid build and the '
+              'Flatpak (docs/dependency-updates.md, "Held back on purpose")');
+    });
+  });
+
   group('pub is not left to Dependabot', () {
     test('.github/dependabot.yml declares no pub ecosystem', () {
       final String dependabot =
@@ -316,6 +353,15 @@ ProcessResult _runGuard(String script, List<String> paths) => Process.runSync(
       stdoutEncoding: const SystemEncoding(),
       stderrEncoding: const SystemEncoding(),
     );
+
+/// Whether [package], an entry of the resolved [config], has a native build
+/// hook. Its root is a directory URI, absolute or relative to [config].
+bool _shipsBuildHook(File config, Map<String, dynamic> package) {
+  final String rootUri = package['rootUri']! as String;
+  final Uri dir =
+      config.uri.resolve(rootUri.endsWith('/') ? rootUri : '$rootUri/');
+  return File.fromUri(dir.resolve('hook/build.dart')).existsSync();
+}
 
 String _read(String root, String relativePath) {
   final File f = File(p.join(root, relativePath));
