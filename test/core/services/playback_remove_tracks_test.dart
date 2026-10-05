@@ -42,9 +42,15 @@ class _Engine extends Fake implements AudioPlayer {
   Future<void> play() async {}
   @override
   Future<void> pause() async {}
+
+  /// What the next stop fails with, if anything.
+  Object? stopError;
+
   @override
   Future<void> stop() async {
     stops++;
+    final Object? error = stopError;
+    if (error != null) throw error;
   }
 
   @override
@@ -154,6 +160,23 @@ void main() {
     await _settle();
     expect(resolver.resolved, <String>[b.uri]);
     expect(engine.loaded.last, _url(b));
+  });
+
+  test(
+      'an engine that fails to stop still leaves the queue and what is shown '
+      'agreeing', () async {
+    final JustAudioPlaybackController controller = build();
+    final Track b = _local('b');
+    await controller.playTracks(<Track>[_sub('1'), b]);
+    await _settle();
+    engine.stopError = StateError('the audio backend went away');
+
+    await controller.removeTracksWhere(_isSubsonic);
+
+    expect(controller.state.status, PlaybackStatus.idle);
+    expect(controller.state.currentTrack!.uri, b.uri);
+    expect(controller.state.upNext, isEmpty);
+    expect(controller.state.previous, isEmpty);
   });
 
   test('with nothing left, the player is idle with an empty queue', () async {

@@ -1968,7 +1968,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // The current track went too, and nothing of it may play on, be retried
     // or be loaded again: stop it, and land on what is left as a stop leaves
     // a queue, so Play loads it.
-    await _stopEngine();
+    try {
+      await _stopEngine();
+    } catch (_) {
+      // The queue lost it all the same, and what is shown has to say so: the
+      // engine's reports are ignored from the stop on, and Play loads what is
+      // left. Noted for the diagnostics, by a fixed label only.
+      StabilityDiagnostics.playbackError('stop');
+    }
     _emit(PlaybackState(
       currentTrack: _queue.current,
       upNext: _queue.upNext,
