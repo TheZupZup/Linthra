@@ -77,6 +77,13 @@ class AudiobookshelfException implements Exception {
         statusCode: statusCode,
       );
 
+  factory AudiobookshelfException.unsupportedResponse() =>
+      const AudiobookshelfException(
+        'Your Audiobookshelf server returned a response Linthra could not '
+        'use. It may be running an unsupported version.',
+        kind: AudiobookshelfErrorKind.unexpected,
+      );
+
   /// A user-facing explanation safe to show in the UI.
   final String message;
 

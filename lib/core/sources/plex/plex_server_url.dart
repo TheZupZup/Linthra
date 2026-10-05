@@ -55,6 +55,8 @@ abstract final class PlexServerUrl {
         return 'The address must start with https:// (or http:// on a local network).';
       case ServerUrlErrorKind.emptyHost:
         return 'The address is missing a server name, e.g. 192.168.1.10:32400';
+      case ServerUrlErrorKind.invalidPort:
+        return 'The port must be a number from 1 to 65535, e.g. :32400';
     }
   }
 }

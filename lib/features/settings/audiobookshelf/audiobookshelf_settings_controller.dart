@@ -116,9 +116,10 @@ class AudiobookshelfSettingsController
         statusMessage: _reachableMessage(status),
       );
       return true;
-    } on AudiobookshelfException catch (error) {
+    } catch (error) {
+      final AudiobookshelfException failure = _typed(error);
       _forgetTestedStatus();
-      _setFailure(error.message, kind: error.kind, url: url);
+      _setFailure(failure.message, kind: failure.kind, url: url);
       return false;
     }
   }
@@ -175,12 +176,21 @@ class AudiobookshelfSettingsController
       // Fire-and-forget: sign-in returns now and the listing reports itself.
       unawaited(refreshLibraries());
       return true;
-    } on AudiobookshelfException catch (error) {
-      _setFailure(error.message,
-          kind: error.kind, url: url, username: username);
+    } catch (error) {
+      final AudiobookshelfException failure = _typed(error);
+      _setFailure(failure.message,
+          kind: failure.kind, url: url, username: username);
       return false;
     }
   }
+
+  /// [error] as the [AudiobookshelfException] it reports. Anything else (a
+  /// response that broke parsing, say) still has to end a test or sign-in,
+  /// or the card would stay busy until a restart.
+  static AudiobookshelfException _typed(Object error) =>
+      error is AudiobookshelfException
+          ? error
+          : AudiobookshelfException.unsupportedResponse();
 
   /// Lists the libraries this account can see. A no-op when not connected.
   ///

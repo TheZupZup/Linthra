@@ -14,6 +14,11 @@ enum ServerUrlErrorKind {
 
   /// The URL parsed with an http(s) scheme but no host.
   emptyHost,
+
+  /// The port is not one a server can listen on (1 to 65535). The URL parser
+  /// accepts any digits there, and connecting to such a port fails with an
+  /// error no provider classifies.
+  invalidPort,
 }
 
 /// Thrown internally by [ServerUrlNormalizer.parse] so each provider can
@@ -115,9 +120,24 @@ abstract final class ServerUrlNormalizer {
     return ParsedServerUrl(
       scheme: scheme,
       host: uri.host,
-      port: uri.hasPort ? uri.port : null,
+      port: uri.hasPort ? _validPort(uri) : null,
       path: _trimTrailingSlashes(uri.path),
     );
+  }
+
+  /// [uri]'s explicit port, when a server can listen on it.
+  static int _validPort(Uri uri) {
+    final int port;
+    try {
+      port = uri.port;
+    } on FormatException {
+      // More digits than an int holds: parsed lazily, so it throws here.
+      throw const ServerUrlParseFailure(ServerUrlErrorKind.invalidPort);
+    }
+    if (port < 1 || port > 65535) {
+      throw const ServerUrlParseFailure(ServerUrlErrorKind.invalidPort);
+    }
+    return port;
   }
 
   static String _trimTrailingSlashes(String path) {
