@@ -361,6 +361,25 @@ void main() {
       );
     });
 
+    test(
+        'an album that keeps failing while the ping rejects the credential '
+        'reports the credential, not the album', () async {
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 10,
+        brokenAlbums: <int>{3},
+        rejectCredentialsOnPing: true,
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
+    });
+
     test('onBatch returning false stops the walk', () async {
       final SyntheticNavidrome server = SyntheticNavidrome(albums: 100);
 

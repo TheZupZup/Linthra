@@ -174,7 +174,10 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
           if (!_mayBeThisAlbum(error.kind)) rethrow;
           try {
             await _withRetry(() => _client.verifySession(session), retryDelays);
-          } on SubsonicException {
+          } on SubsonicException catch (verifyError) {
+            // The ping found what the user has to fix (a rejected credential,
+            // a connection or answer gone bad): that is what they hear about.
+            if (!_isTransient(verifyError.kind)) rethrow;
             // The server doesn't answer either: the walk ends here, and the
             // sync is retried later.
             Error.throwWithStackTrace(error, stackTrace);

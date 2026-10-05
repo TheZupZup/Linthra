@@ -35,6 +35,7 @@ class SyntheticNavidrome {
     this.rejectCredentialsFromAlbumCall,
     this.stallAtAlbumCall,
     this.brokenAlbums = const <int>{},
+    this.rejectCredentialsOnPing = false,
     this.failAlbumListCallsFrom,
     this.rejectCredentialsFromAlbumListCall,
     this.afterAlbumListCall,
@@ -85,6 +86,10 @@ class SyntheticNavidrome {
   /// Album indexes whose `getAlbum` always answers HTTP 500 (a record the
   /// server chokes on), while everything else on the server works (#740).
   final Set<int> brokenAlbums;
+
+  /// The `ping` rejects the credential (Subsonic error 40), as a password
+  /// changed while an album was failing would.
+  final bool rejectCredentialsOnPing;
 
   /// From this 1-based `getAlbumList2` call on, the album list answers HTTP
   /// 503 (everything else keeps working).
@@ -261,8 +266,13 @@ class SyntheticNavidrome {
         return _ok(<String, Object?>{
           'starred2': <String, Object?>{'song': <Object?>[]},
         });
+      case 'ping':
+        if (rejectCredentialsOnPing) {
+          return _failed(40, 'Wrong username or password');
+        }
+        return _ok(<String, Object?>{});
       default:
-        // ping and anything else: a plain ok envelope.
+        // Anything else: a plain ok envelope.
         return _ok(<String, Object?>{});
     }
   }
