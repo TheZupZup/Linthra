@@ -36,6 +36,7 @@ class SyntheticNavidrome {
     this.stallAtAlbumCall,
     this.brokenAlbums = const <int>{},
     this.failAlbumListCallsFrom,
+    this.rejectCredentialsFromAlbumListCall,
     this.afterAlbumListCall,
   })  : missingAlbums = missingAlbums ?? <int>{},
         failingAlbumCalls = failingAlbumCalls ?? <int>{},
@@ -88,6 +89,10 @@ class SyntheticNavidrome {
   /// From this 1-based `getAlbumList2` call on, the album list answers HTTP
   /// 503 (everything else keeps working).
   final int? failAlbumListCallsFrom;
+
+  /// From this 1-based `getAlbumList2` call on, the album list rejects the
+  /// credential (Subsonic error 40), as a password changed mid-sync would.
+  final int? rejectCredentialsFromAlbumListCall;
 
   /// Called after each `getAlbumList2` page is served, with the 1-based call
   /// number, so a test can change the library between pages.
@@ -170,6 +175,10 @@ class SyntheticNavidrome {
         if (failAlbumListCallsFrom != null &&
             albumListCalls >= failAlbumListCallsFrom!) {
           return http.Response('Service Unavailable', 503);
+        }
+        if (rejectCredentialsFromAlbumListCall != null &&
+            albumListCalls >= rejectCredentialsFromAlbumListCall!) {
+          return _failed(40, 'Wrong username or password');
         }
         final int size = int.parse(query['size']!);
         final int offset = ignoreOffset ? 0 : int.parse(query['offset']!);

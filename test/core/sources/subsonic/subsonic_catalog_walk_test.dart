@@ -319,6 +319,48 @@ void main() {
       _expectSameSet(_uris(batches), server.urisFor('alice'));
     });
 
+    test(
+        'a credential rejected at the second reading is reported, as at the '
+        'first', () async {
+      // 1,000 albums: the first reading takes three list calls.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        rejectCredentialsFromAlbumListCall: 4,
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
+    });
+
+    test(
+        'an album only the second reading finds still reports a rejected '
+        'credential', () async {
+      // Album 900 sorts first after the first page is listed, so only the
+      // second reading lists it, and its getAlbum (the 1,000th) is refused.
+      final SyntheticNavidrome server = SyntheticNavidrome(
+        albums: 1000,
+        rejectCredentialsFromAlbumCall: 1000,
+        afterAlbumListCall: (SyntheticNavidrome server, int call) {
+          if (call == 1) server.moveToFrontOfListing(900);
+        },
+      );
+
+      await expectLater(
+        _walk(server, batchSize: 2000),
+        throwsA(isA<SubsonicException>().having(
+          (SubsonicException e) => e.kind,
+          'kind',
+          SubsonicErrorKind.unauthorized,
+        )),
+      );
+    });
+
     test('onBatch returning false stops the walk', () async {
       final SyntheticNavidrome server = SyntheticNavidrome(albums: 100);
 

@@ -197,19 +197,28 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
     if (!await walk(listed)) return result(stopped: true);
     if (!truncated) {
       // A truncated list would only hit the page cap again.
+      List<String>? relisted;
       try {
-        final (List<String> relisted, bool relistTruncated) = await _listAlbums(
+        final (List<String> ids, bool relistTruncated) = await _listAlbums(
           retryDelays: retryDelays,
           albumPageSize: albumPageSize,
           maxAlbumPages: maxAlbumPages,
         );
         if (relistTruncated) listingConfirmed = false;
-        listedIds.addAll(relisted);
-        if (!await walk(relisted)) return result(stopped: true);
-      } on SubsonicException {
-        // Everything read so far is kept; the walk just can't vouch for
-        // having seen every album.
+        relisted = ids;
+      } on SubsonicException catch (error) {
+        // A rejected credential, a blocked or untrusted connection or a
+        // server that stopped speaking Subsonic is the user's to hear about,
+        // as it is from the first reading. A server that only dropped out
+        // leaves what was read kept; the walk just can't vouch for having
+        // seen every album, and is resumed later.
+        if (!_isTransient(error.kind)) rethrow;
         listingConfirmed = false;
+      }
+      if (relisted != null) {
+        listedIds.addAll(relisted);
+        // The albums only this reading found fail the way the others do.
+        if (!await walk(relisted)) return result(stopped: true);
       }
     }
     if (batch.isNotEmpty) {
@@ -280,13 +289,17 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
       try {
         return await request();
       } on SubsonicException catch (error) {
-        final bool transient = error.kind == SubsonicErrorKind.notReachable ||
-            error.kind == SubsonicErrorKind.serverError;
-        if (!transient || attempt >= delays.length) rethrow;
+        if (!_isTransient(error.kind) || attempt >= delays.length) rethrow;
         await Future<void>.delayed(delays[attempt]);
       }
     }
   }
+
+  /// Whether a failure of [kind] can pass on its own (the server dropped out,
+  /// or answered with an error), so a later attempt may succeed.
+  static bool _isTransient(SubsonicErrorKind kind) =>
+      kind == SubsonicErrorKind.notReachable ||
+      kind == SubsonicErrorKind.serverError;
 
   @override
   Future<List<Album>> fetchAlbums() async {
