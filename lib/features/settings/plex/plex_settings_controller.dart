@@ -97,9 +97,10 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// See [toggleSection].
   List<String>? _requestedSelection;
 
-  /// The library selection saves, chained so they run one at a time. See
-  /// [setSelectedSections].
-  Future<void> _selectionSaves = Future<void>.value();
+  /// Every change to the saved session, run one at a time in the order it was
+  /// asked for: a connect's write, a library selection save, the prune after a
+  /// listing, and a disconnect's clear. See [_queueSessionWrite].
+  Future<void> _sessionWrites = Future<void>.value();
 
   /// Set once a user action (connect/disconnect) has taken ownership of the
   /// session while the startup restore was still reading storage. The restore
@@ -135,6 +136,27 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// first tap and `plex-thumb:` covers can resolve from the first frame.
   /// Idempotent.
   Future<void> ensureLoaded() => _initialLoad;
+
+  /// Runs [write] once every session write asked for before it has finished.
+  ///
+  /// A write reads the live [_session] when its turn comes, and adopts what it
+  /// wrote (or, for a disconnect, drops the session) before its turn ends. So
+  /// no write can act on a session an earlier one replaced or cleared, and
+  /// none can land in the keyring after one asked for later. Without this a
+  /// selection save that checked the session just before Disconnect cleared
+  /// the keyring wrote the token back after the clear, and set the session
+  /// again while the card said Disconnected (#750).
+  ///
+  /// [write] must not wait on another queued write, which would never start.
+  Future<T> _queueSessionWrite<T>(Future<T> Function() write) {
+    final Future<T> turn = _sessionWrites
+        // Only when the earlier write ends matters here. Whoever asked for it
+        // gets its result from their own future.
+        .then((_) {}, onError: (Object _) {})
+        .then((_) => write());
+    _sessionWrites = turn;
+    return turn;
+  }
 
   Future<void> _loadPersisted() async {
     final PlexSession? saved;
@@ -589,7 +611,12 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
           sameServer ? previous.selectedSectionKeys : const <String>[],
     );
     try {
-      await ref.read(plexSessionStoreProvider).write(stamped);
+      await _queueSessionWrite(() async {
+        await ref.read(plexSessionStoreProvider).write(stamped);
+        _session = stamped;
+        _savedSessionUnread = false;
+        _connection++;
+      });
     } catch (error) {
       // The new connection couldn't be persisted; without that it would
       // silently vanish on restart, so don't adopt it. The sign-in flow's
@@ -607,9 +634,6 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       return false;
     }
 
-    _session = stamped;
-    _savedSessionUnread = false;
-    _connection++;
     // The just-connected server becomes the active/default provider for picking
     // among duplicate sources, so a song that also lives on another server now
     // prefers Plex. Persisted and best-effort — mirrors Jellyfin/Subsonic
@@ -766,7 +790,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
         isLoadingSections: false,
         sectionsLoaded: true,
       );
-      await _pruneVanishedSelection(music);
+      await _pruneVanishedSelection(music, connection);
     } on PlexException catch (error) {
       if (connection != _connection) return;
       state = state.copyWith(
@@ -787,9 +811,24 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// pruned selection can't be persisted the stale keys simply remain until
   /// the next refresh, and no sync is kicked here — the next sync (manual or
   /// selection-driven) drops the vanished section's tracks.
-  Future<void> _pruneVanishedSelection(List<PlexLibrarySection> music) async {
+  ///
+  /// Runs on the session write queue, so it can't write the token back after a
+  /// disconnect; [connection] is the one [music] was listed for, and a prune
+  /// whose turn comes after a disconnect or another connect does nothing.
+  Future<void> _pruneVanishedSelection(
+    List<PlexLibrarySection> music,
+    int connection,
+  ) =>
+      _queueSessionWrite(() => _pruneSelection(music, connection));
+
+  Future<void> _pruneSelection(
+    List<PlexLibrarySection> music,
+    int connection,
+  ) async {
     final PlexSession? current = _session;
-    if (current == null || current.selectedSectionKeys.isEmpty) {
+    if (connection != _connection ||
+        current == null ||
+        current.selectedSectionKeys.isEmpty) {
       return;
     }
     final Set<String> available = <String>{
@@ -835,21 +874,19 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// survives a restart. An empty list is valid — connected, nothing chosen
   /// yet.
   ///
-  /// Saves run one after another, each on the session as the one before it
-  /// left it, so they land in the order they were asked for and the last
-  /// selection asked for is the one kept.
+  /// Saves run on the session write queue ([_queueSessionWrite]), each on the
+  /// session as the write before it left it, so they land in the order they
+  /// were asked for and the last selection asked for is the one kept. One
+  /// asked for before a disconnect lands before its clear; one asked for after
+  /// finds no session and saves nothing.
   Future<void> setSelectedSections(List<String> sectionKeys) {
     final PlexSession? asked = _session;
     if (asked == null) return Future<void>.value();
     final List<String> keys = List<String>.unmodifiable(sectionKeys);
     _requestedSelection = keys;
-    final Future<void> save = _selectionSaves
-        // Only when the earlier save ends matters here. Whoever asked for it
-        // gets its result from their own future.
-        .then((_) {}, onError: (Object _) {})
-        .then((_) => _saveSelection(keys, asked.machineIdentifier));
-    _selectionSaves = save;
-    return save;
+    return _queueSessionWrite(
+      () => _saveSelection(keys, asked.machineIdentifier),
+    );
   }
 
   Future<void> _saveSelection(List<String> keys, String? server) async {
@@ -893,10 +930,19 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// untouched: only the Plex store and the catalog's `plex` slice change.
   /// Any sign-in flow still in flight is abandoned (and its in-memory tokens
   /// released) along the way.
+  ///
+  /// The clear waits its turn on the session write queue, behind every save
+  /// asked for before it, so none of them can write the token back after it
+  /// ([_queueSessionWrite]).
   Future<void> disconnect() async {
     _resetLinkFlow();
     try {
-      await ref.read(plexSessionStoreProvider).clear();
+      await _queueSessionWrite(() async {
+        await ref.read(plexSessionStoreProvider).clear();
+        _session = null;
+        _savedSessionUnread = false;
+        _connection++;
+      });
     } catch (error) {
       // The token would stay in the keyring; report it rather than pretending.
       state = state.copyWith(
@@ -906,9 +952,6 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       );
       return;
     }
-    _session = null;
-    _savedSessionUnread = false;
-    _connection++;
     _sectionsLoadAttempted = false;
     _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);
