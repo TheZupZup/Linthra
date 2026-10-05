@@ -232,9 +232,10 @@ void main() {
         );
       }
       expect(app.repository.prunes, 1);
-      // One album-list pass (16 full pages + the empty last one), one getAlbum
-      // per album, and none of the old unused album/artist passes.
-      expect(app.server.albumListCalls, 17);
+      // The album list read twice (16 full pages + the empty last one, the
+      // second time to catch an album that moved during the first, #752), one
+      // getAlbum per album, and none of the old unused album/artist passes.
+      expect(app.server.albumListCalls, 2 * 17);
       expect(app.server.albumCalls, 8000);
       expect(app.server.calls.containsKey('getArtists'), isFalse);
       // Finished, so nothing is left to resume.
@@ -620,6 +621,93 @@ void main() {
       expect(report, contains('Subsonic tracks: 4000'));
       expect(report, contains('Library tracks: 4000'));
       expect(report, contains('Last error: notReachable'));
+    });
+  });
+
+  group('albums that fail or move during a walk', () {
+    test(
+        'one album that always fails: every other album syncs, nothing is '
+        'pruned, and resuming does not walk the library again (#740)',
+        () async {
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 500, brokenAlbums: <int>{250});
+      final _App app = _App(server);
+      await app.seed('subsonic', <String>['subsonic:gone-1']);
+      await app.signIn();
+
+      await app.sync.sync();
+
+      expect(app.state.status, SubsonicSyncStatus.incomplete);
+      expect(app.state.unreadAlbumCount, 1);
+      expect(app.state.message, contains("1 album couldn't be read"));
+      final Set<String> uris = await app.subsonicUris();
+      expect(
+        server.urisFor('alice', exceptAlbums: <int>{250}).difference(uris),
+        isEmpty,
+      );
+      // Not a complete walk, so the stale row stays.
+      expect(uris, contains('subsonic:gone-1'));
+      expect(app.repository.prunes, 0);
+      // Nothing left to resume: the next walk would fail it the same way.
+      expect(await app.pending.read(), isNull);
+      final int calls = server.albumCalls;
+
+      await app.sync.resumeIncompleteSync();
+      await app.sync.resumeIncompleteSync();
+
+      expect(server.albumCalls, calls);
+      expect(
+        (await app.diagnostics()).label,
+        'incomplete (4990 tracks, 1 album unread, stale tracks kept)',
+      );
+    });
+
+    test('a sync again once the album is fixed completes and prunes', () async {
+      final _App first = _App(
+        SyntheticNavidrome(albums: 100, brokenAlbums: <int>{40}),
+      );
+      await first.seed('subsonic', <String>['subsonic:gone-1']);
+      await first.signIn();
+      await first.sync.sync();
+      expect(first.state.status, SubsonicSyncStatus.incomplete);
+
+      final _App fixed = _App(SyntheticNavidrome(albums: 100), db: first.db);
+      await fixed.signIn();
+      await fixed.sync.sync();
+
+      expect(fixed.state.status, SubsonicSyncStatus.success);
+      _expectSameSet(await fixed.subsonicUris(), fixed.server.urisFor('alice'));
+    });
+
+    test(
+        "an album deleted between two list pages doesn't take a live album's "
+        'tracks with it (#752)', () async {
+      final _App first = _App(SyntheticNavidrome(albums: 1000));
+      await first.signIn();
+      await first.sync.sync();
+      _expectSameSet(await first.subsonicUris(), first.server.urisFor('alice'));
+
+      // Next time, album 10 is deleted on the server right after the first
+      // page of the album list is read, so album 500 slides into that page.
+      final _App second = _App(
+        SyntheticNavidrome(
+          albums: 1000,
+          afterAlbumListCall: (SyntheticNavidrome server, int call) {
+            if (call == 1) server.removeFromListing(10);
+          },
+        ),
+        db: first.db,
+      );
+      await second.signIn();
+      await second.sync.sync();
+
+      expect(second.state.status, SubsonicSyncStatus.success);
+      expect(second.repository.prunes, 1);
+      // Album 10 is gone, album 500 is not.
+      _expectSameSet(
+        await second.subsonicUris(),
+        second.server.urisFor('alice', exceptAlbums: <int>{10}),
+      );
     });
   });
 
