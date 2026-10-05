@@ -837,6 +837,33 @@ void main() {
       expect(await jellyfinUris(), isEmpty);
     });
 
+    test(
+        "bob's tracks are never written while the record still says they are "
+        "alice's", () async {
+      final _FlakyOwners flaky = _FlakyOwners();
+      owners = flaky;
+      final ProviderContainer c = await aliceSyncedAndLeft();
+      flaky.failWrites = true;
+
+      await signInAs(c, bob);
+
+      // Her tracks are gone, and his sync failed rather than write his
+      // tracks under her name.
+      expect(await jellyfinUris(), isEmpty);
+      expect(await owners.read('jellyfin'), jellyfinAccountFingerprint(alice));
+      expect(
+        c.read(jellyfinSyncControllerProvider).status,
+        JellyfinSyncStatus.error,
+      );
+
+      // Once the record can be saved, his next sync takes the library over.
+      flaky.failWrites = false;
+      await c.read(jellyfinSyncControllerProvider.notifier).sync();
+
+      expect(await jellyfinUris(), hasLength(2));
+      expect(await owners.read('jellyfin'), jellyfinAccountFingerprint(bob));
+    });
+
     group('the play queue goes with the library (#767)', () {
       const Track aliceA = Track(id: 'a', title: 'Alice a', uri: 'jellyfin:a');
       const Track aliceB = Track(id: 'b', title: 'Alice b', uri: 'jellyfin:b');
@@ -964,6 +991,19 @@ void main() {
       });
     });
   });
+}
+
+/// The owner store, with writes that can be made to fail (a full disk, a
+/// storage error), so a test can see what a takeover does when the record of
+/// whose tracks the slice holds can't be saved.
+class _FlakyOwners extends InMemoryRemoteCatalogOwnerStore {
+  bool failWrites = false;
+
+  @override
+  Future<void> write(String sourceId, String fingerprint) {
+    if (failWrites) throw StateError('could not save');
+    return super.write(sourceId, fingerprint);
+  }
 }
 
 /// The in-memory catalog, with a gate a sync's write can be held at, so a

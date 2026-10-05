@@ -276,23 +276,37 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Runs in turn with the catalog writes ([_writeInTurn]), so a batch that
   /// the previous account's walk had already started writing lands before the
   /// clear, never after it.
+  ///
+  /// Throws when another account's tracks went but the record of whose the
+  /// slice is now couldn't be saved: this account's tracks may only be
+  /// written once it says so. The sync it is part of then fails before
+  /// writing anything, and is retried.
   Future<bool> _adoptCatalog(SubsonicMusicSource source) async {
     final String account = subsonicAccountFingerprint(source.session);
-    final bool tookOver = await _writeInTurn(() async {
-      // Signed out or switched again meanwhile: the account signed in now
-      // adopts the slice on its own.
-      if (!_isCurrentAccount(account)) return false;
-      final RemoteCatalogOwnerStore owners =
-          ref.read(remoteCatalogOwnerStoreProvider);
-      final String? owner = await _readQuietly(() => owners.read(source.id));
-      if (owner == account) return false;
-      // Nothing recorded the owner before #741. Then the account whose first
-      // sync landed last is the best guess, and with no guess at all the
-      // tracks are taken to be this account's own: nothing is removed.
-      final String? previous = owner ??
-          await _readQuietly(ref.read(subsonicAutoSyncStoreProvider).read);
-      final bool othersTracks = previous != null && previous != account;
-      if (othersTracks) {
+    bool cleared = false;
+    try {
+      return await _writeInTurn(() async {
+        // Signed out or switched again meanwhile: the account signed in now
+        // adopts the slice on its own.
+        if (!_isCurrentAccount(account)) return false;
+        final RemoteCatalogOwnerStore owners =
+            ref.read(remoteCatalogOwnerStoreProvider);
+        final String? owner = await _readQuietly(() => owners.read(source.id));
+        if (owner == account) return false;
+        // Nothing recorded the owner before #741. Then the account whose
+        // first sync landed last is the best guess, and with no guess at all
+        // the tracks are taken to be this account's own: nothing is removed.
+        final String? previous = owner ??
+            await _readQuietly(ref.read(subsonicAutoSyncStoreProvider).read);
+        if (previous == null || previous == account) {
+          try {
+            await owners.write(source.id, account);
+          } catch (_) {
+            // The tracks are this account's either way; with the record still
+            // missing they are taken to be, as above.
+          }
+          return false;
+        }
         // Out of the play queue too, first: left there, their ids would ask
         // this account's server for its songs under the other one's titles
         // (#767).
@@ -303,17 +317,16 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           albums: const <Album>[],
           artists: const <Artist>[],
         );
-      }
-      try {
+        cleared = true;
+        // Saved with the clear, or the sync stops here: left saying the
+        // other account's, the slice would hold this one's tracks under that
+        // name, for that account to see when it is back.
         await owners.write(source.id, account);
-      } catch (_) {
-        // Best-effort: the next sync asks again, and clears nothing of this
-        // account's that it isn't about to replace.
-      }
-      return othersTracks;
-    });
-    if (tookOver) await _refreshLibrary();
-    return tookOver;
+        return true;
+      });
+    } finally {
+      if (cleared) await _refreshLibrary();
+    }
   }
 
   /// Takes Subsonic's songs out of the play queue. Quietly: the library is

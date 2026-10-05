@@ -133,6 +133,19 @@ class _SpyRepository
 
 /// One app "process": a container over [server], a catalog database that can
 /// outlive it (to model a relaunch), and the persisted stores.
+/// The owner store, with writes that can be made to fail (a full disk, a
+/// storage error), so a test can see what a takeover does when the record of
+/// whose tracks the slice holds can't be saved.
+class _FlakyOwners extends InMemoryRemoteCatalogOwnerStore {
+  bool failWrites = false;
+
+  @override
+  Future<void> write(String sourceId, String fingerprint) {
+    if (failWrites) throw StateError('could not save');
+    return super.write(sourceId, fingerprint);
+  }
+}
+
 class _App {
   _App(
     this.server, {
@@ -842,6 +855,33 @@ void main() {
       expect(player.state.currentTrack?.uri, onDisk.uri);
       expect(player.state.upNext, isEmpty);
       expect(player.state.previous, isEmpty);
+    });
+
+    test(
+        "bob's tracks are never written while the record still says they are "
+        "alice's", () async {
+      final _FlakyOwners owners = _FlakyOwners();
+      final _App app = _App(SyntheticNavidrome(albums: 30), owners: owners);
+      await app.signIn();
+      await app.sync.sync();
+      expect(await app.subsonicRows(), 300);
+      await app.signOut();
+      owners.failWrites = true;
+
+      await app.signIn('bob');
+      await app.settled();
+
+      expect(app.state.status, SubsonicSyncStatus.error);
+      expect(await app.subsonicRows(), 0);
+      expect(await owners.read('subsonic'), _account('alice'));
+
+      // Once the record can be saved, his next sync takes the library over.
+      owners.failWrites = false;
+      await app.sync.sync();
+
+      expect(app.state.status, SubsonicSyncStatus.success);
+      _expectSameSet(await app.subsonicUris(), app.server.urisFor('bob'));
+      expect(await owners.read('subsonic'), _account('bob'));
     });
 
     test("bob's library is empty: none of alice's tracks are left", () async {
