@@ -63,6 +63,13 @@ jobs:
       - name: Check vendored packages
         run: ./scripts/check_vendored_packages.sh
 
+      # The check above has to leave the vendored tree as it found it: Flutter
+      # rewrites a package's analysis_options.yaml on every pub get, and a
+      # local run that kept the edit dirtied the tree and passed, so the
+      # commit that swept it in failed here (#760). Local twin: the same line.
+      - name: Test the vendored package check
+        run: python3 test/tooling/check_vendored_packages_test.py
+
       - name: Run tests
         run: flutter test
 

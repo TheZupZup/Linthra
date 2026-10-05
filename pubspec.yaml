@@ -32,6 +32,12 @@ dependencies:
   drift: ^2.18.0
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.4
+  # Held below 2.3 (#681). path_provider_android 2.3 moves to JNI, which brings
+  # the jni package's native library into the APK and, as an FFI plugin, into
+  # the Linux build (compiled only where the build machine has a JDK). Both need
+  # their own review, the reproducible F-Droid build above all, before a
+  # lockfile refresh may pull it in. See docs/dependency-updates.md.
+  path_provider_android: ">=2.2.17 <2.3.0"
   # Local audio playback engine. Used only by JustAudioPlaybackController in the
   # services layer; the UI depends on the PlaybackController interface, never on
   # just_audio directly.
