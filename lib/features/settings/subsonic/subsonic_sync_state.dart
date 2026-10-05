@@ -21,6 +21,7 @@ class SubsonicSyncState {
     this.playlistsFailed = false,
     this.favoritesFailed = false,
     this.errorKind,
+    this.unreadAlbumCount = 0,
   });
 
   const SubsonicSyncState.syncing({int savedTrackCount = 0})
@@ -36,6 +37,7 @@ class SubsonicSyncState {
     required int trackCount,
     required String message,
     bool complete = true,
+    int unreadAlbumCount = 0,
     int playlistCount = 0,
     int favoriteCount = 0,
     bool playlistsFailed = false,
@@ -51,6 +53,7 @@ class SubsonicSyncState {
           favoriteCount: favoriteCount,
           playlistsFailed: playlistsFailed,
           favoritesFailed: favoritesFailed,
+          unreadAlbumCount: unreadAlbumCount,
         );
 
   const SubsonicSyncState.error(
@@ -93,6 +96,10 @@ class SubsonicSyncState {
   /// diagnostics report.
   final String? errorKind;
 
+  /// Albums a sync that read to the end had to leave out, because they kept
+  /// failing while the server itself answered (#740).
+  final int unreadAlbumCount;
+
   /// The [errorKind] of a failure that wasn't a Subsonic error (a storage
   /// failure while saving, most likely).
   static const String unexpectedErrorKind = 'syncFailed';
@@ -117,7 +124,13 @@ class SubsonicSyncState {
       case SubsonicSyncStatus.success:
         return 'ok ($trackCount tracks)';
       case SubsonicSyncStatus.incomplete:
-        return 'incomplete ($trackCount tracks, stale tracks kept$retry)';
+        final String unread = unreadAlbumCount == 0
+            ? ''
+            : unreadAlbumCount == 1
+                ? '1 album unread, '
+                : '$unreadAlbumCount albums unread, ';
+        return 'incomplete ($trackCount tracks, ${unread}stale tracks kept'
+            '$retry)';
       case SubsonicSyncStatus.error:
         return 'failed: ${errorKind ?? unexpectedErrorKind} '
             '($savedTrackCount saved$retry)';

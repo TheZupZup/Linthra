@@ -311,7 +311,10 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       // a page-capped one would only hit the cap again. One that lost too many
       // albums mid-walk (a server rescan) is worth another pass, though: keep
       // the marker so launch/resume reconciles the stale rows it had to keep.
-      if (walk.isComplete || walk.truncated) await _clearPending();
+      // Not for albums that kept failing while the server answered: the next
+      // walk would read the whole library again only to fail them the same
+      // way, on every launch and resume (#740). Sync again retries them.
+      if (!walk.worthResuming) await _clearPending();
 
       // Import Navidrome playlists and adopt server favourites best-effort; a
       // failure here is reported calmly but never fails the track sync. Done
@@ -323,6 +326,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       state = SubsonicSyncState.success(
         trackCount: seen.length,
         complete: walk.isComplete,
+        unreadAlbumCount: walk.failedAlbumCount,
         playlistCount: playlists.playlistCount,
         favoriteCount: favorites.favoriteCount,
         playlistsFailed: playlists.didFail,
@@ -333,6 +337,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           favorites: favorites,
           empty: seen.isEmpty,
           complete: walk.isComplete,
+          unreadAlbums: walk.failedAlbumCount,
         ),
       );
       await _recordAutoSynced(recordFingerprint);
@@ -486,6 +491,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     required FavoritesSyncResult favorites,
     bool empty = false,
     bool complete = true,
+    int unreadAlbums = 0,
   }) {
     final List<String> synced = <String>[];
     if (trackCount > 0) {
@@ -512,7 +518,13 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     } else {
       message.write('Synced ${_join(synced)}.');
     }
-    if (!complete) {
+    if (unreadAlbums > 0) {
+      message.write(unreadAlbums == 1
+          ? " 1 album couldn't be read, so nothing was removed this time. "
+              'Sync again to retry it.'
+          : " $unreadAlbums albums couldn't be read, so nothing was removed "
+              'this time. Sync again to retry them.');
+    } else if (!complete) {
       message.write(" Linthra couldn't confirm it read your whole library, "
           'so nothing was removed this time.');
     }
