@@ -21,6 +21,7 @@ class LocalRootProblemPanel extends StatelessWidget {
     this.onRetry,
     this.onReselect,
     this.onRemove,
+    this.onConfirmEmpty,
     this.dense = false,
     super.key,
   });
@@ -41,6 +42,11 @@ class LocalRootProblemPanel extends StatelessWidget {
   /// folder is exactly where a user fears otherwise.
   final VoidCallback? onRemove;
 
+  /// Tell Linthra the folder really is empty, so its music goes. Only offered
+  /// for a folder found empty while the library has music from it
+  /// ([LocalRootProblemPresentation.canConfirmEmpty]).
+  final VoidCallback? onConfirmEmpty;
+
   /// Tightens the layout for the Settings row, where the folder's name is
   /// already on screen directly above.
   final bool dense;
@@ -50,6 +56,8 @@ class LocalRootProblemPanel extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final bool showReselect = onReselect != null && presentation.canReselect;
+    final bool showConfirmEmpty =
+        onConfirmEmpty != null && presentation.canConfirmEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -83,7 +91,10 @@ class LocalRootProblemPanel extends StatelessWidget {
           presentation.guidance,
           style: theme.textTheme.bodySmall?.copyWith(color: muted),
         ),
-        if (onRetry != null || showReselect || onRemove != null) ...[
+        if (onRetry != null ||
+            showReselect ||
+            showConfirmEmpty ||
+            onRemove != null) ...[
           const SizedBox(height: AppSpacing.xs),
           // Wrapped rather than a Row: three buttons do not fit side by side on
           // a narrow window or at a large text scale, and a folder that needs
@@ -103,6 +114,12 @@ class LocalRootProblemPanel extends StatelessWidget {
                   onPressed: onReselect,
                   icon: const Icon(Icons.folder_open_outlined, size: 18),
                   label: const Text('Select folder again'),
+                ),
+              if (showConfirmEmpty)
+                OutlinedButton.icon(
+                  onPressed: onConfirmEmpty,
+                  icon: const Icon(Icons.done, size: 18),
+                  label: const Text("It's empty on purpose"),
                 ),
               if (onRemove != null)
                 TextButton.icon(

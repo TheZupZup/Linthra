@@ -5,10 +5,12 @@
 // all one function call away. The point of testing it on its own is that the
 // Settings card and the Library screen both read from here, so if the words are
 // right once they are right on both.
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/features/library/local_root_problem.dart';
+import 'package:linthra/features/library/widgets/local_root_problem_panel.dart';
 
 const String _safTree =
     'content://com.android.externalstorage.documents/tree/primary%3AMusic';
@@ -188,6 +190,72 @@ void main() {
         expect(presentation.canReselect, isFalse);
         expect(presentation.explanation, isNot(contains('folder')));
       }
+    });
+  });
+
+  group('a folder found empty while the library has music from it (#737)', () {
+    test('points at mounting it, and can be confirmed empty', () {
+      final LocalRootProblemPresentation presentation =
+          _forPath(LocalRootFault.empty);
+
+      expect(presentation.title, 'Folder is empty');
+      expect(presentation.explanation, contains('may not be mounted'));
+      expect(presentation.guidance, contains('Mount'));
+      expect(presentation.canReselect, isTrue);
+      expect(presentation.canConfirmEmpty, isTrue);
+    });
+
+    test('no other fault offers to confirm the folder empty', () {
+      for (final LocalRootFault fault in LocalRootFault.values) {
+        if (fault == LocalRootFault.empty) continue;
+        expect(_forPath(fault).canConfirmEmpty, isFalse, reason: fault.name);
+      }
+    });
+
+    Future<void> pumpPanel(
+      WidgetTester tester,
+      LocalRootFault fault, {
+      VoidCallback? onConfirmEmpty,
+    }) {
+      return tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalRootProblemPanel(
+              presentation: _forPath(fault),
+              onRetry: () {},
+              onReselect: () {},
+              onConfirmEmpty: onConfirmEmpty,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('the panel offers it, and only for an empty folder',
+        (WidgetTester tester) async {
+      int confirmed = 0;
+      await pumpPanel(
+        tester,
+        LocalRootFault.empty,
+        onConfirmEmpty: () => confirmed++,
+      );
+
+      await tester.tap(find.text("It's empty on purpose"));
+      expect(confirmed, 1);
+
+      await pumpPanel(
+        tester,
+        LocalRootFault.missing,
+        onConfirmEmpty: () => confirmed++,
+      );
+      expect(find.text("It's empty on purpose"), findsNothing);
+    });
+
+    testWidgets('busy, it is not offered at all', (WidgetTester tester) async {
+      await pumpPanel(tester, LocalRootFault.empty);
+
+      expect(find.text("It's empty on purpose"), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
     });
   });
 }

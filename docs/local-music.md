@@ -99,6 +99,27 @@ anything GNOME- or KDE-specific. A removable drive, to Linthra, is a configured
 path that is sometimes there, which is the only property that holds on every
 distribution and inside the Flatpak.
 
+### A folder that is itself a mount point
+
+An fstab NAS share, or a USB disk mounted at a fixed folder under `/mnt` or
+`/media`, behaves differently from an automounted drive when it goes away: the
+folder doesn't disappear, it stays behind empty. Read naively, that is a library
+you emptied, and a rescan would drop every track from it.
+
+So a folder whose whole walk finds **no files at all**, while your library has
+music from it, is not taken as emptied. It shows as **Folder is empty**, its
+music stays indexed, and nothing is written for it. Linthra keeps asking the
+folder while it is in that state, and only a folder that holds files again
+counts as back, so the poll never rescans an empty mount point over and over.
+Mount the share and the ordinary incremental rescan runs once, as for a drive
+plugged back in.
+
+If you emptied the folder on purpose, choose **It's empty on purpose** on its
+row: one rescan then takes its music out of the library. That only applies while
+the folder really holds nothing, so a share mounted again in the meantime is
+simply read. A folder that holds files that aren't music (covers, playlists) is
+read as usual, and a folder you just added that has no music yet is just empty.
+
 ### The one case Linthra will not guess
 
 **A drive that comes back at a different path is not adopted.** Automounters

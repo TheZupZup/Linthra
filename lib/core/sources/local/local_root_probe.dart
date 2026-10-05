@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import 'android_media_library.dart';
@@ -17,27 +19,38 @@ import 'saf_permission_probe.dart';
 @immutable
 class LocalRootReading {
   /// The configured root answered: it is there and it can be listed.
-  const LocalRootReading.available() : fault = null;
+  /// [holdsNothing] when a walk of it found no files at all, the state an
+  /// unmounted mount point is in.
+  const LocalRootReading.available({this.holdsNothing = false}) : fault = null;
 
   /// The configured root did not answer, for [fault].
-  const LocalRootReading.blocked(LocalRootFault this.fault);
+  const LocalRootReading.blocked(LocalRootFault this.fault)
+      : holdsNothing = false;
 
   /// Why the root could not be read, or null when it could.
   final LocalRootFault? fault;
+
+  /// The root answered, and holds no files at all. On its own that is just an
+  /// empty folder; for a folder the library has music from it is a drive or
+  /// share that isn't mounted (see [LocalRootFault.empty]).
+  final bool holdsNothing;
 
   bool get isAvailable => fault == null;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is LocalRootReading && other.fault == fault);
+      (other is LocalRootReading &&
+          other.fault == fault &&
+          other.holdsNothing == holdsNothing);
 
   @override
-  int get hashCode => fault.hashCode;
+  int get hashCode => Object.hash(fault, holdsNothing);
 
   @override
   String toString() =>
-      'LocalRootReading(${fault == null ? 'available' : fault!.name})';
+      'LocalRootReading(${fault == null ? 'available' : fault!.name}'
+      '${holdsNothing ? ', holds nothing' : ''})';
 }
 
 /// Answers one question about one configured local root: can Linthra reach it
@@ -63,8 +76,14 @@ abstract interface class LocalRootProbe {
   /// distinct from a [LocalRootFault.unknown] reading, which *is* a failure:
   /// one this platform saw and could not name.
   ///
+  /// With [askHoldsNothing], a root that answers is also asked whether it
+  /// holds any files at all ([LocalRootReading.holdsNothing]). Only asked for
+  /// a root found empty before (see [LocalRootFault.empty]), so a folder that
+  /// is fine is never walked on a schedule.
+  ///
   /// Must not throw. A probe that cannot complete answers `null`.
-  Future<LocalRootReading?> inspect(String root);
+  Future<LocalRootReading?> inspect(String root,
+      {bool askHoldsNothing = false});
 }
 
 /// The production [LocalRootProbe]: routes each kind of selection to the seam
@@ -88,12 +107,20 @@ class PlatformLocalRootProbe implements LocalRootProbe {
     required SafPermissionProbe safPermissions,
     required AndroidMediaLibrary mediaLibrary,
     required bool probesFilesystemPaths,
+    Future<bool> Function(String path) holdsNoFiles = holdsNoFilesOnDisk,
   })  : _readability = readability,
         _safPermissions = safPermissions,
         _mediaLibrary = mediaLibrary,
-        _probesFilesystemPaths = probesFilesystemPaths;
+        _probesFilesystemPaths = probesFilesystemPaths,
+        _holdsNoFiles = holdsNoFiles;
 
   final DirectoryReadability _readability;
+
+  /// Whether a readable folder holds no files at all: the same question the
+  /// scan asks of a folder it found nothing in (see [LocalRootFault.empty]),
+  /// so a folder left empty by a share that isn't mounted reads the same to
+  /// both, and the probe never takes it for a folder that came back.
+  final Future<bool> Function(String path) _holdsNoFiles;
   final SafPermissionProbe _safPermissions;
   final AndroidMediaLibrary _mediaLibrary;
 
@@ -104,7 +131,10 @@ class PlatformLocalRootProbe implements LocalRootProbe {
   final bool _probesFilesystemPaths;
 
   @override
-  Future<LocalRootReading?> inspect(String root) async {
+  Future<LocalRootReading?> inspect(
+    String root, {
+    bool askHoldsNothing = false,
+  }) async {
     if (root.trim().isEmpty) return null;
     final FolderLocation location = FolderLocation.parse(root);
     try {
@@ -136,13 +166,33 @@ class PlatformLocalRootProbe implements LocalRootProbe {
       }
       if (!_probesFilesystemPaths) return null;
       final LocalRootFault? fault = await _readability.inspect(root);
-      return fault == null
-          ? const LocalRootReading.available()
-          : LocalRootReading.blocked(fault);
+      if (fault != null) return LocalRootReading.blocked(fault);
+      return LocalRootReading.available(
+        holdsNothing: askHoldsNothing && await _holdsNoFiles(root),
+      );
     } catch (_) {
       // A probe that faulted learned nothing. Reporting "unavailable" here would
       // turn a platform-channel hiccup into a library that looks disconnected.
       return null;
     }
+  }
+}
+
+/// Whether a walk of the folder at [path] finds no files at all, without
+/// following links. Stops at the first file, so a folder that holds music
+/// answers after a directory or two. A walk that fails part way could have
+/// missed files, so it answers false, never claiming a folder is empty when
+/// it only couldn't look.
+Future<bool> holdsNoFilesOnDisk(String path) async {
+  try {
+    await for (final FileSystemEntity entity in Directory(path).list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is File) return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
   }
 }

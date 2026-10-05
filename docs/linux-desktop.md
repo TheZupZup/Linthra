@@ -764,6 +764,7 @@ errno, a path or an OS message.
 | **Permission denied** | The folder is there and this process may not read it: directory permissions changed, or a grant was withdrawn (`EACCES`, `EPERM`). | Fix the permissions and Retry, or select the folder again through the chooser. |
 | **Storage isn't responding** | The path resolves but the storage behind it does not answer: a network share that is down, a stale mount, a device returning I/O errors (`EIO`, `ESTALE`, `ETIMEDOUT`, `ENOTCONN`, …). | Reconnect it, or wait: Linthra re-asks an absent folder on its own and picks it up as soon as it answers. |
 | **Folder can't be read** | Anything else. Deliberately *not* dressed up as one of the three above. | Retry, or select the folder again. |
+| **Folder is empty** | The folder is there and readable but a complete walk found no files at all, while the library has music from it: most often an fstab share or a disk whose mount point stays behind empty while nothing is mounted. Its music is kept. | Mount it, and Linthra picks it up on its own once it holds files again. If you emptied it on purpose, **It's empty on purpose** takes its music out. |
 
 An Android SAF tree and Android's device-wide MediaStore selection do not use the
 filesystem wording at all: a `content://` tree cannot go missing, only lose its
