@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:linthra/app/routes.dart';
+import 'package:linthra/app/text_file_saver_provider.dart';
 import 'package:linthra/core/diagnostics/app_diagnostics.dart';
 import 'package:linthra/core/models/cache_size.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/core/services/text_file_saver.dart';
 import 'package:linthra/features/settings/bug_report/bug_report_providers.dart';
 import 'package:linthra/features/settings/bug_report/bug_report_screen.dart';
 
@@ -43,9 +45,29 @@ class _FakeLinkLauncher implements ExternalLinkLauncher {
   }
 }
 
+/// A save that ends as [result], recording what it was asked to save.
+class _FakeSaver implements TextFileSaver {
+  _FakeSaver(this.result);
+
+  final TextFileSaveResult result;
+  final List<({String suggestedName, String contents})> saves =
+      <({String suggestedName, String contents})>[];
+
+  @override
+  Future<TextFileSaveResult> save({
+    required String suggestedName,
+    required String contents,
+    required String dialogTitle,
+  }) async {
+    saves.add((suggestedName: suggestedName, contents: contents));
+    return result;
+  }
+}
+
 Future<_FakeLinkLauncher> _pumpScreen(
   WidgetTester tester, {
   bool launchResult = true,
+  TextFileSaver? saver,
 }) async {
   // A tall surface so the whole scrolling form is laid out and every action is
   // hittable without scrolling.
@@ -60,6 +82,7 @@ Future<_FakeLinkLauncher> _pumpScreen(
       overrides: <Override>[
         bugReportDiagnosticsProvider.overrideWith((ref) async => _bundle),
         externalLinkLauncherProvider.overrideWithValue(launcher),
+        if (saver != null) textFileSaverProvider.overrideWithValue(saver),
       ],
       child: const MaterialApp(home: BugReportScreen()),
     ),
@@ -135,6 +158,61 @@ void main() {
 
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
+    });
+
+    // #748: on Linux the place comes from the desktop's save dialog, and
+    // closing it is not an error.
+    group('Save report file', () {
+      testWidgets('saves the report and names only the file it went to',
+          (tester) async {
+        final _FakeSaver saver =
+            _FakeSaver(const TextFileSaved('/home/me/Reports/my-report.md'));
+        await _pumpScreen(tester, saver: saver);
+
+        await tester.tap(find.text('Save report file'));
+        await tester.pump();
+        await tester.pump();
+
+        expect(saver.saves.single.suggestedName, 'linthra-bug-report.md');
+        expect(saver.saves.single.contents, contains('# Linthra bug report'));
+        expect(find.text('Saved to …/my-report.md.'), findsOneWidget);
+        expect(find.textContaining('/home/me'), findsNothing);
+      });
+
+      testWidgets('a closed save dialog says nothing at all', (tester) async {
+        final _FakeSaver saver = _FakeSaver(const TextFileSaveCancelled());
+        await _pumpScreen(tester, saver: saver);
+
+        await tester.tap(find.text('Save report file'));
+        await tester.pump();
+        await tester.pump();
+
+        expect(saver.saves, hasLength(1));
+        expect(find.byType(SnackBar), findsNothing);
+        // And the buttons are usable again.
+        final OutlinedButton save = tester.widget<OutlinedButton>(
+          find.ancestor(
+            of: find.text('Save report file'),
+            matching: find.byWidgetPredicate((w) => w is OutlinedButton),
+          ),
+        );
+        expect(save.onPressed, isNotNull);
+      });
+
+      testWidgets('a failed save points at Copy', (tester) async {
+        await _pumpScreen(
+          tester,
+          saver: _FakeSaver(const TextFileSaveFailed()),
+        );
+
+        await tester.tap(find.text('Save report file'));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text("Couldn't save the report. Try Copy instead."),
+            findsOneWidget);
+        expect(find.text('Copy bug report'), findsOneWidget);
+      });
     });
 
     testWidgets('Open GitHub issue launches a prefilled issues/new URL',

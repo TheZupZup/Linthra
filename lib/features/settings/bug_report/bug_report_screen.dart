@@ -1,13 +1,12 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../app/dimens.dart';
+import '../../../app/text_file_saver_provider.dart';
 import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/diagnostics/bug_report.dart';
+import '../../../core/services/text_file_saver.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import 'bug_report_providers.dart';
 
@@ -103,12 +102,22 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final String report = _composeReport(bundle);
-      final Directory dir = await getApplicationDocumentsDirectory();
-      final File file = File('${dir.path}/linthra-bug-report.md');
-      await file.writeAsString(report, flush: true);
-      // Show only the redacted basename — never the private app directory path.
-      _showSnack('Saved to ${AppDiagnostics.redactPath(file.path)}.');
+      final TextFileSaveResult result =
+          await ref.read(textFileSaverProvider).save(
+                suggestedName: 'linthra-bug-report.md',
+                contents: _composeReport(bundle),
+                dialogTitle: 'Save bug report',
+              );
+      switch (result) {
+        case TextFileSaved(:final String path):
+          // Show only the redacted basename, never the directories to it.
+          _showSnack('Saved to ${AppDiagnostics.redactPath(path)}.');
+        case TextFileSaveCancelled():
+          // The save dialog was closed: nothing happened, nothing to say.
+          break;
+        case TextFileSaveFailed():
+          _showSnack("Couldn't save the report. Try Copy instead.");
+      }
     } catch (_) {
       _showSnack("Couldn't save the report. Try Copy instead.");
     } finally {

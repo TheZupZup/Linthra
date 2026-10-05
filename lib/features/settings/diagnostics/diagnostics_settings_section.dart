@@ -1,12 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../app/dimens.dart';
+import '../../../app/text_file_saver_provider.dart';
 import '../../../core/diagnostics/app_diagnostics.dart';
+import '../../../core/services/text_file_saver.dart';
 import 'diagnostics_collector.dart';
 
 /// The Diagnostics card on the Settings screen.
@@ -44,11 +43,22 @@ class _DiagnosticsSettingsSectionState
     setState(() => _busy = true);
     try {
       final String report = await ref.read(diagnosticsReportBuilderProvider)();
-      final Directory dir = await getApplicationDocumentsDirectory();
-      final File file = File('${dir.path}/linthra-diagnostics.txt');
-      await file.writeAsString(report, flush: true);
-      // Show only the redacted basename — never the private app directory path.
-      _showSnack('Saved to ${AppDiagnostics.redactPath(file.path)}.');
+      final TextFileSaveResult result =
+          await ref.read(textFileSaverProvider).save(
+                suggestedName: 'linthra-diagnostics.txt',
+                contents: report,
+                dialogTitle: 'Save diagnostics',
+              );
+      switch (result) {
+        case TextFileSaved(:final String path):
+          // Show only the redacted basename, never the directories to it.
+          _showSnack('Saved to ${AppDiagnostics.redactPath(path)}.');
+        case TextFileSaveCancelled():
+          // The save dialog was closed: nothing happened, nothing to say.
+          break;
+        case TextFileSaveFailed():
+          _showSnack("Couldn't save diagnostics. Try Copy instead.");
+      }
     } catch (_) {
       _showSnack("Couldn't save diagnostics. Try Copy instead.");
     } finally {
