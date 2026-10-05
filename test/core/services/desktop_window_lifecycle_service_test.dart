@@ -319,6 +319,34 @@ void main() {
       expect(service.backgroundPermission, BackgroundPermission.allowed);
     });
 
+    test(
+        'checking again asks again with the option still chosen, and a yes '
+        'undoes the no', () async {
+      service.setCloseBehavior(DesktopCloseBehavior.keepPlaying);
+      await pumpEventQueue();
+      await desktop.answer(BackgroundPermission.denied);
+      expect(window.hideOnClose.last, isFalse);
+
+      // Allowed in the system settings, with keep playing still the choice:
+      // choosing it again would change nothing, so the card checks again.
+      final Future<void> checking = service.recheckBackgroundPermission();
+      await pumpEventQueue();
+      await desktop.answer(BackgroundPermission.allowed);
+      await checking;
+
+      expect(desktop.asked, 2);
+      expect(window.hideOnClose.last, isTrue);
+      expect(service.backgroundPermission, BackgroundPermission.allowed);
+    });
+
+    test('checking again with quitting chosen asks nothing', () async {
+      service.setCloseBehavior(DesktopCloseBehavior.quit);
+
+      await service.recheckBackgroundPermission();
+
+      expect(desktop.asked, 0);
+    });
+
     test('quitting is never asked about', () async {
       service.setCloseBehavior(DesktopCloseBehavior.quit);
       await pumpEventQueue();

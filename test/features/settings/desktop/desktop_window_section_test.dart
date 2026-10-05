@@ -20,14 +20,18 @@ import 'package:linthra/features/settings/hub/music_and_playback_screen.dart';
 
 import '../../player/fake_playback_controller.dart';
 
-/// A desktop that answers at once.
+/// A desktop that answers at once, with whatever its settings say now.
 class _Desktop implements BackgroundPermissionRequester {
   _Desktop(this.answer);
 
-  final BackgroundPermission answer;
+  BackgroundPermission answer;
+  int asked = 0;
 
   @override
-  Future<BackgroundPermission> request() async => answer;
+  Future<BackgroundPermission> request() async {
+    asked++;
+    return answer;
+  }
 }
 
 /// Records what the card asked the window to do.
@@ -123,10 +127,11 @@ void main() {
 
       Future<void> chooseKeepPlaying(
         WidgetTester tester,
-        BackgroundPermission answer,
-      ) async {
+        BackgroundPermission answer, {
+        _Desktop? desktop,
+      }) async {
         final ProviderContainer container =
-            await pump(tester, desktop: _Desktop(answer));
+            await pump(tester, desktop: desktop ?? _Desktop(answer));
         // As bootstrap wires it: the service follows the stored choice.
         container.listen<AsyncValue<DesktopCloseBehavior>>(
           desktopCloseBehaviorControllerProvider,
@@ -149,6 +154,28 @@ void main() {
       testWidgets('says nothing when it is allowed', (tester) async {
         await chooseKeepPlaying(tester, BackgroundPermission.allowed);
 
+        expect(refused, findsNothing);
+      });
+
+      testWidgets(
+          'once it is allowed in the system settings, Check again asks again '
+          'and the note goes', (tester) async {
+        final _Desktop desktop = _Desktop(BackgroundPermission.denied);
+        await chooseKeepPlaying(
+          tester,
+          BackgroundPermission.denied,
+          desktop: desktop,
+        );
+        expect(refused, findsOneWidget);
+        expect(desktop.asked, 1);
+
+        // Allowed in the system settings. The option is still the selected
+        // one, so choosing it again would change nothing.
+        desktop.answer = BackgroundPermission.allowed;
+        await tester.tap(find.text('Check again'));
+        await tester.pumpAndSettle();
+
+        expect(desktop.asked, 2);
         expect(refused, findsNothing);
       });
 

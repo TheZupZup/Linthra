@@ -90,10 +90,21 @@ class DesktopWindowSettingsSection extends ConsumerWidget {
                 "Your desktop isn't letting Linthra run with its window "
                 'closed, so closing the window quits instead. Allow Linthra '
                 'to run in the background in your system settings, then '
-                'choose this option again.',
+                'check again.',
                 key: const Key('desktop-window-background-refused'),
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.error),
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  // The option is still the selected one, so choosing it
+                  // again would ask nothing.
+                  onPressed: () => ref
+                      .read(desktopWindowLifecycleServiceProvider)
+                      .recheckBackgroundPermission(),
+                  child: const Text('Check again'),
+                ),
               ),
             ],
             const Divider(height: AppSpacing.lg),

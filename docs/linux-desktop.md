@@ -1792,8 +1792,9 @@ What that buys, in the order the requirements ask for it:
   (`RequestBackground`, no autostart). An app with nothing stored is allowed
   without a prompt and "yes" is stored, which keeps the monitor away. If the
   desktop says no, closing the window quits the normal way and the settings
-  card says why; choosing the option again asks again, for after the
-  permission was changed in the system settings. A desktop whose portal has
+  card says why, with a **Check again** button that asks again, for after the
+  permission was changed in the system settings (the option is still the
+  chosen one, so choosing it again would change nothing). A desktop whose portal has
   no Background backend has no monitor either, and a native build never
   asks (#754).
 * **No duplicate instance.** The runner is single-instance, so launching
@@ -1832,6 +1833,7 @@ desktop can answer, to re-check before a Linux milestone release:
 | Flatpak on GNOME (Silverblue) or Plasma 6 (Kinoite): close while playing, wait 10 s | Keep playing | Playback continues, no prompt. `flatpak permission-show io.github.thezupzup.linthra` lists `background` as `yes` |
 | Flatpak on Plasma 5.27: close while playing, wait 10 s | Keep playing | No "running in the background" notification any more; playback continues |
 | Flatpak, after `flatpak permission-set background background io.github.thezupzup.linthra no`: choose Keep playing again, then close while playing | Keep playing | The card says the desktop isn't letting Linthra run with its window closed; closing the window quits normally (MPRIS entry gone, no kill) |
+| Then `flatpak permission-set background background io.github.thezupzup.linthra yes` and press **Check again** on the card | Keep playing | The note goes; closing the window while playing hides it again |
 
 ## Track change notifications
 

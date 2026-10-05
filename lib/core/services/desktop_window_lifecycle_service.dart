@@ -101,6 +101,15 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
     }
   }
 
+  /// Asks the desktop again, for after the user allowed Linthra to run in the
+  /// background in the system settings: the option they chose is still the
+  /// selected one, so choosing it again changes nothing. Only while keeping
+  /// playback running.
+  Future<void> recheckBackgroundPermission() async {
+    if (_behavior != DesktopCloseBehavior.keepPlaying) return;
+    await _askBackground();
+  }
+
   Future<void> _askBackground() async {
     final BackgroundPermissionRequester? background = _background;
     if (background == null || _quitting) return;
