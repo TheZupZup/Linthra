@@ -131,6 +131,13 @@ class _HeldWrites implements OfflineFileStore {
     if (hold != null) await hold.future;
     await _inner.delete(fileName);
   }
+
+  @override
+  Future<void> removeAbandoned(
+    Set<String> referenced, {
+    bool temporaryOnly = false,
+  }) =>
+      _inner.removeAbandoned(referenced, temporaryOnly: temporaryOnly);
 }
 
 /// A streaming source that is always unreachable: the device is offline.

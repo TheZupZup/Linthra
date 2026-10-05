@@ -237,8 +237,9 @@ class CacheDownloadRepository
 
   /// Seeds the in-memory state from the durable cache, once. Along the way it
   /// self-heals: a managed entry whose file is gone is dropped (stale metadata),
-  /// and a managed entry missing its byte size (e.g. written by an earlier
-  /// version) is backfilled from disk, so usage and eviction are accurate.
+  /// a managed entry missing its byte size (e.g. written by an earlier version)
+  /// is backfilled from disk, so usage and eviction are accurate, and files no
+  /// entry names are removed ([OfflineFileStore.removeAbandoned]).
   ///
   /// Every caller that arrives while that load is running waits for it rather
   /// than starting its own: a second load would put back the records as they
@@ -302,6 +303,20 @@ class CacheDownloadRepository
       }
     }
     if (changed) await _save();
+    // A download cut off mid-commit (the app killed during "Download all", or
+    // a record save that failed after the file was moved into place) leaves
+    // its `.part` temp or a finished file no record names. Nothing counts,
+    // evicts or clears those, so they go now, before anything here writes
+    // (#747). Every record is kept, set-aside copies and pre-cached ones
+    // included. A record list that read as empty may be a document that
+    // couldn't be read rather than no downloads, so then only the temps go.
+    await _files.removeAbandoned(
+      <String>{
+        for (final CachedTrack cached in kept)
+          if (cached.isManaged) cached.fileName!,
+      },
+      temporaryOnly: records.isEmpty,
+    );
     _loaded = true;
   }
 
