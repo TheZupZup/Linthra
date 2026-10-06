@@ -28,6 +28,11 @@ abstract final class DesktopClosePolicy {
   }) {
     if (behavior != DesktopCloseBehavior.keepPlaying) return false;
     if (!backgroundAllowed) return false;
+    // A load or a stall the listener paused lands paused (#751): the queue
+    // restored at launch, a pause during a reconnect. No sound is on its way,
+    // so it is a paused player like any other, and hiding it would leave a
+    // silent process with no window that never quits on its own.
+    if (state.isBusy && !state.playWhenReady) return false;
     return _isProducingAudio(state);
   }
 

@@ -213,6 +213,12 @@ class MediaArtworkCache implements MediaArtworkSource {
     await _coverReady.close();
   }
 
+  /// What [reference]'s cover is cached under right now: a hash of the
+  /// reference on the server it resolves against, so another server's cover of
+  /// the same name is another key (#739). Credential-free, and null when
+  /// nothing would resolve [reference] (signed out).
+  String? keyOf(Uri reference) => _keyFor(reference);
+
   /// [reference]'s key on the server it resolves against now, or null when
   /// nothing would resolve it.
   String? _keyFor(Uri reference) {

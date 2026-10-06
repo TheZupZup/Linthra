@@ -35,8 +35,10 @@ class MediaArtworkPrewarmService {
   MediaArtworkPrewarmService({
     required Stream<PlaybackState> playbackStates,
     required Future<Uri?> Function(Uri reference) warm,
+    Object? Function(Uri reference)? identityOf,
     int lookahead = _defaultLookahead,
   })  : _warm = warm,
+        _identityOf = identityOf ?? _sameReference,
         _lookahead = lookahead {
     _subscription = playbackStates.listen(_onState);
   }
@@ -46,6 +48,15 @@ class MediaArtworkPrewarmService {
   /// the handler's synchronous `cached` lookup). Never throws.
   final Future<Uri?> Function(Uri reference) _warm;
 
+  /// What a warmed cover is remembered by. The app passes the cache's own key,
+  /// the reference on the server it resolves against now: another server's
+  /// `subsonic-cover:al-12` is another cover, which has to be warmed too
+  /// (#739). Null when nothing would resolve the reference (signed out), so
+  /// there is nothing to warm yet and a later queue change tries again.
+  final Object? Function(Uri reference) _identityOf;
+
+  static Object? _sameReference(Uri reference) => reference;
+
   /// How many up-next tracks (beyond the current one) to warm ahead.
   final int _lookahead;
 
@@ -53,10 +64,11 @@ class MediaArtworkPrewarmService {
 
   static const int _defaultLookahead = 3;
 
-  /// References already warmed (or warming) this session, so a re-emitted state
-  /// (a position tick, a pause) never re-warms a cover.
-  final Set<Uri> _requested = <Uri>{};
-  final List<Uri> _queue = <Uri>[];
+  /// Covers already warmed (or warming) this session, by [_identityOf], so a
+  /// re-emitted state (a position tick, a pause) never re-warms a cover.
+  final Set<Object> _requested = <Object>{};
+  final List<({Uri reference, Object identity})> _queue =
+      <({Uri reference, Object identity})>[];
   bool _running = false;
   PlaybackState? _lastInputs;
 
@@ -82,11 +94,15 @@ class MediaArtworkPrewarmService {
   void _enqueue(Uri? art, {required bool front}) {
     if (art == null) return;
     if (isPlatformLoadableArtwork(art)) return;
-    if (!_requested.add(art)) return;
+    final Object? identity = _identityOf(art);
+    if (identity == null) return;
+    if (!_requested.add(identity)) return;
+    final ({Uri reference, Object identity}) entry =
+        (reference: art, identity: identity);
     if (front) {
-      _queue.insert(0, art);
+      _queue.insert(0, entry);
     } else {
-      _queue.add(art);
+      _queue.add(entry);
     }
   }
 
@@ -95,7 +111,15 @@ class MediaArtworkPrewarmService {
     _running = true;
     try {
       while (_queue.isNotEmpty) {
-        final Uri reference = _queue.removeAt(0);
+        final ({Uri reference, Object identity}) next = _queue.removeAt(0);
+        final Uri reference = next.reference;
+        // Signed out or switched server while it waited: the warm below fills
+        // the cover the reference names now, so that is what is remembered.
+        final Object? identity = _identityOf(reference);
+        if (identity != next.identity) {
+          _requested.remove(next.identity);
+          if (identity == null || !_requested.add(identity)) continue;
+        }
         // Sequential + best-effort: the cache fetches a server-downscaled cover,
         // caches it, and returns null on any failure. The try/catch is purely
         // defensive — a warm must never surface as an uncaught async error or
@@ -106,7 +130,7 @@ class MediaArtworkPrewarmService {
             // A transient miss (signed out / fetch failed): drop it from the
             // warmed set so a later queue change can retry, rather than leaving
             // that track coverless for the whole session.
-            _requested.remove(reference);
+            _requested.remove(identity);
           }
           // Secret-free trace: did this cover cache to a safe local URI? `ok`
           // means a later now-playing item can carry it; `miss` means signed
@@ -116,7 +140,7 @@ class MediaArtworkPrewarmService {
         } catch (_) {
           // Swallow + allow a later retry: a failed/throwing warm just means no
           // cover for that track right now.
-          _requested.remove(reference);
+          _requested.remove(identity);
           developer.log('warm: error', name: _logName);
         }
       }

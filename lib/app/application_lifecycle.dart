@@ -147,6 +147,15 @@ class ApplicationHandle {
       await container.read(playbackSessionPersistenceProvider)?.dispose();
     });
 
+    // Close the server's play session next, while the account it belongs to
+    // can still be read. Left to the stop below or to the container's
+    // teardown, the report goes out after that account is gone, or not at
+    // all, and the server goes on showing Linthra as playing after it quit.
+    await _guard(() async {
+      if (!container.exists(playbackReportingServiceProvider)) return;
+      await container.read(playbackReportingServiceProvider).dispose();
+    });
+
     // Silence the speakers next, before anything it depends on goes away.
     await _guard(() async {
       if (!container.exists(playbackControllerProvider)) return;

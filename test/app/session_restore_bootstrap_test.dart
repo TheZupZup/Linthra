@@ -3,13 +3,19 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/application_lifecycle.dart';
+import 'package:linthra/core/models/desktop_close_behavior.dart';
 import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/persisted_playback_session.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/services/desktop_window_controller.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_exception.dart';
+import 'package:linthra/data/repositories/desktop_window_controller_provider.dart';
+import 'package:linthra/data/repositories/desktop_window_preferences_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
+import 'package:linthra/data/repositories/in_memory_desktop_window_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_jellyfin_session_store.dart';
 import 'package:linthra/data/repositories/in_memory_playback_session_store.dart';
 import 'package:linthra/data/repositories/jellyfin_session_store_provider.dart';
@@ -34,6 +40,24 @@ class _SilentServerClient extends FakeJellyfinClient {
     await answer.future;
     throw JellyfinException.notReachable();
   }
+}
+
+/// The runner's side of the window: what the app last told it a close does.
+class _RecordingWindow implements DesktopWindowController {
+  final List<bool> hideOnClose = <bool>[];
+
+  @override
+  Future<void> setHideOnClose(bool value) async => hideOnClose.add(value);
+
+  @override
+  Future<void> showWindow() async {}
+
+  @override
+  Future<void> quit() async {}
+
+  @override
+  Stream<DesktopWindowVisibility> get visibility =>
+      const Stream<DesktopWindowVisibility>.empty();
 }
 
 const JellyfinSession _session = JellyfinSession(
@@ -173,5 +197,68 @@ void main() {
     expect(next?.current?.uri, picked.uri,
         reason: 'the next launch must come back on what was playing at the '
             'quit, not on the queue this launch was still putting back');
+  });
+
+  // "Keep playing in the background" hides the window on close only while
+  // there is music to keep going (#401). The last queue comes back paused, so
+  // there is none, even while its stream is still being put back: hidden then,
+  // Linthra would stay running with no window and nothing playing.
+  testWidgets(
+      'closing the window while the last queue is still being put back quits',
+      (WidgetTester tester) async {
+    final _SilentServerClient client = _SilentServerClient();
+    final _RecordingWindow window = _RecordingWindow();
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        hostPlatformProvider.overrideWithValue(HostPlatform.linux),
+        linuxAudioPlayerProvider.overrideWithValue(CountingAudioPlayer()),
+        localFilePresenceProvider
+            .overrideWithValue(FakeLocalFilePresence.all()),
+        playbackSessionStoreProvider.overrideWithValue(
+          InMemoryPlaybackSessionStore(
+            const PersistedPlaybackSession(
+              tracks: <Track>[_lastPlayed],
+              currentIndex: 0,
+              position: Duration(minutes: 1),
+              shuffleEnabled: false,
+              repeatMode: RepeatMode.off,
+            ),
+          ),
+        ),
+        jellyfinSessionStoreProvider.overrideWithValue(
+          InMemoryJellyfinSessionStore(initialSession: _session),
+        ),
+        jellyfinClientProvider.overrideWithValue(client),
+        desktopWindowControllerProvider.overrideWithValue(window),
+        desktopWindowPreferencesProvider.overrideWithValue(
+          InMemoryDesktopWindowPreferences(
+            closeBehavior: DesktopCloseBehavior.keepPlaying,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    ApplicationHandle? handle;
+    unawaited(
+      bootstrapApplication(
+        container,
+        installPersistentArtworkCache: false,
+        mediaSessionBinding:
+            RecordingMediaSessionBinding(session: RecordingMediaSession()),
+      ).then((ApplicationHandle h) => handle = h),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    expect(handle, isNotNull);
+    expect(client.asked, isTrue,
+        reason: 'the restore is still waiting on the server');
+    final PlaybackState restoring =
+        container.read(playbackControllerProvider).state;
+    expect(restoring.status, PlaybackStatus.loading);
+    expect(restoring.playWhenReady, isFalse,
+        reason: 'a restored queue never starts on its own');
+
+    expect(window.hideOnClose.last, isFalse,
+        reason: 'nothing is going to play, so a close has to quit');
   });
 }

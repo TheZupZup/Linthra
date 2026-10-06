@@ -97,9 +97,13 @@ final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
 /// UI reads no value from it.
 final mediaArtworkPrewarmServiceProvider =
     Provider<MediaArtworkPrewarmService>((ref) {
+  final MediaArtworkCache cache = ref.read(mediaArtworkCacheProvider);
   final service = MediaArtworkPrewarmService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
-    warm: ref.read(mediaArtworkCacheProvider).resolve,
+    warm: cache.resolve,
+    // Remembered per server, the way the cache files them (#739): a cover
+    // warmed for one server says nothing about another's of the same name.
+    identityOf: cache.keyOf,
   );
   ref.onDisposeAsync(service.dispose);
   return service;
