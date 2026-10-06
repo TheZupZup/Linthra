@@ -42,6 +42,10 @@ class _MutableScanner implements AudioFileScanner {
   Map<String, List<String>> filesByFolder;
   Set<String> unavailable = <String>{};
 
+  /// Subfolders the walk can't list (a share that stopped answering under a
+  /// folder that still does): their files aren't returned.
+  Set<String> unreadableSubfolders = <String>{};
+
   @override
   Future<List<String>> listFiles(
     String folder, {
@@ -53,7 +57,19 @@ class _MutableScanner implements AudioFileScanner {
         folder: folder,
       );
     }
-    return filesByFolder[folder] ?? const <String>[];
+    final List<String> listed = <String>[];
+    final Set<String> skipped = <String>{};
+    for (final String path in filesByFolder[folder] ?? const <String>[]) {
+      final String? under = unreadableSubfolders
+          .where((String sub) => path.startsWith('$sub/'))
+          .firstOrNull;
+      if (under == null) {
+        listed.add(path);
+      } else if (skipped.add(under)) {
+        onUnreadableDirectory?.call(under);
+      }
+    }
+    return listed;
   }
 }
 
@@ -353,6 +369,59 @@ void main() {
           reason: 'it read fine before, and an unchanged file has the same '
               'tags');
       expect(a.artistName, 'Someone');
+    });
+
+    test(
+        'a subfolder that could not be read keeps its folder due, so its '
+        'files are read once it can be', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac', '/music/live/b.flac'],
+      });
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/music/a.flac': _stamp(100, 1000),
+        '/music/live/b.flac': _stamp(200, 2000),
+      });
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      // The update lands while a subfolder is not answering: its row is kept,
+      // but its file was not read by the new reader.
+      revised.tagRevision = 2;
+      files.unreadableSubfolders = <String>{'/music/live'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+      expect(await revisions.load(), <String, int>{'/music': 1});
+
+      files.unreadableSubfolders = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, contains('/music/live/b.flac'));
+      expect(await revisions.load(), <String, int>{'/music': 2});
+    });
+
+    test(
+        "a subfolder nobody may list, with nothing indexed under it, doesn't "
+        'keep its folder due', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac', '/music/lost+found/x.flac'],
+      })
+        ..unreadableSubfolders = <String>{'/music/lost+found'};
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      revised.tagRevision = 2;
+      await notifier.rescan();
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0,
+          reason: 'the folder would be read in full on every scan');
     });
 
     test('a folder no longer selected leaves no record behind', () async {

@@ -26,6 +26,7 @@ class LocalRootOutcome {
   const LocalRootOutcome({
     required this.root,
     required this.importedTracks,
+    this.carriedOver = 0,
     this.error,
     this.fault,
     this.message,
@@ -38,6 +39,11 @@ class LocalRootOutcome {
   /// the previous scan for whatever part of the folder, or all of it, could
   /// not be read.
   final int importedTracks;
+
+  /// Of [importedTracks], the ones kept from a part of the folder the walk
+  /// could not read, though the folder itself answered: nothing about their
+  /// files was looked at this time.
+  final int carriedOver;
 
   /// Why the folder could not be read, or null when it was read fine.
   final LocalScanError? error;
@@ -247,6 +253,7 @@ class LocalLibraryScanner {
         }
         refreshedRoots.add(root);
         int imported = 0;
+        int carriedOver = 0;
         for (final Track track in scan.tracks) {
           if (merged.containsKey(track.uri)) continue;
           merged[track.uri] = StampedTrack(
@@ -275,12 +282,17 @@ class LocalLibraryScanner {
               merged[uri] = stamped;
               unseen.add(uri);
               imported++;
+              carriedOver++;
             }
           }
         }
         reports.add(scan.report);
         outcomes.add(
-          LocalRootOutcome(root: root, importedTracks: imported),
+          LocalRootOutcome(
+            root: root,
+            importedTracks: imported,
+            carriedOver: carriedOver,
+          ),
         );
       } catch (error) {
         final LocalScanError classified = classifyRootError(root, error);

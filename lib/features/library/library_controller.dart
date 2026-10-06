@@ -563,7 +563,10 @@ class LibraryController extends Notifier<LibraryState> {
   /// Records [revision] for every folder [scan] could read, which it read in
   /// full if it was due, keeping what [recorded] says for the others: a
   /// folder that couldn't be read keeps its old rows, and is read in full
-  /// once it can be.
+  /// once it can be. So does one whose walk kept rows from a subfolder it
+  /// couldn't read: their files weren't read again. A subfolder that holds
+  /// nothing indexed (a `lost+found` nobody may list) doesn't count, or its
+  /// folder would be read in full on every scan.
   ///
   /// Only the folders scanned, which are the ones selected: a folder the user
   /// removed is their own path, and no reason to keep it on the device.
@@ -574,7 +577,7 @@ class LibraryController extends Notifier<LibraryState> {
   ) async {
     final Map<String, int> next = <String, int>{
       for (final LocalRootOutcome outcome in scan.roots)
-        if (outcome.available)
+        if (outcome.available && outcome.carriedOver == 0)
           outcome.root: revision
         else if (recorded[outcome.root] case final int kept)
           outcome.root: kept,
