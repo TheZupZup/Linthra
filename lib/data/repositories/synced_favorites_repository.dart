@@ -3,9 +3,11 @@ import 'dart:async';
 import '../../core/models/track.dart';
 import '../../core/repositories/favorites_repository.dart';
 import '../../core/repositories/favorites_store.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/music_provider.dart';
 
 /// The app's [FavoritesRepository]: an optimistic local mirror with best-effort
@@ -98,9 +100,16 @@ class SyncedFavoritesRepository
   /// Saves the favourites together with the writes still pending, so a heart
   /// whose push never landed is retried after a restart rather than undone by
   /// the first refresh.
-  Future<void> _save() => _store.save(
+  Future<void> _save() async {
+    try {
+      await _store.save(
         _data.copyWith(pendingWrites: Map<String, bool>.of(_pendingWrites)),
       );
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+      rethrow;
+    }
+  }
 
   /// Saves only the pending writes' latest state after a push settled. Best
   /// effort: a stale record on disk only means one write is pushed again.
@@ -161,8 +170,8 @@ class SyncedFavoritesRepository
       }
       _data = _data.copyWith(localIds: ids);
     }
-    _emit();
     await _save();
+    _emit();
 
     // Push to the owning provider's server best-effort. A failure (or the
     // provider not being connected yet) leaves the write pending, retried on
@@ -348,8 +357,8 @@ class SyncedFavoritesRepository
           remoteIds.containsAll(_data.remoteIds);
       if (!unchanged) {
         _data = _data.copyWith(remoteIds: remoteIds);
-        _emit();
         await _save();
+        _emit();
       } else if (pendingChanged) {
         await _savePendingQuietly();
       }
@@ -405,8 +414,8 @@ class SyncedFavoritesRepository
       return;
     }
     _data = _data.copyWith(remoteIds: next);
-    _emit();
     await _save();
+    _emit();
   }
 
   /// Carries a moved local file's heart to its new path.
@@ -432,8 +441,8 @@ class SyncedFavoritesRepository
           ..remove(fromUri)
           ..add(toUri),
       );
-      _emit();
       await _save();
+      _emit();
     } catch (_) {
       // A store that cannot be written right now leaves the heart where it is
       // rather than failing the scan that asked; the next scan tries again.

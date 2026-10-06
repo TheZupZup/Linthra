@@ -21,7 +21,6 @@ import '../features/appearance/theme_mode_controller.dart';
 import '../features/library/remote_library_refresher.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/player/player_providers.dart';
-import '../features/settings/desktop/desktop_window_providers.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 import '../features/settings/subsonic/subsonic_sync_controller.dart';
 import '../features/support/github_sponsor_controller.dart';
@@ -120,21 +119,12 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
         // nobody can see is a pure wake-up. Playback itself is untouched.
         ref.read(appVisibilityProvider.notifier).onHidden();
       }
-      final controller = ref.read(playbackControllerProvider);
       StabilityDiagnostics.backgroundPlaybackState(
-          controller.state.status.name);
-      // Arm suspend recovery only on a true pause (system sleep / window
-      // background). Brief `inactive` (dialogs, focus blips) must not reload.
-      //
-      // A desktop window hidden by a close (#401) is the one pause that must
-      // not arm it: playback never stopped, the audio device was never taken
-      // away, and reloading the track when the window comes back would be an
-      // audible skip in music the listener kept playing on purpose.
-      if (state == AppLifecycleState.paused &&
-          controller is ActivePlaybackController &&
-          !ref.read(desktopWindowLifecycleServiceProvider).isWindowHidden) {
-        controller.onAppBackgrounded();
-      }
+          ref.read(playbackControllerProvider).state.status.name);
+      // Nothing here arms the reload after a system sleep (#799). Linux never
+      // reports `paused`, and a sleep changes neither focus nor visibility, so
+      // the engine notices the sleep itself (see SystemSleepWatcher). A hidden
+      // or minimized window is not a sleep and reloads nothing.
     }
     if (state == AppLifecycleState.resumed) {
       ref.read(appVisibilityProvider.notifier).onShown();

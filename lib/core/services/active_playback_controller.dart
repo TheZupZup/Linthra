@@ -204,19 +204,9 @@ class ActivePlaybackController implements PlaybackController {
     }
   }
 
-  /// Handles the app/OS entering a paused lifecycle. While casting the local
-  /// engine is already silent, so background arming is skipped. Otherwise the
-  /// local controller remembers whether playback should be recovered on wake.
-  void onAppBackgrounded() {
-    if (_casting) return;
-    _local.onAppBackgrounded();
-  }
-
   /// Handles the app returning to the foreground. While casting, re-syncs from
-  /// the receiver. Otherwise runs the local engine's foreground restore —
-  /// undoing any lingering duck and, on Linux, a bounded post-suspend recovery
-  /// when a track was playing across sleep — so wake never duplicates playback
-  /// and never auto-starts a user-paused track.
+  /// the receiver. Otherwise runs the local engine's foreground restore,
+  /// undoing any lingering duck, which never auto-starts a user-paused track.
   void onAppResumed() {
     if (_casting) {
       unawaited(_cast.refresh());

@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 import '../diagnostics/linux_playback_diagnostics.dart';
+import '../lifecycle/system_sleep_watcher.dart';
 import '../models/playback_source.dart';
 import 'just_audio_playback_controller.dart';
 import 'linux_playback_runtime.dart';
@@ -225,9 +226,9 @@ class LinuxPlaybackBackendInitializer {
 /// stay in [JustAudioPlaybackController]. This class only registers the Linux
 /// federated implementation before that controller creates its [AudioPlayer],
 /// reports a broken native runtime as a Linux runtime problem rather than as a
-/// track that will not play, and enables post-suspend recovery so a system
-/// sleep/wake can re-prime the audio device and re-resolve remote streams
-/// without duplicating playback. Android never constructs this type and
+/// track that will not play, and watches for a system sleep so the wake can
+/// re-prime the audio device and re-resolve remote streams without duplicating
+/// playback (see [SystemSleepWatcher]). Android never constructs this type and
 /// therefore keeps just_audio's native ExoPlayer implementation and its
 /// existing audio-service/audio-focus path.
 class LinuxPlaybackController extends JustAudioPlaybackController {
@@ -248,6 +249,7 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     TrackCompletionCallback? onTrackCompleted,
     PlaybackRecoveryPolicy? automaticRecovery,
     LinuxPlaybackBackendInitializer? backend,
+    SystemSleepWatcher? sleepWatcher,
   }) {
     // The production path registers media_kit before the superclass can
     // construct its AudioPlayer. Tests inject an AudioPlayer instead, which is
@@ -264,6 +266,11 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     initializer?.ensureInitialized();
     return LinuxPlaybackController._(
       backend: initializer,
+      // The real machine's clocks go with the real engine, for the same reason:
+      // a test that injects an engine gets no timer and no `/proc` read unless
+      // it hands in a watcher of its own.
+      sleepWatcher:
+          sleepWatcher ?? (player == null ? SystemSleepWatcher.linux() : null),
       player: player,
       resolver: resolver,
       candidates: candidates,
@@ -283,8 +290,8 @@ class LinuxPlaybackController extends JustAudioPlaybackController {
     super.random,
     super.onTrackCompleted,
     super.automaticRecovery,
-  })  : _backend = backend,
-        super(recoverPlaybackAfterSuspend: true);
+    super.sleepWatcher,
+  }) : _backend = backend;
 
   /// The backend this controller is responsible for, or null when it was
   /// handed an engine and therefore never brings one up.
