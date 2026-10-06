@@ -71,9 +71,16 @@ String normalizeBackupBaseUrl(String? raw) {
     return _stripTrailingSlashes(trimmed.toLowerCase());
   }
 
+  final int? port;
+  try {
+    port = uri.hasPort ? uri.port : null;
+  } on FormatException {
+    // A port too long for an int: `tryParse` takes it, and `port` throws.
+    // Junk like any other unparseable address, not a preview that fails.
+    return _stripTrailingSlashes(trimmed.toLowerCase());
+  }
   final String scheme = uri.scheme.toLowerCase();
   final String host = uri.host.toLowerCase();
-  final int? port = uri.hasPort ? uri.port : null;
   final bool isDefaultPort =
       (scheme == 'http' && port == 80) || (scheme == 'https' && port == 443);
 
