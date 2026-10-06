@@ -468,6 +468,32 @@ void main() {
     });
 
     test(
+        'one whose row had no stamp, and whose re-read failed, is read again '
+        'by the next scan too', () async {
+      final (_, Map<String, StampedTrack> read) =
+          await scan(const <String, StampedTrack>{});
+      // Indexed before stamps were kept, or its last read failed.
+      final Map<String, StampedTrack> indexed = <String, StampedTrack>{
+        ...read,
+        '/music/x.flac': StampedTrack(track: read['/music/x.flac']!.track),
+      };
+      tags.failing.add('/music/x.flac');
+      final (LocalScan reread, Map<String, StampedTrack> stored) =
+          await scan(indexed, readUnchanged: true);
+      expect(trackAt(reread, '/music/x.flac').title, 'Real Title');
+      expect(reread.stamps.containsKey('/music/x.flac'), isFalse,
+          reason: 'with a stamp, the new reader would never get to it');
+
+      tags.failing.clear();
+      tags.byPath['/music/x.flac'] =
+          const LocalAudioMetadata(title: 'Fixed Title');
+      final (LocalScan retried, _) = await scan(stored);
+
+      expect(tags.reads, <String>['/music/x.flac']);
+      expect(trackAt(retried, '/music/x.flac').title, 'Fixed Title');
+    });
+
+    test(
         'one the new reader reads fine and finds no tags in loses the old '
         "reader's tags", () async {
       final (_, Map<String, StampedTrack> indexed) =

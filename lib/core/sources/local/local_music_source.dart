@@ -354,11 +354,14 @@ class LocalMusicSource implements MusicSource {
       // says nothing about its tags either, so the row stays as it was rather
       // than being rebuilt from the file name. It keeps its stamp this time,
       // so a file that can never be read, one the parser loops on, costs one
-      // more read rather than one every scan.
+      // more read rather than one every scan. Unless it is due for the new
+      // way of reading tags: like above, the next scan reads it again, and
+      // that one keeps the stamp if it fails too.
       if (read.failed &&
           stamp != null &&
           indexed != null &&
           indexed.stamp == null) {
+        if (_readUnchanged) stamps.remove(path);
         tracks.add(indexed.track);
         continue;
       }
