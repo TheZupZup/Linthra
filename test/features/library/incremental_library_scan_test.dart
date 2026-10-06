@@ -81,6 +81,16 @@ class _RevisedMetadataReader extends _CountingMetadataReader
     implements LocalTagRevision {
   @override
   int tagRevision = 1;
+
+  /// Files whose read comes back with nothing: a share that answered with an
+  /// I/O error, a parse that ran out of time.
+  Set<String> failing = <String>{};
+
+  @override
+  Future<LocalAudioMetadata?> readFromPath(String path) async {
+    final LocalAudioMetadata? metadata = await super.readFromPath(path);
+    return failing.contains(path) ? null : metadata;
+  }
 }
 
 class _FakeStatReader implements LocalFileStatReader {
@@ -320,6 +330,63 @@ void main() {
 
       expect(revised.readCount, 2);
       expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test(
+        'a file whose read fails that once keeps the row it had, not one '
+        'built from its file name', () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      revised.tagRevision = 2;
+      revised.failing = <String>{'/music/a.flac'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 2);
+
+      final Track a =
+          (await c.read(musicLibraryRepositoryProvider).getAllTracks())
+              .singleWhere((Track t) => t.uri == '/music/a.flac');
+      expect(a.title, 'Tagged',
+          reason: 'it read fine before, and an unchanged file has the same '
+              'tags');
+      expect(a.artistName, 'Someone');
+    });
+
+    test('a folder no longer selected leaves no record behind', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac'],
+        '/media/usb': <String>['/media/usb/b.flac'],
+      });
+      final ProviderContainer c = container(
+        roots: const <String>['/music', '/media/usb'],
+        revisions: revisions,
+      );
+      await c.read(selectedFolderControllerProvider.future);
+      await c.read(localMusicControllerProvider.notifier).rescan();
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 1, '/media/usb': 1},
+      );
+
+      await c
+          .read(libraryControllerProvider.notifier)
+          .scanFolders(<String>['/music']);
+
+      expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test('forgetting local music forgets the records too', () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      await c.read(localMusicControllerProvider.notifier).rescan();
+      expect(await revisions.load(), <String, int>{'/music': 1});
+
+      await c.read(libraryControllerProvider.notifier).clearLocalCatalog();
+
+      expect(await revisions.load(), isEmpty);
     });
 
     test(

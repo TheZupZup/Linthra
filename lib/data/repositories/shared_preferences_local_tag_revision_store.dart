@@ -35,6 +35,11 @@ class SharedPreferencesLocalTagRevisionStore implements LocalTagRevisionStore {
   @override
   Future<void> save(Map<String, int> revisions) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
+    // Nothing recorded leaves nothing behind, not even an empty record.
+    if (revisions.isEmpty) {
+      await prefs.remove(_key);
+      return;
+    }
     await prefs.setString(_key, jsonEncode(revisions));
   }
 }

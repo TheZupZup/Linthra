@@ -101,6 +101,7 @@ class LocalMusicSource implements MusicSource {
     DirectoryReadability presence = const IoDirectoryReadability(),
     Duration stallLimit = storageStallLimit,
     Map<String, StampedTrack> alreadyIndexed = const <String, StampedTrack>{},
+    bool readUnchanged = false,
     Set<Uri> missingArtwork = const <Uri>{},
   })  : _scanner = scanner,
         _safDocumentLister = safDocumentLister,
@@ -110,6 +111,7 @@ class LocalMusicSource implements MusicSource {
         _presence = presence,
         _stallLimit = stallLimit,
         _alreadyIndexed = alreadyIndexed,
+        _readUnchanged = readUnchanged,
         _missingArtwork = missingArtwork;
 
   /// Filesystem path, SAF tree URI, [FolderLocation.androidMediaStoreAudio], or
@@ -140,6 +142,12 @@ class LocalMusicSource implements MusicSource {
   /// Empty means "nothing is known", which parses everything: the safe default,
   /// and the one a full rescan asks for.
   final Map<String, StampedTrack> _alreadyIndexed;
+
+  /// Reads every file, unchanged ones included, because the way tags are read
+  /// changed since they were indexed (#783). [_alreadyIndexed] still stands in
+  /// for a file whose read fails: it read fine before, and an unchanged file
+  /// has the same tags, so the row it had beats one built from its file name.
+  final bool _readUnchanged;
 
   /// Covers that rows in [_alreadyIndexed] point at and that the reader's
   /// artwork cache no longer holds (see [LocalArtworkInventory]). A row whose
@@ -276,7 +284,8 @@ class LocalMusicSource implements MusicSource {
       if (stamp != null) stamps[path] = stamp;
 
       final StampedTrack? indexed = _alreadyIndexed[path];
-      if (stamp != null &&
+      if (!_readUnchanged &&
+          stamp != null &&
           indexed != null &&
           !stamp.differsFrom(indexed.stamp) &&
           !_missingArtwork.contains(indexed.track.artworkUri)) {

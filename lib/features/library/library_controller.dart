@@ -149,6 +149,7 @@ class LibraryController extends Notifier<LibraryState> {
           artists: const [],
         );
         ref.read(localScanReportProvider.notifier).clear();
+        await _forgetTagRevisions();
       } finally {
         await _load();
       }
@@ -349,9 +350,8 @@ class LibraryController extends Notifier<LibraryState> {
             metadataReader: metadataReader,
             statReader: statReader,
             presence: ref.read(directoryReadabilityProvider),
-            alreadyIndexed: rereadRoots.contains(root)
-                ? const <String, StampedTrack>{}
-                : alreadyIndexed,
+            alreadyIndexed: alreadyIndexed,
+            readUnchanged: rereadRoots.contains(root),
             missingArtwork: missingArtwork,
           ).scanTracks();
         },
@@ -564,15 +564,20 @@ class LibraryController extends Notifier<LibraryState> {
   /// full if it was due, keeping what [recorded] says for the others: a
   /// folder that couldn't be read keeps its old rows, and is read in full
   /// once it can be.
+  ///
+  /// Only the folders scanned, which are the ones selected: a folder the user
+  /// removed is their own path, and no reason to keep it on the device.
   Future<void> _recordTagRevision(
     Map<String, int> recorded,
     LocalLibraryScan scan,
     int revision,
   ) async {
     final Map<String, int> next = <String, int>{
-      ...recorded,
       for (final LocalRootOutcome outcome in scan.roots)
-        if (outcome.available) outcome.root: revision,
+        if (outcome.available)
+          outcome.root: revision
+        else if (recorded[outcome.root] case final int kept)
+          outcome.root: kept,
     };
     if (next.length == recorded.length &&
         next.keys.every((String root) => recorded[root] == next[root])) {
@@ -582,6 +587,17 @@ class LibraryController extends Notifier<LibraryState> {
       await ref.read(localTagRevisionStoreProvider).save(next);
     } catch (_) {
       // Not recorded: those folders are read in full once more next time.
+    }
+  }
+
+  /// Drops what was recorded about how the local folders were read, with the
+  /// local source itself: those are the user's own paths. Best-effort: the
+  /// next scan keeps only the folders it scans anyway.
+  Future<void> _forgetTagRevisions() async {
+    try {
+      await ref.read(localTagRevisionStoreProvider).save(const <String, int>{});
+    } catch (_) {
+      // Pruned by the next scan.
     }
   }
 

@@ -18,6 +18,15 @@ void main() {
     expect(await store.load(), <String, int>{'/music': 1, '/media/usb': 2});
   });
 
+  test('saving nothing leaves no folder path behind', () async {
+    await store.save(<String, int>{'/music': 1});
+    await store.save(const <String, int>{});
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getKeys(), isEmpty);
+    expect(await store.load(), isEmpty);
+  });
+
   test('nothing stored reads as nothing recorded', () async {
     expect(await store.load(), isEmpty);
   });
