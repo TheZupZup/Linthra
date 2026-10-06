@@ -204,8 +204,8 @@ class MprisPlayerObject extends DBusObject {
         // buffering or reconnecting player is working toward sound, so the
         // toggle has to stop it. Testing `status == playing` made playerctl
         // play-pause call play() mid-buffer, which cannot cancel anything and
-        // lets the audio arrive anyway.
-        if (_state.isPlaying || _state.isBuffering) {
+        // lets the audio arrive anyway. One the listener already paused plays.
+        if (_state.isPlayingOrStalled) {
           await _controller.pause();
         } else {
           await _controller.play();
@@ -453,7 +453,7 @@ class MprisPlayerObject extends DBusObject {
 
     final PlaybackState state = _state;
     return <String, DBusValue>{
-      'PlaybackStatus': DBusString(_playbackStatus(state.status)),
+      'PlaybackStatus': DBusString(_playbackStatus(state)),
       'LoopStatus': DBusString(_loopStatus(state.repeatMode)),
       'Rate': const DBusDouble(1.0),
       'Shuffle': DBusBoolean(state.shuffleEnabled),
@@ -538,18 +538,20 @@ class MprisPlayerObject extends DBusObject {
     return DBusObjectPath('/io/github/thezupzup/linthra/track/$_trackSerial');
   }
 
-  static String _playbackStatus(PlaybackStatus status) {
-    switch (status) {
+  static String _playbackStatus(PlaybackState state) {
+    switch (state.status) {
       case PlaybackStatus.playing:
         return 'Playing';
       case PlaybackStatus.buffering:
       case PlaybackStatus.reconnecting:
         // Still Playing: MPRIS has no buffering state, and a player waiting on
-        // data is working toward sound rather than stopped by the user. This is
-        // the same call the in-app transport makes (`isPlaying || isBuffering`),
-        // and it has to agree with PlayPause above, or a shell would draw a play
-        // button for a state whose toggle pauses.
-        return 'Playing';
+        // data is working toward sound rather than stopped by the user. Unless
+        // the listener paused it, which the Android session reports as paused
+        // too (#751). The same call every toggle makes
+        // ([PlaybackState.isPlayingOrStalled]), and it has to agree with
+        // PlayPause above, or a shell would draw a play button for a state
+        // whose toggle pauses.
+        return state.isPlayingOrStalled ? 'Playing' : 'Paused';
       case PlaybackStatus.paused:
       case PlaybackStatus.loading:
         // Loading is "on this track, nothing coming out yet" and settles into

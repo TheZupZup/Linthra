@@ -141,9 +141,10 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
     // Buffering, on the other hand, counts as the playing side. A stalled
     // stream is the moment you most want to stop it, and reading `isPlaying`
     // alone made the shortcut call `play()` on something already trying to.
+    // Unless the listener already paused it: then the chord plays.
     final PlaybackState state = controller.state;
     if (state.status == PlaybackStatus.loading) return;
-    final bool playing = state.isPlaying || state.isBuffering;
+    final bool playing = state.isPlayingOrStalled;
     unawaited(playing ? controller.pause() : controller.play());
   }
 

@@ -208,6 +208,29 @@ void main() {
       }
     });
 
+    test('PlayPause plays a stall the listener already paused', () async {
+      // Paused during a reconnect: the state stays busy until the reconnect
+      // lands, and only the intent says the listener paused. Pausing again
+      // there left the media keys unable to resume until it was over.
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        controller.pauseCount = 0;
+        controller.playCount = 0;
+        controller.emit(PlaybackState(
+          status: status,
+          currentTrack: _track(),
+          playWhenReady: false,
+        ));
+
+        await call('PlayPause');
+
+        expect(controller.playCount, 1, reason: '$status');
+        expect(controller.pauseCount, 0, reason: '$status');
+      }
+    });
+
     test('PlayPause pauses while playing and plays otherwise', () async {
       controller.emit(PlaybackState(
         status: PlaybackStatus.playing,
@@ -344,6 +367,23 @@ void main() {
       ]) {
         controller.emit(PlaybackState(status: status, currentTrack: _track()));
         expect(property('PlaybackStatus'), const DBusString('Playing'),
+            reason: '$status');
+      }
+    });
+
+    test('a stall the listener paused reads as paused', () {
+      // What the Android session reports for it too (#751). Playing here kept
+      // the shell's Pause button up and its progress bar moving.
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        controller.emit(PlaybackState(
+          status: status,
+          currentTrack: _track(),
+          playWhenReady: false,
+        ));
+        expect(property('PlaybackStatus'), const DBusString('Paused'),
             reason: '$status');
       }
     });
