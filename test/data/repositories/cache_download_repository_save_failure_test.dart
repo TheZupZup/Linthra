@@ -63,6 +63,14 @@ const Track _track = Track(
   uri: 'jellyfin:t1',
 );
 
+/// A song on this device: kept offline by its record alone, with no file of
+/// the cache's own for a launch to check it against.
+const Track _onDevice = Track(
+  id: '/music/a.mp3',
+  title: 'Midnight City',
+  uri: '/music/a.mp3',
+);
+
 void main() {
   late Directory dir;
 
@@ -148,6 +156,82 @@ void main() {
     final CacheDownloadRepository relaunched = launch(store);
     expect(await relaunched.statusFor(_track.id), DownloadStatus.notDownloaded);
     expect((await relaunched.cacheSnapshot()).usedBytes, 4);
+  });
+
+  group('a change the user asked for that cannot be saved is not kept', () {
+    test('keeping an on-device song offline fails now', () async {
+      final _FullDiskStore store = _FullDiskStore();
+      final CacheDownloadRepository repository = launch(store);
+      await repository.cacheSnapshot();
+      store.full = true;
+
+      await expectLater(
+        repository.requestDownload(_onDevice),
+        throwsA(isA<CacheStorageException>()),
+      );
+      expect(await repository.statusFor(_onDevice.id),
+          DownloadStatus.notDownloaded);
+
+      store.full = false;
+      expect(await launch(store).statusFor(_onDevice.id),
+          DownloadStatus.notDownloaded);
+    });
+
+    test(
+        "an on-device song's removal stays undone, as the next launch would "
+        'find it', () async {
+      final _FullDiskStore store = _FullDiskStore();
+      final CacheDownloadRepository repository = launch(store);
+      await repository.requestDownload(_onDevice);
+      store.full = true;
+
+      await repository.removeDownload(_onDevice);
+
+      expect(
+          await repository.statusFor(_onDevice.id), DownloadStatus.downloaded);
+      store.full = false;
+      expect(await launch(store).statusFor(_onDevice.id),
+          DownloadStatus.downloaded);
+    });
+
+    test('a pin does not stick', () async {
+      final _FullDiskStore store = _FullDiskStore();
+      final CacheDownloadRepository repository = launch(store);
+      await repository.requestDownload(_track);
+      store.full = true;
+
+      await repository.setPinned(_track, true);
+
+      expect((await repository.cacheSnapshot()).entries.single.pinned, isFalse);
+      store.full = false;
+      expect(
+          (await launch(store).cacheSnapshot()).entries.single.pinned, isFalse);
+    });
+
+    test(
+        'Clear all still frees the files, and keeps the on-device songs it '
+        'could not forget', () async {
+      final _FullDiskStore store = _FullDiskStore();
+      final CacheDownloadRepository repository = launch(store);
+      await repository.requestDownload(_track);
+      await repository.requestDownload(_onDevice);
+      store.full = true;
+
+      await repository.clearAll();
+
+      expect(await filesOnDisk(), isEmpty);
+      expect(
+          await repository.statusFor(_track.id), DownloadStatus.notDownloaded);
+      expect(
+          await repository.statusFor(_onDevice.id), DownloadStatus.downloaded);
+
+      store.full = false;
+      final CacheDownloadRepository relaunched = launch(store);
+      expect(
+          await relaunched.statusFor(_track.id), DownloadStatus.notDownloaded);
+      expect(
+          await relaunched.statusFor(_onDevice.id), DownloadStatus.downloaded);
+    });
   });
 
   test('a full disk still lets the cache be read', () async {

@@ -634,12 +634,21 @@ class CacheDownloadRepository
     // (several rows at once, or a "Download all"), so this has to be ordered
     // even though there are no bytes to fetch.
     await _commit(() async {
-      _downloads[key] = CachedTrack(
+      final CachedTrack kept = CachedTrack(
         trackId: track.id,
         sourceType: _sourceTypeOf(track),
         cachedAt: _now(),
       );
-      await _save();
+      _downloads[key] = kept;
+      try {
+        await _saveOrThrow();
+      } catch (_) {
+        // Its record is all there is of it, so unsaved, the next launch
+        // wouldn't know it was kept: it isn't now either, and the request
+        // says why, as a download's does (#786).
+        if (identical(_downloads[key], kept)) _downloads.remove(key);
+        throw const CacheStorageException(_recordNotSavedMessage);
+      }
       _statuses[key] = DownloadStatus.downloaded;
       _emitStatus();
       _emitCache();
@@ -1117,7 +1126,19 @@ class CacheDownloadRepository
     _preloading[key]?.canceled = true;
     final CachedTrack? existing = _downloads.remove(key);
     await _deleteManagedFile(existing);
-    await _save();
+    try {
+      await _saveOrThrow();
+    } catch (_) {
+      // A copy with a file is gone with it, and the next launch drops its
+      // record. An on-device song's record is all there is: unsaved, the next
+      // launch would find it kept, so it stays kept now too.
+      if (existing != null &&
+          !existing.isManaged &&
+          !_downloads.containsKey(key)) {
+        _downloads[key] = existing;
+        return;
+      }
+    }
     // Also clears a queued/failed/downloading marker, so this doubles as cancel.
     _set(key, DownloadStatus.notDownloaded);
     _emitCache();
@@ -1152,8 +1173,15 @@ class CacheDownloadRepository
     final String key = _keyForTrack(track);
     final CachedTrack? existing = _downloads[key];
     if (existing == null || existing.pinned == pinned) return;
-    _downloads[key] = existing.copyWith(pinned: pinned);
-    await _save();
+    final CachedTrack updated = existing.copyWith(pinned: pinned);
+    _downloads[key] = updated;
+    try {
+      await _saveOrThrow();
+    } catch (_) {
+      // Unsaved, the next launch would find it as it was, so it stays that
+      // way now too rather than looking kept until then.
+      if (identical(_downloads[key], updated)) _downloads[key] = existing;
+    }
     _emitCache();
   }
 
@@ -1218,7 +1246,20 @@ class CacheDownloadRepository
       await _deleteManagedFile(victim);
       _forgetDeleted(victim);
     }
-    await _save();
+    try {
+      await _saveOrThrow();
+    } catch (_) {
+      // The copies with files are gone with them, and the next launch drops
+      // their records. An on-device song's record is all there is: unsaved,
+      // the next launch would find it kept, so it stays kept now too.
+      for (final CachedTrack victim in victims) {
+        if (victim.isManaged) continue;
+        final String key = _keyForCached(victim);
+        if (_downloads.containsKey(key)) continue;
+        _downloads[key] = victim;
+        if (!victim.preloaded) _statuses[key] = DownloadStatus.downloaded;
+      }
+    }
     _emitStatus();
     _emitCache();
   }
