@@ -258,7 +258,6 @@ void main() {
   });
 }
 
-
 class _FullDiskHistoryStore implements PlayHistoryStore {
   @override
   Future<PlayHistory> load() async => PlayHistory.empty;
