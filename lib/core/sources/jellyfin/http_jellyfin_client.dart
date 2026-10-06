@@ -127,9 +127,12 @@ class HttpJellyfinClient implements JellyfinClient {
     required JellyfinItemKind kind,
   }) async {
     final List<JellyfinItemDto> items = <JellyfinItemDto>[];
+    // An item read again after a step back (see below) is listed once.
+    final Set<String> listedIds = <String>{};
     int skipped = 0;
     int startIndex = 0;
     int page = 0;
+    int? previousTotal;
 
     // Page through the whole library in bounded chunks. A page-level transient
     // failure is retried inside `_sendRetrying`; if it ultimately fails it
@@ -185,7 +188,7 @@ class HttpJellyfinClient implements JellyfinClient {
           skipped++;
           continue;
         }
-        items.add(dto);
+        if (listedIds.add(dto.id)) items.add(dto);
       }
 
       final int received = rawItems.length;
@@ -193,7 +196,20 @@ class HttpJellyfinClient implements JellyfinClient {
         _failIfShort(startIndex, total);
         break;
       }
+      final int pageStart = startIndex;
       startIndex += received;
+
+      // The library shrank since the previous page (a scan on the server
+      // removed items). Items removed ahead of this page moved everything
+      // after them up, so as many items as were removed crossed the page
+      // boundary unread. Step back over them: read again, an item is listed
+      // once, while left unread it would be gone from the catalog the walk
+      // replaces.
+      if (previousTotal != null && total != null && total < previousTotal) {
+        final int stepBack = pageStart - (previousTotal - total);
+        startIndex = stepBack < 0 ? 0 : stepBack;
+      }
+      previousTotal = total ?? previousTotal;
 
       // Stop on the server's own total, or, when it gives none, on a short
       // (final) page. With a total, a short page only means the server pages

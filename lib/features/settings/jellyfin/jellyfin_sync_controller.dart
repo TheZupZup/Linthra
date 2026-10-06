@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/album.dart';
 import '../../../core/models/artist.dart';
+import '../../../core/models/jellyfin_session.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../core/repositories/jellyfin_auto_sync_store.dart';
@@ -61,8 +62,10 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// [_rerunQueued].
   bool _syncing = false;
 
-  /// The account (fingerprint) the running sync belongs to.
-  String? _runningAccount;
+  /// The session the running sync reads with. The run drops its result once
+  /// it is no longer the live one ([_isStillCurrent]), which signing back in
+  /// to the same account does too: that mints a new token.
+  JellyfinSession? _runningSession;
 
   /// Set when a sync is requested for a *different* account while one is still
   /// running (sign out, then straight into another account). The old run drops
@@ -166,7 +169,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       // at shutdown), keeping "never throws".
     } finally {
       _syncing = false;
-      _runningAccount = null;
+      _runningSession = null;
     }
   }
 
@@ -283,13 +286,14 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   }
 
   /// A request that lands while a sync runs is normally covered by that sync.
-  /// Only when the signed-in account is no longer the one being synced does it
-  /// queue a fresh run (the old one drops its result on its own).
+  /// Only when the signed-in session is no longer the one being synced does it
+  /// queue a fresh run (the old one drops its result on its own). That
+  /// includes the same account signed in again, with a new token.
   void _queueIfAnotherAccount(String? recordFingerprint) {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) return;
+    if (source.session == _runningSession) return;
     final String account = jellyfinAccountFingerprint(source.session);
-    if (account == _runningAccount) return;
     _rerunQueued = true;
     // A manual Sync pressed while this account's first auto-sync waits must
     // not drop its fingerprint, or that sync would go unrecorded and the
@@ -308,7 +312,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
       return;
     }
 
-    _runningAccount = jellyfinAccountFingerprint(source.session);
+    _runningSession = source.session;
     state = const JellyfinSyncState.syncing();
     try {
       // Normally done at sign-in already. Here too, so another account's

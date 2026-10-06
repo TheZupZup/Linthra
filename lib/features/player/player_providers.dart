@@ -124,7 +124,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   return RoutingPlayableUriResolver(<PlayableUriResolver>[
     reachabilityAware(
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
-      () => _jellyfinAccountKey(ref),
+      () => _jellyfinSignInKey(ref),
       // Let the library learn from what the player just found out: the first
       // track that can't reach the server flips Jellyfin to unreachable (and the
       // first that succeeds flips it back) without waiting for the background
@@ -151,14 +151,29 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
 });
 
 /// The signed-in Jellyfin server + account as a non-secret key, or `null` when
-/// signed out. Shared by the reachability memory and smart pre-cache, so both
-/// agree on when "the same session" stops being the same (Plex aside: see
-/// [_accountKeyForTrack]).
+/// signed out. What smart pre-cache, downloads and warmed stream URLs are bound
+/// to (Plex aside: see [_accountKeyForTrack]); the reachability memory uses the
+/// narrower [_jellyfinSignInKey].
 String? _jellyfinAccountKey(Ref ref) {
   final source = ref.read(jellyfinMusicSourceProvider);
   return source == null
       ? null
       : 'jellyfin:${jellyfinAccountFingerprint(source.session)}';
+}
+
+/// [_jellyfinAccountKey] narrowed to the sign-in: signing back in to the same
+/// account mints a new token. What an attempt made with the previous one found
+/// (a token the server rejected, a connection that died with it) says nothing
+/// about the session signed in now, so it must neither be reported to the
+/// library's availability nor fast-fail the new session. The reachability
+/// memory and its observer are keyed by this; everything else stays bound to
+/// the account.
+String? _jellyfinSignInKey(Ref ref) {
+  final source = ref.read(jellyfinMusicSourceProvider);
+  return source == null
+      ? null
+      : 'jellyfin:${jellyfinAccountFingerprint(source.session)}'
+          ':${identityHashCode(source.session)}';
 }
 
 String? _subsonicAccountKey(Ref ref) {
