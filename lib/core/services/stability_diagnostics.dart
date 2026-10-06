@@ -109,6 +109,18 @@ abstract final class StabilityDiagnostics {
 
   static String describePlaybackError(String kind) => 'playback error: $kind';
 
+  /// A local durable-data write that the platform explicitly reported as not
+  /// written. [area] is one fixed [LocalStoreArea] name, never the data itself.
+  /// This breadcrumb survives the no-throw play-history path and gives a bug
+  /// report a concrete reason for a change that could not be persisted.
+  static void localStoreWriteFailure(String area) {
+    SafeEventLog.instance.record('storage-write', area);
+    _log(describeLocalStoreWriteFailure(area));
+  }
+
+  static String describeLocalStoreWriteFailure(String area) =>
+      'local storage write failed: $area';
+
   /// An automatic recovery step the player took on its own after a track
   /// failed: `retry` (one more try at the same track), `advance` (moving on to
   /// the next one), or `settled` (stopped, waiting for the listener). A fixed

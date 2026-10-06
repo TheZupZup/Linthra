@@ -337,14 +337,18 @@ Track? logicalTrackFromJson(Map<String, dynamic> json) {
     }
   }
 
+  // A display field of another type reads as absent. Thrown, it made restore
+  // take the whole record for unreadable and clear it.
+  String? text(Object? value) => value is String ? value : null;
+
   return Track(
     id: id,
     title: title,
     uri: uri,
-    artistName: json['artist'] as String?,
-    albumName: json['album'] as String?,
-    albumId: json['albumId'] as String?,
-    albumArtistName: json['albumArtist'] as String?,
+    artistName: text(json['artist']),
+    albumName: text(json['album']),
+    albumId: text(json['albumId']),
+    albumArtistName: text(json['albumArtist']),
     duration: duration,
     trackNumber: trackNumber is int ? trackNumber : null,
     artworkUri: artworkUri,

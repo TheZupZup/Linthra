@@ -17,6 +17,9 @@ class SharedPreferencesLibraryAddedStore implements LibraryAddedStore {
 
   static const String _key = 'library_added_v1';
 
+  /// The furthest [DateTime] reaches either side of the epoch.
+  static const int _maxEpochMs = 8640000000000000;
+
   @override
   Future<Map<String, DateTime>> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -33,6 +36,9 @@ class SharedPreferencesLibraryAddedStore implements LibraryAddedStore {
     final Map<String, DateTime> addedAt = <String, DateTime>{};
     decoded.forEach((String id, Object? value) {
       if (id.isEmpty || value is! int) return;
+      // A time DateTime can't hold is as unreadable as one that isn't a
+      // number. Thrown, it failed every catalog write that stamps new tracks.
+      if (value.abs() > _maxEpochMs) return;
       addedAt[id] = DateTime.fromMillisecondsSinceEpoch(value);
     });
     return addedAt;

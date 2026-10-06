@@ -148,6 +148,33 @@ void main() {
     expect(controller.playCount, 0);
   });
 
+  testWidgets('a reconnect the listener paused offers Play, and plays', (
+    tester,
+  ) async {
+    final controller = _streamingController();
+    await _pumpPlayer(tester, controller);
+
+    // Paused mid-reconnect: busy until the reconnect lands, and only the
+    // intent says the listener paused.
+    controller.emit(
+      const PlaybackState(
+        status: PlaybackStatus.reconnecting,
+        currentTrack: _track,
+        duration: Duration(minutes: 4),
+        position: Duration(minutes: 1),
+        playWhenReady: false,
+      ),
+    );
+    await _pumpStreamUpdate(tester);
+
+    expect(find.byTooltip('Pause'), findsNothing);
+    await tester.tap(find.byTooltip('Play'));
+    await tester.pump();
+
+    expect(controller.playCount, 1);
+    expect(controller.pauseCount, 0);
+  });
+
   testWidgets('reconnecting is distinct from buffering and from error', (
     tester,
   ) async {

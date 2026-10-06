@@ -2,9 +2,11 @@ import 'dart:async';
 
 import '../../core/models/play_history.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/play_history_repository.dart';
 import '../../core/repositories/play_history_store.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/stability_diagnostics.dart';
 
 /// The app's [PlayHistoryRepository]: an in-memory mirror persisted through a
 /// [PlayHistoryStore].
@@ -83,8 +85,13 @@ class DefaultPlayHistoryRepository
       try {
         await _ensureLoaded();
         _history = _history.recordPlay(trackUri, _now());
-        if (!_changes.isClosed) _changes.add(_history);
         await _store.save(_history);
+        if (!_changes.isClosed) _changes.add(_history);
+      } on LocalStoreWriteException catch (error) {
+        // Playback completion is a background side effect, so it must not throw
+        // into the player. Keep the in-memory count for the next retry, but make
+        // the failed durable write visible in the secret-free diagnostics.
+        StabilityDiagnostics.localStoreWriteFailure(error.area.name);
       } catch (_) {
         // Never throw out of recordCompletion: a failed persist keeps the
         // in-memory count and the next write retries the save.
@@ -111,8 +118,10 @@ class DefaultPlayHistoryRepository
         final PlayHistory remapped = _history.remapKey(fromUri, toUri);
         if (identical(remapped, _history)) return;
         _history = remapped;
-        if (!_changes.isClosed) _changes.add(_history);
         await _store.save(_history);
+        if (!_changes.isClosed) _changes.add(_history);
+      } on LocalStoreWriteException catch (error) {
+        StabilityDiagnostics.localStoreWriteFailure(error.area.name);
       } catch (_) {
         // Same contract as recordCompletion: never throw at the caller. A
         // failed persist keeps the re-keyed history in memory and the next

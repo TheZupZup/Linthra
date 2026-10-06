@@ -54,6 +54,14 @@ const PlaybackState _buffering = PlaybackState(
   currentTrack: _current,
 );
 
+/// A stalled stream the listener has paused: still busy until the reconnect
+/// lands, with only the intent saying so.
+const PlaybackState _pausedStall = PlaybackState(
+  status: PlaybackStatus.reconnecting,
+  currentTrack: _current,
+  playWhenReady: false,
+);
+
 /// The initial prepare: a track picked, its source not installed yet.
 const PlaybackState _loading = PlaybackState(
   status: PlaybackStatus.loading,
@@ -364,6 +372,21 @@ void main() {
             'button reads it',
       );
       expect(app.playback.playCount, 0);
+    });
+
+    testWidgets('Ctrl+Space plays a stalled stream the listener paused',
+        (tester) async {
+      final _Harness app = await _pumpApp(tester, playback: _paused);
+      app.playback.emit(_pausedStall);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(app.playback.playCount, 1);
+      expect(app.playback.pauseCount, 0);
     });
 
     testWidgets('but stands down while a track is still being prepared',

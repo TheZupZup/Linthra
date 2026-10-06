@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/repositories/local_store_write_exception.dart';
+import 'package:linthra/core/repositories/play_history_store.dart';
 import 'package:linthra/data/repositories/default_play_history_repository.dart';
 import 'package:linthra/data/repositories/in_memory_play_history_store.dart';
 
@@ -111,6 +114,25 @@ void main() {
       // Touch the stream to force a load.
       await second.historyStream.first;
       expect(second.current.playCountFor('jellyfin:a'), 2);
+    });
+
+    test('a failed durable write is recorded without breaking playback',
+        () async {
+      SafeEventLog.instance.clear();
+      addTearDown(SafeEventLog.instance.clear);
+      final DefaultPlayHistoryRepository repository =
+          DefaultPlayHistoryRepository(store: _FullDiskHistoryStore());
+      addTearDown(repository.dispose);
+
+      await repository.recordCompletion(_t('a'));
+
+      // Keep the count in memory so the next successful write can retry it, but
+      // do not let the no-throw playback contract make the disk failure silent.
+      expect(repository.current.playCountFor('jellyfin:a'), 1);
+      expect(
+        SafeEventLog.instance.lines,
+        contains('storage-write: playHistory'),
+      );
     });
 
     test('records the provider-namespaced uri, not the bare id', () async {
@@ -234,4 +256,14 @@ void main() {
       });
     });
   });
+}
+
+class _FullDiskHistoryStore implements PlayHistoryStore {
+  @override
+  Future<PlayHistory> load() async => PlayHistory.empty;
+
+  @override
+  Future<void> save(PlayHistory history) async {
+    throw const LocalStoreWriteException(LocalStoreArea.playHistory);
+  }
 }
