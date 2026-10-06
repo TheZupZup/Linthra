@@ -38,6 +38,10 @@ void main() {
         StabilityDiagnostics.describePlaybackRecovery('advance'),
         'playback recovery: advance',
       );
+      expect(
+        StabilityDiagnostics.describeLocalStoreWriteFailure('playHistory'),
+        'local storage write failed: playHistory',
+      );
     });
 
     test('a breadcrumb carries only its label — no room to leak a secret', () {
@@ -67,6 +71,7 @@ void main() {
           StabilityDiagnostics.output('cast');
           StabilityDiagnostics.precache('start:1');
           StabilityDiagnostics.playbackError('unknown');
+          StabilityDiagnostics.localStoreWriteFailure('favorites');
         },
         returnsNormally,
       );
@@ -82,12 +87,14 @@ void main() {
       StabilityDiagnostics.output('cast');
       StabilityDiagnostics.precache('start:3');
       StabilityDiagnostics.playbackError('load');
+      StabilityDiagnostics.localStoreWriteFailure('playHistory');
 
       expect(SafeEventLog.instance.lines, <String>[
         'lifecycle: resumed',
         'output: cast',
         'precache: start:3',
         'error: load',
+        'storage-write: playHistory',
       ]);
     });
 
