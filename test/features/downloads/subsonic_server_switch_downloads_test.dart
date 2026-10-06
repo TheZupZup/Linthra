@@ -393,6 +393,39 @@ void main() {
       expect(await offlineBytes(song), _audioOfNavidrome);
     });
 
+    test("another server's copy stays set aside while Navidrome is connected",
+        () async {
+      await signInTo(_airsonicA);
+      await downloads().requestDownload(_song('101', 'Song on A'));
+
+      await signInTo(_navidromeLan, info: _navidrome);
+
+      // A real Navidrome id is a hash of a path, so this one is contrived,
+      // but whether a copy plays can't hang on what its id looks like.
+      final Track songOnNavidrome = _song('101', 'Song on Navidrome');
+      expect(await rowOf(songOnNavidrome), isNull,
+          reason: "server A's copy reads as downloaded on Navidrome");
+      expect(await offlineBytes(songOnNavidrome), isNull,
+          reason: "server A's audio is served on Navidrome");
+    });
+
+    test("a Navidrome copy isn't taken for the next server's song", () async {
+      final Track song = _song('2f1e0c', 'Song');
+      await downloads().requestDownload(song);
+
+      await signInTo(_airsonicA);
+      final Track songOnA = _song('2f1e0c', 'Song on A');
+      expect(await rowOf(songOnA), isNull,
+          reason: "server A's song reads as downloaded");
+      expect(await offlineBytes(songOnA), isNull,
+          reason: "Navidrome's audio is served for server A's song");
+
+      // Still Navidrome's: back on Navidrome, at either address, it plays.
+      await signInTo(_navidromeProxy, info: _navidrome);
+      expect(await rowOf(song), DownloadStatus.downloaded);
+      expect(await offlineBytes(song), _audioOfNavidrome);
+    });
+
     test("a visit to Navidrome doesn't unbind another server's copies",
         () async {
       await signInTo(_airsonicA);

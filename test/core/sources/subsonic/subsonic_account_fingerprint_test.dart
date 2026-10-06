@@ -74,6 +74,18 @@ void main() {
       );
     });
 
+    test('is the same for every Navidrome, whatever its address', () {
+      // Its ids come from file paths, so a copy follows it between addresses.
+      final lan = _session.copyWith(serverType: 'navidrome');
+      final proxy = lan.copyWith(baseUrl: 'https://other.example.com');
+      expect(subsonicServerFingerprint(lan), navidromeServerFingerprint);
+      expect(subsonicServerFingerprint(proxy), navidromeServerFingerprint);
+      expect(
+        subsonicServerFingerprint(_session),
+        isNot(navidromeServerFingerprint),
+      );
+    });
+
     test('does not contain the credentials or the URL', () {
       final String fingerprint = subsonicServerFingerprint(_session);
       expect(fingerprint, isNot(contains('super-secret-token-value')));

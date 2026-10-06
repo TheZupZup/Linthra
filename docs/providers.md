@@ -131,7 +131,8 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   so a copy is tied to the server it came from (a hash of its address): on
   another server, and while signed out, it is kept but not used, and it comes
   back with its server. Navidrome derives its ids from each file's path, so its
-  copies aren't tied to an address.
+  copies aren't tied to an address: they play on Navidrome at any address, and
+  while signed out, but never on another kind of server.
 - **Cast**: a Subsonic track casts to a Chromecast as a live stream.
 - **Cover art**: album/artist/track artwork shows across the app. The catalog
   stores only a credential-free `subsonic-cover:<coverArtId>` reference; the

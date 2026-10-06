@@ -47,6 +47,7 @@ import '../../core/sources/plex/plex_playback_reporter.dart';
 import '../../core/sources/plex/plex_session_fingerprint.dart';
 import '../../core/sources/plex/plex_track_mapper.dart';
 import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
+import '../../core/sources/subsonic/subsonic_music_source.dart';
 import '../../core/sources/subsonic/subsonic_playable_uri_resolver.dart';
 import '../../core/sources/subsonic/subsonic_playback_reporter.dart';
 import '../../core/sources/subsonic/subsonic_track_mapper.dart';
@@ -582,54 +583,48 @@ final offlineCopyOriginsOverride =
     offlineCopyOriginsProvider.overrideWith((ref) {
   final _ServerCopyOrigins origins = _ServerCopyOrigins(
     plex: () => ref.read(plexMusicSourceProvider)?.session.machineIdentifier,
-    subsonic: () =>
-        _subsonicCopies(ref.read(subsonicMusicSourceProvider)?.session),
+    subsonic: () => _subsonicServerOf(ref.read(subsonicMusicSourceProvider)),
   );
   ref.listen<String?>(
     plexMusicSourceProvider
         .select((source) => source?.session.machineIdentifier),
     (_, __) => origins.changed(),
   );
-  ref.listen<_SubsonicCopies>(
-    subsonicMusicSourceProvider
-        .select((source) => _subsonicCopies(source?.session)),
+  ref.listen<String?>(
+    subsonicMusicSourceProvider.select(_subsonicServerOf),
     (_, __) => origins.changed(),
   );
   ref.onDispose(origins.close);
   return origins;
 });
 
-/// Whether Subsonic copies are bound to their server right now, and the
-/// server they belong to (null while signed out).
-typedef _SubsonicCopies = ({bool binds, String? server});
-
-/// Where Subsonic copies belong while signed in with [session].
-///
-/// Navidrome's ids come from each file's path, so nothing is bound while it
-/// is the server connected: a copy keeps playing when the same server is
-/// reached at another address (LAN or reverse proxy). Its copies are saved
-/// unbound, so they also play while signed out. Every other server's copies
-/// are bound to it, and signed out they are set aside until it is back, like
-/// Plex's.
-_SubsonicCopies _subsonicCopies(SubsonicSession? session) {
-  if (session == null) return (binds: true, server: null);
-  if (session.isNavidrome) return (binds: false, server: null);
-  return (binds: true, server: subsonicServerFingerprint(session));
+/// The [subsonicServerFingerprint] of the Subsonic server signed in to, or
+/// null while signed out.
+String? _subsonicServerOf(SubsonicMusicSource? source) {
+  final SubsonicSession? session = source?.session;
+  return session == null ? null : subsonicServerFingerprint(session);
 }
 
-/// Plex and Subsonic copies, bound to the server connected now.
+/// Plex and Subsonic copies, each used only where it came from.
+///
+/// A copy is judged by the origin it recorded, never by what kind of server
+/// is connected. A Navidrome copy records [navidromeServerFingerprint] rather
+/// than an address, so it plays on Navidrome at any address (LAN or reverse
+/// proxy) and on no other server; every other copy plays only on its own
+/// server.
 class _ServerCopyOrigins implements OfflineCopyOrigins {
   _ServerCopyOrigins({
     required String? Function() plex,
-    required _SubsonicCopies Function() subsonic,
+    required String? Function() subsonic,
   })  : _plexServer = plex,
-        _subsonic = subsonic;
+        _subsonicServer = subsonic;
 
   /// The connected Plex server's `machineIdentifier`, or null when signed
   /// out.
   final String? Function() _plexServer;
 
-  final _SubsonicCopies Function() _subsonic;
+  /// The connected Subsonic server's fingerprint, or null when signed out.
+  final String? Function() _subsonicServer;
 
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
@@ -641,17 +636,24 @@ class _ServerCopyOrigins implements OfflineCopyOrigins {
       CachedTrack.schemeOf(SubsonicTrackMapper.uriScheme);
 
   @override
-  bool binds(String scheme) {
-    if (scheme == _plexScheme) return true;
-    if (scheme == _subsonicScheme) return _subsonic().binds;
-    return false;
-  }
+  bool binds(String scheme) =>
+      scheme == _plexScheme || scheme == _subsonicScheme;
 
   @override
   String? current(String scheme) {
     if (scheme == _plexScheme) return _plexServer();
-    if (scheme == _subsonicScheme) return _subsonic().server;
+    if (scheme == _subsonicScheme) return _subsonicServer();
     return null;
+  }
+
+  @override
+  bool accepts(String scheme, String origin) {
+    final String? server = current(scheme);
+    if (server != null) return origin == server;
+    // Signed out of Subsonic, Navidrome copies keep playing as they always
+    // have: a Navidrome id comes from its file's path, so it names that file
+    // wherever it is found. Every other copy waits for its own server.
+    return scheme == _subsonicScheme && origin == navidromeServerFingerprint;
   }
 
   @override
