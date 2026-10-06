@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../catalog/now_playing_match.dart';
 import '../../models/playback_state.dart';
 import '../../models/track.dart';
 import 'desktop_notifier.dart';
@@ -108,7 +109,7 @@ class TrackChangeNotifier {
   /// Updated even while the preference is off, so switching notifications on
   /// mid-track stays quiet until the *next* real change instead of announcing
   /// a song that has been playing for two minutes.
-  String? _announced;
+  Track? _announced;
 
   /// The reading of [_elapsed] when the last notification was handed to the
   /// notifier.
@@ -147,10 +148,13 @@ class TrackChangeNotifier {
     final Track? track = state.currentTrack;
     if (track == null) return;
     if (!_isPlayingSomething(state)) return;
-    if (track.uri == _announced) return;
+    if (_announced != null && isCurrentPlaybackTrack(_announced!, track)) {
+      _announced = track;
+      return;
+    }
 
     if (!_enabled()) {
-      _announced = track.uri;
+      _announced = track;
       return;
     }
 
@@ -197,14 +201,21 @@ class TrackChangeNotifier {
   void _dropStalePending(PlaybackState state) {
     final Track? pending = _pending;
     if (pending == null) return;
-    if (state.currentTrack?.uri == pending.uri && _isPlayingSomething(state)) {
+    final Track? current = state.currentTrack;
+    if (current != null &&
+        isCurrentPlaybackTrack(pending, current) &&
+        _isPlayingSomething(state)) {
+      // Keep the latest provider copy so another fallback is compared with the
+      // track that is actually playing now, while the pending notification
+      // remains one logical song.
+      _pending = current;
       return;
     }
     _pending = null;
   }
 
   void _announce(Track track, Duration at) {
-    _announced = track.uri;
+    _announced = track;
     _lastAt = at;
     _pending = null;
     _timer?.cancel();
@@ -219,14 +230,17 @@ class TrackChangeNotifier {
     _pending = null;
     if (track == null) return;
     // Already announced by something else while the window ran.
-    if (track.uri == _announced) return;
+    if (_announced != null && isCurrentPlaybackTrack(_announced!, track)) {
+      _announced = track;
+      return;
+    }
     if (!_enabled()) {
       // Turned off while the window ran. Recorded as observed anyway, exactly
       // as the disabled path in [onState] does: the track was playing while
       // the preference was off, so switching it back on has to stay quiet
       // until the next real change rather than announce a song that has been
       // playing for two minutes.
-      _announced = track.uri;
+      _announced = track;
       return;
     }
     _announce(track, _elapsed());
