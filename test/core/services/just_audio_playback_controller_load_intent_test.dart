@@ -535,6 +535,30 @@ void main() {
           reason: 'the reconnect went back to where the stream dropped');
     });
 
+    test(
+        'after a seek while the retry waits its backoff, the next drop gets '
+        'its quick reconnect again', () async {
+      final setup = await reconnecting();
+
+      await setup.controller.seek(const Duration(seconds: 90));
+      // The reload at the chosen spot plays while the old backoff still runs.
+      setup.controller
+          .handleEngineState(PlayerState(true, ProcessingState.ready));
+      await outlastBackoff();
+
+      // Later, a drop that has nothing to do with the first one.
+      setup.controller.handleStreamFailureForTesting(const StreamInterruption(
+        StreamInterruptionKind.networkDropped,
+        'dropped again',
+        retryable: true,
+      ));
+      await _settle();
+
+      expect(setup.controller.state.status, PlaybackStatus.reconnecting,
+          reason: 'the seek was the listener taking over, so what failed '
+              'before it is history');
+    });
+
     test('a dispose while the retry waits its backoff reloads nothing',
         () async {
       final setup = await reconnecting();

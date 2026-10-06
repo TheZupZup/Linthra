@@ -3539,9 +3539,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
     // A reconnect waiting out its backoff has nothing to seek in either, and
     // the seek would call it off: reload now, from the chosen spot, as that
-    // reconnect would have.
+    // reconnect would have. Still a reload of this stream, so a pause during
+    // the wait holds, but the listener took over: the next drop gets its
+    // quick reconnect again.
     if (_reconnectBackingOff && _queue.current != null) {
       _reconnectBackingOff = false;
+      _retriesForCurrent = 0;
+      _startFreshAfterFailures();
       _emit(_state.copyWith(position: position));
       await _playCurrent(startAt: position, isRetry: true);
       return;
