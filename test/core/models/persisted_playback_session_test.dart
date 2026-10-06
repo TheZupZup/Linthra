@@ -157,6 +157,49 @@ void main() {
       expect(loaded.current!.uri, jellyfin.uri);
     });
 
+    test('fromJson keeps a pre-shuffle order of the queue\'s own songs', () {
+      const PersistedPlaybackSession session = PersistedPlaybackSession(
+        tracks: <Track>[jellyfin, local, jellyfin, subsonic],
+        currentIndex: 1,
+        shuffleEnabled: true,
+        originalOrder: <Track>[subsonic, jellyfin, jellyfin, local],
+      );
+
+      final PersistedPlaybackSession? loaded =
+          PersistedPlaybackSession.fromJson(session.toJson());
+
+      expect(
+        loaded!.originalOrder!.map((Track t) => t.uri),
+        <String>[subsonic.uri, jellyfin.uri, jellyfin.uri, local.uri],
+      );
+    });
+
+    test('fromJson drops a pre-shuffle order that is not the queue\'s songs',
+        () {
+      // Missing the current song, holding a song the queue doesn't, or one
+      // copy short: each would have shuffle off replace the queue.
+      for (final List<Track> order in <List<Track>>[
+        <Track>[subsonic, jellyfin],
+        <Track>[subsonic, jellyfin, local, local],
+        <Track>[subsonic, jellyfin, local],
+      ]) {
+        final PersistedPlaybackSession session = PersistedPlaybackSession(
+          tracks: const <Track>[jellyfin, local, jellyfin, subsonic],
+          currentIndex: 1,
+          shuffleEnabled: true,
+          originalOrder: order,
+        );
+
+        final PersistedPlaybackSession? loaded =
+            PersistedPlaybackSession.fromJson(session.toJson());
+
+        expect(loaded!.originalOrder, isNull,
+            reason: order.map((Track t) => t.uri).join(', '));
+        expect(loaded.tracks, hasLength(4));
+        expect(loaded.shuffleEnabled, isTrue);
+      }
+    });
+
     test('fromJson drops invalid tracks and remaps the current item', () {
       final PersistedPlaybackSession? loaded =
           PersistedPlaybackSession.fromJson(<String, dynamic>{

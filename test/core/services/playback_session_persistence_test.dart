@@ -667,6 +667,82 @@ void main() {
       await after.dispose();
     });
 
+    test(
+        'a stored pre-shuffle order that is not the queue\'s own is not '
+        'trusted', () async {
+      // A record whose pre-shuffle order ('o') does not hold the songs of
+      // the queue ('t'): written by hand, damaged on disk, or left by another
+      // build. Nothing in Linthra writes one, but restore reads it.
+      const Track x = Track(
+        id: '/music/x.flac',
+        title: 'X',
+        uri: '/music/x.flac',
+        duration: _EndingEngine.length,
+      );
+      const Track y = Track(
+        id: '/music/y.flac',
+        title: 'Y',
+        uri: '/music/y.flac',
+        duration: _EndingEngine.length,
+      );
+      const Track z = Track(
+        id: '/music/z.flac',
+        title: 'Z',
+        uri: '/music/z.flac',
+        duration: _EndingEngine.length,
+      );
+      final InMemoryPlaybackSessionStore store = InMemoryPlaybackSessionStore(
+        const PersistedPlaybackSession(
+          tracks: <Track>[x, y, z],
+          currentIndex: 1,
+          shuffleEnabled: true,
+          originalOrder: <Track>[z, x],
+        ),
+      );
+      final _EndingEngine engine = _EndingEngine();
+      final List<Track> completed = <Track>[];
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: engine,
+        resolver: _LocalResolver(),
+        onTrackCompleted: completed.add,
+      );
+      final PlaybackSessionPersistence restorer = PlaybackSessionPersistence(
+        store: store,
+        controller: controller,
+        playbackStates: controller.stateStream,
+        localFileExists: (_) => true,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(restorer.dispose);
+      await restorer.restore();
+      await pumpEventQueue();
+      expect(controller.state.currentTrack, y);
+
+      // The listener plays Y and turns shuffle off while it plays.
+      await controller.play();
+      await pumpEventQueue();
+      controller.setShuffleEnabled(false);
+      await pumpEventQueue();
+      expect(controller.state.currentTrack, y);
+      expect(
+        <Track>[
+          ...controller.state.previous,
+          controller.state.currentTrack!,
+          ...controller.state.upNext,
+        ],
+        containsAll(<Track>[x, y, z]),
+        reason: 'shuffle off must not take the playing song out of the queue',
+      );
+
+      // Y plays to its end.
+      engine.advance(_EndingEngine.length);
+      await pumpEventQueue();
+
+      expect(completed, <Track>[y],
+          reason: 'the song that played is the one recorded as played');
+    });
+
     test('saves a queue holding a local song whose path says "bearer "',
         () async {
       const Track yesterday = Track(
