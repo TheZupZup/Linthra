@@ -64,8 +64,9 @@ jobs:
 
       # Local twin: ./scripts/update_dart_dependencies.sh. Runs
       # `flutter pub upgrade` (which resolves inside the existing constraints
-      # and only rewrites pubspec.lock), asserts nothing outside pubspec.lock
-      # moved, and re-checks the result with `flutter pub get --enforce-lockfile`.
+      # and rewrites pubspec.lock, plus the plugin registrants when the set of
+      # plugins changes), asserts nothing outside pubspec.lock moved, and
+      # re-checks the result with `flutter pub get --enforce-lockfile`.
       # Exit 3 means everything is already at the newest allowed version.
       - name: Resolve updates with the pinned SDK
         id: resolve

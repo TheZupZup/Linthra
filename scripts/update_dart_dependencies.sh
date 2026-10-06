@@ -18,7 +18,9 @@
 #   flutter pub upgrade
 #
 # `pub upgrade` re-resolves every dependency to the newest version the existing
-# constraints in pubspec.yaml already allow, and writes only pubspec.lock. That
+# constraints in pubspec.yaml already allow, and writes pubspec.lock (Flutter
+# also regenerates the plugin registrants when the set of plugins changes, which
+# the guard below refuses). That
 # is the whole "compatible updates, no constraint changes" behaviour by
 # construction — `^0.9.42` cannot resolve to 0.10.0, `^11.3.1` cannot resolve to
 # 12.0.0. Note that `--major-versions=false` does NOT exist: `--major-versions`
