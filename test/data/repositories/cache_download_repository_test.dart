@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -22,6 +23,7 @@ import 'package:linthra/core/services/smart_precache_service.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_stream_source.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_track_downloader.dart';
 import 'package:linthra/data/repositories/cache_download_repository.dart';
+import 'package:linthra/data/repositories/file_system_offline_file_store.dart';
 import 'package:linthra/data/repositories/in_memory_download_preferences.dart';
 import 'package:linthra/data/repositories/in_memory_download_store.dart';
 import 'package:linthra/data/repositories/in_memory_offline_file_store.dart';
@@ -3194,6 +3196,103 @@ void main() {
     });
   });
 
+  group('two deletes of the same file on the real disk', () {
+    // A removal or a Clear all can be told to delete the very file an
+    // eviction is deleting. The file store checked, then deleted, so the
+    // slower of the two found the file gone and threw.
+    late Directory dir;
+    late InMemoryDownloadStore store;
+    late _HeldDeletesFileStore disk;
+    late CacheDownloadRepository repository;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('linthra_delete_race');
+      store = InMemoryDownloadStore();
+      disk = _HeldDeletesFileStore(
+          FileSystemOfflineFileStore(directory: () async => dir));
+      repository = CacheDownloadRepository(
+        store: store,
+        files: disk,
+        downloader: _FakeRemoteDownloader(),
+        connectivity: _FakeConnectivity(NetworkStatus.wifi),
+        // Room for two songs: a third only fits once the oldest is evicted.
+        preferences: InMemoryDownloadPreferences(maxCacheBytes: 8),
+      );
+    });
+
+    tearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+
+    /// Downloads 'a' and 'c', then asks for 'b', whose commit evicts 'a' and
+    /// is held deleting its file. Returns that file and its hold.
+    Future<({String file, Completer<void> hold, Future<void> b})>
+        evictingA() async {
+      await repository.requestDownload(_jellyfin('a'));
+      await repository.requestDownload(_jellyfin('c'));
+      final String fileOfA = (await store.loadDownloads())
+          .singleWhere((CachedTrack c) => c.trackId == 'a')
+          .fileName!;
+      final Completer<void> hold = disk.hold(fileOfA);
+      final Future<void> b = repository.requestDownload(_jellyfin('b'));
+      await disk.reached(fileOfA);
+      return (file: fileOfA, hold: hold, b: b);
+    }
+
+    test('a removal racing it leaves the song removed, not stuck Downloaded',
+        () async {
+      final eviction = await evictingA();
+      final Future<void> removing = repository.removeDownload(_jellyfin('a'));
+      await _pumpUntil(() => disk.asked(eviction.file) == 2);
+
+      eviction.hold.complete();
+      await removing;
+      await eviction.b;
+
+      expect(await repository.statusFor('a'), DownloadStatus.notDownloaded);
+      expect(await repository.statusFor('b'), DownloadStatus.downloaded);
+      // Asking again downloads it, rather than finding it "already there".
+      expect(await repository.requestDownload(_jellyfin('a')),
+          DownloadRequestOutcome.started);
+      expect(await repository.statusFor('a'), DownloadStatus.downloaded);
+    });
+
+    test('Clear all racing it deletes every file and finishes', () async {
+      final eviction = await evictingA();
+      final Future<void> clearing = repository.clearAll();
+      await _pumpUntil(() => disk.asked(eviction.file) == 2);
+
+      eviction.hold.complete();
+      await clearing;
+      await eviction.b;
+
+      expect(dir.listSync().whereType<File>().map((File f) => f.path), isEmpty);
+      expect((await repository.cacheSnapshot()).entries, isEmpty);
+      expect(await repository.downloadedTrackKeys(), isEmpty);
+    });
+  });
+
+  test('a pre-cache that cannot read the cache records does not throw',
+      () async {
+    final _UnreadableDownloadStore store = _UnreadableDownloadStore();
+    final _FakeRemoteDownloader downloader = _FakeRemoteDownloader();
+    final CacheDownloadRepository repository = CacheDownloadRepository(
+      store: store,
+      files: InMemoryOfflineFileStore(),
+      downloader: downloader,
+      connectivity: _FakeConnectivity(NetworkStatus.wifi),
+      preferences: InMemoryDownloadPreferences(),
+    );
+
+    await expectLater(repository.prefetch(_jellyfin('j1')), completes);
+    expect(downloader.fetchCount, 0);
+
+    // Once the records read again, the next warm goes ahead.
+    store.readable = true;
+    await repository.prefetch(_jellyfin('j1'));
+    expect(downloader.fetchCount, 1);
+  });
+
   group('a server error document is never cached as the track', () {
     // End to end through the real Subsonic downloader: download.view refuses
     // with HTTP 200 and a subsonic-response error document. Were it cached,
@@ -3287,6 +3386,17 @@ class _SubsonicDownloadSource implements SubsonicStreamSource {
 /// SharedPreferences updates its value as soon as `setString` is called, but
 /// can hold one save's completion open: on Android that completion is a
 /// platform-channel round trip, so other work runs before it lands.
+/// A download store whose records can't be read until [readable] is set.
+class _UnreadableDownloadStore extends InMemoryDownloadStore {
+  bool readable = false;
+
+  @override
+  Future<List<CachedTrack>> loadDownloads() async {
+    if (!readable) throw const FileSystemException('records unreadable');
+    return super.loadDownloads();
+  }
+}
+
 class _SlowSaveDownloadStore implements DownloadStore {
   final InMemoryDownloadStore _inner = InMemoryDownloadStore();
   Completer<void>? _armed;
@@ -3361,9 +3471,13 @@ class _SlowDeleteFileStore implements OfflineFileStore {
 class _HeldDeletesFileStore implements OfflineFileStore {
   _HeldDeletesFileStore(this._inner);
 
-  final InMemoryOfflineFileStore _inner;
+  final OfflineFileStore _inner;
   final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
   final Map<String, Completer<void>> _reached = <String, Completer<void>>{};
+  final Map<String, int> _asked = <String, int>{};
+
+  /// How many deletes of [fileName] have been asked for so far.
+  int asked(String fileName) => _asked[fileName] ?? 0;
 
   /// Holds every delete of [fileName] from now until the returned completer
   /// completes.
@@ -3385,6 +3499,7 @@ class _HeldDeletesFileStore implements OfflineFileStore {
 
   @override
   Future<void> delete(String fileName) async {
+    _asked[fileName] = asked(fileName) + 1;
     final Completer<void> reached = _reached[fileName] ??= Completer<void>();
     if (!reached.isCompleted) reached.complete();
     final Completer<void>? held = _holds[fileName];

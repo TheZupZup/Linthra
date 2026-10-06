@@ -1001,7 +1001,13 @@ class CacheDownloadRepository
     bool Function()? isStillWanted,
     bool Function()? mayMakeRoom,
   }) async {
-    await _ensureLoaded();
+    try {
+      await _ensureLoaded();
+    } catch (_) {
+      // The cache records couldn't be read, so nothing can be warmed now,
+      // and a pre-cache never throws. The next request reads them again.
+      return;
+    }
     // Only remote tracks have bytes to fetch; local ones are already on disk.
     if (!_downloader.isRemote(track)) return;
     final String key = _keyForTrack(track);
