@@ -139,7 +139,9 @@ Linthra does not send telemetry or analytics.
 - Bug reports are built locally and only sent if you open the prefilled issue
   yourself.
 - Downloads only happen when you start them.
-- Minimal permissions: playback and internet, no storage permission.
+- Minimal permissions: playback, notifications and network. Picking a folder
+  needs no storage permission; the optional "All music on this device" mode
+  asks for Android's music permission only when you choose it.
 - The server password is used once to get a token, then discarded. The token
   is stored encrypted and never logged.
 

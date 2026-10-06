@@ -27,6 +27,11 @@ that one folder; it never asks for a broad "all files" or media permission, and
 on Linux it needs no host filesystem permission at all (see
 [On Linux](#on-linux-including-the-flatpak)).
 
+On Android you can pick **All music on this device** instead of a folder. That
+mode reads the system's music library, so it asks for Android's **Music and
+audio** permission (on Android 12 and older, the storage permission, which
+covers more than audio) and only asks once you choose it.
+
 ## Several folders (desktop)
 
 On Linux a library is often spread around — an internal music folder, an
