@@ -247,8 +247,8 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
             'and it accepted the token.',
       );
       return true;
-    } on PlexException catch (error) {
-      _setFailure(error, url: url);
+    } catch (error) {
+      _setFailure(_typed(error), url: url);
       return false;
     }
   }
@@ -274,12 +274,18 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
             rawUrl: url,
             token: token,
           );
-    } on PlexException catch (error) {
-      _setFailure(error, url: url);
+    } catch (error) {
+      _setFailure(_typed(error), url: url);
       return false;
     }
     return _completeConnect(newSession);
   }
+
+  /// [error] as the [PlexException] it reports. Anything else (a response
+  /// that broke parsing, say) still has to end a test or connect, or the
+  /// card would stay busy until a restart.
+  static PlexException _typed(Object error) =>
+      error is PlexException ? error : PlexException.unsupportedResponse();
 
   /// Starts the "Connect with Plex" browser sign-in: mints a plex.tv PIN,
   /// opens the hosted approval page in the browser, polls until the user
@@ -556,15 +562,16 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
             server: server,
             accountToken: accountToken,
           );
-    } on PlexException catch (error) {
+    } catch (error) {
       if (_linkAttempt != attempt) return false;
+      final PlexException failure = _typed(error);
       // Back to the picker: with several servers another can be tried, and
       // with one the retry (tap it again) or Cancel is right there.
       state = state.copyWith(
         phase: PlexConnectionPhase.pickingServer,
         statusMessage: null,
-        errorMessage: error.message,
-        errorKind: error.kind,
+        errorMessage: failure.message,
+        errorKind: failure.kind,
       );
       return false;
     }
