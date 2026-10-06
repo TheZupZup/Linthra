@@ -634,9 +634,11 @@ class HttpSubsonicClient implements SubsonicClient {
   static Duration _durationFromMs(int milliseconds) =>
       Duration(milliseconds: milliseconds < 0 ? 0 : milliseconds);
 
-  /// Reads a numeric JSON field as an `int`, or `null` when it's absent or not a
-  /// number — so a malformed `start`/`offset` can't throw or mistime a line.
-  static int? _asInt(Object? value) => value is num ? value.toInt() : null;
+  /// Reads a numeric JSON field as an `int`, or `null` when it's absent, not a
+  /// number or too large to be finite, so a malformed `start`/`offset` can't
+  /// throw or mistime a line.
+  static int? _asInt(Object? value) =>
+      value is num && value.isFinite ? value.toInt() : null;
 
   /// Decodes a JSON object body, or throws [SubsonicErrorKind.notSubsonic] when
   /// the body isn't JSON (e.g. an HTML error page) or isn't an object.
