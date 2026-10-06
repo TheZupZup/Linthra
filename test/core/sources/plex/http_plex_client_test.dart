@@ -308,6 +308,76 @@ void main() {
       expect(requestedSizes, <String>['2', '2']);
     });
 
+    test(
+        'a server that pages in smaller chunks than asked is read to its '
+        'totalSize', () async {
+      final List<String?> requestedStarts = <String?>[];
+      // Asked for 3 per page, it answers 2 at a time.
+      final HttpPlexClient client =
+          _client(pageSize: 3, MockClient((http.Request r) async {
+        requestedStarts
+            .add(r.url.queryParameters[PlexEndpoints.containerStartParam]);
+        final int start = int.parse(
+            r.url.queryParameters[PlexEndpoints.containerStartParam]!);
+        final List<Map<String, dynamic>> page = <Map<String, dynamic>>[
+          for (int i = start; i < start + 2 && i < 5; i++)
+            <String, dynamic>{'ratingKey': '$i', 'type': 'track'},
+        ];
+        return _json(<String, dynamic>{
+          'MediaContainer': <String, dynamic>{
+            'size': page.length,
+            'totalSize': 5,
+            'offset': start,
+            'Metadata': page,
+          },
+        });
+      }));
+
+      final List<PlexMetadata> tracks = await client.fetchSectionItems(
+        baseUrl: _base,
+        token: _token,
+        sectionKey: '3',
+        itemType: PlexMetadataType.track,
+      );
+
+      expect(tracks.map((PlexMetadata t) => t.ratingKey),
+          <String>['0', '1', '2', '3', '4']);
+      expect(requestedStarts, <String>['0', '2', '4']);
+    });
+
+    test(
+        'an empty page before totalSize fails the walk rather than returning '
+        'part of the section', () async {
+      final HttpPlexClient client =
+          _client(pageSize: 2, MockClient((http.Request r) async {
+        final int start = int.parse(
+            r.url.queryParameters[PlexEndpoints.containerStartParam]!);
+        return _json(<String, dynamic>{
+          'MediaContainer': <String, dynamic>{
+            'size': start == 0 ? 2 : 0,
+            'totalSize': 4,
+            'offset': start,
+            'Metadata': <dynamic>[
+              if (start == 0) ...<Map<String, dynamic>>[
+                <String, dynamic>{'ratingKey': '1', 'type': 'track'},
+                <String, dynamic>{'ratingKey': '2', 'type': 'track'},
+              ],
+            ],
+          },
+        });
+      }));
+
+      await expectLater(
+        client.fetchSectionItems(
+          baseUrl: _base,
+          token: _token,
+          sectionKey: '3',
+          itemType: PlexMetadataType.track,
+        ),
+        throwsA(isA<PlexException>()),
+      );
+    });
+
     test('stops after a single short page (no totalSize)', () async {
       int calls = 0;
       final HttpPlexClient client =

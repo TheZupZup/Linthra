@@ -116,9 +116,11 @@ class HttpPlexClient implements PlexClient {
     required PlexMetadataType itemType,
   }) async {
     final List<PlexMetadata> items = <PlexMetadata>[];
-    // Walk pages until the server reports the whole set is fetched, hands back a
-    // short (final) page, or returns nothing. `MediaContainer.totalSize` is the
-    // authoritative total; `size` is how many this page actually returned.
+    // Walk pages until the server reports the whole set is fetched, or, when it
+    // reports no total, hands back a short (final) page. `MediaContainer
+    // .totalSize` is the authoritative total, so with one a short page only
+    // means the server pages in smaller chunks than asked; `size` is how many
+    // this page actually returned.
     int start = 0;
     for (int page = 0; page < _maxPages; page++) {
       final Uri uri = PlexEndpoints.sectionItems(
@@ -132,11 +134,18 @@ class HttpPlexClient implements PlexClient {
       items.addAll(container.metadata);
 
       final int returned = container.size ?? container.metadata.length;
-      if (returned <= 0) break;
-      start += returned;
       final int? total = container.totalSize;
-      if (total != null && start >= total) break;
-      if (returned < _pageSize) break;
+      if (returned <= 0) {
+        // Nothing more, while the server's own total says there is: returned,
+        // the part read so far would replace the whole catalog. Thrown, the
+        // caller keeps the one it has, as for a page that failed.
+        if (start > 0 && total != null && start < total) {
+          throw PlexException.unsupportedResponse();
+        }
+        break;
+      }
+      start += returned;
+      if (total != null ? start >= total : returned < _pageSize) break;
     }
     return items;
   }
