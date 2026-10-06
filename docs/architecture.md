@@ -227,7 +227,10 @@ selected and whether a persisted SAF read grant is still held, so a "no music
 found" report distinguishes an empty folder from a permission loss (the common
 removable-SD-card cause) without revealing anything private.
 
-> **No broad storage permission is requested.** `MANAGE_EXTERNAL_STORAGE` ("all
-> files access") is intentionally *not* used — it is the opposite of the
-> scoped-storage approach this project prefers. A narrow `READ_MEDIA_AUDIO` flow
-> (only relevant to the filesystem fallback) is a deliberate later step.
+> **The folder path needs no storage permission.** `MANAGE_EXTERNAL_STORAGE`
+> ("all files access") is intentionally *not* used — it is the opposite of the
+> scoped-storage approach this project prefers. The separate, opt-in **All
+> music on this device** mode does not use SAF: it queries MediaStore's audio
+> collection and asks for `READ_MEDIA_AUDIO` on Android 13+ or the legacy
+> `READ_EXTERNAL_STORAGE` (capped at API 32) on older releases, only once the
+> user picks it.
