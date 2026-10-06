@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dbus/dbus.dart';
 
 import '../../app_info.dart';
+import '../../catalog/now_playing_match.dart';
 import '../../models/playback_state.dart';
 import '../../models/repeat_mode.dart';
 import '../../models/track.dart';
@@ -322,16 +323,19 @@ class MprisPlayerObject extends DBusObject {
   /// Called by [MprisMediaSession] on every state.
   Future<void> syncSeek() async {
     final Duration position = _state.position;
-    final Object? track = _state.currentTrack;
+    final Track? track = _state.currentTrack;
     final Duration? last = _lastPosition;
-    final Object? lastTrack = _lastPositionTrack;
+    final Track? lastTrack = _lastPositionTrack;
     final bool wasStalled = _wasStalled;
     _lastPosition = position;
     _lastPositionTrack = track;
     _wasStalled = _state.isBuffering;
 
     // A new track restarts the timeline; that is not a seek.
-    if (last == null || !identical(track, lastTrack) && track != lastTrack) {
+    if (last == null ||
+        track == null ||
+        lastTrack == null ||
+        !isCurrentPlaybackTrack(lastTrack, track)) {
       return;
     }
 
@@ -361,7 +365,7 @@ class MprisPlayerObject extends DBusObject {
   }
 
   Duration? _lastPosition;
-  Object? _lastPositionTrack;
+  Track? _lastPositionTrack;
 
   /// Whether the last state seen was buffering or reconnecting, so the return
   /// to playing can be recognised as the end of a stall.
@@ -524,10 +528,13 @@ class MprisPlayerObject extends DBusObject {
       // The spec's reserved "no track" path.
       return DBusObjectPath('/org/mpris/MediaPlayer2/TrackList/NoTrack');
     }
-    if (!identical(track, _trackForSerial) && track != _trackForSerial) {
-      _trackForSerial = track;
+    final Track? previous = _trackForSerial;
+    if (previous == null || !isCurrentPlaybackTrack(previous, track)) {
       _trackSerial++;
     }
+    // A fallback can replace the provider copy without replacing the song.
+    // Keep the newest copy for the next comparison, but keep the same serial.
+    _trackForSerial = track;
     return DBusObjectPath('/io/github/thezupzup/linthra/track/$_trackSerial');
   }
 
