@@ -31,9 +31,13 @@ This exercises the local-first core and needs **no network and no account**:
    media notification can appear. (Denying it still lets playback work, just
    without the notification.)
 3. Go to the library / folder picker and **choose a folder that contains audio
-   files** using the system folder picker (Android's Storage Access Framework —
-   Linthra requests **no** broad "all files" storage permission; the reviewer
-   grants access to one folder).
+   files** using the system folder picker (Android's Storage Access Framework).
+   This path grants Linthra access only to the folder the reviewer selects and
+   does not require broad storage access.
+   - Alternatively, the optional **All music on this device** mode can scan the
+     device audio library. On Android 13+ it asks for the visible, revocable
+     **Music and audio** permission (`READ_MEDIA_AUDIO`); on Android 12 and
+     older it uses `READ_EXTERNAL_STORAGE`, capped at API 32.
    - If the test device has no music on it, copy a few audio files (e.g. some
      Creative Commons MP3s) to the device first, then pick that folder.
 4. Linthra **scans** the folder and lists **Songs / Albums / Artists**; use the
@@ -118,10 +122,13 @@ A short rationale; the full table is in
 | Foreground service / media playback | Keep audio playing in the background. |
 | Internet | Reach the **user-configured** server and run a Cast session. Not used for the local-first features. |
 | Local-network multicast | Discover Cast/Chromecast devices on the local network when the user chooses to cast. |
+| Music and audio (Android 13+) | Optional device-wide local-library mode. Requested only when the user chooses **All music on this device**. |
+| Read external storage (Android 12 and older) | Legacy equivalent for the same optional device-wide local-library mode; capped at API 32. |
 
-No storage/media permission is requested — local folder access uses the Storage
-Access Framework folder the user picks. Cast uses a pure-Dart implementation, not
-Google Play Services. See
+The normal folder-picker path still uses Android's Storage Access Framework and
+does not need either media permission. Linthra does not request
+`MANAGE_EXTERNAL_STORAGE` or broad "all files" access. Cast uses a pure-Dart
+implementation, not Google Play Services. See
 [docs/play-store-data-safety.md](./play-store-data-safety.md).
 
 ## Related docs
