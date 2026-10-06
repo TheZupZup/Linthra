@@ -357,8 +357,8 @@ class SyncedFavoritesRepository
           remoteIds.containsAll(_data.remoteIds);
       if (!unchanged) {
         _data = _data.copyWith(remoteIds: remoteIds);
-        _emit();
         await _save();
+        _emit();
       } else if (pendingChanged) {
         await _savePendingQuietly();
       }
@@ -414,8 +414,8 @@ class SyncedFavoritesRepository
       return;
     }
     _data = _data.copyWith(remoteIds: next);
-    _emit();
     await _save();
+    _emit();
   }
 
   /// Carries a moved local file's heart to its new path.
@@ -441,8 +441,8 @@ class SyncedFavoritesRepository
           ..remove(fromUri)
           ..add(toUri),
       );
-      _emit();
       await _save();
+      _emit();
     } catch (_) {
       // A store that cannot be written right now leaves the heart where it is
       // rather than failing the scan that asked; the next scan tries again.
