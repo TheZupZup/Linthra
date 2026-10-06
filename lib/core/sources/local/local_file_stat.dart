@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../models/local_file_stamp.dart';
+import 'directory_readability.dart';
 
 /// Reads the cheap facts about a file that decide whether it needs re-parsing:
 /// its size and last-modified time.
@@ -43,7 +44,12 @@ abstract interface class LocalFileAbsence {
 /// The production [LocalFileStatReader]: one `stat` per file through
 /// `dart:io`.
 class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
-  const IoLocalFileStatReader();
+  const IoLocalFileStatReader({Duration stallLimit = storageStallLimit})
+      : _stallLimit = stallLimit;
+
+  /// How long a `stat` or a listing may go without an answer before it counts
+  /// as one that failed. See [storageStallLimit].
+  final Duration _stallLimit;
 
   @override
   Future<bool> isGone(String path, {required String root}) async {
@@ -59,12 +65,13 @@ class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
     }
   }
 
-  /// The names [folder] lists, or null when it cannot be listed in full.
-  static Future<Set<String>?> _namesIn(String folder) async {
+  /// The names [folder] lists, or null when it cannot be listed in full, a
+  /// listing that stops answering included.
+  Future<Set<String>?> _namesIn(String folder) async {
     try {
       final Set<String> names = <String>{};
       await for (final FileSystemEntity entity
-          in Directory(folder).list(followLinks: false)) {
+          in Directory(folder).list(followLinks: false).timeout(_stallLimit)) {
         names.add(p.basename(entity.path));
       }
       return names;
@@ -76,7 +83,9 @@ class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
   @override
   Future<LocalFileStamp?> stamp(String path) async {
     try {
-      final FileStat stat = await FileStat.stat(path);
+      // A `stat` that doesn't answer (a share that went away, #778) is one
+      // that failed, and is left blocked on its I/O thread.
+      final FileStat stat = await FileStat.stat(path).timeout(_stallLimit);
       if (stat.type != FileSystemEntityType.file) return null;
       return LocalFileStamp(
         sizeBytes: stat.size,

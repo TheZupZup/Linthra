@@ -4,13 +4,18 @@
 // produce the same tracks proves nothing about whether the second one re-read
 // every file, which is the entire point: the catalog was already correct before
 // this change, it was just expensive to arrive at.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/sources/local/directory_readability.dart';
+import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_music_source.dart';
+import 'package:linthra/core/sources/local/local_root_fault.dart';
 
 import '../../../features/library/fake_audio_file_scanner.dart';
 
@@ -31,11 +36,13 @@ class _CountingMetadataReader implements LocalMetadataReader {
 }
 
 /// A tag reader that can tell a failed read from a file with no tags, like the
-/// filesystem reader, answering from [byPath] unless [failing] holds the path.
+/// filesystem reader, answering from [byPath] unless [failing] holds the path,
+/// and never answering for a path in [hanging].
 class _OutcomeMetadataReader
     implements LocalMetadataReader, LocalMetadataReadOutcomes {
   final Map<String, LocalAudioMetadata> byPath = <String, LocalAudioMetadata>{};
   final Set<String> failing = <String>{};
+  final Set<String> hanging = <String>{};
   final List<String> reads = <String>[];
 
   @override
@@ -45,8 +52,26 @@ class _OutcomeMetadataReader
   @override
   Future<LocalMetadataRead> readWithOutcome(String path) async {
     reads.add(path);
+    if (hanging.contains(path)) return Completer<LocalMetadataRead>().future;
     if (failing.contains(path)) return (metadata: null, failed: true);
     return (metadata: byPath[path], failed: false);
+  }
+}
+
+/// Whether the selected folder answers: [answer] when it does, nothing at
+/// all while [hangs].
+class _Presence implements DirectoryReadability {
+  _Presence({this.answer, this.hangs = false});
+
+  final LocalRootFault? answer;
+  final bool hangs;
+  int asked = 0;
+
+  @override
+  Future<LocalRootFault?> inspect(String path) {
+    asked++;
+    if (hangs) return Completer<LocalRootFault?>().future;
+    return Future<LocalRootFault?>.value(answer);
   }
 }
 
@@ -410,6 +435,93 @@ void main() {
       await scan(stored);
 
       expect(tags.reads, isEmpty);
+    });
+  });
+
+  group('storage that stops answering mid-scan (#778)', () {
+    const Duration stall = Duration(milliseconds: 50);
+    late FakeAudioFileScanner files;
+    late _OutcomeMetadataReader tags;
+    late _FakeStatReader stats;
+
+    setUp(() {
+      files = FakeAudioFileScanner(
+        filesByFolder: <String, List<String>>{
+          '/nas': <String>['/nas/a.flac', '/nas/b.flac', '/nas/c.flac'],
+        },
+      );
+      tags = _OutcomeMetadataReader()
+        ..byPath['/nas/a.flac'] = const LocalAudioMetadata(title: 'A')
+        ..byPath['/nas/b.flac'] = const LocalAudioMetadata(title: 'B')
+        ..byPath['/nas/c.flac'] = const LocalAudioMetadata(title: 'C');
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/nas/a.flac': _stamp(100, 1000),
+        '/nas/b.flac': _stamp(200, 2000),
+        '/nas/c.flac': _stamp(300, 3000),
+      });
+    });
+
+    Future<LocalScan> scan(DirectoryReadability presence) => LocalMusicSource(
+          folderPath: '/nas',
+          scanner: files,
+          metadataReader: tags,
+          statReader: stats,
+          presence: presence,
+          stallLimit: stall,
+        ).scanTracks();
+
+    test(
+        'a read that never comes back failed, and the scan goes on while '
+        'the folder answers', () async {
+      tags.hanging.add('/nas/b.flac');
+      final _Presence presence = _Presence();
+
+      final LocalScan result = await scan(presence);
+
+      expect(
+        result.tracks.map((Track t) => t.title),
+        <String>['A', 'b', 'C'],
+        reason: 'b is named after its file, as any failed read is',
+      );
+      expect(result.stamps.containsKey('/nas/b.flac'), isFalse,
+          reason: 'with no stamp, the next scan reads it again');
+      expect(presence.asked, 1);
+    });
+
+    test(
+        'a read that never comes back, in a folder that stopped answering, '
+        'gives the folder up there', () async {
+      tags.hanging.add('/nas/a.flac');
+      final _Presence presence = _Presence(answer: LocalRootFault.unavailable);
+
+      await expectLater(
+        scan(presence),
+        throwsA(
+          isA<FolderScanException>().having(
+            (FolderScanException error) => error.code,
+            'code',
+            LocalRootFault.unavailable.code,
+          ),
+        ),
+      );
+      expect(tags.reads, <String>['/nas/a.flac'],
+          reason: 'every file left would have stalled the same way');
+    });
+
+    test('a folder that never answers the check is given up the same way',
+        () async {
+      tags.hanging.add('/nas/a.flac');
+
+      await expectLater(
+        scan(_Presence(hangs: true)),
+        throwsA(
+          isA<FolderScanException>().having(
+            (FolderScanException error) => error.code,
+            'code',
+            LocalRootFault.unavailable.code,
+          ),
+        ),
+      );
     });
   });
 

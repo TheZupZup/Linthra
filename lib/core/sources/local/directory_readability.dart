@@ -2,6 +2,17 @@ import 'dart:io';
 
 import 'local_root_fault.dart';
 
+/// How long one storage operation during a local scan may go without an
+/// answer before it counts as one that failed, and the folder as not answering
+/// ([LocalRootFault.unavailable]).
+///
+/// A share whose server went away can block a listing or a `stat` for as long
+/// as the mount retries, which on an NFS hard mount is forever (#778). Long
+/// enough for a NAS to spin its disks up, and counted per operation (a listing
+/// gets it again after every entry), so a large or slow folder never runs
+/// into it.
+const Duration storageStallLimit = Duration(seconds: 30);
+
 /// Answers one question for the SAF scanner and for local-root availability:
 /// can this app actually *list* the directory at [path] on this device right
 /// now, and when it cannot, why not?

@@ -331,6 +331,7 @@ class LibraryController extends Notifier<LibraryState> {
             androidMediaLibrary: ref.read(androidMediaLibraryProvider),
             metadataReader: metadataReader,
             statReader: statReader,
+            presence: ref.read(directoryReadabilityProvider),
             alreadyIndexed: alreadyIndexed,
             missingArtwork: missingArtwork,
           ).scanTracks();

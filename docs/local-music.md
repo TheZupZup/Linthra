@@ -120,6 +120,12 @@ the folder really holds nothing, so a share mounted again in the meantime is
 simply read. A folder that holds files that aren't music (covers, playlists) is
 read as usual, and a folder you just added that has no music yet is just empty.
 
+A share whose server went away can also stop answering instead of failing: on
+an NFS hard mount (the default) or a stalled FUSE mount, reading it waits for as
+long as the mount retries. A scan doesn't wait for it. A folder that gives no
+answer for 30 seconds counts as one that couldn't be read, so its music stays
+indexed, the other folders are refreshed, and the scan ends.
+
 ### The one case Linthra will not guess
 
 **A drive that comes back at a different path is not adopted.** Automounters

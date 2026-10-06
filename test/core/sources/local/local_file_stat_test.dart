@@ -1,5 +1,6 @@
 // IoLocalFileStatReader.isGone, on a real folder: the evidence that a file the
 // walk listed and could then not read is gone, rather than out of reach.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,47 @@ final class _UnlistableFolders extends IOOverrides {
   Directory createDirectory(String path) {
     final Directory real = super.createDirectory(path);
     return folders.contains(path) ? _Unlistable(real) : real;
+  }
+}
+
+/// A folder listing that never answers, the way one on a share whose server
+/// went away blocks.
+class _Silent implements Directory {
+  _Silent(this._real);
+
+  final Directory _real;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      StreamController<FileSystemEntity>().stream;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+/// Every `stat` and every listing under [mount] stops answering.
+final class _StalledShare extends IOOverrides {
+  _StalledShare(this.mount);
+
+  final String mount;
+
+  bool _on(String path) => path == mount || p.isWithin(mount, path);
+
+  @override
+  Future<FileStat> stat(String path) =>
+      _on(path) ? Completer<FileStat>().future : super.stat(path);
+
+  @override
+  Directory createDirectory(String path) {
+    final Directory real = super.createDirectory(path);
+    return _on(path) ? _Silent(real) : real;
   }
 }
 
@@ -112,6 +154,34 @@ void main() {
         await reader.isGone(p.join(sandbox.path, 'other.flac'), root: root),
         isFalse,
       );
+    });
+  });
+
+  group('a share that stops answering (#778)', () {
+    const IoLocalFileStatReader bounded = IoLocalFileStatReader(
+      stallLimit: Duration(milliseconds: 50),
+    );
+
+    test('a stat that never answers is no stamp', () async {
+      final String path = file('Bon Iver/Bon Iver/05 Holocene.flac');
+
+      final stamp = await IOOverrides.runWithIOOverrides(
+        () => bounded.stamp(path),
+        _StalledShare(root),
+      );
+
+      expect(stamp, isNull);
+    });
+
+    test('a file is not known to be gone when no folder answers', () async {
+      final String path = file('Bon Iver/Bon Iver/05 Holocene.flac');
+
+      final bool gone = await IOOverrides.runWithIOOverrides(
+        () => bounded.isGone(path, root: root),
+        _StalledShare(root),
+      );
+
+      expect(gone, isFalse);
     });
   });
 }

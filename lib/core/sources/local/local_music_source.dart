@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../catalog/library_grouping.dart';
 import '../../models/album.dart';
 import '../../models/artist.dart';
@@ -8,10 +10,12 @@ import '../../services/music_source.dart';
 import 'android_media_library.dart';
 import 'audio_file_scanner.dart';
 import 'audio_file_types.dart';
+import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'local_audio_metadata.dart';
 import 'local_file_stat.dart';
 import 'local_metadata_reader.dart';
+import 'local_root_fault.dart';
 import 'local_scan_report.dart';
 import 'local_track_mapper.dart';
 import 'saf_document_lister.dart';
@@ -94,6 +98,8 @@ class LocalMusicSource implements MusicSource {
         const UnsupportedAndroidMediaLibrary(),
     LocalMetadataReader metadataReader = const UnsupportedLocalMetadataReader(),
     LocalFileStatReader statReader = const UnsupportedLocalFileStatReader(),
+    DirectoryReadability presence = const IoDirectoryReadability(),
+    Duration stallLimit = storageStallLimit,
     Map<String, StampedTrack> alreadyIndexed = const <String, StampedTrack>{},
     Set<Uri> missingArtwork = const <Uri>{},
   })  : _scanner = scanner,
@@ -101,6 +107,8 @@ class LocalMusicSource implements MusicSource {
         _androidMediaLibrary = androidMediaLibrary,
         _metadataReader = metadataReader,
         _statReader = statReader,
+        _presence = presence,
+        _stallLimit = stallLimit,
         _alreadyIndexed = alreadyIndexed,
         _missingArtwork = missingArtwork;
 
@@ -118,6 +126,14 @@ class LocalMusicSource implements MusicSource {
   /// was not handed a stat reader behaves exactly as scans did before
   /// incremental scans existed.
   final LocalFileStatReader _statReader;
+
+  /// Asks whether a selected folder still answers, when reading one of its
+  /// files never came back.
+  final DirectoryReadability _presence;
+
+  /// How long a file's tags may take to come back before the read counts as
+  /// one that stalled. See [storageStallLimit].
+  final Duration _stallLimit;
 
   /// What the catalog already holds for this source, keyed by file path, so a
   /// file whose stamp is unchanged can be carried over without being opened.
@@ -269,7 +285,24 @@ class LocalMusicSource implements MusicSource {
         continue;
       }
 
-      final LocalMetadataRead read = await _readTags(path);
+      LocalMetadataRead read;
+      try {
+        read = await _readTags(path).timeout(_stallLimit);
+      } on TimeoutException {
+        // The read never came back, and stays blocked where it is: the file is
+        // on storage that stopped answering (#778). If the folder itself no
+        // longer answers either, every file left would stall the same way,
+        // one limit each, so the folder is given up as one the scan couldn't
+        // read, and keeps its music.
+        if (!isContentUri) {
+          final LocalRootFault? gone = await _presence.inspect(folder).timeout(
+                _stallLimit,
+                onTimeout: () => LocalRootFault.unavailable,
+              );
+          if (gone != null) throw interruptedScanException(folder, gone);
+        }
+        read = (metadata: null, failed: true);
+      }
       final LocalAudioMetadata? metadata = read.metadata;
       // Listed by the walk, but now it can be neither stat'ed nor read: the
       // drive went away, or the file was moved, after the walk got to it.
