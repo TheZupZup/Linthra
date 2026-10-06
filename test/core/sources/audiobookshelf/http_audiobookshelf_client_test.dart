@@ -170,6 +170,58 @@ void main() {
       expect(sentBody['password'], 'hunter2');
     });
 
+    test(
+        'signs in to a server older than 2.26, which only sends the '
+        'non-expiring token', () async {
+      // The login answer of 2.25.1 and everything before it: accessToken and
+      // refreshToken only arrived in 2.26.0.
+      final client = _client(MockClient((_) async {
+        return _json(<String, dynamic>{
+          'user': <String, dynamic>{
+            'id': 'user-1',
+            'username': 'jon',
+            'token': 'legacy-jwt',
+          },
+          'userDefaultLibraryId': 'lib-1',
+        });
+      }));
+
+      final result = await client.authenticateByName(
+        baseUrl: _base,
+        username: 'jon',
+        password: 'hunter2',
+      );
+
+      expect(result.accessToken, 'legacy-jwt');
+      expect(result.refreshToken, isNull);
+      expect(result.defaultLibraryId, 'lib-1');
+    });
+
+    test('uses accessToken when a server sends the old token beside it',
+        () async {
+      // 2.26.0 and later still send the old token next to the new pair.
+      final client = _client(MockClient((_) async {
+        return _json(<String, dynamic>{
+          'user': <String, dynamic>{
+            'id': 'user-1',
+            'username': 'jon',
+            'token': 'legacy-jwt',
+            'accessToken': 'tok-abc',
+            'refreshToken': 'refresh-xyz',
+          },
+        });
+      }));
+
+      final result = await client.authenticateByName(
+        baseUrl: _base,
+        username: 'jon',
+        password: 'hunter2',
+      );
+
+      expect(result.accessToken, 'tok-abc');
+      expect(result.refreshToken, 'refresh-xyz');
+    });
+
     test('a missing refreshToken is null, not an error (cookie-only flow)',
         () async {
       final client = _client(MockClient((_) async {

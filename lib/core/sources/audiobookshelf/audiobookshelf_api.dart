@@ -60,11 +60,18 @@ class AudiobookshelfAuthResult {
   /// Parses the login response, or returns `null` if the user id or access
   /// token are absent or the wrong type (an unexpected body), so the client
   /// can fail clearly with a sign-in error rather than throw a `TypeError`.
+  ///
+  /// `accessToken` and `refreshToken` arrived in Audiobookshelf 2.26.0. Older
+  /// servers only send `token`, which never expires and is what they expect
+  /// as the bearer token, so it stands in for the access token there (with no
+  /// refresh token). Newer servers still send it beside the new pair, and the
+  /// new access token wins.
   static AudiobookshelfAuthResult? fromJson(Map<String, dynamic> json) {
     final Object? user = json['user'];
     if (user is! Map<String, dynamic>) return null;
     final String? userId = _coerceString(user['id']);
-    final String? accessToken = _coerceString(user['accessToken']);
+    final String? accessToken =
+        _coerceString(user['accessToken']) ?? _coerceString(user['token']);
     if (userId == null || accessToken == null) return null;
     return AudiobookshelfAuthResult(
       userId: userId,
