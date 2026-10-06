@@ -261,9 +261,6 @@ class UnsupportedPlaybackController implements LocalPlaybackController {
   void setVolumeNormalizationEnabled(bool enabled) {}
 
   @override
-  void onAppBackgrounded() {}
-
-  @override
   void onAppForegrounded() {}
 
   @override

@@ -62,14 +62,6 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
   bool _quitting = false;
   Future<void> Function()? _shutdown;
 
-  /// Whether the window is currently hidden, i.e. Linthra is running in the
-  /// background with no window on screen.
-  ///
-  /// Read by the app's lifecycle observer: on Linux a hide/show cycle looks
-  /// exactly like a system suspend/resume, and the post-suspend recovery must
-  /// not reload a track that never stopped playing.
-  bool get isWindowHidden => _hidden;
-
   /// The desktop's last answer about running with the window closed, or
   /// [BackgroundPermission.unknown] before it gave one.
   BackgroundPermission get backgroundPermission => _permission;

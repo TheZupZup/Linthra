@@ -309,14 +309,6 @@ class FakePlaybackController implements LocalPlaybackController {
   /// cast-routing tests can assert it runs only off the cast path.
   int foregroundedCount = 0;
 
-  /// How many times a background/suspend lifecycle arming was invoked.
-  int backgroundedCount = 0;
-
-  @override
-  void onAppBackgrounded() {
-    backgroundedCount++;
-  }
-
   @override
   void onAppForegrounded() {
     foregroundedCount++;
