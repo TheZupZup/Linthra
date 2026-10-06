@@ -477,11 +477,17 @@ void main() {
   });
 }
 
-/// The bytes the covers in [dir] take.
-int _coverBytes(Directory dir) => <int>[
-      for (final FileSystemEntity entity in dir.listSync())
-        if (entity is File && entity.path.endsWith('.img')) entity.lengthSync(),
-    ].fold(0, (int sum, int size) => sum + size);
+/// The bytes the covers in [dir] take. A cover the background trim deletes
+/// between the listing and its stat is gone, and counts for nothing.
+int _coverBytes(Directory dir) {
+  int total = 0;
+  for (final FileSystemEntity entity in dir.listSync()) {
+    if (entity is! File || !entity.path.endsWith('.img')) continue;
+    final FileStat stat = entity.statSync();
+    if (stat.type == FileSystemEntityType.file) total += stat.size;
+  }
+  return total;
+}
 
 String _sha256Hex(String input) {
   // Mirrors ArtworkDiskCache's private hashing without depending on it, so a
