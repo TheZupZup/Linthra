@@ -135,6 +135,10 @@ class LocalRootAvailabilityMonitor {
     final int before = _roots.length;
     _roots.removeWhere((String root, _) => !keep.contains(root));
     _requeued.removeWhere((String root) => !keep.contains(root));
+    // A probe still stuck on a folder that is no longer selected goes with
+    // it, so adding the folder back (once its share is mounted again) asks
+    // afresh instead of waiting on the listing stuck on the old mount.
+    _pending.removeWhere((String root, _) => !keep.contains(root));
     final List<String> fresh = <String>[];
     for (final String root in wanted) {
       if (_roots.containsKey(root)) continue;

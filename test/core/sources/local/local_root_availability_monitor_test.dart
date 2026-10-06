@@ -116,6 +116,13 @@ class _HangingRootProbe implements LocalRootProbe {
   void answer(String root) =>
       _hung.remove(root)!.complete(const LocalRootReading.available());
 
+  /// The share is mounted afresh: a new listing answers, and the one stuck on
+  /// the old mount never does.
+  void remount(String root) {
+    _hung.remove(root);
+    present.add(root);
+  }
+
   @override
   Future<LocalRootReading?> inspect(
     String root, {
@@ -266,6 +273,27 @@ void main() {
         await monitor.dispose();
 
         await expectLater(syncing, completes);
+      });
+
+      test(
+          'removed and added back, it is asked afresh rather than through '
+          'the listing stuck on the old mount', () async {
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: deadline,
+        );
+        addTearDown(monitor.dispose);
+        await monitor.syncRoots(<String>[_nas]);
+        expect(monitor.availability.isUnavailable(_nas), isTrue);
+
+        await monitor.syncRoots(const <String>[]);
+        probe.remount(_nas);
+        await monitor.syncRoots(<String>[_nas]);
+
+        expect(monitor.availability.isAvailable(_nas), isTrue);
+        expect(probe.asked[_nas], 2);
       });
 
       test('is back, and rescanned, once the share answers', () async {
