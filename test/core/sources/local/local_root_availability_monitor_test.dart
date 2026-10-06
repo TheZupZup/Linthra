@@ -112,9 +112,12 @@ class _HangingRootProbe implements LocalRootProbe {
   final Map<String, Completer<LocalRootReading?>> _hung;
   final Map<String, int> asked = <String, int>{};
 
-  /// The folder answers at last: its listing went through.
-  void answer(String root) =>
-      _hung.remove(root)!.complete(const LocalRootReading.available());
+  /// The share answers at last: the stuck listing goes through, and so does
+  /// any new one.
+  void answer(String root) {
+    present.add(root);
+    _hung.remove(root)!.complete(const LocalRootReading.available());
+  }
 
   /// The share is mounted afresh: a new listing answers, and the one stuck on
   /// the old mount never does.
@@ -273,6 +276,51 @@ void main() {
         await monitor.dispose();
 
         await expectLater(syncing, completes);
+      });
+
+      test('nor when disposed before the folder was even asked', () async {
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: const Duration(hours: 1),
+        );
+        final Future<void> syncing = monitor.syncRoots(<String>[_nas]);
+
+        await monitor.dispose();
+
+        await expectLater(
+          syncing.timeout(const Duration(seconds: 2)),
+          completes,
+          reason: 'the folder was asked after dispose, with a wait nothing '
+              'ends but its deadline',
+        );
+      });
+
+      test('with the poll running, rounds still end and Retry still answers',
+          () async {
+        // As in the app: a poll every few seconds, more often than a stuck
+        // folder's wait runs out.
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: deadline,
+          pollInterval: const Duration(milliseconds: 20),
+        );
+        addTearDown(monitor.dispose);
+        await monitor.syncRoots(<String>[_nas]);
+        // Several polls, each one landing while a wait is still running.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+
+        await expectLater(
+          monitor.recheck(_nas).timeout(const Duration(seconds: 2)),
+          completes,
+          reason: 'a poll requeued the folder before every wait ran out, so '
+              'the round never ended',
+        );
+        expect(monitor.availability.faultFor(_nas), LocalRootFault.unavailable);
+        expect(probe.asked[_nas], 1);
       });
 
       test(

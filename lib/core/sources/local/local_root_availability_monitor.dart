@@ -82,6 +82,12 @@ class LocalRootAvailabilityMonitor {
   final Map<String, Future<LocalRootReading?>> _pending =
       <String, Future<LocalRootReading?>>{};
 
+  /// Folders whose probe in [_pending] already ran out its [probeTimeout].
+  /// Asked again, they read as not answering straight away: waiting on the
+  /// same stuck probe again would only stack another wait on it, and with the
+  /// poll landing inside every wait, the round would never end.
+  final Set<String> _stuck = <String>{};
+
   /// The [probeTimeout] timer of every probe still being waited on, with
   /// what settles its wait.
   final Map<Timer, void Function(LocalRootReading?)> _deadlines =
@@ -139,6 +145,7 @@ class LocalRootAvailabilityMonitor {
     // it, so adding the folder back (once its share is mounted again) asks
     // afresh instead of waiting on the listing stuck on the old mount.
     _pending.removeWhere((String root, _) => !keep.contains(root));
+    _stuck.removeWhere((String root) => !keep.contains(root));
     final List<String> fresh = <String>[];
     for (final String root in wanted) {
       if (_roots.containsKey(root)) continue;
@@ -276,7 +283,15 @@ class LocalRootAvailabilityMonitor {
   }
 
   /// [root]'s answer, or that it is not answering once [probeTimeout] is up.
-  Future<LocalRootReading?> _inspect(String root) {
+  Future<LocalRootReading?> _inspect(String root) async {
+    // A stuck probe that has just answered settles first, so a share that
+    // came back isn't taken for still stuck on the answer it already gave.
+    await Future<void>.value();
+    // Disposed meanwhile: nothing is asked, since dispose has already ended
+    // every wait it could see.
+    if (_disposed || _stuck.contains(root)) {
+      return const LocalRootReading.blocked(LocalRootFault.unavailable);
+    }
     Future<LocalRootReading?>? pending = _pending[root];
     if (pending == null) {
       final Future<LocalRootReading?> asked = _probe.inspect(
@@ -285,9 +300,12 @@ class LocalRootAvailabilityMonitor {
       );
       pending = _pending[root] = asked;
       asked.whenComplete(() {
-        if (identical(_pending[root], asked)) _pending.remove(root);
+        if (!identical(_pending[root], asked)) return;
+        _pending.remove(root);
+        _stuck.remove(root);
       }).ignore();
     }
+    final Future<LocalRootReading?> waitedOn = pending;
     // A timer of its own rather than Future.timeout, so dispose can stop it
     // and let the round waiting on it finish.
     final Completer<LocalRootReading?> answer = Completer<LocalRootReading?>();
@@ -298,15 +316,16 @@ class LocalRootAvailabilityMonitor {
     late final Timer deadline;
     deadline = Timer(probeTimeout, () {
       _deadlines.remove(deadline);
+      if (identical(_pending[root], waitedOn)) _stuck.add(root);
       settle(const LocalRootReading.blocked(LocalRootFault.unavailable));
     });
     _deadlines[deadline] = settle;
-    pending.then(settle, onError: (Object error, StackTrace stack) {
+    unawaited(waitedOn.then(settle, onError: (Object error, StackTrace stack) {
       if (!answer.isCompleted) answer.completeError(error, stack);
     }).whenComplete(() {
       deadline.cancel();
       _deadlines.remove(deadline);
-    });
+    }));
     return answer.future;
   }
 
