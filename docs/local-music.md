@@ -252,11 +252,12 @@ is an ordinary `dart:io` walk. What differs is where the path comes from:
    INFO (WAV). Only the tag structures are parsed, so a 60 MB FLAC is not read
    into memory to find its title. A file with no tags, or one that cannot be
    parsed, still appears in the library with its filename-derived name — a
-   track is never dropped for having bad tags.
+   track is never dropped for having bad tags. A FLAC whose tags trip the
+   parser on one odd field (a vinyl `A1` track number, an empty `TRACKTOTAL`)
+   still keeps its other comments and its length, read from the file
+   directly.
 
-   Two honest gaps on Linux today: **embedded cover art is not extracted yet**
-   ([#408](https://github.com/thezupzup/linthra/issues/408)), so local tracks
-   keep the placeholder; and **album artist** depends on the container. ID3
+   One honest gap on Linux today: **album artist** depends on the container. ID3
    (TPE2), APEv2 and FLAC report a real one, so a compilation groups under the
    album artist. OGG and Opus do not: the tag reader Linthra uses folds their
    `ARTIST` and `ALBUMARTIST` comments into one list and loses which was which,
