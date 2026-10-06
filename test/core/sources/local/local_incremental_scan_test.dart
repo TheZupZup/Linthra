@@ -345,8 +345,9 @@ void main() {
     });
 
     Future<(LocalScan, Map<String, StampedTrack>)> scan(
-      Map<String, StampedTrack> indexed,
-    ) async {
+      Map<String, StampedTrack> indexed, {
+      bool readUnchanged = false,
+    }) async {
       tags.reads.clear();
       final LocalScan result = await LocalMusicSource(
         folderPath: '/music',
@@ -354,6 +355,7 @@ void main() {
         metadataReader: tags,
         statReader: stats,
         alreadyIndexed: indexed,
+        readUnchanged: readUnchanged,
       ).scanTracks();
       return (
         result,
@@ -435,6 +437,57 @@ void main() {
       await scan(stored);
 
       expect(tags.reads, isEmpty);
+    });
+
+    // #783: a change to how tags are read reads unchanged files once more.
+    test(
+        'an unchanged file whose re-read for new tag reading failed keeps '
+        'its row, and is read again by the next scan', () async {
+      final (_, Map<String, StampedTrack> indexed) =
+          await scan(const <String, StampedTrack>{});
+      tags.failing.add('/music/x.flac');
+      final (LocalScan reread, Map<String, StampedTrack> stored) =
+          await scan(indexed, readUnchanged: true);
+      expect(tags.reads, <String>['/music/a.flac', '/music/x.flac']);
+      expect(trackAt(reread, '/music/x.flac').title, 'Real Title');
+      expect(reread.stamps.containsKey('/music/x.flac'), isFalse,
+          reason: "with its stamp, it keeps the old reader's tags for good");
+      expect(reread.stamps['/music/a.flac'], _stamp(100, 1000));
+
+      // The share answers again, and the new reader finds more in it.
+      tags.failing.clear();
+      tags.byPath['/music/x.flac'] = const LocalAudioMetadata(
+        title: 'Fixed Title',
+        artist: 'Real Artist',
+      );
+      final (LocalScan retried, _) = await scan(stored);
+
+      expect(tags.reads, <String>['/music/x.flac']);
+      expect(trackAt(retried, '/music/x.flac').title, 'Fixed Title');
+      expect(retried.stamps['/music/x.flac'], _stamp(200, 2000));
+    });
+
+    test(
+        'one whose read fails again keeps that row, not one built from its '
+        'file name, and is left alone', () async {
+      final (_, Map<String, StampedTrack> indexed) =
+          await scan(const <String, StampedTrack>{});
+      tags.failing.add('/music/x.flac');
+      final (_, Map<String, StampedTrack> reread) =
+          await scan(indexed, readUnchanged: true);
+
+      final (LocalScan second, Map<String, StampedTrack> stored) =
+          await scan(reread);
+      expect(tags.reads, <String>['/music/x.flac']);
+      final Track x = trackAt(second, '/music/x.flac');
+      expect(x.title, 'Real Title');
+      expect(x.artistName, 'Real Artist');
+      expect(second.stamps['/music/x.flac'], _stamp(200, 2000),
+          reason: 'the second failure in a row keeps its stamp');
+
+      await scan(stored);
+
+      expect(tags.reads, isEmpty, reason: 'no read on every scan from here');
     });
   });
 

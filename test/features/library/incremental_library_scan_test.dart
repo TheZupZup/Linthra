@@ -94,18 +94,23 @@ class _CountingMetadataReader implements LocalMetadataReader {
 /// filesystem reader does; [tagRevision] goes up when Linthra is updated with
 /// a change to how tags are read.
 class _RevisedMetadataReader extends _CountingMetadataReader
-    implements LocalTagRevision {
+    implements LocalTagRevision, LocalMetadataReadOutcomes {
   @override
   int tagRevision = 1;
 
-  /// Files whose read comes back with nothing: a share that answered with an
-  /// I/O error, a parse that ran out of time.
+  /// Files whose read fails: a share that answered with an I/O error, a parse
+  /// that ran out of time.
   Set<String> failing = <String>{};
 
   @override
-  Future<LocalAudioMetadata?> readFromPath(String path) async {
+  Future<LocalAudioMetadata?> readFromPath(String path) async =>
+      (await readWithOutcome(path)).metadata;
+
+  @override
+  Future<LocalMetadataRead> readWithOutcome(String path) async {
     final LocalAudioMetadata? metadata = await super.readFromPath(path);
-    return failing.contains(path) ? null : metadata;
+    if (failing.contains(path)) return (metadata: null, failed: true);
+    return (metadata: metadata, failed: false);
   }
 }
 
@@ -350,7 +355,8 @@ void main() {
 
     test(
         'a file whose read fails that once keeps the row it had, not one '
-        'built from its file name', () async {
+        'built from its file name, and is read again by the next scan',
+        () async {
       final ProviderContainer c = container(revisions: revisions);
       await c.read(selectedFolderControllerProvider.future);
       final notifier = c.read(localMusicControllerProvider.notifier);
@@ -369,6 +375,18 @@ void main() {
           reason: 'it read fine before, and an unchanged file has the same '
               'tags');
       expect(a.artistName, 'Someone');
+      // The file is due on its own, so the rest of the folder isn't read
+      // again for it.
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.failing = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
     });
 
     test(

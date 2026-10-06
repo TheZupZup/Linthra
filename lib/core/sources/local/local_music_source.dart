@@ -147,6 +147,7 @@ class LocalMusicSource implements MusicSource {
   /// changed since they were indexed (#783). [_alreadyIndexed] still stands in
   /// for a file whose read fails: it read fine before, and an unchanged file
   /// has the same tags, so the row it had beats one built from its file name.
+  /// That file is stored without its stamp, so the next scan reads it again.
   final bool _readUnchanged;
 
   /// Covers that rows in [_alreadyIndexed] point at and that the reader's
@@ -327,16 +328,34 @@ class LocalMusicSource implements MusicSource {
         continue;
       }
       // Unchanged since its row was written, and read again only because the
-      // artwork cache no longer holds its cover. A read of those same bytes
-      // that failed this time (a drive answering with an I/O error, a parse
-      // that ran out of time) says nothing about the tags the row was built
-      // from, so the row stays as it was, cover reference included, and the
-      // next scan asks for the cover again. Rebuilt from the file name, it
+      // artwork cache no longer holds its cover, or because the way tags are
+      // read changed (#783). A read of those same bytes that failed this time
+      // (a drive answering with an I/O error, a parse that ran out of time)
+      // says nothing about the tags the row was built from, so the row stays
+      // as it was, cover reference included. Rebuilt from the file name, it
       // would lose its tags for good: an unchanged file is never read again.
+      // The next scan asks for a missing cover again by itself. A file due
+      // for the new way of reading tags is stored without its stamp instead,
+      // so the next scan reads it again rather than leave it with the old
+      // reader's tags for good.
       if (metadata == null &&
           stamp != null &&
           indexed != null &&
           !stamp.differsFrom(indexed.stamp)) {
+        if (_readUnchanged && read.failed) stamps.remove(path);
+        tracks.add(indexed.track);
+        continue;
+      }
+      // Its row has no stamp, so there is no telling whether it changed: most
+      // likely a read failed last time too (above, or below). This failed read
+      // says nothing about its tags either, so the row stays as it was rather
+      // than being rebuilt from the file name. It keeps its stamp this time,
+      // so a file that can never be read, one the parser loops on, costs one
+      // more read rather than one every scan.
+      if (read.failed &&
+          stamp != null &&
+          indexed != null &&
+          indexed.stamp == null) {
         tracks.add(indexed.track);
         continue;
       }
@@ -345,15 +364,8 @@ class LocalMusicSource implements MusicSource {
       // file name as ever, but stored without its stamp. With it, every later
       // scan would reuse that row as it is, and the tags would never come back
       // short of a full rescan (#743). Without it, the next scan reads the
-      // file again. Only once in a row: a file whose row already has no stamp
-      // (most likely a read that failed last time too) keeps its stamp now, so
-      // a file that can never be read, one the parser loops on, costs one
-      // more read rather than one every scan.
-      if (read.failed &&
-          stamp != null &&
-          !(indexed != null && indexed.stamp == null)) {
-        stamps.remove(path);
-      }
+      // file again, once (see above).
+      if (read.failed) stamps.remove(path);
       tracks.add(LocalTrackMapper.fromPath(
         path,
         metadata: metadata,
