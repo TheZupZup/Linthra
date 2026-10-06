@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/models/play_history.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/play_history_store.dart';
 
 /// A [PlayHistoryStore] backed by `shared_preferences`.
@@ -23,6 +24,9 @@ class SharedPreferencesPlayHistoryStore implements PlayHistoryStore {
 
   static const String _key = 'play_history_v1';
 
+  /// The furthest [DateTime] reaches either side of the epoch.
+  static const int _maxEpochMs = 8640000000000000;
+
   @override
   Future<PlayHistory> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -42,6 +46,9 @@ class SharedPreferencesPlayHistoryStore implements PlayHistoryStore {
       final Object? count = value['c'];
       final Object? millis = value['t'];
       if (count is! int || count <= 0 || millis is! int) return;
+      // A time DateTime can't hold is as malformed as one that isn't a
+      // number. Thrown, it took every other entry with it.
+      if (millis.abs() > _maxEpochMs) return;
       stats[key] = TrackPlayStats(
         playCount: count,
         lastPlayedAt: DateTime.fromMillisecondsSinceEpoch(millis),
@@ -61,6 +68,8 @@ class SharedPreferencesPlayHistoryStore implements PlayHistoryStore {
           't': entry.value.lastPlayedAt.millisecondsSinceEpoch,
         },
     };
-    await prefs.setString(_key, jsonEncode(document));
+    if (!await prefs.setString(_key, jsonEncode(document))) {
+      throw const LocalStoreWriteException(LocalStoreArea.playHistory);
+    }
   }
 }

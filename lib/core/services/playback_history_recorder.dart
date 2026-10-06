@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../catalog/now_playing_match.dart';
 import '../models/playback_history.dart';
 import '../models/playback_state.dart';
 import '../models/track.dart';
@@ -107,7 +108,9 @@ class PlaybackHistoryRecorder {
     final Track? observed = _observed;
 
     if (observed != null &&
-        (current?.uri != observed.uri || _isReplay(state))) {
+        (current == null ||
+            !isCurrentPlaybackTrack(observed, current) ||
+            _isReplay(state))) {
       _flush();
       _begin(current);
     } else if (observed == null && current != null) {

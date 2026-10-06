@@ -115,12 +115,37 @@ class SelectedFolderController extends AsyncNotifier<List<String>> {
   /// scan the same files twice.
   Future<void> addAndPersist(String location) async {
     if (location.isEmpty) return;
-    final List<String> current = state.valueOrNull ?? <String>[];
+    final List<String> current = await _selectionToChange();
     // Nothing would change, so nothing is saved. Saving supersedes the scan
     // in flight (a live-update refresh, say), and with no scan of its own to
     // follow, the library would be left waiting on one that never reports.
     if (LocalMusicRoots.isCoveredBy(location, current)) return;
     await _persist(LocalMusicRoots.normalize(<String>[...current, location]));
+  }
+
+  /// The selection a change starts from: the one loaded, or, when loading it
+  /// failed, the stored one read again.
+  ///
+  /// A selection that could not be read is not an empty one. Merged into
+  /// nothing, a folder added after a failed read (an I/O error on the
+  /// preferences file at launch) was saved alone over every folder still
+  /// stored, and the scan after it dropped their music. Read again, it is
+  /// also what the app shows from then on. Still unreadable, the pick stands
+  /// on its own, as before.
+  Future<List<String>> _selectionToChange() async {
+    final AsyncValue<List<String>> loaded = state;
+    if (loaded.hasValue || !loaded.hasError) {
+      return loaded.valueOrNull ?? <String>[];
+    }
+    try {
+      final List<String> stored = await ref
+          .read(selectedMusicFolderRepositoryProvider)
+          .getSelectedFolders();
+      state = AsyncData<List<String>>(stored);
+      return stored;
+    } catch (_) {
+      return <String>[];
+    }
   }
 
   /// Removes one folder from the selection, leaving the others alone.

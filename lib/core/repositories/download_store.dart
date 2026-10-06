@@ -149,17 +149,24 @@ class CachedTrack {
   /// id is missing (a corrupt entry), so one bad record can't break loading.
   /// Records written by an earlier version (id + file name only) load cleanly:
   /// the new fields fall back to their defaults.
+  ///
+  /// Never throws. A track id, file name or source of another type than a
+  /// string can't say which track or file the record is for, so the record is
+  /// dropped like one with no id. A date that isn't one (out of [DateTime]'s
+  /// range) only loses the date.
   static CachedTrack? fromJson(Map<String, dynamic> json) {
-    final String? trackId = json['trackId'] as String?;
-    if (trackId == null || trackId.isEmpty) return null;
-    final String? fileName = json['fileName'] as String?;
-    final String? sourceType = json['sourceType'] as String?;
+    final Object? trackId = json['trackId'];
+    if (trackId is! String || trackId.isEmpty) return null;
+    final Object? fileName = json['fileName'];
+    final Object? sourceType = json['sourceType'];
+    if (fileName != null && fileName is! String) return null;
+    if (sourceType != null && sourceType is! String) return null;
     final Object? origin = json['origin'];
     return CachedTrack(
       trackId: trackId,
-      fileName: (fileName != null && fileName.isNotEmpty) ? fileName : null,
+      fileName: (fileName is String && fileName.isNotEmpty) ? fileName : null,
       sourceType:
-          (sourceType != null && sourceType.isNotEmpty) ? sourceType : null,
+          (sourceType is String && sourceType.isNotEmpty) ? sourceType : null,
       sizeBytes: _asInt(json['sizeBytes']),
       cachedAt: _asDate(json['cachedAt']),
       lastAccessedAt: _asDate(json['lastAccessedAt']),
@@ -174,8 +181,11 @@ class CachedTrack {
     return 0;
   }
 
+  /// The furthest [DateTime] reaches either side of the epoch.
+  static const int _maxEpochMs = 8640000000000000;
+
   static DateTime? _asDate(Object? value) {
-    if (value is int) {
+    if (value is int && value.abs() <= _maxEpochMs) {
       return DateTime.fromMillisecondsSinceEpoch(value);
     }
     return null;

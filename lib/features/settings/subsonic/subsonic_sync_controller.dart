@@ -366,9 +366,15 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   void _queueIfAnotherAccount(String? recordFingerprint) {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) return;
-    if (subsonicAccountFingerprint(source.session) == _runningAccount) return;
+    final String account = subsonicAccountFingerprint(source.session);
+    if (account == _runningAccount) return;
     _rerunQueued = true;
-    _rerunRecordFingerprint = recordFingerprint;
+    // A manual Sync pressed while this account's first auto-sync waits must
+    // not drop its fingerprint, or that sync would go unrecorded and the
+    // account would walk its whole library again on its next sign-in.
+    if (recordFingerprint != null || _rerunRecordFingerprint != account) {
+      _rerunRecordFingerprint = recordFingerprint;
+    }
   }
 
   Future<void> _syncOnce({String? recordFingerprint}) async {

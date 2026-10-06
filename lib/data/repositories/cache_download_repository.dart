@@ -494,6 +494,9 @@ class CacheDownloadRepository
     final _CacheOperation? running = _inFlight[key];
     if (running != null &&
         !running.abandoned &&
+        // Cancelled once its record was being saved: the removal took its
+        // copy back out, so nothing is left for it to finish.
+        !(running.canceled && running.recording) &&
         !_orphaned(running, track, preloaded: false)) {
       // A fresh, explicit request supersedes a pending cancellation of the
       // request still running (the user removed it and immediately asked
@@ -649,6 +652,9 @@ class CacheDownloadRepository
         if (identical(_downloads[key], kept)) _downloads.remove(key);
         throw const CacheStorageException(_recordNotSavedMessage);
       }
+      // A Clear all (or a removal) that landed while the record was being
+      // saved took it back out: there is nothing to call kept.
+      if (!_downloads.containsKey(key)) return;
       _statuses[key] = DownloadStatus.downloaded;
       _emitStatus();
       _emitCache();
@@ -743,16 +749,25 @@ class CacheDownloadRepository
       // Removed or cleared while it waited for this slot: skip the fetch, so a
       // cancelled download spends no data and the slot goes straight to the
       // next one. [requestDownload] settles its status on the way out.
-      if (operation.canceled) return;
+      if (operation.canceled) {
+        operation.abandoned = true;
+        return;
+      }
       // The account it was asked under signed out or was replaced while it
       // waited: the session there now would fetch another account's item, or
       // nothing, so it is dropped like a cancelled download.
       if (_scopeOf(track) != operation.scope) {
-        operation.canceled = true;
+        operation
+          ..canceled = true
+          ..abandoned = true;
         return;
       }
       atSlot = await _networkDecision();
-      if (atSlot != _NetworkDecision.allowed || operation.canceled) return;
+      if (atSlot != _NetworkDecision.allowed) return;
+      if (operation.canceled) {
+        operation.abandoned = true;
+        return;
+      }
       _setPhase(key, operation, DownloadStatus.downloading);
       // A file bigger than the whole cache can't fit whatever is evicted, so
       // it is stopped as soon as that shows rather than downloaded in full
@@ -946,24 +961,57 @@ class CacheDownloadRepository
     }
     bool evictedAStatus = false;
     bool evictedAny = false;
-    for (final CachedTrack victim in plan.evict) {
-      // A pre-cache whose queue has moved on (or whose session is gone) may
-      // still keep its copy, but only in free space: what it would evict may
-      // be what the new queue needs. Asked before every eviction, since either
-      // can change while the previous one is being deleted. A cancelled
-      // download stops making room too: nothing else is given up for it.
-      if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
-          (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted)))) {
+    List<CachedTrack> victims = plan.evict;
+    while (victims.isNotEmpty) {
+      bool replan = false;
+      for (final CachedTrack victim in victims) {
+        // A pre-cache whose queue has moved on (or whose session is gone) may
+        // still keep its copy, but only in free space: what it would evict may
+        // be what the new queue needs. Asked before every eviction, since
+        // either can change while the previous one is being deleted. A
+        // cancelled download stops making room too: nothing else is given up
+        // for it.
+        if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
+            (preloaded && !(_passes(mayMakeRoom) && _passes(isStillWanted)))) {
+          if (evictedAny) {
+            await _save();
+            if (evictedAStatus) _emitStatus();
+            _emitCache();
+          }
+          return;
+        }
+        // Kept offline, or started playing, while the previous one was being
+        // deleted: never evicted, whatever the plan said before. The room
+        // still missing is worked out again from what is cached now.
+        if (!_stillEvictable(victim, protectKeys, onlyPreloaded: preloaded)) {
+          replan = true;
+          break;
+        }
+        await _deleteManagedFile(victim);
+        if (_forgetDeleted(victim)) evictedAStatus = true;
+        evictedAny = true;
+      }
+      if (!replan) break;
+      final EvictionPlan rest = _policy.plan(
+        cached: _allCopies,
+        incomingBytes: incoming,
+        maxBytes: maxBytes,
+        protectKey: _protectKey(),
+        protectKeys: protectKeys,
+        onlyPreloaded: preloaded,
+        incomingKey: _downloads.containsKey(key) ? key : null,
+      );
+      if (!rest.fits) {
         if (evictedAny) {
           await _save();
           if (evictedAStatus) _emitStatus();
           _emitCache();
         }
-        return;
+        if (preloaded) return;
+        _set(key, DownloadStatus.notDownloaded);
+        throw const CacheStorageException();
       }
-      await _deleteManagedFile(victim);
-      if (_forgetDeleted(victim)) evictedAStatus = true;
-      evictedAny = true;
+      victims = rest.evict;
     }
     // Room made for a queue that has moved on since goes to the new one, not
     // to this copy.
@@ -989,6 +1037,10 @@ class CacheDownloadRepository
       }
       return;
     }
+    // Past its last check: a removal from here on takes the copy back out
+    // rather than stopping it, so a fresh request can't take it back either
+    // (see [requestDownload]).
+    operation.recording = true;
     final DateTime now = _now();
     final CachedTrack? replaced = _downloads[key];
     _downloads[key] = CachedTrack(
@@ -1023,10 +1075,17 @@ class CacheDownloadRepository
       if (evictedAStatus) _emitStatus();
       _emitCache();
       if (preloaded) return;
-      _set(key, DownloadStatus.notDownloaded);
+      // A request that replaced this one (asked again after a removal took
+      // this copy back out) drives the row now.
+      if (identical(_inFlight[key], operation)) {
+        _set(key, DownloadStatus.notDownloaded);
+      }
       throw const CacheStorageException(_recordNotSavedMessage);
     }
-    if (!preloaded) {
+    // A removal or a Clear all that landed while the record was being saved
+    // took the copy, file and all, back out: there is nothing to call
+    // downloaded.
+    if (!preloaded && _downloads[key]?.fileName == fileName) {
       _statuses[key] = DownloadStatus.downloaded;
     }
     // A preload changes only cache usage; a user download (or an eviction that
@@ -1128,7 +1187,17 @@ class CacheDownloadRepository
     _inFlight[key]?.canceled = true;
     _preloading[key]?.canceled = true;
     final CachedTrack? existing = _downloads.remove(key);
-    await _deleteManagedFile(existing);
+    try {
+      await _deleteManagedFile(existing);
+    } catch (_) {
+      // The file couldn't be deleted (permission denied, a read-only disk), so
+      // the copy is still there: it stays listed and counted, and the removal
+      // says it failed rather than forgetting a file left on disk.
+      if (existing != null && !_downloads.containsKey(key)) {
+        _downloads[key] = existing;
+      }
+      rethrow;
+    }
     try {
       await _saveOrThrow();
     } catch (_) {
@@ -1246,7 +1315,14 @@ class CacheDownloadRepository
       return;
     }
     for (final CachedTrack victim in victims) {
-      await _deleteManagedFile(victim);
+      try {
+        await _deleteManagedFile(victim);
+      } catch (_) {
+        // A file that can't be deleted (permission denied, a read-only disk)
+        // is still there, so its copy stays; the rest are cleared all the
+        // same rather than left behind it.
+        continue;
+      }
       _forgetDeleted(victim);
     }
     try {
@@ -1265,6 +1341,27 @@ class CacheDownloadRepository
     }
     _emitStatus();
     _emitCache();
+  }
+
+  /// Whether [victim], picked for eviction before an await, may still go. It
+  /// may have been pinned, or started playing, since. One already gone (a
+  /// removal or a clear took it) may: deleting it again changes nothing.
+  bool _stillEvictable(
+    CachedTrack victim,
+    Set<String> protectKeys, {
+    required bool onlyPreloaded,
+  }) {
+    CachedTrack? live = _dormant[_dormantKey(victim)];
+    if (live?.fileName != victim.fileName) {
+      live = _downloads[_keyForCached(victim)];
+    }
+    if (live == null || live.fileName != victim.fileName) return true;
+    return CacheEvictionPolicy.isEvictable(
+      live,
+      protectKey: _protectKey(),
+      protectKeys: protectKeys,
+      onlyPreloaded: onlyPreloaded,
+    );
   }
 
   /// Forgets the record of [deleted], whose file was just deleted, wherever
@@ -1288,7 +1385,12 @@ class CacheDownloadRepository
     final CachedTrack? inUse = _downloads[key];
     if (inUse == null || inUse.fileName != deleted.fileName) return false;
     _downloads.remove(key);
-    return _statuses.remove(key) != null;
+    // Only "downloaded" went with the copy. Any other status is the
+    // listener's own request for the song (a download that failed, or one
+    // still on its way), which a pre-cached copy going doesn't change.
+    if (_statuses[key] != DownloadStatus.downloaded) return false;
+    _statuses.remove(key);
+    return true;
   }
 
   /// Releases the change streams. Call when the owning provider is disposed.
@@ -1357,10 +1459,14 @@ class CacheDownloadRepository
     Track track, {
     required bool preloaded,
   }) {
-    if (operation.canceled) return true;
-    if (_orphaned(operation, track, preloaded: preloaded)) {
+    if (!operation.canceled &&
+        _orphaned(operation, track, preloaded: preloaded)) {
       operation.canceled = true;
     }
+    // Every caller gives up on a yes (the fetch stops, or the commit saves
+    // nothing), so a fresh request after this can't take the operation back:
+    // nothing would ever save its bytes, and its row would stay "Downloading".
+    if (operation.canceled) operation.abandoned = true;
     return operation.canceled;
   }
 
@@ -1616,10 +1722,16 @@ class _CacheOperation {
   /// before it has a row. Unused by a pre-cache, which never has one.
   DownloadStatus? phase;
 
-  /// Set when the fetch stopped because this was cancelled, so its bytes are
-  /// gone: a fresh request for the track then starts its own download rather
-  /// than taking this one back.
+  /// Set once this stopped because it was cancelled (waiting for a slot,
+  /// fetching, or in its commit), so its bytes will never be saved: a fresh
+  /// request for the track then starts its own download rather than taking
+  /// this one back.
   bool abandoned = false;
+
+  /// Set once its commit is past its last check and recording the copy. A
+  /// cancellation can't stop it any more: a removal takes the copy back out
+  /// instead, so a fresh request can't take this operation back either.
+  bool recording = false;
 }
 
 /// Whether the network policy lets a download run now, and why not when it

@@ -145,7 +145,7 @@ class _PlayPauseButton extends StatelessWidget {
     // re-buffer keeps the (active) pause button so the user stays in control —
     // the calm "Buffering…" hint on Now Playing signals the wait instead.
     final bool loading = state.status == PlaybackStatus.loading;
-    final bool playing = state.isPlaying || state.isBuffering;
+    final bool playing = state.isPlayingOrStalled;
     final VoidCallback? onTap =
         loading ? null : (playing ? controller.pause : controller.play);
 
