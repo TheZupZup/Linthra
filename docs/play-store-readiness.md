@@ -285,13 +285,15 @@ Play's Data Safety and review process expects each to be justified.
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | The typed-foreground-service grant required on Android 14+ (API 34) for a `mediaPlayback` service; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | Android 13+ runtime permission for the media notification and its lock-screen / transport controls. Requested once on first launch; denial only suppresses the notification, playback still works. |
 | `CHANGE_WIFI_MULTICAST_STATE` | Receive multicast Wi-Fi packets for **mDNS** (`_googlecast._tcp`) so Chromecast devices on the **local network** can be discovered. Grants no internet or storage access of its own. |
+| `READ_MEDIA_AUDIO` | Android 13+ permission for the optional **All music on this device** mode. It is requested only after the user chooses that mode; normal SAF folder access does not need it. |
+| `READ_EXTERNAL_STORAGE` (maxSdkVersion 32) | Legacy Android 12-and-older equivalent for the same optional device-wide audio-library mode. It is capped at API 32 and is not used on modern Android. |
 
 Notes:
 
-- **No storage/media permissions are declared.** Local folder access uses the
-  Storage Access Framework folder grant the user picks — no
-  `READ_MEDIA_AUDIO`, no `MANAGE_EXTERNAL_STORAGE`. This keeps the Play "all
-  files access" declaration unnecessary.
+- Linthra does **not** request `MANAGE_EXTERNAL_STORAGE` or Play's broad "all
+  files access". The normal local-folder path uses the Storage Access Framework
+  grant for the folder the user picks. The separate device-wide audio mode uses
+  the narrow media permissions above only when the user explicitly chooses it.
 - **Cast uses no Google Play Services / Google Cast SDK.** It is a pure-Dart
   Cast v2 implementation (`cast` + `bonsoir` over AOSP `NsdManager`). The
   manifest's `com.google.android.gms.car.application` entry is **only a
