@@ -337,12 +337,15 @@ class LocalMusicSource implements MusicSource {
       // The next scan asks for a missing cover again by itself. A file due
       // for the new way of reading tags is stored without its stamp instead,
       // so the next scan reads it again rather than leave it with the old
-      // reader's tags for good.
+      // reader's tags for good. One the new reader read fine and found
+      // nothing in is settled like any other file: the tags it lost were
+      // the old reader's.
       if (metadata == null &&
           stamp != null &&
           indexed != null &&
-          !stamp.differsFrom(indexed.stamp)) {
-        if (_readUnchanged && read.failed) stamps.remove(path);
+          !stamp.differsFrom(indexed.stamp) &&
+          (read.failed || !_readUnchanged)) {
+        if (_readUnchanged) stamps.remove(path);
         tracks.add(indexed.track);
         continue;
       }

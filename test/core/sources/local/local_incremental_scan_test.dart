@@ -468,6 +468,26 @@ void main() {
     });
 
     test(
+        'one the new reader reads fine and finds no tags in loses the old '
+        "reader's tags", () async {
+      final (_, Map<String, StampedTrack> indexed) =
+          await scan(const <String, StampedTrack>{});
+      // The old reader took something in x for tags; the new one reads it
+      // and finds none.
+      tags.byPath.remove('/music/x.flac');
+      final (LocalScan reread, Map<String, StampedTrack> stored) =
+          await scan(indexed, readUnchanged: true);
+
+      expect(trackAt(reread, '/music/x.flac').title, 'x');
+      expect(reread.stamps['/music/x.flac'], _stamp(200, 2000),
+          reason: 'a read that went fine is settled');
+
+      await scan(stored);
+
+      expect(tags.reads, isEmpty);
+    });
+
+    test(
         'one whose read fails again keeps that row, not one built from its '
         'file name, and is left alone', () async {
       final (_, Map<String, StampedTrack> indexed) =
