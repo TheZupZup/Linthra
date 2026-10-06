@@ -712,6 +712,39 @@ void main() {
       );
     });
 
+    test(
+        'a value of an unexpected type costs that field or that song, not '
+        'the sync, and leaves nothing to resume', () async {
+      final SyntheticNavidrome server =
+          SyntheticNavidrome(albums: 100, retypedAlbums: <int>{40});
+      final _App app = _App(server);
+      await app.seed('subsonic', <String>['subsonic:gone-1']);
+      await app.signIn();
+
+      await app.sync.sync();
+
+      expect(app.state.status, SubsonicSyncStatus.success);
+      // Song 1 of album 40 has a number for a title, so it can't be shown;
+      // every other song of the library is there, and the walk was complete
+      // enough to prune.
+      _expectSameSet(
+        await app.subsonicUris(),
+        server.urisFor('alice')
+          ..remove(SyntheticNavidrome.songUri('alice', 40, 1)),
+      );
+      expect(app.repository.prunes, 1);
+      expect(await app.pending.read(), isNull);
+      // The numeric strings were read as numbers, and the numeric artist was
+      // left out rather than taking its song with it.
+      final Track first = (await app.repository
+          .getTrackByUri(SyntheticNavidrome.songUri('alice', 40, 0)))!;
+      expect(first.artistName, isNull);
+      final Track third = (await app.repository
+          .getTrackByUri(SyntheticNavidrome.songUri('alice', 40, 2)))!;
+      expect(third.trackNumber, 3);
+      expect(third.duration, const Duration(seconds: 182));
+    });
+
     test('a sync again once the album is fixed completes and prunes', () async {
       final _App first = _App(
         SyntheticNavidrome(albums: 100, brokenAlbums: <int>{40}),

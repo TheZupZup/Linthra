@@ -109,7 +109,9 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
   Tracks removed on the server are dropped only after a sync that read the
   whole library; an interrupted sync keeps everything already saved (and the
   previous catalog), and is retried the next time the app opens or comes back
-  to the foreground. The same sync also imports **playlists** and adopts server
+  to the foreground. A value the server sends with an unexpected type is left
+  out (a song without a usable id or title is skipped) rather than failing the
+  sync. The same sync also imports **playlists** and adopts server
   **favourites** (below), best-effort.
 - **Favourites / hearts**: the heart on a Subsonic track mirrors two-way with
   the server. Hearting sends `star`, un-hearting sends `unstar`, and a **Sync

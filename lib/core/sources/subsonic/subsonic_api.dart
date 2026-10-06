@@ -66,12 +66,12 @@ class SubsonicEnvelope {
     return SubsonicEnvelope(
       status: status,
       data: raw,
-      errorCode: error is Map<String, dynamic> ? error['code'] as int? : null,
+      errorCode: error is Map<String, dynamic> ? _asInt(error['code']) : null,
       errorMessage:
-          error is Map<String, dynamic> ? error['message'] as String? : null,
-      version: raw['version'] as String?,
-      type: raw['type'] as String?,
-      serverVersion: raw['serverVersion'] as String?,
+          error is Map<String, dynamic> ? _asString(error['message']) : null,
+      version: _asString(raw['version']),
+      type: _asString(raw['type']),
+      serverVersion: _asString(raw['serverVersion']),
     );
   }
 }
@@ -163,14 +163,14 @@ class SubsonicArtistDto {
   final String? coverArt;
 
   static SubsonicArtistDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['id'] as String?;
-    final String? name = json['name'] as String?;
+    final String? id = _asString(json['id']);
+    final String? name = _asString(json['name']);
     if (id == null || id.isEmpty || name == null) return null;
     return SubsonicArtistDto(
       id: id,
       name: name,
-      albumCount: (json['albumCount'] as num?)?.toInt() ?? 0,
-      coverArt: json['coverArt'] as String?,
+      albumCount: _asInt(json['albumCount']) ?? 0,
+      coverArt: _asString(json['coverArt']),
     );
   }
 }
@@ -211,16 +211,16 @@ class SubsonicAlbumDto {
   final String? coverArt;
 
   static SubsonicAlbumDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['id'] as String?;
-    final String? name = json['name'] as String?;
+    final String? id = _asString(json['id']);
+    final String? name = _asString(json['name']);
     if (id == null || id.isEmpty || name == null) return null;
     return SubsonicAlbumDto(
       id: id,
       name: name,
-      artist: json['artist'] as String?,
-      songCount: (json['songCount'] as num?)?.toInt() ?? 0,
-      year: (json['year'] as num?)?.toInt(),
-      coverArt: json['coverArt'] as String?,
+      artist: _asString(json['artist']),
+      songCount: _asInt(json['songCount']) ?? 0,
+      year: _asInt(json['year']),
+      coverArt: _asString(json['coverArt']),
     );
   }
 }
@@ -264,18 +264,18 @@ class SubsonicSongDto {
   final String? coverArt;
 
   static SubsonicSongDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['id'] as String?;
-    final String? title = json['title'] as String?;
+    final String? id = _asString(json['id']);
+    final String? title = _asString(json['title']);
     if (id == null || id.isEmpty || title == null) return null;
     return SubsonicSongDto(
       id: id,
       title: title,
-      album: json['album'] as String?,
-      albumId: json['albumId'] as String?,
-      artist: json['artist'] as String?,
-      track: (json['track'] as num?)?.toInt(),
-      durationSeconds: (json['duration'] as num?)?.toInt(),
-      coverArt: json['coverArt'] as String?,
+      album: _asString(json['album']),
+      albumId: _asString(json['albumId']),
+      artist: _asString(json['artist']),
+      track: _asInt(json['track']),
+      durationSeconds: _asInt(json['duration']),
+      coverArt: _asString(json['coverArt']),
     );
   }
 }
@@ -296,12 +296,32 @@ class SubsonicPlaylistDto {
   /// malformed entry is skipped rather than importing a nameless, unaddressable
   /// playlist. A missing name falls back to the id so the row is never blank.
   static SubsonicPlaylistDto? fromJson(Map<String, dynamic> json) {
-    final String? id = json['id'] as String?;
+    final String? id = _asString(json['id']);
     if (id == null || id.isEmpty) return null;
-    final String? name = json['name'] as String?;
+    final String? name = _asString(json['name']);
     return SubsonicPlaylistDto(
       id: id,
       name: name == null || name.isEmpty ? id : name,
     );
   }
+}
+
+// The reads every parser above goes through, by the rule the Jellyfin DTOs
+// already follow: a value of an unexpected type is left out rather than thrown
+// on. A `TypeError` here would fail a whole sync over one odd record, and the
+// next launch would walk the library into it again (#781).
+
+/// [value] when it is a string, otherwise `null`.
+String? _asString(Object? value) => value is String ? value : null;
+
+/// A whole number from a JSON number or a numeric string, truncated the same
+/// way for both. `null` for anything else, including a number too large to
+/// be finite, which `toInt` would throw on.
+int? _asInt(Object? value) {
+  final num? number = switch (value) {
+    num() => value,
+    String() => num.tryParse(value.trim()),
+    _ => null,
+  };
+  return number != null && number.isFinite ? number.toInt() : null;
 }
