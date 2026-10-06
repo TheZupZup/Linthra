@@ -449,29 +449,6 @@ void main() {
       expect(cast.refreshCount, 0);
       expect(local.foregroundedCount, 1);
     });
-
-    test('onAppBackgrounded arms the local controller when not casting', () {
-      final controller = build();
-      addTearDown(controller.dispose);
-
-      controller.onAppBackgrounded();
-
-      expect(local.backgroundedCount, 1);
-      expect(cast.refreshCount, 0);
-    });
-
-    test('onAppBackgrounded is a no-op while casting', () async {
-      final controller = build();
-      addTearDown(controller.dispose);
-
-      cast.emit(_casting());
-      await _waitFor(controller,
-          (_) => controller.activeOutput == ActivePlaybackOutput.cast);
-
-      controller.onAppBackgrounded();
-
-      expect(local.backgroundedCount, 0);
-    });
   });
 
   group('cast track completion advances per repeat mode', () {

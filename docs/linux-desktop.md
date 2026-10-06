@@ -829,7 +829,7 @@ started on top of the first.
 | Area | State | Why |
 | --- | --- | --- |
 | **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. A libmpv that is missing, unloadable or incompatible is reported as such and retried in place ([issue #404](https://github.com/TheZupZup/Linthra/issues/404)), not as a track that would not play. See [When the audio engine itself won't start](#when-the-audio-engine-itself-wont-start). |
-| **Suspend / resume** | Supported (app side); real device/sink timing varies | Lifecycle `paused`→`resumed` arms a bounded Linux-only reload of an actively playing track after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
+| **Suspend / resume** | Supported (app side); real device/sink timing varies | Linthra notices a system sleep itself, from the kernel's boot clock running ahead of its monotonic one, and reloads a track that was playing across it once, after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466), [issue #799](https://github.com/TheZupZup/Linthra/issues/799)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
 | **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. Rows B1 and B2 of the [compatibility matrix](./desktop-compatibility-matrix.md#b-appearance) are where that bridge is exercised by hand, on both desktops. |
 | Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
 | Close-window behaviour | Supported | Settings → Music & playback → Desktop window chooses between quitting and keeping playback running ([issue #401](https://github.com/TheZupZup/Linthra/issues/401)). The runner answers the close, Dart decides what the answer should be, and background mode only ever starts while audio is actually playing. See [Closing the window](#closing-the-window). |
@@ -1718,22 +1718,39 @@ constantly; it is a runtime branch on a desktop's name that is the problem.
 
 ## Suspend / resume (manual matrix)
 
-System sleep and wake are only partly visible to Flutter: the embedder usually
-delivers `AppLifecycleState.paused` → `resumed`, but audio devices (PulseAudio /
-PipeWire, Bluetooth sinks) and the network often come back later than that
-signal. Linthra therefore:
+Flutter does not see a system sleep on Linux. The GTK embedder reports only
+the window's focus and visibility (`resumed`, `inactive`, `hidden`, never
+`paused`), and a suspend changes neither: at most the lock screen takes focus
+on the way down, and a window manager without one sends nothing at all. A
+minimized or hidden window, on the other hand, reports `hidden` while nothing
+sleeps.
 
-* arms recovery only on **`paused`** (not brief `inactive` dialogs);
-* on Linux, after resume, waits a short backoff then **re-resolves and reloads
-  the current track on the same engine** when playback was active across
-  suspend — never a second player, so audio cannot duplicate;
+So Linthra watches the kernel instead (`SystemSleepWatcher`). Its boot clock
+(`CLOCK_BOOTTIME`, read from `/proc/uptime`) keeps counting while the machine is
+suspended, and the monotonic clock behind Dart's `Stopwatch` stands still, so a
+gap between the two is time spent asleep. Neither clock can be set, so changing
+the time, an NTP correction or a window left hidden for hours never reads as a
+sleep. It needs no permission, in the Flatpak or out of it. It only looks while
+a track is playing (or loading, buffering, reconnecting) and the listener wants
+sound, every two seconds, and holds no timer otherwise. Linthra then:
+
+* waits a short backoff after noticing the wake, then **re-resolves and reloads
+  the current track on the same engine** where it was, once: never a second
+  player, so audio cannot duplicate;
+* leaves a track alone if something already reloaded it since the wake (a
+  reconnect, an automatic retry, the listener);
 * leaves a **user-paused** track paused;
 * surfaces the existing error + Retry UI when recovery fails;
+* recovers a sleep taken with the window hidden the same way, since the audio
+  device went down all the same;
 * does **not** enable this path on Android (screen-on must never auto-restart).
 
-Automated coverage: `test/core/services/linux_suspend_resume_recovery_test.dart`
-and the ActivePlaybackController lifecycle tests. Re-check on a real machine
-before a Linux milestone release:
+Automated coverage: `test/core/lifecycle/system_sleep_watcher_test.dart`,
+`test/core/services/linux_suspend_resume_recovery_test.dart` and
+`test/app/linux_system_sleep_test.dart`, which drives the app through the
+lifecycle states Linux really sends. The real clocks across a real suspend are
+what only a machine can check. Re-check on one before a Linux milestone
+release:
 
 | Scenario | While… | Expect after wake |
 | --- | --- | --- |
@@ -1742,7 +1759,8 @@ before a Linux milestone release:
 | Lid close / Sleep | **Paused** | Still paused; pressing play resumes the same track |
 | Sleep with **Bluetooth** headphones offline | Playing | Recoverable error or success once the sink returns; never hung forever |
 | Sleep with **network** offline | Playing remote | Bounded recovery; Retry works when connectivity returns |
-| Minimize only (no sleep) | Playing | App stays responsive; no crash; ideally continues without a full reload |
+| Minimize only (no sleep) | Playing | App stays responsive; no crash; continues without a reload |
+| Close to the background, then sleep | Playing | Same as a lid close with the window open |
 | Repeat sleep/wake **3×** | Playing | Still one coherent queue/position; no growing listener/service leak; UI stays usable |
 
 ## Closing the window
@@ -1807,12 +1825,10 @@ What that buys, in the order the requirements ask for it:
   `scripts/check_linux_runner.py` fails if the runner goes back to
   `G_APPLICATION_NON_UNIQUE`.
 
-One deliberate interaction with [suspend / resume](#suspend--resume-manual-matrix):
-while the window is hidden, Linthra does **not** arm the post-suspend reload.
-A hide looks exactly like a system suspend from the lifecycle observer's side,
-and reloading a track the listener never stopped would be an audible skip. The
-trade is that a real machine suspend taken while the window is hidden is not
-recovered from either; it is recovered the next time the window comes back.
+Hiding the window is not a [suspend](#suspend--resume-manual-matrix): music
+that kept playing in the background is never reloaded when the window comes
+back. A real suspend taken while the window is hidden is noticed and recovered
+from like any other.
 
 Automated coverage: `test/core/lifecycle/desktop_close_policy_test.dart`,
 `test/core/services/desktop_window_lifecycle_service_test.dart`,

@@ -16,6 +16,7 @@ import 'package:linthra/core/services/playback_recovery_policy.dart';
 import 'package:linthra/core/services/stream_interruption.dart';
 
 import '../../features/library/fake_music_library_repository.dart';
+import '../../support/fake_machine_sleep.dart';
 
 /// A fake engine that records every transport call in order (`setUrl:<url>`,
 /// `play`, `pause`, `seek:<ms>`), so a test can read what the engine was last
@@ -716,18 +717,20 @@ void main() {
       final _RecordingPlayer player = _RecordingPlayer();
       final _GatedResolver resolver =
           _GatedResolver(immediate: <String>{a.uri});
+      final FakeMachineSleep machine = FakeMachineSleep();
       final JustAudioPlaybackController controller =
           JustAudioPlaybackController(
         player: player,
         resolver: resolver,
-        recoverPlaybackAfterSuspend: true,
+        sleepWatcher: machine.watcher(),
       )..suspendResumeBackoff = const Duration(milliseconds: 20);
       addTearDown(controller.dispose);
       await controller.playTracks(<Track>[a]);
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
-      controller.onAppBackgrounded();
-      controller.onAppForegrounded();
+      machine.sleep(const Duration(minutes: 30));
+      machine.look();
+      await _settle();
       // A media key or the desktop shell pauses while the wake reload waits.
       await controller.pause();
       await Future<void>.delayed(const Duration(milliseconds: 60));
@@ -742,18 +745,20 @@ void main() {
       final _RecordingPlayer player = _RecordingPlayer();
       final _GatedResolver resolver =
           _GatedResolver(immediate: <String>{a.uri});
+      final FakeMachineSleep machine = FakeMachineSleep();
       final JustAudioPlaybackController controller =
           JustAudioPlaybackController(
         player: player,
         resolver: resolver,
-        recoverPlaybackAfterSuspend: true,
+        sleepWatcher: machine.watcher(),
       )..suspendResumeBackoff = const Duration(milliseconds: 500);
       addTearDown(controller.dispose);
       await controller.playTracks(<Track>[a]);
       controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
-      controller.onAppBackgrounded();
-      controller.onAppForegrounded();
+      machine.sleep(const Duration(minutes: 30));
+      machine.look();
+      await _settle();
       await controller.stop();
       await Future<void>.delayed(const Duration(milliseconds: 700));
       await _settle();

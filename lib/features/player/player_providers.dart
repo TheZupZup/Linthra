@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/lifecycle/async_disposal_registry.dart';
+import '../../core/lifecycle/system_sleep_watcher.dart';
 import '../../core/models/playback_state.dart';
 import '../../core/models/subsonic_session.dart';
 import '../../core/models/track.dart';
@@ -285,6 +286,12 @@ final playbackCandidateSourceProvider = Provider<PlaybackCandidateSource>(
 /// host packages or speakers.
 final linuxAudioPlayerProvider = Provider<AudioPlayer?>((ref) => null);
 
+/// Test seam for how the Linux engine notices a system sleep (#799).
+///
+/// Production leaves this null so [LinuxPlaybackController] watches the real
+/// machine's clocks. Tests hand in a watcher whose clocks they move.
+final linuxSleepWatcherProvider = Provider<SystemSleepWatcher?>((ref) => null);
+
 final localPlaybackControllerProvider =
     Provider<LocalPlaybackController>((ref) {
   // Platforms without an on-device implementation get the explicit
@@ -313,6 +320,7 @@ final localPlaybackControllerProvider =
             ref.read(playHistoryRepositoryProvider).recordCompletion(track),
           ),
           automaticRecovery: ref.read(playbackRecoveryPolicyProvider),
+          sleepWatcher: ref.read(linuxSleepWatcherProvider),
         )
       : JustAudioPlaybackController(
           resolver: ref.read(playableUriResolverProvider),

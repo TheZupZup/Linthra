@@ -55,15 +55,9 @@ abstract interface class LocalPlaybackController implements PlaybackController {
   /// countdown off, so the setting always wins over a skip already pending.
   void setAutomaticSkipEnabled(bool enabled);
 
-  /// Notes that the app/OS is entering a paused lifecycle (screen lock, window
-  /// hide, or system suspend). Remembers whether active playback should be
-  /// recovered after wake — without auto-starting a track the user had paused.
-  void onAppBackgrounded();
-
   /// A safety restore when the app returns to the foreground: undoes any
-  /// lingering audio-focus duck and, on platforms that need it (Linux), runs a
-  /// bounded audio/network recovery for a track that was playing across
-  /// suspend. Never resumes a track the user paused, and a no-op while
-  /// suspended or when nothing is pending.
+  /// lingering audio-focus duck. Never resumes a track the user paused, and a
+  /// no-op while suspended. (Recovering from a system sleep is the engine's own
+  /// business, driven by the wake rather than by the app's lifecycle.)
   void onAppForegrounded();
 }

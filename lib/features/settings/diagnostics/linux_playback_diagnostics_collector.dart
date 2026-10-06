@@ -109,8 +109,8 @@ class LinuxPlaybackDiagnosticsCollector {
       selectedOutputRemembered: output.isRemembered,
       savedOutputUnavailable: output.savedDeviceUnavailable,
       lastSelectionFailed: output.selectionFailed,
-      // Linux is the platform that arms the post-suspend reload; the controller
-      // is constructed with it in `LinuxPlaybackController`.
+      // Linux is the platform with the reload after a system sleep:
+      // `LinuxPlaybackController` watches the kernel's boot clock for one.
       suspendRecoveryEnabled: true,
       playbackStatus: _ref.read(playbackControllerProvider).state.status.name,
       recentFailures: recentFailures(SafeEventLog.instance),

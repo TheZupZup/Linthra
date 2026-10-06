@@ -6,6 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../lifecycle/system_sleep_watcher.dart';
 import '../models/playback_failure.dart';
 import '../models/playback_queue.dart';
 import '../models/playback_source.dart';
@@ -101,7 +102,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     PlayableUriResolver? streamingFallbackResolver,
     Random? random,
     TrackCompletionCallback? onTrackCompleted,
-    bool recoverPlaybackAfterSuspend = false,
+    SystemSleepWatcher? sleepWatcher,
     PlaybackRecoveryPolicy? automaticRecovery,
     LocalFilePresence localFilePresence = const IoLocalFilePresence(),
   })  : _player = player ?? _defaultPlayer(),
@@ -110,7 +111,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _streamingFallbackResolver = streamingFallbackResolver,
         _random = random ?? Random(),
         _onTrackCompleted = onTrackCompleted,
-        _recoverPlaybackAfterSuspend = recoverPlaybackAfterSuspend,
+        _sleepWatcher = sleepWatcher,
         _automaticRecovery = automaticRecovery,
         _localFilePresence = localFilePresence,
         // Own audio focus only for the engine we created. An injected player
@@ -202,8 +203,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// is a dead stream ([midStreamBufferingTimeout]).
   static const Duration _engineOpenTimeout = Duration(seconds: 30);
 
-  /// Delay before a Linux-style post-suspend recovery reload, so audio devices
-  /// and the network have a chance to return after wake. Zero in tests.
+  /// Delay before the reload after a system sleep, so audio devices and the
+  /// network have a chance to return after wake. Zero in tests.
   static const Duration _defaultSuspendResumeBackoff =
       Duration(milliseconds: 750);
 
@@ -228,11 +229,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
   final Random _random;
 
-  /// When true (Linux desktop), a lifecycle resume after suspend reloads the
-  /// current track at the preserved position if it was playing — audio devices
-  /// and tokenized streams are often dead after wake. Android keeps this false
-  /// so screen-on never auto-restarts playback.
-  final bool _recoverPlaybackAfterSuspend;
+  /// Notices a system sleep, so a track that was playing across it is reloaded
+  /// at the preserved position after the wake: audio devices and tokenized
+  /// streams are often dead by then (see [_onSystemWake]). Linux only. Null on
+  /// Android, where nothing restarts playback on its own.
+  final SystemSleepWatcher? _sleepWatcher;
+
+  /// What [_sleepWatcher] read when the engine's current source was handed to
+  /// it, so a wake can tell a source that slept through from one loaded since.
+  Duration? _timeAsleepAtHandOver;
 
   /// Invoked once each time a track reaches its natural end, before the repeat
   /// mode decides what plays next. Null when no listener is wired (tests, or the
@@ -514,17 +519,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @visibleForTesting
   Duration streamRetryBackoff = _defaultStreamRetryBackoff;
 
-  /// Delay before post-suspend recovery reload. Never changed in production;
-  /// tests set this to [Duration.zero].
+  /// Delay before the reload after a system sleep. Never changed in
+  /// production; tests set this to [Duration.zero].
   @visibleForTesting
   Duration suspendResumeBackoff = _defaultSuspendResumeBackoff;
 
-  /// Whether active playback should be recovered after the next lifecycle
-  /// resume. Set by [onAppBackgrounded]; consumed by [onAppForegrounded].
-  bool _recoverPlaybackOnForeground = false;
-
-  /// Coalesces concurrent lifecycle resumes so repeated suspend/wake cycles
-  /// never stack overlapping reloads or re-subscribe anything.
+  /// Coalesces wakes so repeated or racing sleep/wake cycles never stack
+  /// overlapping reloads or re-subscribe anything.
   bool _suspendRecoveryInFlight = false;
   bool _disposed = false;
 
@@ -697,6 +698,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _subscriptions.add(
       _player.playbackEventStream.listen((_) {}, onError: _onEngineError),
     );
+    final SystemSleepWatcher? sleepWatcher = _sleepWatcher;
+    if (sleepWatcher != null) {
+      _subscriptions.add(sleepWatcher.wakes.listen(_onSystemWake));
+    }
     _wireAudioFocus();
   }
 
@@ -1012,50 +1017,54 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   ///
   /// If a duck somehow lingered (e.g. an iOS duck whose unduck was never
   /// delivered), restore full volume so Linthra is never left quietly ducked.
-  ///
-  /// On Android it deliberately does **not** resume playback — screen-on must
-  /// never auto-start audio. On Linux ([_recoverPlaybackAfterSuspend]) a track
-  /// that was *playing* across system suspend is reloaded once at the preserved
-  /// position after a short backoff (audio devices and the network are often
-  /// not ready immediately after wake). A user-paused track stays paused.
-  @override
-  void onAppBackgrounded() {
-    if (_suspended) {
-      _recoverPlaybackOnForeground = false;
-      return;
-    }
-    // Remember intent only: playing/busy → recover; paused/error/idle → leave.
-    _recoverPlaybackOnForeground = _state.isPlaying || _state.isBusy;
-  }
-
+  /// It deliberately does **not** resume playback: screen-on must never
+  /// auto-start audio. The reload after a system sleep is not tied to the app
+  /// coming back either; it follows the wake itself ([_onSystemWake]).
   @override
   void onAppForegrounded() {
     if (_suspended) return;
     _restoreDuckedVolume();
-    if (!_recoverPlaybackAfterSuspend) {
-      // Android/iOS: never auto-recover on screen-on; drop any arming.
-      _recoverPlaybackOnForeground = false;
-      return;
-    }
-    unawaited(_recoverAfterSuspendIfNeeded());
   }
 
-  /// Bounded post-suspend recovery for Linux. One in-flight attempt at a time;
-  /// never adds listeners; preserves queue/track; surfaces error+Retry on fail.
-  Future<void> _recoverAfterSuspendIfNeeded() async {
-    if (!_recoverPlaybackOnForeground) return;
-    if (_suspendRecoveryInFlight) return;
-    final Track? track = _queue.current;
-    if (track == null) {
-      _recoverPlaybackOnForeground = false;
+  /// The machine slept while this player was playing, and has woken (#799).
+  ///
+  /// The audio device was suspended under the engine, and a stream's
+  /// connection may have died with the network, so the track is reloaded once
+  /// where it was, after a short wait for both to come back
+  /// ([_recoverAfterSleep]). Only a source that was loaded before the sleep
+  /// is: a reconnect, an automatic retry or the listener may have loaded the
+  /// track again since the wake, and reloading that would restart it a second
+  /// time. A pause the listener made, before the sleep or since, holds.
+  void _onSystemWake(Duration _) {
+    if (_suspended || _disposed) return;
+    StabilityDiagnostics.lifecycle('system-wake');
+    if (!_playWhenLoaded || !(_state.isPlaying || _state.isBusy)) return;
+    if (_loadInFlight ||
+        _streamRecoveryInFlight ||
+        _automaticRecoveryUnderway) {
       return;
     }
+    if (!_sleepWatcher!.sleptSince(_timeAsleepAtHandOver)) return;
+    unawaited(_recoverAfterSleep());
+  }
+
+  /// Whether a sleep now would leave something to reload after the wake: the
+  /// listener wants sound and the player is playing it or working on it. The
+  /// watcher only looks then, so an idle or paused player holds no timer.
+  bool _watchesForSleep(PlaybackState state) =>
+      !_suspended &&
+      !_disposed &&
+      state.playWhenReady &&
+      (state.isPlaying || state.isBusy);
+
+  /// Bounded reload after a system sleep. One in-flight attempt at a time;
+  /// never adds listeners; preserves queue/track; surfaces error+Retry on fail.
+  Future<void> _recoverAfterSleep() async {
+    if (_suspendRecoveryInFlight) return;
+    final Track? track = _queue.current;
+    if (track == null) return;
 
     _suspendRecoveryInFlight = true;
-    // Consume the arming up front so a nested lifecycle event during backoff
-    // cannot schedule a second overlapping recovery for the same wake.
-    final bool shouldPlay = _recoverPlaybackOnForeground;
-    _recoverPlaybackOnForeground = false;
     final int generation = _playbackGeneration;
     try {
       final Duration backoff = suspendResumeBackoff;
@@ -1066,7 +1075,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // A stop, a seek or another load during the wait owns playback now.
       if (generation != _playbackGeneration) return;
       if (_queue.current?.uri != track.uri) return;
-      if (!shouldPlay) return;
 
       StabilityDiagnostics.playbackError('suspend-resume-recovery');
       _retriesForCurrent = 0;
@@ -1667,6 +1675,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // showing the failed provider.
     if (!force && stamped == _state) return;
     _state = stamped;
+    _sleepWatcher?.watch(_watchesForSleep(stamped));
     if (!_states.isClosed) _states.add(stamped);
   }
 
@@ -2784,6 +2793,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// over once more. An open cut short by the controller itself (a newer
   /// source, a stop, a cast taking over) is left to that.
   Future<int> _handOver(Uri uri, int generation) async {
+    _timeAsleepAtHandOver = _sleepWatcher?.timeAsleep();
     int attempt = ++_sourceAttempt;
     try {
       await _openInEngine(uri, attempt);
@@ -3328,6 +3338,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _resetPositionFlush();
     // The receiver owns playback from here; nothing local moves on its own.
     _haltAutomaticRecovery();
+    // Nor is a sleep while casting this engine's to recover from.
+    _sleepWatcher?.watch(false);
     // Silence the engine but keep the loaded source and queue intact, so a
     // later resume can pick up the same track instantly when nothing changed.
     await _player.pause();
@@ -3634,6 +3646,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
+    await _sleepWatcher?.dispose();
     await _states.close();
     await _player.dispose();
   }
