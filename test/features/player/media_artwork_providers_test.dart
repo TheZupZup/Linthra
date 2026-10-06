@@ -1,9 +1,18 @@
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/plex_session.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
+import 'package:linthra/core/models/track.dart';
+import 'package:linthra/core/services/media_artwork_cache.dart';
 import 'package:linthra/core/sources/plex/plex_track_mapper.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_artwork.dart';
 import 'package:linthra/features/player/media_artwork_providers.dart';
+import 'package:linthra/features/player/player_providers.dart';
+
+import 'fake_playback_controller.dart';
 
 const _subsonic = SubsonicSession(
   baseUrl: 'https://music.example.com',
@@ -25,6 +34,26 @@ Uri _plexThumb(String thumbPath) => Uri(
       scheme: PlexTrackMapper.artworkScheme,
       path: thumbPath.replaceAll('%', '%25'),
     );
+
+/// The real cache, with every resolve it is asked for kept, so a test can wait
+/// for the prewarm's fetches to land instead of guessing how long they take.
+class _ObservedCache extends MediaArtworkCache {
+  _ObservedCache({
+    required super.resolveUrl,
+    super.serverOf,
+    super.fetch,
+    super.directory,
+  });
+
+  final List<Future<Uri?>> resolves = <Future<Uri?>>[];
+
+  @override
+  Future<Uri?> resolve(Uri reference) {
+    final Future<Uri?> resolved = super.resolve(reference);
+    resolves.add(resolved);
+    return resolved;
+  }
+}
 
 void main() {
   group('resolveMediaSessionArtworkUrl', () {
@@ -142,6 +171,76 @@ void main() {
         resolveMediaSessionArtworkUrl(SubsonicArtwork.reference('al-1')),
         isNull,
       );
+    });
+  });
+
+  group('mediaArtworkPrewarmServiceProvider', () {
+    // A Subsonic cover id names a cover on whichever server is signed in, and
+    // servers that number their albums hand out the same ids. The cache keeps
+    // each server's cover apart (#739); the prewarm, the only thing that ever
+    // fills it, has to fetch the new server's cover too. Otherwise the lock
+    // screen, MPRIS and the desktop notification show no cover for that album
+    // until the app is restarted.
+    test("warms another server's cover of the same name after a switch",
+        () async {
+      final Directory dir =
+          await Directory.systemTemp.createTemp('linthra_prewarm_switch');
+      addTearDown(() => dir.delete(recursive: true));
+      String? server = 'server-a';
+      final List<String> fetchedFrom = <String>[];
+      final _ObservedCache cache = _ObservedCache(
+        resolveUrl: (Uri reference) =>
+            Uri.parse('https://$server.example/cover/${reference.path}'),
+        serverOf: (Uri reference) => server,
+        fetch: (Uri url) async {
+          fetchedFrom.add(url.host);
+          return const <int>[0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
+        },
+        directory: () async => dir,
+      );
+      addTearDown(cache.dispose);
+      final FakePlaybackController controller = FakePlaybackController();
+      addTearDown(controller.dispose);
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          mediaArtworkCacheProvider.overrideWithValue(cache),
+          playbackControllerProvider.overrideWithValue(controller),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(mediaArtworkPrewarmServiceProvider);
+      final Uri cover = SubsonicArtwork.reference('al-12');
+
+      controller.emit(PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: Track(
+          id: 'a',
+          title: 'Server A song',
+          uri: 'subsonic:a',
+          artworkUri: cover,
+        ),
+      ));
+      await pumpEventQueue();
+      await Future.wait(cache.resolves);
+      expect(cache.cachedFileUri(cover), isNotNull);
+
+      // Signed in to another server, and its album numbered the same plays.
+      server = 'server-b';
+      controller.emit(PlaybackState(
+        status: PlaybackStatus.playing,
+        currentTrack: Track(
+          id: 'b',
+          title: 'Server B song',
+          uri: 'subsonic:b',
+          artworkUri: cover,
+        ),
+      ));
+      await pumpEventQueue();
+      await Future.wait(cache.resolves);
+
+      expect(cache.cachedFileUri(cover), isNotNull,
+          reason: "server B's album needs its own cover on the media session");
+      expect(fetchedFrom, <String>['server-a.example', 'server-b.example']);
     });
   });
 }

@@ -68,6 +68,48 @@ void main() {
     });
   });
 
+  group('a load or a stall the listener paused', () {
+    // A queue restored at launch loads paused, and so does a load or a
+    // reconnect the listener paused (#751, #806): when it lands, nothing
+    // plays.
+    PlaybackState pausedWhile(PlaybackStatus status) => PlaybackState(
+          status: status,
+          currentTrack: _track,
+          playWhenReady: false,
+        );
+
+    test('is nothing to keep playing, so closing the window quits', () {
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.loading,
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        expect(
+          DesktopClosePolicy.hidesOnClose(
+            DesktopCloseBehavior.keepPlaying,
+            pausedWhile(status),
+          ),
+          isFalse,
+          reason: 'status $status',
+        );
+      }
+    });
+
+    test('still keeps a hidden app alive, like any pause', () {
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.loading,
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        expect(
+          DesktopClosePolicy.keepsRunningWhileHidden(pausedWhile(status)),
+          isTrue,
+          reason: 'status $status',
+        );
+      }
+    });
+  });
+
   group('hidesOnClose when the desktop refused (#754)', () {
     test('keep playing quits instead, even mid-song', () {
       // Inside the Flatpak a hidden window would get the app killed a few

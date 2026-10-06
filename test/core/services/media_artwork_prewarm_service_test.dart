@@ -239,6 +239,45 @@ void main() {
     await _settle();
     expect(attemptsForA, 2); // retried
   });
+
+  test('a cover waiting through a server switch is warmed for the new one',
+      () async {
+    // Remembered by what the cache files it under: the reference on the
+    // server it resolves against (#739).
+    String server = 'a';
+    final Completer<void> gate = Completer<void>();
+    final List<String> warmedFor = <String>[];
+    final MediaArtworkPrewarmService service = MediaArtworkPrewarmService(
+      playbackStates: states.stream,
+      identityOf: (Uri reference) => '$server|$reference',
+      warm: (Uri reference) async {
+        final String id = reference.pathSegments.first;
+        warmedFor.add('$server:$id');
+        if (id == 'al-a') await gate.future;
+        return Uri.parse('content://x/$server-$id.img');
+      },
+    );
+    addTearDown(service.dispose);
+
+    // b's cover is queued for server a behind a's, and the switch to server
+    // b lands before it is fetched: the fetch goes to server b.
+    states.add(_playing(
+      current: _subsonic('a', 'al-a'),
+      upNext: <Track>[_subsonic('b', 'al-b')],
+    ));
+    await _settle();
+    server = 'b';
+    gate.complete();
+    await _settle();
+    expect(warmedFor, <String>['a:al-a', 'b:al-b']);
+
+    // Back on server a, its own cover for b was never fetched.
+    server = 'a';
+    states.add(_playing(current: _subsonic('b', 'al-b')));
+    await _settle();
+
+    expect(warmedFor, <String>['a:al-a', 'b:al-b', 'a:al-b']);
+  });
 }
 
 /// A throwable stand-in so the failure test doesn't depend on dart:io.

@@ -398,6 +398,25 @@ void main() {
       expect(announced(), <String>['Song 1', 'Song 2']);
     });
 
+    test('pausing a reconnect inside the window drops it too', () {
+      observer.onState(_state(_track('1')));
+      clock += const Duration(seconds: 1);
+      observer.onState(_state(_track('2')));
+      // The stream drops, and the listener pauses while it reconnects. The
+      // controller stays on reconnecting with the pause recorded on it (#806),
+      // and every toggle, MPRIS included, reads that as paused.
+      clock += const Duration(seconds: 1);
+      final PlaybackState reconnecting =
+          _state(_track('2'), status: PlaybackStatus.reconnecting);
+      observer.onState(reconnecting);
+      observer.onState(reconnecting.withPlayWhenReady(false));
+      timers.single.fire();
+
+      // Announcing it now would say "now playing" for a song the listener
+      // just paused.
+      expect(announced(), <String>['Song 1']);
+    });
+
     test('the queue emptying inside the window drops it too', () {
       observer.onState(_state(_track('1')));
       clock += const Duration(seconds: 1);
