@@ -37,7 +37,9 @@ This exercises the local-first core and needs **no network and no account**:
    - Alternatively, the optional **All music on this device** mode can scan the
      device audio library. On Android 13+ it asks for the visible, revocable
      **Music and audio** permission (`READ_MEDIA_AUDIO`); on Android 12 and
-     older it uses `READ_EXTERNAL_STORAGE`, capped at API 32.
+     older it uses `READ_EXTERNAL_STORAGE`, capped at API 32. That legacy
+     grant covers more than audio on those releases, but Linthra only reads
+     MediaStore's audio collection with it.
    - If the test device has no music on it, copy a few audio files (e.g. some
      Creative Commons MP3s) to the device first, then pick that folder.
 4. Linthra **scans** the folder and lists **Songs / Albums / Artists**; use the
@@ -123,7 +125,7 @@ A short rationale; the full table is in
 | Internet | Reach the **user-configured** server and run a Cast session. Not used for the local-first features. |
 | Local-network multicast | Discover Cast/Chromecast devices on the local network when the user chooses to cast. |
 | Music and audio (Android 13+) | Optional device-wide local-library mode. Requested only when the user chooses **All music on this device**. |
-| Read external storage (Android 12 and older) | Legacy equivalent for the same optional device-wide local-library mode; capped at API 32. |
+| Read external storage (Android 12 and older) | Legacy equivalent for the same optional device-wide local-library mode; capped at API 32. The OS grant is wider than audio on those releases; Linthra only queries MediaStore audio with it. |
 
 The normal folder-picker path still uses Android's Storage Access Framework and
 does not need either media permission. Linthra does not request

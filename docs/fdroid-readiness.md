@@ -171,43 +171,45 @@ where applicable. Current assessment:
 
 ### Android permissions
 
-Every permission Linthra ships is justified below. Six are declared explicitly
-in [`android/app/src/main/AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml)
-(each with an inline comment); `ACCESS_NETWORK_STATE` is contributed by a
-dependency's bundled manifest at merge time. The set is deliberately minimal:
-**no storage, location, contacts, camera, microphone, or phone permission**, and
-crucially **no broad-storage `MANAGE_EXTERNAL_STORAGE`**.
+Every permission Linthra ships is justified below. All nine are declared
+explicitly in [`android/app/src/main/AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml)
+(each with an inline comment), even where a plugin's manifest would merge the
+same permission in anyway. The set is deliberately minimal: **no location,
+contacts, camera, microphone, or phone permission**, crucially **no
+broad-storage `MANAGE_EXTERNAL_STORAGE`**, and the only storage-related
+permissions belong to the opt-in **All music on this device** mode.
 
 | Permission | Source | Why it is needed |
 | ---------- | ------ | ---------------- |
 | `INTERNET` | App manifest (also `bonsoir`, Media3, others) | Reach the user's self-hosted Jellyfin/Navidrome/Subsonic server (connection test, sign-in, sync, streaming) and carry the Cast session to a device on the LAN. The local-first core works without it. |
-| `ACCESS_NETWORK_STATE` | Merged from AndroidX **Media3** (`just_audio`'s playback engine) | Lets the player read connectivity *state* (e.g. for adaptive streaming / recovery). It grants **no** network access of its own and is a standard AOSP/AndroidX permission. Not declared by Linthra directly. |
+| `ACCESS_NETWORK_STATE` | App manifest (also AndroidX **Media3**, `just_audio`'s playback engine) | Read whether the active connection is unmetered, metered or offline so downloads can follow the user's network preference. It grants **no** network access of its own and exposes no SSID, carrier, IP address or location. |
 | `FOREGROUND_SERVICE` | App manifest (also `audio_service`) | Run the `audio_service` playback service in the foreground so audio keeps playing when the app is backgrounded. |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | App manifest | The typed foreground-service grant required on Android 14+ (API 34) for a service of type `mediaPlayback`; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | App manifest | Android 13+ (API 33) runtime permission for the media notification and its lock-screen/transport controls to appear; requested once on first launch. Playback still works if denied, just without the notification. |
 | `WAKE_LOCK` | App manifest (also `audio_service` / Media3) | Keep the CPU (and, via the foreground media service, the Wi-Fi radio) awake while audio plays so playback and streaming survive the screen turning off. Held only while the service reports `playing`. |
 | `CHANGE_WIFI_MULTICAST_STATE` | App manifest (merged from `bonsoir_android`) | Receive multicast Wi-Fi packets for mDNS (`_googlecast._tcp`) Chromecast discovery. An **AOSP** permission (Android `NsdManager`) for local-network discovery only — no internet or storage access. Cast uses **no** Google Play Services / Cast SDK. |
-| _storage_ | — (none) | **No storage permission is declared.** Folder selection uses the Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE` via `file_picker`), which needs none. |
+| `READ_MEDIA_AUDIO` | App manifest | Android 13+ "Music and audio" permission for the optional **All music on this device** mode, which reads MediaStore's audio collection. Requested only after the user chooses that mode, never on launch. |
+| `READ_EXTERNAL_STORAGE` (`maxSdkVersion="32"`) | App manifest | Legacy permission for the same opt-in mode on Android 12 and older; Android 13+ never sees it. The OS grant is wider than audio there (all shared storage on Android 9 and older, shared photos/videos/audio on Android 10 to 12); Linthra only queries MediaStore audio with it. |
 
-> **Verification note.** The six explicit permissions are read directly from the
-> committed manifest. `ACCESS_NETWORK_STATE` is contributed by the Media3 AAR at
-> Gradle manifest-merge time; the exact merged set should be re-confirmed against
-> the merged manifest of a release build (`flutter build apk --release`) at
-> submission time — this preparation pass could not run the Android build locally
-> (see [§11 Verification](#11-verification-status) and
-> §8.2). No permission is requested speculatively in code.
+> **Verification note.** The nine permissions are read directly from the
+> committed manifest. Plugins (Media3, `audio_service`, `bonsoir`) contribute
+> some of the same permissions at Gradle manifest-merge time; the exact merged
+> set should be re-confirmed against the merged manifest of a release build
+> (`flutter build apk --release`) at submission time — this preparation pass
+> could not run the Android build locally (see
+> [§11 Verification](#11-verification-status) and §8.2). No permission is
+> requested speculatively in code.
 
 - **`MANAGE_EXTERNAL_STORAGE` is intentionally not used.** It is an "all files
   access" permission Google restricts and F-Droid users distrust; it is the
   opposite of the scoped-storage approach this project prefers. It must not be
   added without an explicit, documented justification.
-- **Known SAF limitation:** a SAF folder is resolved to a filesystem path and
-  walked with `dart:io`. On Android 11+ that path is frequently unreadable under
-  scoped storage; the scanner surfaces a clear in-app error in that case
-  (`DirectoryReadability` probe + `FolderScanException`) rather than a silent
-  empty library. Lifting the restriction needs content-resolver SAF traversal (a
-  native plugin); a narrow `READ_MEDIA_AUDIO` request is a separate future
-  option. Neither is requested today.
+- **Folder access needs no permission.** A picked folder (Storage Access
+  Framework, `ACTION_OPEN_DOCUMENT_TREE`) is walked through the content
+  resolver using only the grant the user gave; see
+  [architecture.md](./architecture.md#android-folder-selection-saf). The
+  device-wide mode is a separate, opt-in alternative and the only path that
+  asks for `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE`.
 
 ## 6. Release / tagging plan
 

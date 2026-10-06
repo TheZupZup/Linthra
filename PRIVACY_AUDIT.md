@@ -79,11 +79,12 @@ automated, so they are only as current as that review.
 
 - **Android permissions and exported components.** The permission tables in
   [fdroid-readiness.md](docs/fdroid-readiness.md) and
-  [play-store-readiness.md](docs/play-store-readiness.md) are written by hand
-  and are currently behind the manifest (they predate `READ_MEDIA_AUDIO` and
-  `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`). The plan is to check the
-  final merged manifest, including what plugins add, against a reviewed
-  baseline, and fix those tables to match it.
+  [play-store-readiness.md](docs/play-store-readiness.md) are written by hand.
+  They now match the manifest (including `READ_MEDIA_AUDIO` and
+  `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`), but nothing stops them
+  drifting again. The plan is to check the final merged manifest, including
+  what plugins add, against a reviewed baseline, and keep those tables in step
+  with it.
 - **A privacy report for the exact APK you install.** SHA-256, package and
   version, signing certificate fingerprint, effective permissions, native
   libraries, SDK indicators and host strings, generated from the release APK
