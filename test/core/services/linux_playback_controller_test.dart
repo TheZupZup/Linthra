@@ -34,6 +34,11 @@ class _Engine extends Fake implements AudioPlayer {
   /// How long an open takes to answer when it answers.
   Duration openDelay = Duration.zero;
 
+  /// When set, an open reports the source's length before it answers, as
+  /// libmpv does (just_audio_media_kit forwards mpv's duration as soon as
+  /// mpv knows it, which is before the open has buffered).
+  Duration? durationOnOpen;
+
   @override
   Stream<PlayerState> get playerStateStream => states.stream;
   @override
@@ -57,6 +62,8 @@ class _Engine extends Fake implements AudioPlayer {
       return Completer<Duration?>().future;
     }
     if (openDelay > Duration.zero) await Future<void>.delayed(openDelay);
+    final Duration? length = durationOnOpen;
+    if (length != null) durations.add(length);
     return const Duration(minutes: 4);
   }
 
@@ -577,6 +584,66 @@ void main() {
       expect(completed, isEmpty);
       expect(controller.state.currentTrack?.id, 'a');
       expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    // A load that moves its source there is the same seek to the end, made
+    // before anything plays.
+    test('a queue put back at the end of A moves on to B on Play', () async {
+      // Left paused at the very end (the seek above), the app quit, and the
+      // session put back where it was at the next launch.
+      final engine = _Engine()..durationOnOpen = const Duration(minutes: 4);
+      final List<Track> completed = <Track>[];
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: _Resolver(),
+        onTrackCompleted: completed.add,
+      );
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.restoreSession(
+        tracks: <Track>[_track('a', '/a.mp3'), _track('b', '/b.mp3')],
+        position: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed.map((Track t) => t.id), <String>['a']);
+      expect(controller.state.currentTrack?.id, 'b',
+          reason: 'not "playing" at the end of A, in silence, for good');
+      expect(engine.opened, hasLength(2));
+    });
+
+    test('Play after a seek to the end while stopped moves on to the next',
+        () async {
+      // MPRIS SetPosition to the end while stopped, then Play: the track is
+      // opened afresh there.
+      final engine = _Engine()..durationOnOpen = const Duration(minutes: 4);
+      final List<Track> completed = <Track>[];
+      final LinuxPlaybackController controller = LinuxPlaybackController(
+        player: engine,
+        resolver: _Resolver(),
+        onTrackCompleted: completed.add,
+      );
+      addTearDown(() async {
+        await controller.dispose();
+        await engine.close();
+      });
+      await controller.playTracks(<Track>[
+        _track('a', '/a.mp3'),
+        _track('b', '/b.mp3'),
+      ]);
+      await controller.stop();
+      await controller.seek(const Duration(minutes: 4));
+
+      await controller.play();
+      await pumpEventQueue();
+
+      expect(completed.map((Track t) => t.id), <String>['a']);
+      expect(controller.state.currentTrack?.id, 'b');
     });
   });
 

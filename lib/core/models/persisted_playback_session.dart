@@ -201,7 +201,12 @@ class PersistedPlaybackSession {
         if (isTrackRestorable != null && !isTrackRestorable(track)) continue;
         order.add(track);
       }
-      if (order.isNotEmpty) originalOrder = order;
+      // Only the queue's own songs in another order. Anything else (a song
+      // the queue doesn't hold, or one of its songs missing) would have
+      // shuffle off put another queue in its place, without the song that is
+      // playing: the player would go on showing it while the queue had moved
+      // to a song nobody hears, and that song would be counted as played.
+      if (order.isNotEmpty && _sameSongs(order, parsed)) originalOrder = order;
     }
 
     final Track current = parsed[currentIndex];
@@ -244,6 +249,22 @@ class PersistedPlaybackSession {
             !_looksTokenBearing(entry.value.toLowerCase()))
           entry.key: entry.value,
     };
+  }
+
+  /// Whether [a] and [b] hold the same songs, each as many times, in any
+  /// order.
+  static bool _sameSongs(List<Track> a, List<Track> b) {
+    if (a.length != b.length) return false;
+    final Map<String, int> left = <String, int>{};
+    for (final Track track in a) {
+      left[track.uri] = (left[track.uri] ?? 0) + 1;
+    }
+    for (final Track track in b) {
+      final int count = left[track.uri] ?? 0;
+      if (count == 0) return false;
+      left[track.uri] = count - 1;
+    }
+    return true;
   }
 
   static bool _allLogical(List<Track> tracks) {

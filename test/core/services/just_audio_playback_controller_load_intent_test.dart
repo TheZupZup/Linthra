@@ -116,6 +116,14 @@ class _GatedResolver implements PlayableUriResolver {
           kind: PlaybackResolutionErrorKind.localFileMissing,
         ),
       );
+
+  /// Fails the way a server that blinked does: worth trying again.
+  void failUnreachable(Track track) => _gates.remove(track.uri)!.completeError(
+        const PlaybackResolutionException(
+          "Couldn't reach your music server.",
+          kind: PlaybackResolutionErrorKind.serverUnreachable,
+        ),
+      );
 }
 
 Track _track(String id, {String provider = 'jellyfin'}) => Track(
@@ -448,6 +456,66 @@ void main() {
 
       expect(player.loadedUrls, <String>[_url(a)]);
       expect(player.lastTransport, 'pause');
+    });
+
+    test(
+        'a load that then fails gets the automatic retry any load the '
+        'listener asked to hear gets', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: player,
+        resolver: resolver,
+        automaticRecovery: const PlaybackRecoveryPolicy(
+          retryDelay: Duration(hours: 1),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      // The listener presses Play while the restored track still resolves,
+      // and the server turns out to have blinked.
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      await controller.play();
+      resolver.failUnreachable(a);
+      await restore;
+      await _settle();
+
+      expect(controller.hasPendingAutomaticRecovery, isTrue,
+          reason: 'Play asked for this track, so a blip is retried on its '
+              'own, as it is for a track started any other way');
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+    });
+
+    test('a load nobody pressed Play for still just shows its failure',
+        () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver = _GatedResolver();
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: player,
+        resolver: resolver,
+        automaticRecovery: const PlaybackRecoveryPolicy(
+          retryDelay: Duration(hours: 1),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[a, b],
+        position: const Duration(minutes: 1),
+      );
+      await _settle();
+      resolver.failUnreachable(a);
+      await restore;
+      await _settle();
+
+      expect(controller.hasPendingAutomaticRecovery, isFalse);
+      expect(controller.state.status, PlaybackStatus.error);
     });
   });
 
