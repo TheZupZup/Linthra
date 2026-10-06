@@ -1009,14 +1009,17 @@ class CacheDownloadRepository
       // The record couldn't be written (the disk is full). Kept, the copy
       // would look downloaded until the next launch, which removes a file no
       // record names (#747): it goes now instead, and the download fails the
-      // way one with no room does (#786). A copy this one didn't write over
-      // stays where it was.
-      if (replaced != null && replaced.fileName != fileName) {
+      // way one with no room does (#786). The copy it replaced stays, saved
+      // as it was. One that raced this download into the same file (a
+      // pre-cache committed while this was fetching) keeps the bytes just
+      // written there, the same song's.
+      if (replaced != null) {
         _downloads[key] = replaced;
+        if (replaced.fileName != fileName) await _files.delete(fileName);
       } else {
         _downloads.remove(key);
+        await _files.delete(fileName);
       }
-      await _files.delete(fileName);
       if (evictedAStatus) _emitStatus();
       _emitCache();
       if (preloaded) return;

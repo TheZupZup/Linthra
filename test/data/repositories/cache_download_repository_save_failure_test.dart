@@ -5,6 +5,7 @@
 // removed its file as one no record names (#747). Staged with the real file
 // store over a temp folder, so a "next launch" runs the real sweep, and a
 // record store whose saves fail while [_FullDiskStore.full] is set.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,8 @@ class _Wifi implements ConnectivityService {
 }
 
 class _InstantDownloader implements RemoteTrackDownloader {
+  int fetches = 0;
+
   @override
   bool isRemote(Track track) => track.uri.startsWith('jellyfin:');
 
@@ -34,8 +37,36 @@ class _InstantDownloader implements RemoteTrackDownloader {
   Future<RemoteTrackData> fetch(
     Track track, {
     void Function(int received, int? total)? onProgress,
-  }) async =>
-      const RemoteTrackData(bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
+  }) async {
+    fetches++;
+    return const RemoteTrackData(
+        bytes: <int>[1, 2, 3, 4], fileExtension: 'mp3');
+  }
+}
+
+/// Holds the first read of the cache limit made once [holdWhen] says so, until
+/// [release], so a test can land something else in the middle of the step
+/// that reads it.
+class _HeldLimitPreferences extends InMemoryDownloadPreferences {
+  _HeldLimitPreferences({required this.holdWhen});
+
+  final bool Function() holdWhen;
+  final Completer<void> _reached = Completer<void>();
+  final Completer<void> _released = Completer<void>();
+
+  /// Completes once a read is being held.
+  Future<void> get reached => _reached.future;
+
+  void release() => _released.complete();
+
+  @override
+  Future<int> maxCacheBytes() async {
+    if (!_reached.isCompleted && holdWhen()) {
+      _reached.complete();
+      await _released.future;
+    }
+    return super.maxCacheBytes();
+  }
 }
 
 /// The download records, on a disk that can fill up: while [full], every save
@@ -47,12 +78,18 @@ class _FullDiskStore implements DownloadStore {
   final InMemoryDownloadStore _inner;
   bool full = false;
 
+  /// Fails only the saves it matches, for a disk that fills up at one exact
+  /// write.
+  bool Function(List<CachedTrack> downloads)? failWhen;
+
   @override
   Future<List<CachedTrack>> loadDownloads() => _inner.loadDownloads();
 
   @override
   Future<void> saveDownloads(List<CachedTrack> downloads) async {
-    if (full) throw const DownloadStoreWriteException();
+    if (full || (failWhen?.call(downloads) ?? false)) {
+      throw const DownloadStoreWriteException();
+    }
     await _inner.saveDownloads(downloads);
   }
 }
@@ -81,13 +118,17 @@ void main() {
     });
   });
 
-  CacheDownloadRepository launch(DownloadStore store) =>
+  CacheDownloadRepository launch(
+    DownloadStore store, {
+    RemoteTrackDownloader? downloader,
+    InMemoryDownloadPreferences? preferences,
+  }) =>
       CacheDownloadRepository(
         store: store,
         files: FileSystemOfflineFileStore(directory: () async => dir),
-        downloader: _InstantDownloader(),
+        downloader: downloader ?? _InstantDownloader(),
         connectivity: _Wifi(),
-        preferences: InMemoryDownloadPreferences(),
+        preferences: preferences ?? InMemoryDownloadPreferences(),
       );
 
   Future<List<String>> filesOnDisk() async => <String>[
@@ -232,6 +273,46 @@ void main() {
       expect(
           await relaunched.statusFor(_onDevice.id), DownloadStatus.downloaded);
     });
+  });
+
+  test(
+      'a download racing a pre-cache of the same song keeps that pre-cache '
+      'when its own record cannot be saved', () async {
+    // Only the download's record fails to save: the pre-cache's goes through.
+    final _FullDiskStore store = _FullDiskStore()
+      ..failWhen = (List<CachedTrack> records) => records.any(
+          (CachedTrack record) =>
+              record.trackId == _track.id && !record.preloaded);
+    final _InstantDownloader downloader = _InstantDownloader();
+    // The pre-cache reads the limit in its commit, once it has the bytes.
+    final _HeldLimitPreferences preferences =
+        _HeldLimitPreferences(holdWhen: () => downloader.fetches == 1);
+    final CacheDownloadRepository repository =
+        launch(store, downloader: downloader, preferences: preferences);
+    await repository.cacheSnapshot();
+
+    // The pre-cache is inside its commit, past its check for a download of
+    // the same song, when the user asks for that download: both fetch, and
+    // both write the same file.
+    final Future<void> warming = repository.prefetch(_track);
+    await preferences.reached;
+    final Future<DownloadRequestOutcome> asking =
+        repository.requestDownload(_track);
+    for (int i = 0; i < 100 && downloader.fetches < 2; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(downloader.fetches, 2);
+    preferences.release();
+    await warming;
+
+    await expectLater(asking, throwsA(isA<CacheStorageException>()));
+    expect((await repository.cacheSnapshot()).entries.single.preloaded, isTrue);
+    expect((await repository.cacheSnapshot()).usedBytes, 4);
+    expect(await filesOnDisk(), hasLength(1),
+        reason: 'the file the saved pre-cache record names was deleted');
+
+    final CacheDownloadRepository relaunched = launch(store);
+    expect((await relaunched.cacheSnapshot()).usedBytes, 4);
   });
 
   test('a full disk still lets the cache be read', () async {
