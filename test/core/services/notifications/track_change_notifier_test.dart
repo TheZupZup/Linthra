@@ -194,6 +194,33 @@ void main() {
       expect(announced(), <String>['Song 1']);
     });
 
+    test('a provider fallback mid-song says nothing (#798)', () {
+      const Track jellyfin = Track(
+        id: 'jf-1',
+        title: 'Same Song',
+        uri: 'jellyfin:jf-1',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+      const Track subsonic = Track(
+        id: 'sub-9',
+        title: 'Same Song',
+        uri: 'subsonic:sub-9',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+
+      observer.onState(_state(jellyfin));
+      clock += const Duration(minutes: 1);
+      observer.onState(
+        _state(subsonic, position: const Duration(seconds: 31)),
+      );
+
+      expect(announced(), <String>['Same Song']);
+    });
+
     test('a reconnect mid-stream says nothing', () {
       final Track track = _track('1');
       observer.onState(_state(track));
