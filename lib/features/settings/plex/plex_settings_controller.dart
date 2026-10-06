@@ -804,12 +804,17 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
         sectionsLoaded: true,
       );
       await _pruneVanishedSelection(music, connection);
-    } on PlexException catch (error) {
+    } catch (error) {
       if (connection != _connection) return;
+      // Anything else (a listing that broke parsing, say) still has to end
+      // the load: the picker would spin, its Refresh disabled, until a
+      // restart, and a connect would stop before clearing the previous
+      // server's tracks.
+      final PlexException failure = _typed(error);
       state = state.copyWith(
         isLoadingSections: false,
-        errorMessage: error.message,
-        errorKind: error.kind,
+        errorMessage: failure.message,
+        errorKind: failure.kind,
       );
     }
   }
