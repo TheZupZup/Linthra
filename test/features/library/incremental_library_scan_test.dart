@@ -19,7 +19,9 @@ import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/data/database/linthra_database.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
+import 'package:linthra/data/repositories/in_memory_local_tag_revision_store.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
+import 'package:linthra/data/repositories/local_tag_revision_store_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/selected_music_folder_repository_provider.dart';
 import 'package:linthra/features/library/library_controller.dart';
@@ -72,6 +74,15 @@ class _CountingMetadataReader implements LocalMetadataReader {
   }
 }
 
+/// A tag reader that says which revision of tag reading it is, the way the
+/// filesystem reader does; [tagRevision] goes up when Linthra is updated with
+/// a change to how tags are read.
+class _RevisedMetadataReader extends _CountingMetadataReader
+    implements LocalTagRevision {
+  @override
+  int tagRevision = 1;
+}
+
 class _FakeStatReader implements LocalFileStatReader {
   _FakeStatReader(this.stamps);
 
@@ -92,9 +103,14 @@ void main() {
   late _CountingMetadataReader tags;
   late _FakeStatReader stats;
 
-  ProviderContainer container({List<String> roots = const <String>['/music']}) {
+  ProviderContainer container({
+    List<String> roots = const <String>['/music'],
+    InMemoryLocalTagRevisionStore? revisions,
+  }) {
     final ProviderContainer c = ProviderContainer(
       overrides: <Override>[
+        if (revisions != null)
+          localTagRevisionStoreProvider.overrideWithValue(revisions),
         folderPickerServiceProvider
             .overrideWithValue(FakeFolderPickerService()),
         selectedMusicFolderRepositoryProvider.overrideWithValue(
@@ -253,6 +269,97 @@ void main() {
         0,
         reason: 'the offline folder kept the stamps it was indexed with, so '
             'reconnecting the drive does not re-parse it',
+      );
+    });
+  });
+
+  group('a change to how tags are read (#783)', () {
+    late _RevisedMetadataReader revised;
+    late InMemoryLocalTagRevisionStore revisions;
+
+    setUp(() {
+      revised = _RevisedMetadataReader();
+      tags = revised;
+      revisions = InMemoryLocalTagRevisionStore();
+    });
+
+    test(
+        'an update to the tag reader reads every file once more, then only '
+        'what changed again', () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
+
+      revised.tagRevision = 2;
+      await notifier.rescan();
+      expect(revised.readCount, 2,
+          reason: 'unchanged on disk, but read by the old reader');
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
+    });
+
+    test('a library indexed before revisions were recorded is read once',
+        () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+      // What a library indexed by an earlier version looks like: rows and
+      // stamps in the catalog, and nothing recorded about how they were read.
+      await revisions.save(const <String, int>{});
+      revised.reads.clear();
+
+      await notifier.rescan();
+
+      expect(revised.readCount, 2);
+      expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test(
+        'a folder that could not be read is read in full once it can be, '
+        'and only that one', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac'],
+        '/media/usb': <String>['/media/usb/b.flac'],
+      });
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/music/a.flac': _stamp(100, 1000),
+        '/media/usb/b.flac': _stamp(200, 2000),
+      });
+      final ProviderContainer c = container(
+        roots: const <String>['/music', '/media/usb'],
+        revisions: revisions,
+      );
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      // The update lands while the drive is out: only /music is read again.
+      revised.tagRevision = 2;
+      files.unavailable = <String>{'/media/usb'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 2, '/media/usb': 1},
+      );
+
+      // The drive is back: its file was indexed by the old reader.
+      files.unavailable = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/media/usb/b.flac']);
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 2, '/media/usb': 2},
       );
     });
   });
