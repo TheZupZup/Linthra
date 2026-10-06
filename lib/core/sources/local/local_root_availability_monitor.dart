@@ -44,6 +44,7 @@ class LocalRootAvailabilityMonitor {
     Future<void> Function(List<String> roots)? onRootsReturned,
     void Function(LocalLibraryAvailability availability)? onChanged,
     this.pollInterval,
+    this.probeTimeout = const Duration(seconds: 10),
     DateTime Function() now = DateTime.now,
   })  : _probe = probe,
         _onRootsReturned = onRootsReturned,
@@ -66,6 +67,25 @@ class LocalRootAvailabilityMonitor {
   /// carries a live timer and only probes when something asks. The running app
   /// supplies a real interval.
   final Duration? pollInterval;
+
+  /// How long one folder may take to answer before it counts as not
+  /// answering ([LocalRootFault.unavailable]). The listing a probe opens can
+  /// block for as long as the storage behind it keeps retrying, which for a
+  /// network share on a hard mount whose server went away is forever, and the
+  /// round, and every request queued behind it, would wait with it.
+  final Duration probeTimeout;
+
+  /// The probe of each folder that is still out, by root. A folder that
+  /// hangs is asked again only once that probe has answered: the listing it
+  /// is stuck in holds one of dart:io's worker threads, and asking every
+  /// round would take one more each time.
+  final Map<String, Future<LocalRootReading?>> _pending =
+      <String, Future<LocalRootReading?>>{};
+
+  /// The [probeTimeout] timer of every probe still being waited on, with
+  /// what settles its wait.
+  final Map<Timer, void Function(LocalRootReading?)> _deadlines =
+      <Timer, void Function(LocalRootReading?)>{};
 
   final DateTime Function() _now;
 
@@ -223,10 +243,7 @@ class LocalRootAvailabilityMonitor {
     final List<String> returned = <String>[];
     bool changed = false;
     for (final String root in roots) {
-      final LocalRootReading? answer = await _probe.inspect(
-        root,
-        askHoldsNothing: _roots[root]?.fault == LocalRootFault.empty,
-      );
+      final LocalRootReading? answer = await _inspect(root);
       if (_disposed) return const <String>[];
       if (answer == null) {
         // This platform cannot speak for this root. Forget it rather than
@@ -252,6 +269,41 @@ class LocalRootAvailabilityMonitor {
     }
     if (changed) _publish();
     return returned;
+  }
+
+  /// [root]'s answer, or that it is not answering once [probeTimeout] is up.
+  Future<LocalRootReading?> _inspect(String root) {
+    Future<LocalRootReading?>? pending = _pending[root];
+    if (pending == null) {
+      final Future<LocalRootReading?> asked = _probe.inspect(
+        root,
+        askHoldsNothing: _roots[root]?.fault == LocalRootFault.empty,
+      );
+      pending = _pending[root] = asked;
+      asked.whenComplete(() {
+        if (identical(_pending[root], asked)) _pending.remove(root);
+      }).ignore();
+    }
+    // A timer of its own rather than Future.timeout, so dispose can stop it
+    // and let the round waiting on it finish.
+    final Completer<LocalRootReading?> answer = Completer<LocalRootReading?>();
+    void settle(LocalRootReading? reading) {
+      if (!answer.isCompleted) answer.complete(reading);
+    }
+
+    late final Timer deadline;
+    deadline = Timer(probeTimeout, () {
+      _deadlines.remove(deadline);
+      settle(const LocalRootReading.blocked(LocalRootFault.unavailable));
+    });
+    _deadlines[deadline] = settle;
+    pending.then(settle, onError: (Object error, StackTrace stack) {
+      if (!answer.isCompleted) answer.completeError(error, stack);
+    }).whenComplete(() {
+      deadline.cancel();
+      _deadlines.remove(deadline);
+    });
+    return answer.future;
   }
 
   Future<void> _announceReturned(List<String> returned) async {
@@ -320,5 +372,12 @@ class LocalRootAvailabilityMonitor {
     _disposed = true;
     _poll?.cancel();
     _poll = null;
+    // A round still waiting on a folder ends now, without an answer.
+    for (final MapEntry<Timer, void Function(LocalRootReading?)> wait
+        in _deadlines.entries.toList()) {
+      wait.key.cancel();
+      wait.value(null);
+    }
+    _deadlines.clear();
   }
 }

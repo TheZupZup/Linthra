@@ -98,8 +98,41 @@ class _BlockingRootProbe implements LocalRootProbe {
   }
 }
 
+/// A probe whose folders in [hung] never answer until the test answers for
+/// them, the way a directory listing on a network share whose server is gone
+/// blocks for as long as the mount retries. Counts how often each folder is
+/// asked.
+class _HangingRootProbe implements LocalRootProbe {
+  _HangingRootProbe({required this.present, required Set<String> hung})
+      : _hung = <String, Completer<LocalRootReading?>>{
+          for (final String root in hung) root: Completer<LocalRootReading?>(),
+        };
+
+  Set<String> present;
+  final Map<String, Completer<LocalRootReading?>> _hung;
+  final Map<String, int> asked = <String, int>{};
+
+  /// The folder answers at last: its listing went through.
+  void answer(String root) =>
+      _hung.remove(root)!.complete(const LocalRootReading.available());
+
+  @override
+  Future<LocalRootReading?> inspect(
+    String root, {
+    bool askHoldsNothing = false,
+  }) {
+    asked[root] = (asked[root] ?? 0) + 1;
+    final Completer<LocalRootReading?>? hung = _hung[root];
+    if (hung != null) return hung.future;
+    return Future<LocalRootReading?>.value(present.contains(root)
+        ? const LocalRootReading.available()
+        : const LocalRootReading.blocked(LocalRootFault.missing));
+  }
+}
+
 const String _usb = '/media/usb/Music';
 const String _internal = '/home/me/Music';
+const String _nas = '/mnt/nas/Music';
 
 void main() {
   group('LocalRootAvailabilityMonitor', () {
@@ -179,6 +212,83 @@ void main() {
       expect(monitor.availability.stateFor(_usb)?.isChecking, isTrue);
       expect(monitor.availability.isUnavailable(_usb), isFalse);
       await pending;
+    });
+
+    group('a folder whose storage hangs', () {
+      const Duration deadline = Duration(milliseconds: 50);
+
+      test('reads as not answering, and holds up no other folder', () async {
+        final _HangingRootProbe probe = _HangingRootProbe(
+            present: <String>{_internal}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: deadline,
+        );
+        addTearDown(monitor.dispose);
+
+        await monitor.syncRoots(<String>[_nas, _internal]);
+
+        expect(monitor.availability.faultFor(_nas), LocalRootFault.unavailable);
+        expect(monitor.availability.isAvailable(_internal), isTrue);
+        // Retry on the other folder answers, rather than queueing for good
+        // behind the round the share is stuck in.
+        await monitor.recheck(_internal);
+        expect(probe.asked[_internal], 2);
+      });
+
+      test('is asked again only once its stuck probe answers', () async {
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: deadline,
+        );
+        addTearDown(monitor.dispose);
+
+        await monitor.syncRoots(<String>[_nas]);
+        await monitor.refresh();
+        await monitor.recheck(_nas);
+
+        expect(probe.asked[_nas], 1,
+            reason: 'each round started another listing stuck on the share');
+      });
+
+      test('leaves nothing waiting once the monitor is disposed', () async {
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: const Duration(hours: 1),
+        );
+        final Future<void> syncing = monitor.syncRoots(<String>[_nas]);
+        await Future<void>.delayed(Duration.zero);
+
+        await monitor.dispose();
+
+        await expectLater(syncing, completes);
+      });
+
+      test('is back, and rescanned, once the share answers', () async {
+        final _HangingRootProbe probe =
+            _HangingRootProbe(present: <String>{}, hung: <String>{_nas});
+        final List<List<String>> returned = <List<String>>[];
+        final monitor = LocalRootAvailabilityMonitor(
+          probe: probe,
+          probeTimeout: deadline,
+          onRootsReturned: (List<String> roots) async => returned.add(roots),
+        );
+        addTearDown(monitor.dispose);
+        await monitor.syncRoots(<String>[_nas]);
+        expect(monitor.availability.isUnavailable(_nas), isTrue);
+
+        probe.answer(_nas);
+        await monitor.refresh();
+
+        expect(monitor.availability.isAvailable(_nas), isTrue);
+        expect(returned, <List<String>>[
+          <String>[_nas]
+        ]);
+      });
     });
 
     test('a folder that goes away becomes unavailable and keeps its place',
