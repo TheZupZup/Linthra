@@ -140,8 +140,10 @@ Linthra does not send telemetry or analytics.
   yourself.
 - Downloads only happen when you start them.
 - Minimal permissions: playback, notifications and network. Picking a folder
-  needs no storage permission; the optional "All music on this device" mode
-  asks for Android's music permission only when you choose it.
+  needs no storage permission. The optional "All music on this device" mode
+  asks only when you choose it: for Android's "Music and audio" permission on
+  Android 13+, or the older storage permission on Android 12 and below, which
+  covers more than music.
 - The server password is used once to get a token, then discarded. The token
   is stored encrypted and never logged.
 
