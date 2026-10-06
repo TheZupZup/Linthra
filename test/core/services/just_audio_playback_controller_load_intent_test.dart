@@ -483,6 +483,69 @@ void main() {
     });
   });
 
+  group('a stop, a seek or a dispose during a mid-stream reconnect', () {
+    Future<({_RecordingPlayer player, JustAudioPlaybackController controller})>
+        reconnecting() async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver =
+          _GatedResolver(immediate: <String>{a.uri});
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: player, resolver: resolver);
+      // Long enough that the listener's action always lands inside it.
+      controller.streamRetryBackoff = const Duration(milliseconds: 500);
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      controller.setPositionForTesting(const Duration(seconds: 42));
+      controller.handleStreamFailureForTesting(const StreamInterruption(
+        StreamInterruptionKind.networkDropped,
+        'dropped',
+        retryable: true,
+      ));
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.reconnecting);
+      return (player: player, controller: controller);
+    }
+
+    Future<void> outlastBackoff() async {
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await _settle();
+    }
+
+    test('a stop while the retry waits its backoff stays stopped', () async {
+      final setup = await reconnecting();
+
+      await setup.controller.stop();
+      await outlastBackoff();
+
+      expect(setup.player.loadedUrls, <String>[_url(a)],
+          reason: 'the reconnect reloaded a track the listener stopped');
+      expect(setup.controller.state.status, PlaybackStatus.idle);
+    });
+
+    test('a seek while the retry waits its backoff reloads there, once',
+        () async {
+      final setup = await reconnecting();
+
+      await setup.controller.seek(const Duration(seconds: 90));
+      await outlastBackoff();
+
+      expect(setup.player.loadedUrls, <String>[_url(a), _url(a)]);
+      expect(setup.player.seeks.last, 'seek:90000',
+          reason: 'the reconnect went back to where the stream dropped');
+    });
+
+    test('a dispose while the retry waits its backoff reloads nothing',
+        () async {
+      final setup = await reconnecting();
+
+      await setup.controller.dispose();
+      await outlastBackoff();
+
+      expect(setup.player.loadedUrls, <String>[_url(a)]);
+    });
+  });
+
   group('a seek issued while a track is loading', () {
     test('lands on the loading track at the requested spot', () async {
       final setup = await playingAWithBGated();
@@ -623,7 +686,8 @@ void main() {
     });
   });
 
-  group('the post-suspend reload respects a pause during its backoff', () {
+  group('the post-suspend reload respects a pause or a stop during its wait',
+      () {
     test('pausing before the reload runs loads the track paused', () async {
       final _RecordingPlayer player = _RecordingPlayer();
       final _GatedResolver resolver =
@@ -648,6 +712,31 @@ void main() {
       expect(player.loadedUrls, <String>[_url(a), _url(a)],
           reason: 'the reload still refreshes the source after sleep');
       expect(player.lastTransport, 'pause');
+    });
+
+    test('a stop before the reload runs stays stopped', () async {
+      final _RecordingPlayer player = _RecordingPlayer();
+      final _GatedResolver resolver =
+          _GatedResolver(immediate: <String>{a.uri});
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: player,
+        resolver: resolver,
+        recoverPlaybackAfterSuspend: true,
+      )..suspendResumeBackoff = const Duration(milliseconds: 500);
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAppBackgrounded();
+      controller.onAppForegrounded();
+      await controller.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await _settle();
+
+      expect(player.loadedUrls, <String>[_url(a)],
+          reason: 'the wake reload reopened a track the listener stopped');
+      expect(controller.state.status, PlaybackStatus.idle);
     });
   });
 
