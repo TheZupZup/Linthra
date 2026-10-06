@@ -263,4 +263,86 @@ void main() {
       expect(engine.seeks, isEmpty);
     });
   });
+
+  group('a seek on the error panel', () {
+    /// A mid-song failure the quick reconnect could not fix, whose Retry then
+    /// failed again: the error panel shows a 3:00 song stopped at 0:42, with
+    /// its progress bar draggable.
+    Future<JustAudioPlaybackController> stoppedMidSong() async {
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(player: engine, resolver: resolver)
+            ..streamRetryBackoff = Duration.zero;
+      addTearDown(controller.dispose);
+      await controller.playTracks(<Track>[a]);
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      engine.emitDuration(const Duration(minutes: 3));
+      await _settle();
+      controller.setPositionForTesting(const Duration(seconds: 42));
+      resolver.down.add(a.uri);
+      await controller.handleStreamFailureForTestingAsync(
+        const StreamInterruption(
+          StreamInterruptionKind.networkDropped,
+          'The connection dropped while streaming.',
+          retryable: true,
+        ),
+      );
+      await controller.retryCurrentTrack();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.position, const Duration(seconds: 42));
+      expect(controller.state.duration, const Duration(minutes: 3));
+      return controller;
+    }
+
+    test('is where Retry picks the song up', () async {
+      final JustAudioPlaybackController controller = await stoppedMidSong();
+
+      // The listener drags the bar to 2:00, then taps Retry once the server
+      // is back.
+      await controller.seek(const Duration(minutes: 2));
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure, isNotNull,
+          reason: 'the reason and its recoveries stay on screen');
+      expect(controller.state.position, const Duration(minutes: 2),
+          reason: 'the bar shows where the listener put it');
+
+      resolver.down.clear();
+      engine.seeks.clear();
+      await controller.retryCurrentTrack();
+      await _settle();
+
+      expect(engine.seeks, <Duration>[const Duration(minutes: 2)],
+          reason: 'Retry starts where the listener put the song, not 0:42');
+    });
+
+    test('back to the start makes Play start the song over', () async {
+      // What "Recently played" does for the song that is current: seek to the
+      // start, then Play.
+      final JustAudioPlaybackController controller = await stoppedMidSong();
+      resolver.down.clear();
+
+      await controller.seek(Duration.zero);
+      engine.seeks.clear();
+      await controller.play();
+      await _settle();
+
+      expect(engine.seeks, isEmpty,
+          reason: 'the reload starts from the top, not from 0:42');
+    });
+
+    test('of a track that never started is where Play starts it', () async {
+      final JustAudioPlaybackController controller = await failedOnA();
+
+      // MPRIS SetPosition, or a lyric tap, on the failed track.
+      await controller.seek(const Duration(seconds: 30));
+      expect(controller.state.position, const Duration(seconds: 30));
+
+      resolver.down.clear();
+      engine.seeks.clear();
+      await controller.play();
+      await _settle();
+
+      expect(engine.seeks, <Duration>[const Duration(seconds: 30)]);
+    });
+  });
 }

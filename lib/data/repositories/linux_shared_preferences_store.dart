@@ -59,8 +59,20 @@ class LinuxSharedPreferencesStore extends SharedPreferencesStorePlatform {
 
   Future<Map<String, Object>> _load() async {
     final File? file = await _file();
-    if (file == null || !file.existsSync()) return <String, Object>{};
-    final List<int> bytes = file.readAsBytesSync();
+    if (file == null) return <String, Object>{};
+    // Only a file that isn't there is "never saved". Any other failure to
+    // read it (an I/O error on a network or FUSE home, a permission being
+    // changed) is thrown, and not remembered, so the next read asks the file
+    // again. `existsSync()` answered false for those too, and the empty map
+    // remembered for them had the next save of any one setting replace the
+    // whole file with that setting.
+    final List<int> bytes;
+    try {
+      bytes = file.readAsBytesSync();
+    } on PathNotFoundException {
+      return <String, Object>{};
+    }
+
     // An earlier save cut off before it wrote anything: nothing to recover.
     if (bytes.isEmpty) return <String, Object>{};
     try {

@@ -121,7 +121,10 @@ class HttpPlexClient implements PlexClient {
     // .totalSize` is the authoritative total, so with one a short page only
     // means the server pages in smaller chunks than asked; `size` is how many
     // this page actually returned.
+    // An item read again after a step back (see below) is listed once.
+    final Set<String> listed = <String>{};
     int start = 0;
+    int? previousTotal;
     for (int page = 0; page < _maxPages; page++) {
       final Uri uri = PlexEndpoints.sectionItems(
         baseUrl,
@@ -131,7 +134,9 @@ class HttpPlexClient implements PlexClient {
         size: _pageSize,
       );
       final PlexMediaContainer container = await _getContainer(uri, token);
-      items.addAll(container.metadata);
+      for (final PlexMetadata item in container.metadata) {
+        if (listed.add(item.ratingKey)) items.add(item);
+      }
 
       final int returned = container.size ?? container.metadata.length;
       final int? total = container.totalSize;
@@ -144,7 +149,18 @@ class HttpPlexClient implements PlexClient {
         }
         break;
       }
+      final int pageStart = start;
       start += returned;
+      // The section shrank since the previous page (a scan on the server
+      // removed items). Items removed ahead of this page moved everything
+      // after them up, so as many items as were removed crossed the page
+      // boundary unread. Step back over them: read again, an item is listed
+      // once, while left unread it would be pruned from the catalog.
+      if (previousTotal != null && total != null && total < previousTotal) {
+        final int stepBack = pageStart - (previousTotal - total);
+        start = stepBack < 0 ? 0 : stepBack;
+      }
+      previousTotal = total ?? previousTotal;
       if (total != null ? start >= total : returned < _pageSize) break;
     }
     return items;

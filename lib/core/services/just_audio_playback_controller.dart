@@ -475,10 +475,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// [maxRecoveryAttemptsPerTrack] and cleared whenever a track actually starts.
   int _recoveryAttempts = 0;
 
-  /// Whether a mid-stream recovery (bounded retry or sibling fallback) is
-  /// already running. Set synchronously before the async work starts so a
+  /// The mid-stream recovery (bounded retry or sibling fallback) now running,
+  /// or null. Claimed synchronously before the async work starts so a
   /// concurrent watchdog timeout and engine error cannot both drive recovery.
-  bool _streamRecoveryInFlight = false;
+  ///
+  /// A load the listener (or the queue) starts takes over from it, as it does
+  /// from an automatic step ([_runningRecoveryStep]): a reconnect still
+  /// waiting on a server that stopped answering must not keep the next
+  /// track's own failures from being handled.
+  Object? _streamRecovery;
+
+  bool get _streamRecoveryInFlight => _streamRecovery != null;
 
   /// Whether [stop] is stopping the engine right now, so the idle the engine
   /// reports for it is not taken for a lost source.
@@ -1320,6 +1327,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// What an error means depends on what is playing: see [_interruptionFor].
   void _onEngineError(Object error, StackTrace _) {
     if (_suspended) return;
+    // The source failed while the listener had it paused: the engine goes on
+    // buffering ahead, and a load that fails then (the network cut while the
+    // device dozes, a stream URL whose token ran out) is reported like any
+    // other. Nothing is lost yet, but that source will never play again, and
+    // resuming the engine would read as playing in silence. Like a failed
+    // load's, it is let go of, so Play opens the track afresh from here.
+    if (_state.status == PlaybackStatus.paused && !_loadInFlight) {
+      _abandonedSourceGeneration = _engineSourceGeneration;
+      return;
+    }
     if (_state.status != PlaybackStatus.playing &&
         _state.status != PlaybackStatus.buffering &&
         _state.status != PlaybackStatus.reconnecting &&
@@ -1450,7 +1467,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
 
     // Claim the gate before any await so a racing engine error / watchdog
     // timeout cannot start a second recovery.
-    _streamRecoveryInFlight = true;
+    final Object recovery = _streamRecovery = Object();
     _cancelBufferingWatchdog();
     StabilityDiagnostics.playbackError(interruption.kind.name);
     try {
@@ -1484,7 +1501,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         playbackFailureKindForInterruption(interruption.kind),
       );
     } finally {
-      _streamRecoveryInFlight = false;
+      // Unless a load the listener started took over from it meanwhile, and
+      // a recovery of that load's own may be running now.
+      if (identical(_streamRecovery, recovery)) _streamRecovery = null;
       // Recovery may finish while the UI is still on buffering/reconnecting
       // (setUrl/play issued, engine quiet). Re-arm so that hang cannot outlive
       // the bound; [_streamRecoveryInFlight] is clear, so a later timeout can
@@ -2306,6 +2325,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // and, unless it is that step's own load, one still loading.
     _cancelAutomaticRecovery();
     if (mayStart == null) _runningRecoveryStep = null;
+    // Nor does a mid-stream recovery own what happens next once a load of
+    // anyone else's has started (its own reloads are retries).
+    if (!isRetry && mayStart == null) _streamRecovery = null;
     // A fresh load the listener asked to hear is a request for sound, and one
     // they didn't (a restored session, the end of a cast that was paused) is
     // not: it must not read as playing while it opens. The automatic reloads
@@ -2387,11 +2409,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // surface as an error on the track they actually landed on.
       if (generation != _playbackGeneration) return;
       // Every candidate failed: surface one friendly, secret-free failure (or
-      // let automatic recovery take a bounded step first).
+      // let automatic recovery take a bounded step first). A load nobody
+      // asked to hear (a restored session, the end of a cast) never recovers
+      // on its own, unless the listener pressed Play while it loaded: it was
+      // going to start sound then, like any other load they asked for.
       _giveUp(
         track,
         _failureFrom(track, error),
-        autoplay: autoplay && (mayStart?.call() ?? true),
+        autoplay: (autoplay || _playWhenLoaded) && (mayStart?.call() ?? true),
       );
       // Nothing of this load reached the engine, so it still holds the song
       // the listener skipped away from, and may still be playing it under
@@ -2536,6 +2561,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     bool autoplay = true,
     bool Function()? mayStart,
   }) async {
+    // Where the load last moved its source to, if anywhere.
+    Duration? landedAt;
     try {
       await _applyVolume();
       Duration? target = startAt > Duration.zero ? startAt : null;
@@ -2548,6 +2575,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         if (target == null) break;
         final int attempt = _sourceAttempt;
         await _player.seek(target);
+        landedAt = target;
         // A seek back puts the source under way again, so an end it reported
         // before is not where it is now. With a known end, anything before it
         // is back. With none, the listener can't aim at the end, so a seek
@@ -2582,7 +2610,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         (mayStart?.call() ?? true);
     final bool ended = _endedAttempt == _sourceAttempt;
     _endedAttempt = null;
-    if (ended) {
+    // An engine that reports no end for a seek to it while paused (see
+    // [engineReportsEndReachedWhilePaused]) reports none for a load that moved
+    // its source to its very end either (a queue put back where it was left,
+    // Play after a seek there while stopped), and started there it reads as
+    // playing while it sits at that end in silence, for good. That end is
+    // acted on as a reported one would be: now when the load starts, or by
+    // Play, as after a paused seek there.
+    final bool unreportedEnd = !ended &&
+        !engineReportsEndReachedWhilePaused &&
+        landedAt != null &&
+        _state.duration > Duration.zero &&
+        landedAt >= _state.duration;
+    if (ended || unreportedEnd) {
       // The source ended as the load moved it to its start. Starting it would
       // report nothing on an engine that stayed flagged playing, so act on
       // that end now, as its report would have.
@@ -2593,6 +2633,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         }
         return;
       }
+      if (unreportedEnd) _pausedAtEndGeneration = _engineSourceGeneration;
       // Nothing is to start, so it landed at its end, paused. Nothing more is
       // coming from the engine to say so (a pause's own report was held back
       // with the end); Play flips its playing flag, and the end is reported
@@ -3216,6 +3257,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _startFreshAfterFailures() {
     _failureStreak.clear();
     _runningRecoveryStep = null;
+    _streamRecovery = null;
     _haltAutomaticRecovery();
   }
 
@@ -3542,11 +3584,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // While an automatic retry or move is waiting or still loading there is
     // nothing loaded to seek in, and the generation bump below would silently
     // drop that step and leave the player on "Loading…". Seeking there is the
-    // listener taking over: start afresh from the spot they chose.
+    // listener taking over: start afresh from the spot they chose, playing
+    // only if they still want sound (a pause while the step loads holds).
     if (_automaticRecoveryUnderway && _queue.current != null) {
       _retriesForCurrent = 0;
       _startFreshAfterFailures();
-      await _playCurrent(startAt: position);
+      await _playCurrent(startAt: position, autoplay: _playWhenLoaded);
       return;
     }
     // A reconnect waiting out its backoff has nothing to seek in either, and
@@ -3618,6 +3661,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         !_playWhenLoaded &&
         _state.duration > Duration.zero &&
         position >= _state.duration;
+    // On the error panel nothing the engine reports reaches the state until
+    // real sound ends the error, and a source that failed (in a load, or
+    // while paused) has its reports ignored altogether, so the seek would go
+    // nowhere the listener can see: the bar snapped back, and Retry, Play and
+    // Try another source started from where the track had stopped. They start
+    // from the position held here, so that is where the seek goes, as Play
+    // after a stop does.
+    if (_state.status == PlaybackStatus.error ||
+        _engineSourceGeneration == _abandonedSourceGeneration) {
+      _emit(_state.copyWith(position: position));
+    }
     await _player.seek(position);
     // Only while this seek is still the latest: an older seek back landing
     // after a newer seek to the end must not re-arm it.

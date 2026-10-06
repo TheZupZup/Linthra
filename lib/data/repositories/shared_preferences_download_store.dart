@@ -43,8 +43,11 @@ class SharedPreferencesDownloadStore implements DownloadStore {
       return <CachedTrack>[];
     }
     if (raw != _cachedRaw) {
-      _cachedRaw = raw;
+      // Remembered only once decoded: a decode that threw and was remembered
+      // anyway would answer "nothing downloaded" for the rest of the session,
+      // and the next save would write that over every record.
       _cachedDownloads = _decode(raw);
+      _cachedRaw = raw;
     }
     // Hand back a fresh, caller-owned copy so a caller mutating the list can
     // never corrupt the shared cache (the heavy decode is what was skipped).

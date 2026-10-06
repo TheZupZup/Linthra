@@ -823,6 +823,28 @@ void main() {
       expect(player.playCalls, 1);
     });
 
+    test('a seek after a pause while a move still loads keeps the pause',
+        () async {
+      resolver.down.add('jellyfin:a');
+      final Completer<void> loadingB = Completer<void>();
+      resolver.holds['jellyfin:b'] = loadingB;
+      final JustAudioPlaybackController controller = build();
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      await _settle();
+
+      // Paused from a headset or MPRIS, then a lyric tap or SetPosition.
+      await controller.pause();
+      final Future<void> seeking = controller.seek(const Duration(seconds: 30));
+      loadingB.complete();
+      await seeking;
+      await _settle();
+
+      expect(controller.state.currentTrack?.id, 'b');
+      expect(player.seekCalls, contains(const Duration(seconds: 30)));
+      expect(player.playCalls, 0, reason: 'the listener paused');
+      expect(controller.state.playWhenReady, isFalse);
+    });
+
     test('seeking while a retry waits tries again from there', () async {
       resolver.failuresLeft['jellyfin:a'] = 1;
       final JustAudioPlaybackController controller = build(
