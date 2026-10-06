@@ -365,16 +365,22 @@ push the generated commit before normal CI runs.
 
 The app ships with a stable application ID **`io.github.thezupzup.linthra`** (also
 the Kotlin/Gradle `namespace`) and the display name **Linthra**. The production
-manifest declares only:
+manifest declares:
 
-- **`FOREGROUND_SERVICE`** / **`FOREGROUND_SERVICE_MEDIA_PLAYBACK`** — so
-  `audio_service` can keep playing while backgrounded (Android 14+ requires the
-  typed `mediaPlayback` grant).
-- **`POST_NOTIFICATIONS`** — required on Android 13+ for the media notification;
+- **`FOREGROUND_SERVICE`** / **`FOREGROUND_SERVICE_MEDIA_PLAYBACK`** / **`WAKE_LOCK`**:
+  so `audio_service` can keep playing while backgrounded (Android 14+ requires
+  the typed `mediaPlayback` grant).
+- **`POST_NOTIFICATIONS`**: required on Android 13+ for the media notification;
   a *runtime* permission requested once on first launch.
-- **`INTERNET`** — to reach a self-hosted Jellyfin / Subsonic server.
+- **`INTERNET`** / **`ACCESS_NETWORK_STATE`**: to reach a self-hosted server,
+  and to tell metered from unmetered connections for downloads.
+- **`CHANGE_WIFI_MULTICAST_STATE`**: mDNS discovery of Cast devices on the LAN.
+- **`READ_MEDIA_AUDIO`** / **`READ_EXTERNAL_STORAGE`** (`maxSdkVersion="32"`):
+  only for the opt-in **All music on this device** mode, requested when the
+  user picks it. The legacy one is wider than audio on Android 12 and older.
 
-**No storage permission is requested** — folder access uses the Storage Access
+The full rationale is in [fdroid-readiness.md](fdroid-readiness.md#android-permissions).
+Picking a folder needs **no** storage permission: it uses the Storage Access
 Framework grant the user picks (see [architecture.md](architecture.md#android-folder-selection-saf)).
 
 ### Native media-session setup (applied)

@@ -169,17 +169,19 @@ non-free hosted service — that would need a fresh `NonFreeNet` look.
 
 ## 5. Permissions
 
-Six permissions are declared in `AndroidManifest.xml`, and `ACCESS_NETWORK_STATE`
-is merged in from the AndroidX Media3 AAR. The set is deliberately small — no
-storage, location, contacts, camera, microphone, or phone permission, and no
+Nine permissions are declared in `AndroidManifest.xml`. The set is deliberately
+small: no location, contacts, camera, microphone, or phone permission, and no
 `MANAGE_EXTERNAL_STORAGE` (folder access goes through the Storage Access
-Framework). Each one is explained in
+Framework and needs no permission). Each one is explained in
 [fdroid-readiness.md §5 (Android permissions)](./fdroid-readiness.md#android-permissions):
 `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`,
-`FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `WAKE_LOCK`, and
+`FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `WAKE_LOCK`,
 `CHANGE_WIFI_MULTICAST_STATE` (mDNS for Cast discovery, via AOSP `NsdManager`,
-not GMS). Re-confirm the merged set against a release build's manifest before
-submitting.
+not GMS), and `READ_MEDIA_AUDIO` plus `READ_EXTERNAL_STORAGE`
+(`maxSdkVersion="32"`) for the opt-in **All music on this device** mode (the
+legacy one is wider than audio on Android 12 and older; the readiness doc
+covers how it is used). Re-confirm the merged set against a release build's
+manifest before submitting.
 
 ## 6. Listing assets
 

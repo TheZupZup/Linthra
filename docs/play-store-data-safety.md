@@ -73,7 +73,11 @@ Notes for the form:
   stored** — for Subsonic/Navidrome it is only used locally to compute the
   `md5(password + salt)` token, then discarded.
 - The user-selected **music folder** uses Android's Storage Access Framework
-  grant; Linthra requests **no** broad storage / "all files" permission.
+  grant and needs no storage permission. The optional **All music on this
+  device** mode reads MediaStore's audio collection on the device, using
+  `READ_MEDIA_AUDIO` on Android 13+ or the legacy `READ_EXTERNAL_STORAGE`
+  (capped at API 32) on older releases, and only asks once the user picks it.
+  Linthra never requests `MANAGE_EXTERNAL_STORAGE` / "all files access".
 
 ## Security practices (Data Safety "Security practices" section)
 

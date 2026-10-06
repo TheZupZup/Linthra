@@ -284,14 +284,22 @@ Play's Data Safety and review process expects each to be justified.
 | `FOREGROUND_SERVICE` | Run the `audio_service` playback service in the foreground so audio keeps playing while the app is backgrounded. |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | The typed-foreground-service grant required on Android 14+ (API 34) for a `mediaPlayback` service; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | Android 13+ runtime permission for the media notification and its lock-screen / transport controls. Requested once on first launch; denial only suppresses the notification, playback still works. |
+| `WAKE_LOCK` | Keep the CPU awake while audio plays so playback and streaming survive the screen turning off. Held only while the playback service is playing. |
+| `ACCESS_NETWORK_STATE` | Read whether the active connection is unmetered, metered or offline so downloads can follow the user's network preference. No runtime prompt. The permission also allows reading link details such as local IP addresses; Linthra's network channel only reads connectivity and metering state and returns a category, never an SSID, carrier, IP address or location. |
 | `CHANGE_WIFI_MULTICAST_STATE` | Receive multicast Wi-Fi packets for **mDNS** (`_googlecast._tcp`) so Chromecast devices on the **local network** can be discovered. Grants no internet or storage access of its own. |
+| `READ_MEDIA_AUDIO` | Android 13+ permission for the optional **All music on this device** mode. It is requested only after the user chooses that mode; normal SAF folder access does not need it. |
+| `READ_EXTERNAL_STORAGE` (maxSdkVersion 32) | Legacy permission for the same optional device-wide mode on Android 12 and older, requested only after the user chooses it. Capped at API 32, so Android 13+ never sees it. The OS grant is broader than audio on these releases (see the note below). |
 
 Notes:
 
-- **No storage/media permissions are declared.** Local folder access uses the
-  Storage Access Framework folder grant the user picks — no
-  `READ_MEDIA_AUDIO`, no `MANAGE_EXTERNAL_STORAGE`. This keeps the Play "all
-  files access" declaration unnecessary.
+- Linthra does **not** request `MANAGE_EXTERNAL_STORAGE` or Play's broad "all
+  files access". The normal local-folder path uses the Storage Access Framework
+  grant for the folder the user picks and needs neither media permission. The
+  separate device-wide mode is opt-in and only asks when the user chooses it.
+- The legacy `READ_EXTERNAL_STORAGE` grant is not audio-only: it covers all
+  shared storage on Android 9 and older, and shared photos, videos and audio on
+  Android 10 to 12. Linthra only uses it to query MediaStore's audio
+  collection. `READ_MEDIA_AUDIO` on Android 13+ is the audio-only grant.
 - **Cast uses no Google Play Services / Google Cast SDK.** It is a pure-Dart
   Cast v2 implementation (`cast` + `bonsoir` over AOSP `NsdManager`). The
   manifest's `com.google.android.gms.car.application` entry is **only a
