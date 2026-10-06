@@ -76,19 +76,23 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
     final Object? id = json['id'];
     final Object? name = json['name'];
     if (id is! String || id.isEmpty || name is! String) return null;
+    // An optional field of another type reads as absent: thrown, it took
+    // every playlist with it.
     return Playlist(
       id: id,
       name: name,
-      description: json['description'] as String?,
-      source: PlaylistSource.fromProviderId(json['source'] as String?),
-      remoteId: json['remoteId'] as String?,
+      description: _string(json['description']),
+      source: PlaylistSource.fromProviderId(_string(json['source'])),
+      remoteId: _string(json['remoteId']),
       trackIds: _ids(json['trackIds']),
       createdAt: _date(json['createdAt']),
       updatedAt: _date(json['updatedAt']),
-      syncState: PlaylistSyncState.fromName(json['syncState'] as String?),
-      lastSyncError: json['lastSyncError'] as String?,
+      syncState: PlaylistSyncState.fromName(_string(json['syncState'])),
+      lastSyncError: _string(json['lastSyncError']),
     );
   }
+
+  static String? _string(Object? value) => value is String ? value : null;
 
   static List<String> _ids(Object? value) {
     if (value is! List) return const <String>[];

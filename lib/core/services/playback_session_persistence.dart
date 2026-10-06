@@ -98,7 +98,16 @@ class PlaybackSessionPersistence {
     if (_disposed) return;
     _restoring = true;
     try {
-      final PersistedPlaybackSession? raw = await _store.load();
+      final PersistedPlaybackSession? raw;
+      try {
+        raw = await _store.load();
+      } catch (_) {
+        // The store could not be read (an I/O error on its file), which says
+        // nothing about the record in it. Cleared now, the clear's own read
+        // could go through and delete a saved queue that was whole. Nothing
+        // is restored this launch; the next save replaces the record anyway.
+        return;
+      }
       if (raw == null) return;
 
       final PersistedPlaybackSession? saved =
