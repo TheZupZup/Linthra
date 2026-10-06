@@ -464,6 +464,32 @@ void main() {
       );
     });
 
+    test('the track id stays stable across a provider fallback (#798)', () {
+      const Track jellyfin = Track(
+        id: 'jf-1',
+        title: 'Same Song',
+        uri: 'jellyfin:jf-1',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+      const Track subsonic = Track(
+        id: 'sub-9',
+        title: 'Same Song',
+        uri: 'subsonic:sub-9',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+
+      controller.emit(const PlaybackState(currentTrack: jellyfin));
+      final DBusValue first = object.metadata()['mpris:trackid']!;
+
+      controller.emit(const PlaybackState(currentTrack: subsonic));
+
+      expect(object.metadata()['mpris:trackid'], first);
+    });
+
     test('the track id is stable per track and changes with it', () {
       controller.emit(PlaybackState(currentTrack: _track(uri: '/a.flac')));
       final DBusValue first = object.metadata()['mpris:trackid']!;
