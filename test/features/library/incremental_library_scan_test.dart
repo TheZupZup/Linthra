@@ -4,12 +4,19 @@
 // The single-source rules live in
 // test/core/sources/local/local_incremental_scan_test.dart. This is about the
 // round trip: stamps written by one scan are what the next scan reads back.
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/source_catalog_reader.dart';
+import 'package:linthra/core/repositories/stamped_catalog_writer.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
@@ -18,6 +25,7 @@ import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/data/database/linthra_database.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
+import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_local_tag_revision_store.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
@@ -76,16 +84,19 @@ class _MutableScanner implements AudioFileScanner {
 class _CountingMetadataReader implements LocalMetadataReader {
   final List<String> reads = <String>[];
 
+  /// The title every file reads as.
+  String title = 'Tagged';
+
   int get readCount => reads.length;
 
   @override
   Future<LocalAudioMetadata?> readFromPath(String path) async {
     reads.add(path);
-    return const LocalAudioMetadata(
-      title: 'Tagged',
+    return LocalAudioMetadata(
+      title: title,
       artist: 'Someone',
       album: 'Something',
-      duration: Duration(minutes: 3),
+      duration: const Duration(minutes: 3),
     );
   }
 }
@@ -114,6 +125,113 @@ class _RevisedMetadataReader extends _CountingMetadataReader
   }
 }
 
+/// The real catalog, with its next stamped write held until [release], so a
+/// scan can be caught writing its result.
+class _HeldWrites
+    implements
+        MusicLibraryRepository,
+        SourceCatalogReader,
+        StampedCatalogWriter {
+  _HeldWrites(this._inner);
+
+  final DriftMusicLibraryRepository _inner;
+  Completer<void>? _gate;
+  Completer<void>? _reached;
+
+  /// Holds the next [upsertStampedCatalog]; completes once it is asked.
+  Future<void> holdNextWrite() {
+    _gate = Completer<void>();
+    return (_reached = Completer<void>()).future;
+  }
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    gate?.complete();
+  }
+
+  @override
+  Future<void> upsertStampedCatalog({
+    required String sourceId,
+    required List<StampedTrack> tracks,
+  }) async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      _reached?.complete();
+      _reached = null;
+      await gate.future;
+    }
+    await _inner.upsertStampedCatalog(sourceId: sourceId, tracks: tracks);
+  }
+
+  @override
+  Future<List<StampedTrack>> getStampedTracksForSource(String sourceId) =>
+      _inner.getStampedTracksForSource(sourceId);
+
+  @override
+  Future<List<Track>> getTracksForSource(String sourceId) =>
+      _inner.getTracksForSource(sourceId);
+
+  @override
+  Future<List<Track>> getAllTracks() => _inner.getAllTracks();
+
+  @override
+  Future<List<Album>> getAllAlbums() => _inner.getAllAlbums();
+
+  @override
+  Future<List<Artist>> getAllArtists() => _inner.getAllArtists();
+
+  @override
+  Future<Track?> getTrackByUri(String uri) => _inner.getTrackByUri(uri);
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) =>
+      _inner.upsertCatalog(
+        sourceId: sourceId,
+        tracks: tracks,
+        albums: albums,
+        artists: artists,
+      );
+
+  @override
+  Future<void> removeTracks(List<String> trackUris) =>
+      _inner.removeTracks(trackUris);
+}
+
+/// Revision records whose next read is held until [release].
+class _HeldRevisions extends InMemoryLocalTagRevisionStore {
+  Completer<void>? _gate;
+  Completer<void>? _reached;
+
+  /// Holds the next [load]; completes once it is asked.
+  Future<void> holdNextLoad() {
+    _gate = Completer<void>();
+    return (_reached = Completer<void>()).future;
+  }
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    gate?.complete();
+  }
+
+  @override
+  Future<Map<String, int>> load() async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      _reached?.complete();
+      _reached = null;
+      await gate.future;
+    }
+    return super.load();
+  }
+}
+
 class _FakeStatReader implements LocalFileStatReader {
   _FakeStatReader(this.stamps);
 
@@ -137,6 +255,7 @@ void main() {
   ProviderContainer container({
     List<String> roots = const <String>['/music'],
     InMemoryLocalTagRevisionStore? revisions,
+    bool holdWrites = false,
   }) {
     final ProviderContainer c = ProviderContainer(
       overrides: <Override>[
@@ -153,7 +272,14 @@ void main() {
         linthraDatabaseExecutorProvider.overrideWithValue(
           NativeDatabase.memory(),
         ),
-        driftMusicLibraryRepositoryOverride,
+        if (holdWrites)
+          musicLibraryRepositoryProvider.overrideWith(
+            (ref) => _HeldWrites(
+              DriftMusicLibraryRepository(ref.watch(linthraDatabaseProvider)),
+            ),
+          )
+        else
+          driftMusicLibraryRepositoryOverride,
         audioFileScannerProvider.overrideWithValue(files),
         localMetadataReaderProvider.overrideWithValue(tags),
         localFileStatReaderProvider.overrideWithValue(stats),
@@ -351,6 +477,43 @@ void main() {
 
       expect(revised.readCount, 2);
       expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test(
+        "a scan superseded while it writes doesn't record its folder as read, "
+        'so the scan that replaced it reads the files again', () async {
+      final _HeldRevisions held = _HeldRevisions();
+      final ProviderContainer c = container(revisions: held, holdWrites: true);
+      await c.read(selectedFolderControllerProvider.future);
+      final LibraryController library =
+          c.read(libraryControllerProvider.notifier);
+      await library.scanFolders(<String>['/music']);
+      final _HeldWrites catalog =
+          c.read(musicLibraryRepositoryProvider) as _HeldWrites;
+
+      // An update that reads the same files differently.
+      revised.tagRevision = 2;
+      revised.title = 'Fixed';
+
+      // The first scan is writing what the new reader read when a second
+      // starts: it takes its rows from the catalog before that write, then
+      // asks how they were read.
+      final Future<void> writing = catalog.holdNextWrite();
+      final Future<void> first = library.scanFolders(<String>['/music']);
+      await writing;
+      final Future<void> asking = held.holdNextLoad();
+      final Future<void> second = library.scanFolders(<String>['/music']);
+      await asking;
+      catalog.release();
+      await first;
+      held.release();
+      await second;
+
+      final List<Track> all =
+          await c.read(musicLibraryRepositoryProvider).getAllTracks();
+      expect(all.map((Track t) => t.title), everyElement('Fixed'),
+          reason: "the second scan wrote the old reader's rows back");
+      expect(await held.load(), <String, int>{'/music': 2});
     });
 
     test(

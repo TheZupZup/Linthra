@@ -427,12 +427,16 @@ class LibraryController extends Notifier<LibraryState> {
             artists: groupArtists(tracks),
           );
         }
-        if (tagRevision != null && readWith != null) {
-          await _recordTagRevision(readWith, scan, tagRevision);
-        }
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
+        // Nor record how these folders were read: a scan that started then may
+        // have taken its rows from the catalog before this write, and would
+        // reuse them as read by this reader, writing the old tags back.
         if (generation != _scanGeneration) return null;
+        if (tagRevision != null && readWith != null) {
+          await _recordTagRevision(readWith, scan, tagRevision);
+          if (generation != _scanGeneration) return null;
+        }
 
         // The catalog just written *is* the live set, so anything else in the
         // local artwork cache belongs to a file that has since been deleted,
