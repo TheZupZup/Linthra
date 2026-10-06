@@ -221,6 +221,16 @@ abstract interface class DownloadStore {
   /// The tracks currently cached for offline use.
   Future<List<CachedTrack>> loadDownloads();
 
-  /// Replaces the persisted set with [downloads].
+  /// Replaces the persisted set with [downloads]. Throws when it couldn't be
+  /// written (a [DownloadStoreWriteException] for a full disk), leaving the
+  /// last saved set as it was.
   Future<void> saveDownloads(List<CachedTrack> downloads);
+}
+
+/// Thrown by [DownloadStore.saveDownloads] when the set couldn't be written.
+class DownloadStoreWriteException implements Exception {
+  const DownloadStoreWriteException();
+
+  @override
+  String toString() => 'The offline download records could not be saved.';
 }

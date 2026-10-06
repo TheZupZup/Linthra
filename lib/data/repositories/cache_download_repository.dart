@@ -688,7 +688,16 @@ class CacheDownloadRepository
         // first download to go.
         _downloads[key] =
             current.copyWith(preloaded: false, lastAccessedAt: _now());
-        await _save();
+        try {
+          await _saveOrThrow();
+        } catch (_) {
+          // Not saved, the next launch would find the pre-cache it was, free
+          // to be evicted (#786): it stays one (unless a removal dropped it
+          // while it was being saved), and the request says why.
+          if (_downloads.containsKey(key)) _downloads[key] = current;
+          _set(key, DownloadStatus.notDownloaded);
+          throw const CacheStorageException(_recordNotSavedMessage);
+        }
         // A Clear all deleting this copy's file (or a removal) dropped the
         // record while it was being saved, so there is nothing left to call
         // downloaded. A request the clear did not cancel fetches it below.
@@ -972,6 +981,7 @@ class CacheDownloadRepository
       return;
     }
     final DateTime now = _now();
+    final CachedTrack? replaced = _downloads[key];
     _downloads[key] = CachedTrack(
       trackId: track.id,
       fileName: fileName,
@@ -984,7 +994,26 @@ class CacheDownloadRepository
       preloaded: preloaded,
       origin: operation.origin,
     );
-    await _save();
+    try {
+      await _saveOrThrow();
+    } catch (_) {
+      // The record couldn't be written (the disk is full). Kept, the copy
+      // would look downloaded until the next launch, which removes a file no
+      // record names (#747): it goes now instead, and the download fails the
+      // way one with no room does (#786). A copy this one didn't write over
+      // stays where it was.
+      if (replaced != null && replaced.fileName != fileName) {
+        _downloads[key] = replaced;
+      } else {
+        _downloads.remove(key);
+      }
+      await _files.delete(fileName);
+      if (evictedAStatus) _emitStatus();
+      _emitCache();
+      if (preloaded) return;
+      _set(key, DownloadStatus.notDownloaded);
+      throw const CacheStorageException(_recordNotSavedMessage);
+    }
     if (!preloaded) {
       _statuses[key] = DownloadStatus.downloaded;
     }
@@ -1357,7 +1386,26 @@ class CacheDownloadRepository
     }
   }
 
-  Future<void> _save() => _store.saveDownloads(_allCopies);
+  /// Writes the records, best-effort: a write that fails (a full disk) leaves
+  /// the last saved set, and the next launch squares that with what is on
+  /// disk (a record whose file is gone is dropped, a file no record names is
+  /// removed). A copy the user just asked to keep can't be left to that, see
+  /// [_saveOrThrow].
+  Future<void> _save() async {
+    try {
+      await _saveOrThrow();
+    } catch (_) {
+      // Squared with what is on disk at the next launch, as above.
+    }
+  }
+
+  /// Writes the records, throwing when they couldn't be (#786).
+  Future<void> _saveOrThrow() => _store.saveDownloads(_allCopies);
+
+  /// What a user download whose record couldn't be saved tells the user.
+  static const String _recordNotSavedMessage =
+      "Couldn't save the download. Your device may be out of storage space. "
+      'Free up some space, then try again.';
 
   /// Moves a user download to [status] and remembers it as where that
   /// request stands, so a request that supersedes its cancellation can put
