@@ -1,7 +1,7 @@
 name: CI
 
 # Quality, security, and release-hygiene checks on every PR and on pushes to
-# main. Four independent jobs run in parallel:
+# main. Independent jobs, run in parallel:
 #   * flutter             — format, analyze, test, lockfile-enforced pub get.
 #   * secret-scan         — offline scan for committed secrets / private data,
 #                           plus the tracker-dependency and fixed network
@@ -258,6 +258,13 @@ jobs:
       # `python3 test/tooling/verify_native_test.py`.
       - name: Test the local native verify script
         run: python3 test/tooling/verify_native_test.py
+
+      # The same for scripts/verify_linux.sh, the local twin of the Linux
+      # build: its audio smoke step runs for real against a stub bundle and
+      # a stub xvfb-run, so it needs no display and no Flutter. Local twin:
+      # `python3 test/tooling/verify_linux_test.py`.
+      - name: Test the local Linux verify script
+        run: python3 test/tooling/verify_linux_test.py
 
       # The updaters open the PRs that keep Linthra's pins current, and a
       # failing scheduled run opens none while looking exactly like a quiet
