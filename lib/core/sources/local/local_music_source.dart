@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../catalog/library_grouping.dart';
 import '../../models/album.dart';
 import '../../models/artist.dart';
@@ -8,10 +10,12 @@ import '../../services/music_source.dart';
 import 'android_media_library.dart';
 import 'audio_file_scanner.dart';
 import 'audio_file_types.dart';
+import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'local_audio_metadata.dart';
 import 'local_file_stat.dart';
 import 'local_metadata_reader.dart';
+import 'local_root_fault.dart';
 import 'local_scan_report.dart';
 import 'local_track_mapper.dart';
 import 'saf_document_lister.dart';
@@ -94,14 +98,20 @@ class LocalMusicSource implements MusicSource {
         const UnsupportedAndroidMediaLibrary(),
     LocalMetadataReader metadataReader = const UnsupportedLocalMetadataReader(),
     LocalFileStatReader statReader = const UnsupportedLocalFileStatReader(),
+    DirectoryReadability presence = const IoDirectoryReadability(),
+    Duration stallLimit = storageStallLimit,
     Map<String, StampedTrack> alreadyIndexed = const <String, StampedTrack>{},
+    bool readUnchanged = false,
     Set<Uri> missingArtwork = const <Uri>{},
   })  : _scanner = scanner,
         _safDocumentLister = safDocumentLister,
         _androidMediaLibrary = androidMediaLibrary,
         _metadataReader = metadataReader,
         _statReader = statReader,
+        _presence = presence,
+        _stallLimit = stallLimit,
         _alreadyIndexed = alreadyIndexed,
+        _readUnchanged = readUnchanged,
         _missingArtwork = missingArtwork;
 
   /// Filesystem path, SAF tree URI, [FolderLocation.androidMediaStoreAudio], or
@@ -119,11 +129,26 @@ class LocalMusicSource implements MusicSource {
   /// incremental scans existed.
   final LocalFileStatReader _statReader;
 
+  /// Asks whether a selected folder still answers, when reading one of its
+  /// files never came back.
+  final DirectoryReadability _presence;
+
+  /// How long a file's tags may take to come back before the read counts as
+  /// one that stalled. See [storageStallLimit].
+  final Duration _stallLimit;
+
   /// What the catalog already holds for this source, keyed by file path, so a
   /// file whose stamp is unchanged can be carried over without being opened.
   /// Empty means "nothing is known", which parses everything: the safe default,
   /// and the one a full rescan asks for.
   final Map<String, StampedTrack> _alreadyIndexed;
+
+  /// Reads every file, unchanged ones included, because the way tags are read
+  /// changed since they were indexed (#783). [_alreadyIndexed] still stands in
+  /// for a file whose read fails: it read fine before, and an unchanged file
+  /// has the same tags, so the row it had beats one built from its file name.
+  /// That file is stored without its stamp, so the next scan reads it again.
+  final bool _readUnchanged;
 
   /// Covers that rows in [_alreadyIndexed] point at and that the reader's
   /// artwork cache no longer holds (see [LocalArtworkInventory]). A row whose
@@ -260,7 +285,8 @@ class LocalMusicSource implements MusicSource {
       if (stamp != null) stamps[path] = stamp;
 
       final StampedTrack? indexed = _alreadyIndexed[path];
-      if (stamp != null &&
+      if (!_readUnchanged &&
+          stamp != null &&
           indexed != null &&
           !stamp.differsFrom(indexed.stamp) &&
           !_missingArtwork.contains(indexed.track.artworkUri)) {
@@ -269,7 +295,24 @@ class LocalMusicSource implements MusicSource {
         continue;
       }
 
-      final LocalMetadataRead read = await _readTags(path);
+      LocalMetadataRead read;
+      try {
+        read = await _readTags(path).timeout(_stallLimit);
+      } on TimeoutException {
+        // The read never came back, and stays blocked where it is: the file is
+        // on storage that stopped answering (#778). If the folder itself no
+        // longer answers either, every file left would stall the same way,
+        // one limit each, so the folder is given up as one the scan couldn't
+        // read, and keeps its music.
+        if (!isContentUri) {
+          final LocalRootFault? gone = await _presence.inspect(folder).timeout(
+                _stallLimit,
+                onTimeout: () => LocalRootFault.unavailable,
+              );
+          if (gone != null) throw interruptedScanException(folder, gone);
+        }
+        read = (metadata: null, failed: true);
+      }
       final LocalAudioMetadata? metadata = read.metadata;
       // Listed by the walk, but now it can be neither stat'ed nor read: the
       // drive went away, or the file was moved, after the walk got to it.
@@ -285,16 +328,40 @@ class LocalMusicSource implements MusicSource {
         continue;
       }
       // Unchanged since its row was written, and read again only because the
-      // artwork cache no longer holds its cover. A read of those same bytes
-      // that failed this time (a drive answering with an I/O error, a parse
-      // that ran out of time) says nothing about the tags the row was built
-      // from, so the row stays as it was, cover reference included, and the
-      // next scan asks for the cover again. Rebuilt from the file name, it
+      // artwork cache no longer holds its cover, or because the way tags are
+      // read changed (#783). A read of those same bytes that failed this time
+      // (a drive answering with an I/O error, a parse that ran out of time)
+      // says nothing about the tags the row was built from, so the row stays
+      // as it was, cover reference included. Rebuilt from the file name, it
       // would lose its tags for good: an unchanged file is never read again.
+      // The next scan asks for a missing cover again by itself. A file due
+      // for the new way of reading tags is stored without its stamp instead,
+      // so the next scan reads it again rather than leave it with the old
+      // reader's tags for good. One the new reader read fine and found
+      // nothing in is settled like any other file: the tags it lost were
+      // the old reader's.
       if (metadata == null &&
           stamp != null &&
           indexed != null &&
-          !stamp.differsFrom(indexed.stamp)) {
+          !stamp.differsFrom(indexed.stamp) &&
+          (read.failed || !_readUnchanged)) {
+        if (_readUnchanged) stamps.remove(path);
+        tracks.add(indexed.track);
+        continue;
+      }
+      // Its row has no stamp, so there is no telling whether it changed: most
+      // likely a read failed last time too (above, or below). This failed read
+      // says nothing about its tags either, so the row stays as it was rather
+      // than being rebuilt from the file name. It keeps its stamp this time,
+      // so a file that can never be read, one the parser loops on, costs one
+      // more read rather than one every scan. Unless it is due for the new
+      // way of reading tags: like above, the next scan reads it again, and
+      // that one keeps the stamp if it fails too.
+      if (read.failed &&
+          stamp != null &&
+          indexed != null &&
+          indexed.stamp == null) {
+        if (_readUnchanged) stamps.remove(path);
         tracks.add(indexed.track);
         continue;
       }
@@ -303,15 +370,8 @@ class LocalMusicSource implements MusicSource {
       // file name as ever, but stored without its stamp. With it, every later
       // scan would reuse that row as it is, and the tags would never come back
       // short of a full rescan (#743). Without it, the next scan reads the
-      // file again. Only once in a row: a file whose row already has no stamp
-      // (most likely a read that failed last time too) keeps its stamp now, so
-      // a file that can never be read, one the parser loops on, costs one
-      // more read rather than one every scan.
-      if (read.failed &&
-          stamp != null &&
-          !(indexed != null && indexed.stamp == null)) {
-        stamps.remove(path);
-      }
+      // file again, once (see above).
+      if (read.failed) stamps.remove(path);
       tracks.add(LocalTrackMapper.fromPath(
         path,
         metadata: metadata,

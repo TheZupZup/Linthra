@@ -602,6 +602,104 @@ void main() {
     });
   });
 
+  group('a stream that comes back on its own', () {
+    // Long enough that nothing here outlasts it by accident, so what the
+    // tests see before it is up is deterministic.
+    const Duration wait = Duration(seconds: 1);
+    Future<void> outlast() async {
+      await Future<void>.delayed(wait + const Duration(milliseconds: 200));
+      await _settle();
+    }
+
+    /// Plays [a, b], then has 'a' stall for good as far as the watchdog can
+    /// tell: it times out on the stall, and again on the quick reconnect.
+    Future<JustAudioPlaybackController> stalledTwice(
+      PlaybackRecoveryPolicy policy,
+    ) async {
+      final JustAudioPlaybackController controller = build(policy: policy);
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      player.emitState(PlayerState(true, ProcessingState.buffering));
+      await _settle();
+      controller.onBufferingTimeoutForTesting();
+      await _settle();
+      controller.onBufferingTimeoutForTesting();
+      await _settle();
+      return controller;
+    }
+
+    test('is not reloaded by the retry that was waiting for it', () async {
+      final JustAudioPlaybackController controller =
+          await stalledTwice(const PlaybackRecoveryPolicy(retryDelay: wait));
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+      final int loads = player.setUrlCalls.length;
+
+      // The network comes back and the engine plays what it still holds.
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      expect(controller.hasPendingAutomaticRecovery, isFalse);
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      await outlast();
+      expect(player.setUrlCalls, hasLength(loads),
+          reason: 'a track that plays again was reloaded, with a gap');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('is not skipped by a countdown that was running for it', () async {
+      // The automatic retry runs at once; the skip after it counts down.
+      final JustAudioPlaybackController controller = await stalledTwice(
+        const PlaybackRecoveryPolicy(
+          retryDelay: Duration.zero,
+          advanceDelay: wait,
+          maxAdvanceDelay: wait,
+        ),
+      );
+      // The retry reloaded 'a', and it stalls again.
+      controller.onBufferingTimeoutForTesting();
+      await _settle();
+      expect(controller.state.autoSkip, isNotNull);
+
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      expect(controller.state.autoSkip, isNull,
+          reason: 'a playing track still shows a countdown to its skip');
+      expect(controller.hasPendingAutomaticRecovery, isFalse);
+
+      await outlast();
+      expect(controller.state.currentTrack?.id, 'a');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(resolver.calls, isNot(contains('jellyfin:b')));
+    });
+
+    test('but the silenced source of a reload that failed calls nothing off',
+        () async {
+      final JustAudioPlaybackController controller =
+          build(policy: const PlaybackRecoveryPolicy(retryDelay: wait));
+      await controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      // The stream drops, and the server doesn't answer the quick reconnect.
+      resolver.failuresLeft['jellyfin:a'] = 1;
+      player.emitError(Exception('connection reset by peer'));
+      await _settle();
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+
+      // The engine plays what it still holds: the dead stream, silenced when
+      // its reload failed, not the track coming back.
+      player.emitState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+
+      await outlast();
+      expect(player.setUrlCalls, <String>[
+        'https://server.example/stream/a?n=1',
+        'https://server.example/stream/a?n=2',
+      ]);
+    });
+  });
+
   group('never on its own when it must not', () {
     test('an engine that cannot play anything does not walk the queue',
         () async {

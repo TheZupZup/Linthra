@@ -88,6 +88,20 @@ void main() {
       expect(await store.pathFor(fileName), isNull);
     });
 
+    test('two deletes of the same file both succeed', () async {
+      // A removal racing an eviction or a Clear all: both are told to delete
+      // it, and the one that finds it gone must not fail.
+      final String fileName =
+          await store.write('t1', const <int>[1, 2, 3], extension: 'mp3');
+
+      await Future.wait(<Future<void>>[
+        store.delete(fileName),
+        store.delete(fileName),
+      ]);
+
+      expect(await store.pathFor(fileName), isNull);
+    });
+
     test('delete is a no-op for a missing file', () async {
       await store.delete('missing.mp3');
     });

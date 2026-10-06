@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -86,6 +87,120 @@ final class _LockedSubfolder extends IOOverrides {
   Directory createDirectory(String path) {
     final Directory real = super.createDirectory(path);
     return path == root ? _HidesOneSubfolder(real, locked) : real;
+  }
+}
+
+/// How long the stall tests let a listing go without an answer.
+const Duration _stall = Duration(milliseconds: 50);
+
+/// A folder on storage that stopped answering: its listing never yields an
+/// entry, never fails and never ends, the way one on an NFS hard mount whose
+/// server went away blocks.
+class _Silent implements Directory {
+  _Silent(this.path, {this.onList});
+
+  @override
+  final String path;
+
+  /// Called each time something starts listing this folder.
+  final void Function()? onList;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) {
+    onList?.call();
+    return StreamController<FileSystemEntity>().stream;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// [silent] stops answering, and so does every folder [root] lists when
+/// [everySubfolder] is set: a share that went away just after the walk read
+/// its top folder.
+final class _StalledShare extends IOOverrides {
+  _StalledShare({
+    required this.root,
+    this.silent = const <String>{},
+    this.everySubfolder = false,
+  });
+
+  final String root;
+  final Set<String> silent;
+  final bool everySubfolder;
+  int stalledListings = 0;
+
+  @override
+  Directory createDirectory(String path) {
+    if (silent.contains(path)) {
+      return _Silent(path, onList: () => stalledListings++);
+    }
+    final Directory real = super.createDirectory(path);
+    if (path != root) return real;
+    return _Listing(real, (FileSystemEntity entity) {
+      if (entity is! Directory) return entity;
+      if (!everySubfolder && !silent.contains(entity.path)) return entity;
+      return _Silent(entity.path, onList: () => stalledListings++);
+    });
+  }
+}
+
+/// The real folder, its listing passed through [_swap].
+class _Listing implements Directory {
+  _Listing(this._real, this._swap);
+
+  final Directory _real;
+  final FileSystemEntity Function(FileSystemEntity entity) _swap;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Stream<FileSystemEntity> list({
+    bool recursive = false,
+    bool followLinks = true,
+  }) =>
+      _real.list(recursive: recursive, followLinks: followLinks).map(_swap);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// The selected folder answers, whenever it is asked.
+class _Present implements DirectoryReadability {
+  const _Present();
+
+  @override
+  Future<LocalRootFault?> inspect(String path) async => null;
+}
+
+/// The selected folder is asked whether it is still there, and never answers.
+class _NeverAnswers implements DirectoryReadability {
+  const _NeverAnswers();
+
+  @override
+  Future<LocalRootFault?> inspect(String path) =>
+      Completer<LocalRootFault?>().future;
+}
+
+/// The selected folder doesn't answer any more, and [asked] counts how often
+/// it was asked.
+class _NotAnswering implements DirectoryReadability {
+  int asked = 0;
+
+  @override
+  Future<LocalRootFault?> inspect(String path) async {
+    asked++;
+    return LocalRootFault.unavailable;
   }
 }
 
@@ -209,6 +324,116 @@ void main() {
           ),
         ),
       );
+    });
+
+    group('storage that stops answering (#778)', () {
+      test('a selected folder whose listing never answers is unavailable',
+          () async {
+        const scanner = IoAudioFileScanner(
+          presence: _Present(),
+          stallLimit: _stall,
+        );
+
+        await expectLater(
+          IOOverrides.runWithIOOverrides(
+            () => scanner.listFiles(root.path),
+            _StalledShare(root: '', silent: <String>{root.path}),
+          ),
+          throwsA(
+            isA<FolderScanException>().having(
+              (FolderScanException error) => error.code,
+              'code',
+              LocalRootFault.unavailable.code,
+            ),
+          ),
+        );
+      });
+
+      test(
+          'a folder that never answers the check after the walk is '
+          'unavailable', () async {
+        File('${root.path}/a.mp3').writeAsStringSync('x');
+        const scanner = IoAudioFileScanner(
+          presence: _NeverAnswers(),
+          stallLimit: _stall,
+        );
+
+        await expectLater(
+          scanner.listFiles(root.path),
+          throwsA(
+            isA<FolderScanException>().having(
+              (FolderScanException error) => error.code,
+              'code',
+              LocalRootFault.unavailable.code,
+            ),
+          ),
+        );
+      });
+
+      test(
+          'a subfolder that stops answering is skipped while the selected '
+          'folder still answers', () async {
+        // A share mounted inside the music folder, whose server went away.
+        final String share = '${root.path}/Share';
+        Directory(share).createSync();
+        File('$share/hidden.mp3').writeAsStringSync('x');
+        Directory('${root.path}/Open').createSync();
+        File('${root.path}/Open/seen.mp3').writeAsStringSync('x');
+
+        final List<String> unreadable = <String>[];
+        const scanner = IoAudioFileScanner(
+          presence: _Present(),
+          stallLimit: _stall,
+        );
+        final List<String> files = await IOOverrides.runWithIOOverrides(
+          () => scanner.listFiles(
+            root.path,
+            onUnreadableDirectory: unreadable.add,
+          ),
+          _StalledShare(root: root.path, silent: <String>{share}),
+        );
+
+        expect(unreadable, <String>[share]);
+        expect(files.any((String path) => path.endsWith('seen.mp3')), isTrue);
+        expect(
+          files.any((String path) => path.endsWith('hidden.mp3')),
+          isFalse,
+        );
+      });
+
+      test(
+          'once the selected folder stops answering too, the walk ends at the '
+          'first folder that stalled', () async {
+        // The whole share went away after its top folder was read: every
+        // folder still to list would stall, one limit after the other.
+        for (final String name in <String>['A', 'B', 'C', 'D']) {
+          Directory('${root.path}/$name').createSync();
+          File('${root.path}/$name/song.mp3').writeAsStringSync('x');
+        }
+        final _NotAnswering presence = _NotAnswering();
+        final IoAudioFileScanner scanner = IoAudioFileScanner(
+          presence: presence,
+          stallLimit: _stall,
+        );
+        final _StalledShare share =
+            _StalledShare(root: root.path, everySubfolder: true);
+
+        await expectLater(
+          IOOverrides.runWithIOOverrides(
+            () => scanner.listFiles(root.path),
+            share,
+          ),
+          throwsA(
+            isA<FolderScanException>().having(
+              (FolderScanException error) => error.code,
+              'code',
+              LocalRootFault.unavailable.code,
+            ),
+          ),
+        );
+        expect(share.stalledListings, 1);
+        expect(presence.asked, 1);
+      });
     });
 
     test('raises a recoverable scan error for a folder that is gone', () async {

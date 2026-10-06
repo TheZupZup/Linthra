@@ -128,9 +128,10 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
             'Connected to ${info.serverName} (Jellyfin ${info.version}).',
       );
       return true;
-    } on JellyfinException catch (error) {
-      _setFailure(error.message,
-          kind: error.kind, url: url, username: state.username);
+    } catch (error) {
+      final JellyfinException failure = _typed(error);
+      _setFailure(failure.message,
+          kind: failure.kind, url: url, username: state.username);
       return false;
     }
   }
@@ -208,12 +209,20 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
         ref.read(jellyfinSyncControllerProvider.notifier).autoSyncIfNeeded(),
       );
       return true;
-    } on JellyfinException catch (error) {
-      _setFailure(error.message,
-          kind: error.kind, url: url, username: username);
+    } catch (error) {
+      final JellyfinException failure = _typed(error);
+      _setFailure(failure.message,
+          kind: failure.kind, url: url, username: username);
       return false;
     }
   }
+
+  /// [error] as the [JellyfinException] it reports. Anything else (a
+  /// response that broke parsing, say) still has to end a test or sign-in,
+  /// or the card would stay busy until a restart.
+  static JellyfinException _typed(Object error) => error is JellyfinException
+      ? error
+      : JellyfinException.unsupportedResponse();
 
   /// Clears the saved session and resets to the disconnected state.
   ///

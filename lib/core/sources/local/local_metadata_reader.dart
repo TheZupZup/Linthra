@@ -104,3 +104,18 @@ class UnsupportedLocalMetadataReader implements LocalMetadataReader {
   @override
   Future<LocalAudioMetadata?> readFromPath(String path) async => null;
 }
+
+/// The optional half of a [LocalMetadataReader] whose answers can change from
+/// one version of Linthra to the next: a parser that stops failing on a field,
+/// a field mapped somewhere else.
+///
+/// A scan reuses the row of a file whose size and mtime haven't changed, so
+/// without this a change to how tags are read would only ever reach new and
+/// edited files. A folder last read in full by another [tagRevision] is read
+/// in full once more (#783). Reached through an `is` check, like the other
+/// capabilities here: a reader without one (Android's, the test fakes) leaves
+/// every scan incremental, as before.
+abstract interface class LocalTagRevision {
+  /// Which revision of tag reading this reader is.
+  int get tagRevision;
+}

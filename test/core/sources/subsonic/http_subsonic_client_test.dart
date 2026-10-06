@@ -85,6 +85,26 @@ void main() {
       );
     });
 
+    test('an error code sent as a string still maps to its kind', () async {
+      final client = _client(MockClient((_) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'subsonic-response': <String, dynamic>{
+                'status': 'failed',
+                'error': <String, dynamic>{
+                  'code': '40',
+                  'message': 'Wrong username or password',
+                },
+              },
+            }),
+            200,
+          )));
+      expect(
+        () => client.ping(_base, username: 'a', credentials: _credentials),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.unauthorized)),
+      );
+    });
+
     test('maps Subsonic error 70 to streamUnavailable', () async {
       final client = _client(MockClient((_) async => _failed(70, 'Not found')));
       expect(
@@ -391,6 +411,24 @@ void main() {
         },
       });
     }
+
+    test('a start too large to be finite leaves that line untimed', () async {
+      // jsonDecode reads 1e400 as infinity, which toInt throws on. Written out
+      // by hand: jsonEncode refuses to produce it.
+      final client = _client(MockClient((_) async => http.Response(
+            '{"subsonic-response": {"status": "ok", "lyricsList": '
+            '{"structuredLyrics": [{"line": ['
+            '{"start": 0, "value": "First line"}, '
+            '{"start": 1e400, "value": "Second line"}]}]}}}',
+            200,
+          )));
+
+      final lyrics = await client.fetchLyrics(_session, 's1');
+
+      expect(lyrics!.lines.first.start, Duration.zero);
+      expect(lyrics.lines.last.text, 'Second line');
+      expect(lyrics.lines.last.start, isNull);
+    });
 
     test('parses synced structuredLyrics with millisecond starts', () async {
       final client = _client(MockClient((_) async {

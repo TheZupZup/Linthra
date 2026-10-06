@@ -1,10 +1,15 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linthra/core/models/audiobookshelf_session.dart';
 import 'package:linthra/core/repositories/audiobookshelf_session_store.dart';
 import 'package:linthra/core/repositories/secure_storage_exception.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_api.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_exception.dart';
+import 'package:linthra/core/sources/audiobookshelf/http_audiobookshelf_client.dart';
 import 'package:linthra/data/repositories/audiobookshelf_session_store_provider.dart';
 import 'package:linthra/data/repositories/in_memory_audiobookshelf_session_store.dart';
 import 'package:linthra/features/settings/audiobookshelf/audiobookshelf_settings_controller.dart';
@@ -36,6 +41,12 @@ const _authResult = AudiobookshelfAuthResult(
 );
 
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
+
+http.Response _json(Map<String, dynamic> body) => http.Response(
+      jsonEncode(body),
+      200,
+      headers: <String, String>{'content-type': 'application/json'},
+    );
 
 FakeAudiobookshelfClient _signInReadyClient({
   List<AudiobookshelfLibraryDto> libraries = const <AudiobookshelfLibraryDto>[],
@@ -304,6 +315,79 @@ void main() {
         <String>['Audiobooks', 'Podcasts'],
       );
       expect(state.isLoadingLibraries, isFalse);
+    });
+
+    test('signs in to a server older than 2.26 and lists its libraries',
+        () async {
+      // How 2.25.1 answers: no accessToken at sign-in, only the old token,
+      // which it then takes as the bearer token.
+      final List<String?> bearers = <String?>[];
+      final client = HttpAudiobookshelfClient(
+        httpClient: MockClient((http.Request request) async {
+          switch (request.url.path) {
+            case '/status':
+              return _json(<String, dynamic>{
+                'app': 'audiobookshelf',
+                'serverVersion': '2.25.1',
+                'isInit': true,
+              });
+            case '/login':
+              return _json(<String, dynamic>{
+                'user': <String, dynamic>{
+                  'id': 'user-1',
+                  'username': 'alice',
+                  'token': 'legacy-jwt',
+                },
+                'userDefaultLibraryId': 'lib-1',
+              });
+            case '/api/libraries':
+              bearers.add(request.headers['Authorization']);
+              if (request.headers['Authorization'] != 'Bearer legacy-jwt') {
+                return http.Response('', 401);
+              }
+              return _json(<String, dynamic>{
+                'libraries': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'lib-1',
+                    'name': 'Audiobooks',
+                    'mediaType': 'book',
+                  },
+                ],
+              });
+          }
+          return http.Response('', 404);
+        }),
+      );
+      final store = InMemoryAudiobookshelfSessionStore();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          audiobookshelfClientProvider.overrideWithValue(client),
+          audiobookshelfSessionStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier =
+          container.read(audiobookshelfSettingsControllerProvider.notifier);
+      await _settle();
+
+      expect(await notifier.testConnection('audiobooks.example.com'), isTrue);
+      final bool signedIn = await notifier.signIn(
+        url: 'audiobooks.example.com',
+        username: 'alice',
+        password: 'hunter2',
+      );
+      await _settle();
+
+      expect(signedIn, isTrue);
+      final state = container.read(audiobookshelfSettingsControllerProvider);
+      expect(state.phase, AudiobookshelfConnectionPhase.connected);
+      expect(state.errorMessage, isNull);
+      expect(
+        state.libraries.map((library) => library.name),
+        <String>['Audiobooks'],
+      );
+      expect(bearers, <String>['Bearer legacy-jwt']);
+      expect((await store.read())!.refreshToken, isNull);
     });
 
     test('does not adopt a session the keyring refused to store', () async {

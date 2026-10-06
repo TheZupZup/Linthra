@@ -92,8 +92,11 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
   Future<void> delete(String fileName) async {
     final Directory dir = await _directory();
     final File file = File(p.join(dir.path, fileName));
-    if (await file.exists()) {
+    try {
       await file.delete();
+    } on PathNotFoundException {
+      // Gone already. Not checked first: a clear or an eviction deleting the
+      // same file alongside could take it between the check and the delete.
     }
   }
 

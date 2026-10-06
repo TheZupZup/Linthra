@@ -55,4 +55,42 @@ void main() {
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
   });
+
+  group('subsonicServerFingerprint', () {
+    test('is the same for every account on one server', () {
+      // A song id is the server's, so another user's copies still match.
+      final other = _session.copyWith(username: 'bob', token: 'bob-token');
+      expect(
+        subsonicServerFingerprint(other),
+        subsonicServerFingerprint(_session),
+      );
+    });
+
+    test('changes when the server URL changes', () {
+      final other = _session.copyWith(baseUrl: 'https://other.example.com');
+      expect(
+        subsonicServerFingerprint(other),
+        isNot(subsonicServerFingerprint(_session)),
+      );
+    });
+
+    test('tells two Navidrome installations apart by their address', () {
+      // Navidrome's ids come from file paths, and another installation can
+      // have another file at the same path.
+      final one = _session.copyWith(serverType: 'navidrome');
+      final other = one.copyWith(baseUrl: 'https://other.example.com');
+      expect(
+        subsonicServerFingerprint(other),
+        isNot(subsonicServerFingerprint(one)),
+      );
+    });
+
+    test('does not contain the credentials or the URL', () {
+      final String fingerprint = subsonicServerFingerprint(_session);
+      expect(fingerprint, isNot(contains('super-secret-token-value')));
+      expect(fingerprint, isNot(contains('salt-value')));
+      expect(fingerprint, isNot(contains('music.example.com')));
+      expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
+    });
+  });
 }

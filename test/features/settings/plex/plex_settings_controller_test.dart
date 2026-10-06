@@ -324,6 +324,21 @@ class _GatedIdentityClient extends FakePlexClient {
 /// A [FakePlexClient] whose first library listing waits for [gate] and then
 /// answers [firstAnswer], or fails with [firstError]: a listing from a server
 /// that went away hangs until its timeout. Later listings answer at once.
+/// A server whose identity request fails with an error that isn't a
+/// [PlexException], the way dart:io refuses a request outright.
+class _UntypedIdentityFailureClient extends FakePlexClient {
+  _UntypedIdentityFailureClient() : super(sections: const [_musicSection]);
+
+  @override
+  Future<PlexServerIdentity> fetchIdentity({
+    required String baseUrl,
+    required String token,
+  }) async {
+    identityCount++;
+    throw ArgumentError('Invalid port');
+  }
+}
+
 class _HangingSectionsClient extends FakePlexClient {
   _HangingSectionsClient({
     super.sections,
@@ -2103,6 +2118,30 @@ void main() {
       expect(source!.session.baseUrl, _session.baseUrl);
       // The in-memory flow tokens were still released.
       expect(await notifier.selectServer('fake-machine-id'), isFalse);
+    });
+
+    test(
+        'an untyped failure connecting to the picked server goes back to the '
+        'picker instead of leaving the card connecting', () async {
+      final _UntypedIdentityFailureClient client =
+          _UntypedIdentityFailureClient();
+      final container = _container(
+        client: client,
+        tvClient: FakePlexTvClient(
+          checkPinScript: <Object?>[_accountToken],
+          resources: const <PlexResource>[_officeResource],
+        ),
+      );
+      final notifier = container.read(plexSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.connectWithPlex();
+
+      expect(client.identityCount, greaterThan(0));
+      final state = container.read(plexSettingsControllerProvider);
+      expect(state.phase, PlexConnectionPhase.pickingServer);
+      expect(state.isBusy, isFalse);
+      expect(state.errorMessage, isNotNull);
     });
 
     test('a second connectWithPlex while one is waiting is ignored', () async {
