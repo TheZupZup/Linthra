@@ -41,7 +41,8 @@ class FilesystemLocalMetadataReader
         LocalMetadataReader,
         LocalMetadataReadOutcomes,
         LocalArtworkMaintainer,
-        LocalArtworkInventory {
+        LocalArtworkInventory,
+        LocalTagRevision {
   FilesystemLocalMetadataReader({
     LocalArtworkCache? artworkCache,
     Duration parseLimit = const Duration(seconds: 10),
@@ -57,6 +58,15 @@ class FilesystemLocalMetadataReader
   /// parser loop and stopped. A healthy file takes milliseconds, even on a
   /// slow drive; this only has to tell "slow" from "never".
   final Duration _parseLimit;
+
+  /// Bump this whenever a change here, or an `audio_metadata_reader` update,
+  /// changes what a file reads as. Folders indexed before then are read in
+  /// full once more, so the change reaches files that haven't changed since
+  /// (#783).
+  static const int revision = 1;
+
+  @override
+  int get tagRevision => revision;
 
   /// The check that refuses a file the MP4 parser would loop on, run on the
   /// parse's isolate right before the parse. [Mp4BoxGuard.isSafeToParse];

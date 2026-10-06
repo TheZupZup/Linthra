@@ -402,6 +402,11 @@ Details worth knowing:
   cause the others to be re-read.
 - **An offline folder keeps its stamps** along with its tracks, so plugging a
   drive back in does not re-parse everything on it.
+- **An update that reads tags better reaches what is already indexed.** When a
+  new version of Linthra changes what a file's tags read as, the next scan of
+  each folder reads every file in it once more, then goes back to reading only
+  what changed. A folder that is offline at the time is read in full once it is
+  back.
 - **A file that vanishes mid-scan keeps its row.** A file the scan listed but
   can then neither `stat` nor read (the drive was pulled, or the file was moved,
   while the scan was running) keeps the tags, cover and history it had, rather
@@ -422,10 +427,9 @@ putting an old file back over a new one does it, and so does `touch -r` after
 an in-place edit. Hashing every file would catch those, at the cost of reading
 every byte of the library on every scan, which is the thing being avoided.
 
-So if the library ever looks wrong, a **full rescan** is the answer: it ignores
-every stamp and rebuilds the local index from the files themselves. Forgetting
-the source and selecting the folders again does the same thing, since there is
-then nothing indexed to compare against.
+So if the library ever looks wrong, rebuild the local index from the files
+themselves: forget the source and select the folders again. There is then
+nothing indexed to compare against, so every file is read.
 
 ## Local music vs Offline downloads vs Cache
 

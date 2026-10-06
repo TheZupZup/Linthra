@@ -17,6 +17,7 @@ import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
+import '../../data/repositories/local_tag_revision_store_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import 'library_providers.dart';
@@ -305,6 +306,22 @@ class LibraryController extends Notifier<LibraryState> {
       final LocalMetadataReader metadataReader =
           ref.read(localMetadataReaderProvider);
 
+      // A folder last read in full by another revision of the tag reader, or
+      // never recorded, is read in full once more: unchanged files are never
+      // opened again otherwise, so a change to how tags are read would only
+      // ever reach new and edited ones (#783).
+      final int? tagRevision = metadataReader is LocalTagRevision
+          ? (metadataReader as LocalTagRevision).tagRevision
+          : null;
+      final Map<String, int>? readWith =
+          tagRevision == null ? null : await _tagRevisions();
+      if (generation != _scanGeneration) return null;
+      final Set<String> rereadRoots = <String>{
+        if (readWith != null)
+          for (final String root in roots)
+            if (readWith[root] != tagRevision) root,
+      };
+
       // An unchanged file's row is reused as it is, cover included, so a
       // cover its cache no longer holds (the cache was reclaimed) would stay
       // missing for good. Those files are read again instead.
@@ -331,7 +348,9 @@ class LibraryController extends Notifier<LibraryState> {
             androidMediaLibrary: ref.read(androidMediaLibraryProvider),
             metadataReader: metadataReader,
             statReader: statReader,
-            alreadyIndexed: alreadyIndexed,
+            alreadyIndexed: rereadRoots.contains(root)
+                ? const <String, StampedTrack>{}
+                : alreadyIndexed,
             missingArtwork: missingArtwork,
           ).scanTracks();
         },
@@ -406,6 +425,9 @@ class LibraryController extends Notifier<LibraryState> {
             albums: groupAlbums(tracks),
             artists: groupArtists(tracks),
           );
+        }
+        if (tagRevision != null && readWith != null) {
+          await _recordTagRevision(readWith, scan, tagRevision);
         }
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
@@ -523,6 +545,42 @@ class LibraryController extends Notifier<LibraryState> {
       // The catalog would not answer either. That failure is this one's, not
       // the folder's, so it keeps its own message and its own retry.
       if (generation == _loadGeneration) state = LibraryState.error(message);
+    }
+  }
+
+  /// Which tag-reader revision each folder was last read in full with, or
+  /// null when that can't be read: nothing is then read in full on its
+  /// account, and nothing recorded.
+  Future<Map<String, int>?> _tagRevisions() async {
+    try {
+      return await ref.read(localTagRevisionStoreProvider).load();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Records [revision] for every folder [scan] could read, which it read in
+  /// full if it was due, keeping what [recorded] says for the others: a
+  /// folder that couldn't be read keeps its old rows, and is read in full
+  /// once it can be.
+  Future<void> _recordTagRevision(
+    Map<String, int> recorded,
+    LocalLibraryScan scan,
+    int revision,
+  ) async {
+    final Map<String, int> next = <String, int>{
+      ...recorded,
+      for (final LocalRootOutcome outcome in scan.roots)
+        if (outcome.available) outcome.root: revision,
+    };
+    if (next.length == recorded.length &&
+        next.keys.every((String root) => recorded[root] == next[root])) {
+      return;
+    }
+    try {
+      await ref.read(localTagRevisionStoreProvider).save(next);
+    } catch (_) {
+      // Not recorded: those folders are read in full once more next time.
     }
   }
 
