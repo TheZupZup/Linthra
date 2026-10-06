@@ -165,9 +165,13 @@ class HttpJellyfinClient implements JellyfinClient {
 
       final Map<String, dynamic> json = _decodeObject(response);
       final Object? rawItems = json['Items'];
+      final Object? rawTotal = json['TotalRecordCount'];
+      final int? total = rawTotal is num ? rawTotal.toInt() : null;
       if (rawItems is! List) {
-        // A valid but empty library, or a shape we don't recognize — stop here
-        // rather than treating it as an error.
+        // A valid but empty library, or a shape we don't recognize, stops here
+        // rather than being treated as an error. Unless it comes after part of
+        // the library, which the server's own total says is not all of it.
+        _failIfShort(startIndex, total);
         break;
       }
 
@@ -185,16 +189,18 @@ class HttpJellyfinClient implements JellyfinClient {
       }
 
       final int received = rawItems.length;
+      if (received == 0) {
+        _failIfShort(startIndex, total);
+        break;
+      }
       startIndex += received;
 
-      final Object? rawTotal = json['TotalRecordCount'];
-      final int? total = rawTotal is num ? rawTotal.toInt() : null;
-      final bool reachedTotal = total != null && startIndex >= total;
-
-      // Stop on the server's own total, on a short (final) page, or on an empty
-      // page. (A server that returns a *full* page forever is caught by the
-      // page-count backstop at the top of the loop instead.)
-      if (received == 0 || received < _itemPageSize || reachedTotal) {
+      // Stop on the server's own total, or, when it gives none, on a short
+      // (final) page. With a total, a short page only means the server pages
+      // in smaller chunks than asked, and the total says what is left. (A
+      // server that returns a *full* page forever is caught by the page-count
+      // backstop at the top of the loop instead.)
+      if (total != null ? startIndex >= total : received < _itemPageSize) {
         break;
       }
 
@@ -207,6 +213,17 @@ class HttpJellyfinClient implements JellyfinClient {
       kept: items.length,
     );
     return JellyfinItemListing(items: items, skippedCount: skipped);
+  }
+
+  /// Throws when a page came back with nothing after [startIndex] items were
+  /// read, while the server's [total] says there are more: returned, the part
+  /// read so far would replace the whole catalog, and the rest of the library
+  /// would be gone from it until a later sync. Thrown, the caller keeps the
+  /// catalog it has, as for a page that failed.
+  static void _failIfShort(int startIndex, int? total) {
+    if (startIndex > 0 && total != null && startIndex < total) {
+      throw JellyfinException.unsupportedResponse();
+    }
   }
 
   /// Parses one wire entry into a DTO, or `null` when it is unusable.

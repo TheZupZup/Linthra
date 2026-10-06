@@ -461,6 +461,85 @@ void main() {
       );
     });
 
+    test(
+        'a server that pages in smaller chunks than asked is read to its '
+        'total', () async {
+      // Asked for 3 per page, it answers 2 at a time: a short page that isn't
+      // the last one, which the server's own total says.
+      final List<int> starts = <int>[];
+      final client = _itemsClient(
+        MockClient((http.Request request) async {
+          final int start =
+              int.parse(request.url.queryParameters['StartIndex'] ?? '0');
+          starts.add(start);
+          return _jsonItems(<Map<String, dynamic>>[
+            for (int i = start; i < start + 2 && i < 5; i++)
+              <String, dynamic>{'Id': 't$i', 'Name': 'Track $i'},
+          ], total: 5);
+        }),
+        pageSize: 3,
+      );
+
+      final listing =
+          await client.fetchItems(_session, kind: JellyfinItemKind.audio);
+
+      expect(
+        listing.items.map((JellyfinItemDto i) => i.id),
+        <String>['t0', 't1', 't2', 't3', 't4'],
+      );
+      expect(starts, <int>[0, 2, 4]);
+    });
+
+    test(
+        'an empty page before the total fails the walk rather than '
+        'returning part of the library', () async {
+      final client = _itemsClient(
+        MockClient((http.Request request) async {
+          final int start =
+              int.parse(request.url.queryParameters['StartIndex'] ?? '0');
+          if (start == 0) {
+            return _jsonItems(<Map<String, dynamic>>[
+              <String, dynamic>{'Id': 't1', 'Name': 'One'},
+              <String, dynamic>{'Id': 't2', 'Name': 'Two'},
+            ], total: 4);
+          }
+          return _jsonItems(const <Map<String, dynamic>>[], total: 4);
+        }),
+        pageSize: 2,
+      );
+
+      await expectLater(
+        client.fetchItems(_session, kind: JellyfinItemKind.audio),
+        throwsA(isA<JellyfinException>()),
+      );
+    });
+
+    test('a later page with no Items list before the total fails the walk too',
+        () async {
+      final client = _itemsClient(
+        MockClient((http.Request request) async {
+          final int start =
+              int.parse(request.url.queryParameters['StartIndex'] ?? '0');
+          if (start == 0) {
+            return _jsonItems(<Map<String, dynamic>>[
+              <String, dynamic>{'Id': 't1', 'Name': 'One'},
+              <String, dynamic>{'Id': 't2', 'Name': 'Two'},
+            ], total: 4);
+          }
+          return http.Response(
+            jsonEncode(<String, dynamic>{'TotalRecordCount': 4}),
+            200,
+          );
+        }),
+        pageSize: 2,
+      );
+
+      await expectLater(
+        client.fetchItems(_session, kind: JellyfinItemKind.audio),
+        throwsA(isA<JellyfinException>()),
+      );
+    });
+
     test('a server that ignores paging is bounded by the page-count backstop',
         () async {
       // Pathological server: always returns a full page and never a total, so
