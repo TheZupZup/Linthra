@@ -41,7 +41,8 @@ class FilesystemLocalMetadataReader
         LocalMetadataReader,
         LocalMetadataReadOutcomes,
         LocalArtworkMaintainer,
-        LocalArtworkInventory {
+        LocalArtworkInventory,
+        LocalTagRevision {
   FilesystemLocalMetadataReader({
     LocalArtworkCache? artworkCache,
     Duration parseLimit = const Duration(seconds: 10),
@@ -57,6 +58,15 @@ class FilesystemLocalMetadataReader
   /// parser loop and stopped. A healthy file takes milliseconds, even on a
   /// slow drive; this only has to tell "slow" from "never".
   final Duration _parseLimit;
+
+  /// Bump this whenever a change here, or an `audio_metadata_reader` update,
+  /// changes what a file reads as. Folders indexed before then are read in
+  /// full once more, so the change reaches files that haven't changed since
+  /// (#783).
+  static const int revision = 1;
+
+  @override
+  int get tagRevision => revision;
 
   /// The check that refuses a file the MP4 parser would loop on, run on the
   /// parse's isolate right before the parse. [Mp4BoxGuard.isSafeToParse];
@@ -152,6 +162,9 @@ class FilesystemLocalMetadataReader
       final _Parsed? parsed =
           await _parseStoppably(path, getImage: needsArtwork);
       if (parsed == null) return _failed;
+      if (parsed.rejected) {
+        return await _flacInTheClear(file, cachedArtwork) ?? _failed;
+      }
       final LocalAudioMetadata? parsedTags = parsed.tags;
       // FLAC's comment block is readable in the clear, so prefer the real
       // ARTIST/ALBUMARTIST over what the package merged. See
@@ -245,9 +258,16 @@ class FilesystemLocalMetadataReader
     bool getImage,
     bool Function(File file) guard,
   ) {
+    final File file = File(path);
     try {
-      final File file = File(path);
       if (!guard(file)) return null;
+    } catch (_) {
+      // The guard reads the file first, so this is the file that couldn't be
+      // read (a drive or a share answering with an I/O error, a file gone):
+      // nothing is known about its tags.
+      return null;
+    }
+    try {
       // Format-specific rather than the package's unified `readMetadata`:
       // that one folds ID3's TPE2 (album artist) into a single `artist`
       // field, which would lose the distinction the catalog groups albums by.
@@ -258,10 +278,12 @@ class FilesystemLocalMetadataReader
         cover: cover == null
             ? null
             : TransferableTypedData.fromList(<TypedData>[cover.bytes]),
+        rejected: false,
       );
     } catch (_) {
-      // A refused or failed parse is "no tags", as anywhere else here.
-      return null;
+      // The parser gave up on what it read, which one field it can't parse
+      // is enough for (see [_flacInTheClear]).
+      return (tags: null, cover: null, rejected: true);
     }
   }
 
@@ -315,6 +337,55 @@ class FilesystemLocalMetadataReader
       duration: metadata.duration,
       artworkUri: metadata.artworkUri,
     );
+  }
+
+  /// What a FLAC the package gave up on still says in the clear: its
+  /// comments and its length, and its cover only when one is cached already.
+  /// The package fails the whole file over one field it can't parse (a
+  /// TRACKNUMBER of `A1` on a vinyl rip, an empty `TRACKTOTAL=`, a comment
+  /// with no `=`), which left the track named after its file for good, with
+  /// no length. Null when this isn't a FLAC, or its comments can't be read
+  /// either.
+  static Future<LocalMetadataRead?> _flacInTheClear(
+    File file,
+    File? cachedArtwork,
+  ) async {
+    final Map<String, List<String>>? fields =
+        await VorbisCommentFields.read(file);
+    if (fields == null) return null;
+    final List<String> artists = _nonBlank(fields['ARTIST']);
+    final List<String> albumArtists = _nonBlank(fields['ALBUMARTIST']);
+    final LocalAudioMetadata? tags = _metadata(
+      title: _nonBlank(fields['TITLE']).firstOrNull,
+      artist: artists.isEmpty ? null : artists.join(', '),
+      albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
+      album: _nonBlank(fields['ALBUM']).firstOrNull,
+      trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
+      duration: await FlacStreamInfo.duration(file),
+    );
+    if (tags == null || cachedArtwork == null) {
+      return (metadata: tags, failed: false);
+    }
+    return (
+      metadata: LocalAudioMetadata(
+        title: tags.title,
+        artist: tags.artist,
+        albumArtist: tags.albumArtist,
+        album: tags.album,
+        trackNumber: tags.trackNumber,
+        duration: tags.duration,
+        artworkUri: Uri.file(cachedArtwork.path),
+      ),
+      failed: false,
+    );
+  }
+
+  /// The number a track field starts with: `3` from `3` or `3/12`, and none
+  /// from `A1`. A vinyl side's `A1` and `B1` are not both track 1: read that
+  /// way, the album would play its sides interleaved.
+  static int? _leadingNumber(String? value) {
+    final RegExpMatch? match = RegExp(r'^\s*(\d+)').firstMatch(value ?? '');
+    return match == null ? null : int.tryParse(match.group(1)!);
   }
 
   static List<String> _nonBlank(List<String>? values) => <String>[
@@ -452,8 +523,13 @@ class FilesystemLocalMetadataReader
 }
 
 /// What a parse sends back: the file's tags, and the picture picked as its
-/// cover when one was asked for and there is one.
-typedef _Parsed = ({LocalAudioMetadata? tags, TransferableTypedData? cover});
+/// cover when one was asked for and there is one. [rejected] when the parser
+/// gave up on the file's contents, which it read.
+typedef _Parsed = ({
+  LocalAudioMetadata? tags,
+  TransferableTypedData? cover,
+  bool rejected,
+});
 
 /// The reply [_ParserIsolate] gets when its isolate is gone. Never a parse's
 /// answer, which is a [_Parsed] or null.

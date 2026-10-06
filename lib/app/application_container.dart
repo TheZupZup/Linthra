@@ -22,6 +22,7 @@ import '../data/repositories/keyboard_shortcut_preferences_provider.dart';
 import '../data/repositories/launcher_icon_service_provider.dart';
 import '../data/repositories/library_added_store_provider.dart';
 import '../data/repositories/library_tab_store_provider.dart';
+import '../data/repositories/local_tag_revision_store_provider.dart';
 import '../data/repositories/music_library_repository_provider.dart';
 import '../data/repositories/play_history_repository_provider.dart';
 import '../data/repositories/playback_preferences_provider.dart';
@@ -62,6 +63,7 @@ List<Override> productionApplicationOverrides({
   return <Override>[
     recordingDriftMusicLibraryRepositoryOverride,
     sharedPreferencesLibraryAddedStoreOverride,
+    sharedPreferencesLocalTagRevisionStoreOverride,
     sharedPreferencesLibraryTabStoreOverride,
     sharedPreferencesSelectedMusicFolderRepositoryOverride,
     sharedPreferencesPreferredSourceStoreOverride,

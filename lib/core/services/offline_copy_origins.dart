@@ -5,17 +5,19 @@ import '../repositories/download_store.dart';
 /// it came from.
 ///
 /// A Plex ratingKey is a number its server hands out: `plex:101` on another
-/// server, or on a reinstalled one, is a different song. Every stored
-/// reference to a Plex track is that bare number, so without this a song
-/// downloaded or pre-cached on one server would stand in for another server's
-/// song with the same number: it would read as downloaded and play the wrong
-/// audio. Each such copy records the server it came from
+/// server, or on a reinstalled one, is a different song. Most Subsonic
+/// servers number their songs the same way, and Navidrome derives its ids
+/// from file paths, which another installation can share for another file.
+/// Every stored reference to such a track is that bare id, so without this a
+/// song downloaded or pre-cached on one server would stand in for another
+/// server's song with the same id: it would read as downloaded and play the
+/// wrong audio. Each such copy records the server it came from
 /// ([CachedTrack.origin]) and is used only while that server is connected. On
 /// another server, and while signed out, it is kept but set aside, so
 /// connecting back to its server brings it back.
 abstract interface class OfflineCopyOrigins {
-  /// Whether offline copies of [scheme] (`plex`, …) are bound to the server
-  /// they came from.
+  /// Whether offline copies of [scheme] (`plex`, `subsonic`, …) are bound to
+  /// the server they came from.
   bool binds(String scheme);
 
   /// The non-secret identity of the server [scheme]'s provider is connected

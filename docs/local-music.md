@@ -120,6 +120,12 @@ the folder really holds nothing, so a share mounted again in the meantime is
 simply read. A folder that holds files that aren't music (covers, playlists) is
 read as usual, and a folder you just added that has no music yet is just empty.
 
+A share whose server went away can also stop answering instead of failing: on
+an NFS hard mount (the default) or a stalled FUSE mount, reading it waits for as
+long as the mount retries. A scan doesn't wait for it. A folder that gives no
+answer for 30 seconds counts as one that couldn't be read, so its music stays
+indexed, the other folders are refreshed, and the scan ends.
+
 ### The one case Linthra will not guess
 
 **A drive that comes back at a different path is not adopted.** Automounters
@@ -252,11 +258,12 @@ is an ordinary `dart:io` walk. What differs is where the path comes from:
    INFO (WAV). Only the tag structures are parsed, so a 60 MB FLAC is not read
    into memory to find its title. A file with no tags, or one that cannot be
    parsed, still appears in the library with its filename-derived name — a
-   track is never dropped for having bad tags.
+   track is never dropped for having bad tags. A FLAC whose tags trip the
+   parser on one odd field (a vinyl `A1` track number, an empty `TRACKTOTAL`)
+   still keeps its other comments and its length, read from the file
+   directly.
 
-   Two honest gaps on Linux today: **embedded cover art is not extracted yet**
-   ([#408](https://github.com/thezupzup/linthra/issues/408)), so local tracks
-   keep the placeholder; and **album artist** depends on the container. ID3
+   One honest gap on Linux today: **album artist** depends on the container. ID3
    (TPE2), APEv2 and FLAC report a real one, so a compilation groups under the
    album artist. OGG and Opus do not: the tag reader Linthra uses folds their
    `ARTIST` and `ALBUMARTIST` comments into one list and loses which was which,
@@ -402,6 +409,11 @@ Details worth knowing:
   cause the others to be re-read.
 - **An offline folder keeps its stamps** along with its tracks, so plugging a
   drive back in does not re-parse everything on it.
+- **An update that reads tags better reaches what is already indexed.** When a
+  new version of Linthra changes what a file's tags read as, the next scan of
+  each folder reads every file in it once more, then goes back to reading only
+  what changed. A folder that is offline at the time is read in full once it is
+  back.
 - **A file that vanishes mid-scan keeps its row.** A file the scan listed but
   can then neither `stat` nor read (the drive was pulled, or the file was moved,
   while the scan was running) keeps the tags, cover and history it had, rather
@@ -422,10 +434,9 @@ putting an old file back over a new one does it, and so does `touch -r` after
 an in-place edit. Hashing every file would catch those, at the cost of reading
 every byte of the library on every scan, which is the thing being avoided.
 
-So if the library ever looks wrong, a **full rescan** is the answer: it ignores
-every stamp and rebuilds the local index from the files themselves. Forgetting
-the source and selecting the folders again does the same thing, since there is
-then nothing indexed to compare against.
+So if the library ever looks wrong, rebuild the local index from the files
+themselves: forget the source and select the folders again. There is then
+nothing indexed to compare against, so every file is read.
 
 ## Local music vs Offline downloads vs Cache
 

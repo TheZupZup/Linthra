@@ -4,12 +4,19 @@
 // The single-source rules live in
 // test/core/sources/local/local_incremental_scan_test.dart. This is about the
 // round trip: stamps written by one scan are what the next scan reads back.
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
+import 'package:linthra/core/repositories/music_library_repository.dart';
+import 'package:linthra/core/repositories/source_catalog_reader.dart';
+import 'package:linthra/core/repositories/stamped_catalog_writer.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
@@ -18,8 +25,11 @@ import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/data/database/linthra_database.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
+import 'package:linthra/data/repositories/drift_music_library_repository.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
+import 'package:linthra/data/repositories/in_memory_local_tag_revision_store.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
+import 'package:linthra/data/repositories/local_tag_revision_store_provider.dart';
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/data/repositories/selected_music_folder_repository_provider.dart';
 import 'package:linthra/features/library/library_controller.dart';
@@ -40,6 +50,10 @@ class _MutableScanner implements AudioFileScanner {
   Map<String, List<String>> filesByFolder;
   Set<String> unavailable = <String>{};
 
+  /// Subfolders the walk can't list (a share that stopped answering under a
+  /// folder that still does): their files aren't returned.
+  Set<String> unreadableSubfolders = <String>{};
+
   @override
   Future<List<String>> listFiles(
     String folder, {
@@ -51,24 +65,170 @@ class _MutableScanner implements AudioFileScanner {
         folder: folder,
       );
     }
-    return filesByFolder[folder] ?? const <String>[];
+    final List<String> listed = <String>[];
+    final Set<String> skipped = <String>{};
+    for (final String path in filesByFolder[folder] ?? const <String>[]) {
+      final String? under = unreadableSubfolders
+          .where((String sub) => path.startsWith('$sub/'))
+          .firstOrNull;
+      if (under == null) {
+        listed.add(path);
+      } else if (skipped.add(under)) {
+        onUnreadableDirectory?.call(under);
+      }
+    }
+    return listed;
   }
 }
 
 class _CountingMetadataReader implements LocalMetadataReader {
   final List<String> reads = <String>[];
 
+  /// The title every file reads as.
+  String title = 'Tagged';
+
   int get readCount => reads.length;
 
   @override
   Future<LocalAudioMetadata?> readFromPath(String path) async {
     reads.add(path);
-    return const LocalAudioMetadata(
-      title: 'Tagged',
+    return LocalAudioMetadata(
+      title: title,
       artist: 'Someone',
       album: 'Something',
-      duration: Duration(minutes: 3),
+      duration: const Duration(minutes: 3),
     );
+  }
+}
+
+/// A tag reader that says which revision of tag reading it is, the way the
+/// filesystem reader does; [tagRevision] goes up when Linthra is updated with
+/// a change to how tags are read.
+class _RevisedMetadataReader extends _CountingMetadataReader
+    implements LocalTagRevision, LocalMetadataReadOutcomes {
+  @override
+  int tagRevision = 1;
+
+  /// Files whose read fails: a share that answered with an I/O error, a parse
+  /// that ran out of time.
+  Set<String> failing = <String>{};
+
+  @override
+  Future<LocalAudioMetadata?> readFromPath(String path) async =>
+      (await readWithOutcome(path)).metadata;
+
+  @override
+  Future<LocalMetadataRead> readWithOutcome(String path) async {
+    final LocalAudioMetadata? metadata = await super.readFromPath(path);
+    if (failing.contains(path)) return (metadata: null, failed: true);
+    return (metadata: metadata, failed: false);
+  }
+}
+
+/// The real catalog, with its next stamped write held until [release], so a
+/// scan can be caught writing its result.
+class _HeldWrites
+    implements
+        MusicLibraryRepository,
+        SourceCatalogReader,
+        StampedCatalogWriter {
+  _HeldWrites(this._inner);
+
+  final DriftMusicLibraryRepository _inner;
+  Completer<void>? _gate;
+  Completer<void>? _reached;
+
+  /// Holds the next [upsertStampedCatalog]; completes once it is asked.
+  Future<void> holdNextWrite() {
+    _gate = Completer<void>();
+    return (_reached = Completer<void>()).future;
+  }
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    gate?.complete();
+  }
+
+  @override
+  Future<void> upsertStampedCatalog({
+    required String sourceId,
+    required List<StampedTrack> tracks,
+  }) async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      _reached?.complete();
+      _reached = null;
+      await gate.future;
+    }
+    await _inner.upsertStampedCatalog(sourceId: sourceId, tracks: tracks);
+  }
+
+  @override
+  Future<List<StampedTrack>> getStampedTracksForSource(String sourceId) =>
+      _inner.getStampedTracksForSource(sourceId);
+
+  @override
+  Future<List<Track>> getTracksForSource(String sourceId) =>
+      _inner.getTracksForSource(sourceId);
+
+  @override
+  Future<List<Track>> getAllTracks() => _inner.getAllTracks();
+
+  @override
+  Future<List<Album>> getAllAlbums() => _inner.getAllAlbums();
+
+  @override
+  Future<List<Artist>> getAllArtists() => _inner.getAllArtists();
+
+  @override
+  Future<Track?> getTrackByUri(String uri) => _inner.getTrackByUri(uri);
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) =>
+      _inner.upsertCatalog(
+        sourceId: sourceId,
+        tracks: tracks,
+        albums: albums,
+        artists: artists,
+      );
+
+  @override
+  Future<void> removeTracks(List<String> trackUris) =>
+      _inner.removeTracks(trackUris);
+}
+
+/// Revision records whose next read is held until [release].
+class _HeldRevisions extends InMemoryLocalTagRevisionStore {
+  Completer<void>? _gate;
+  Completer<void>? _reached;
+
+  /// Holds the next [load]; completes once it is asked.
+  Future<void> holdNextLoad() {
+    _gate = Completer<void>();
+    return (_reached = Completer<void>()).future;
+  }
+
+  void release() {
+    final Completer<void>? gate = _gate;
+    _gate = null;
+    gate?.complete();
+  }
+
+  @override
+  Future<Map<String, int>> load() async {
+    final Completer<void>? gate = _gate;
+    if (gate != null) {
+      _reached?.complete();
+      _reached = null;
+      await gate.future;
+    }
+    return super.load();
   }
 }
 
@@ -92,9 +252,15 @@ void main() {
   late _CountingMetadataReader tags;
   late _FakeStatReader stats;
 
-  ProviderContainer container({List<String> roots = const <String>['/music']}) {
+  ProviderContainer container({
+    List<String> roots = const <String>['/music'],
+    InMemoryLocalTagRevisionStore? revisions,
+    bool holdWrites = false,
+  }) {
     final ProviderContainer c = ProviderContainer(
       overrides: <Override>[
+        if (revisions != null)
+          localTagRevisionStoreProvider.overrideWithValue(revisions),
         folderPickerServiceProvider
             .overrideWithValue(FakeFolderPickerService()),
         selectedMusicFolderRepositoryProvider.overrideWithValue(
@@ -106,7 +272,14 @@ void main() {
         linthraDatabaseExecutorProvider.overrideWithValue(
           NativeDatabase.memory(),
         ),
-        driftMusicLibraryRepositoryOverride,
+        if (holdWrites)
+          musicLibraryRepositoryProvider.overrideWith(
+            (ref) => _HeldWrites(
+              DriftMusicLibraryRepository(ref.watch(linthraDatabaseProvider)),
+            ),
+          )
+        else
+          driftMusicLibraryRepositoryOverride,
         audioFileScannerProvider.overrideWithValue(files),
         localMetadataReaderProvider.overrideWithValue(tags),
         localFileStatReaderProvider.overrideWithValue(stats),
@@ -253,6 +426,257 @@ void main() {
         0,
         reason: 'the offline folder kept the stamps it was indexed with, so '
             'reconnecting the drive does not re-parse it',
+      );
+    });
+  });
+
+  group('a change to how tags are read (#783)', () {
+    late _RevisedMetadataReader revised;
+    late InMemoryLocalTagRevisionStore revisions;
+
+    setUp(() {
+      revised = _RevisedMetadataReader();
+      tags = revised;
+      revisions = InMemoryLocalTagRevisionStore();
+    });
+
+    test(
+        'an update to the tag reader reads every file once more, then only '
+        'what changed again', () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
+
+      revised.tagRevision = 2;
+      await notifier.rescan();
+      expect(revised.readCount, 2,
+          reason: 'unchanged on disk, but read by the old reader');
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
+    });
+
+    test('a library indexed before revisions were recorded is read once',
+        () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+      // What a library indexed by an earlier version looks like: rows and
+      // stamps in the catalog, and nothing recorded about how they were read.
+      await revisions.save(const <String, int>{});
+      revised.reads.clear();
+
+      await notifier.rescan();
+
+      expect(revised.readCount, 2);
+      expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test(
+        "a scan superseded while it writes doesn't record its folder as read, "
+        'so the scan that replaced it reads the files again', () async {
+      final _HeldRevisions held = _HeldRevisions();
+      final ProviderContainer c = container(revisions: held, holdWrites: true);
+      await c.read(selectedFolderControllerProvider.future);
+      final LibraryController library =
+          c.read(libraryControllerProvider.notifier);
+      await library.scanFolders(<String>['/music']);
+      final _HeldWrites catalog =
+          c.read(musicLibraryRepositoryProvider) as _HeldWrites;
+
+      // An update that reads the same files differently.
+      revised.tagRevision = 2;
+      revised.title = 'Fixed';
+
+      // The first scan is writing what the new reader read when a second
+      // starts: it takes its rows from the catalog before that write, then
+      // asks how they were read.
+      final Future<void> writing = catalog.holdNextWrite();
+      final Future<void> first = library.scanFolders(<String>['/music']);
+      await writing;
+      final Future<void> asking = held.holdNextLoad();
+      final Future<void> second = library.scanFolders(<String>['/music']);
+      await asking;
+      catalog.release();
+      await first;
+      held.release();
+      await second;
+
+      final List<Track> all =
+          await c.read(musicLibraryRepositoryProvider).getAllTracks();
+      expect(all.map((Track t) => t.title), everyElement('Fixed'),
+          reason: "the second scan wrote the old reader's rows back");
+      expect(await held.load(), <String, int>{'/music': 2});
+    });
+
+    test(
+        'a file whose read fails that once keeps the row it had, not one '
+        'built from its file name, and is read again by the next scan',
+        () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      revised.tagRevision = 2;
+      revised.failing = <String>{'/music/a.flac'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 2);
+
+      final Track a =
+          (await c.read(musicLibraryRepositoryProvider).getAllTracks())
+              .singleWhere((Track t) => t.uri == '/music/a.flac');
+      expect(a.title, 'Tagged',
+          reason: 'it read fine before, and an unchanged file has the same '
+              'tags');
+      expect(a.artistName, 'Someone');
+      // The file is due on its own, so the rest of the folder isn't read
+      // again for it.
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.failing = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0);
+    });
+
+    test(
+        'a subfolder that could not be read keeps its folder due, so its '
+        'files are read once it can be', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac', '/music/live/b.flac'],
+      });
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/music/a.flac': _stamp(100, 1000),
+        '/music/live/b.flac': _stamp(200, 2000),
+      });
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      // The update lands while a subfolder is not answering: its row is kept,
+      // but its file was not read by the new reader.
+      revised.tagRevision = 2;
+      files.unreadableSubfolders = <String>{'/music/live'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+      expect(await revisions.load(), <String, int>{'/music': 1});
+
+      files.unreadableSubfolders = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, contains('/music/live/b.flac'));
+      expect(await revisions.load(), <String, int>{'/music': 2});
+    });
+
+    test(
+        "a subfolder nobody may list, with nothing indexed under it, doesn't "
+        'keep its folder due', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac', '/music/lost+found/x.flac'],
+      })
+        ..unreadableSubfolders = <String>{'/music/lost+found'};
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      revised.tagRevision = 2;
+      await notifier.rescan();
+      expect(await revisions.load(), <String, int>{'/music': 2});
+
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.readCount, 0,
+          reason: 'the folder would be read in full on every scan');
+    });
+
+    test('a folder no longer selected leaves no record behind', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac'],
+        '/media/usb': <String>['/media/usb/b.flac'],
+      });
+      final ProviderContainer c = container(
+        roots: const <String>['/music', '/media/usb'],
+        revisions: revisions,
+      );
+      await c.read(selectedFolderControllerProvider.future);
+      await c.read(localMusicControllerProvider.notifier).rescan();
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 1, '/media/usb': 1},
+      );
+
+      await c
+          .read(libraryControllerProvider.notifier)
+          .scanFolders(<String>['/music']);
+
+      expect(await revisions.load(), <String, int>{'/music': 1});
+    });
+
+    test('forgetting local music forgets the records too', () async {
+      final ProviderContainer c = container(revisions: revisions);
+      await c.read(selectedFolderControllerProvider.future);
+      await c.read(localMusicControllerProvider.notifier).rescan();
+      expect(await revisions.load(), <String, int>{'/music': 1});
+
+      await c.read(libraryControllerProvider.notifier).clearLocalCatalog();
+
+      expect(await revisions.load(), isEmpty);
+    });
+
+    test(
+        'a folder that could not be read is read in full once it can be, '
+        'and only that one', () async {
+      files = _MutableScanner(<String, List<String>>{
+        '/music': <String>['/music/a.flac'],
+        '/media/usb': <String>['/media/usb/b.flac'],
+      });
+      stats = _FakeStatReader(<String, LocalFileStamp>{
+        '/music/a.flac': _stamp(100, 1000),
+        '/media/usb/b.flac': _stamp(200, 2000),
+      });
+      final ProviderContainer c = container(
+        roots: const <String>['/music', '/media/usb'],
+        revisions: revisions,
+      );
+      await c.read(selectedFolderControllerProvider.future);
+      final notifier = c.read(localMusicControllerProvider.notifier);
+      await notifier.rescan();
+
+      // The update lands while the drive is out: only /music is read again.
+      revised.tagRevision = 2;
+      files.unavailable = <String>{'/media/usb'};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/music/a.flac']);
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 2, '/media/usb': 1},
+      );
+
+      // The drive is back: its file was indexed by the old reader.
+      files.unavailable = <String>{};
+      revised.reads.clear();
+      await notifier.rescan();
+      expect(revised.reads, <String>['/media/usb/b.flac']);
+      expect(
+        await revisions.load(),
+        <String, int>{'/music': 2, '/media/usb': 2},
       );
     });
   });

@@ -35,6 +35,7 @@ class SyntheticNavidrome {
     this.rejectCredentialsFromAlbumCall,
     this.stallAtAlbumCall,
     this.brokenAlbums = const <int>{},
+    this.retypedAlbums = const <int>{},
     this.rejectCredentialsOnPing = false,
     this.failAlbumListCallsFrom,
     this.rejectCredentialsFromAlbumListCall,
@@ -86,6 +87,12 @@ class SyntheticNavidrome {
   /// Album indexes whose `getAlbum` always answers HTTP 500 (a record the
   /// server chokes on), while everything else on the server works (#740).
   final Set<int> brokenAlbums;
+
+  /// Album indexes served with values of an unexpected JSON type: the list
+  /// entry's `songCount` and `year`, and every song's `track` and `duration`,
+  /// are numeric strings; song 0's `artist` and song 1's `title` are numbers,
+  /// which leaves song 1 without a usable title.
+  final Set<int> retypedAlbums;
 
   /// The `ping` rejects the credential (Subsonic error 40), as a password
   /// changed while an album was failing would.
@@ -196,7 +203,11 @@ class SyntheticNavidrome {
                 <String, Object?>{
                   'id': 'al-$a',
                   'name': 'Album ${a.toString().padLeft(6, '0')}',
-                  'songCount': songsPerAlbum,
+                  if (retypedAlbums.contains(a)) ...<String, Object?>{
+                    'songCount': '$songsPerAlbum',
+                    'year': '2011',
+                  } else
+                    'songCount': songsPerAlbum,
                 },
             ],
           },
@@ -240,6 +251,7 @@ class SyntheticNavidrome {
         if (brokenAlbums.contains(a)) {
           return http.Response('Internal Server Error', 500);
         }
+        final bool retyped = retypedAlbums.contains(a);
         return _ok(<String, Object?>{
           'album': <String, Object?>{
             'id': 'al-$a',
@@ -247,12 +259,12 @@ class SyntheticNavidrome {
               for (int s = 0; s < songsPerAlbum; s++)
                 <String, Object?>{
                   'id': 'mf-$user-$a-$s',
-                  'title': 'Song $a/$s',
+                  'title': retyped && s == 1 ? 1999 : 'Song $a/$s',
                   'album': 'Album $a',
                   'albumId': 'al-$a',
-                  'artist': 'Artist ${a ~/ 5}',
-                  'track': s + 1,
-                  'duration': 180 + s,
+                  'artist': retyped && s == 0 ? 42 : 'Artist ${a ~/ 5}',
+                  'track': retyped ? '${s + 1}' : s + 1,
+                  'duration': retyped ? '${180 + s}' : 180 + s,
                   'coverArt': 'al-$a',
                 },
             ],

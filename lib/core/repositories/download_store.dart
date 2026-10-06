@@ -63,8 +63,9 @@ class CachedTrack {
   /// another server is another song). The copy only ever stands in for its
   /// track while that server is the one connected (see
   /// `OfflineCopyOrigins`). The server's non-secret identity (a Plex
-  /// `machineIdentifier`), never an address or a credential. `null` for every
-  /// other provider, and for a copy saved before this was recorded.
+  /// `machineIdentifier`, a hash of a Subsonic server's address), never an
+  /// address or a credential. `null` for every other provider, and for a
+  /// copy saved before this was recorded.
   final String? origin;
 
   /// Whether this record points at app-managed downloaded bytes (vs. an
@@ -221,6 +222,16 @@ abstract interface class DownloadStore {
   /// The tracks currently cached for offline use.
   Future<List<CachedTrack>> loadDownloads();
 
-  /// Replaces the persisted set with [downloads].
+  /// Replaces the persisted set with [downloads]. Throws when it couldn't be
+  /// written (a [DownloadStoreWriteException] for a full disk), leaving the
+  /// last saved set as it was.
   Future<void> saveDownloads(List<CachedTrack> downloads);
+}
+
+/// Thrown by [DownloadStore.saveDownloads] when the set couldn't be written.
+class DownloadStoreWriteException implements Exception {
+  const DownloadStoreWriteException();
+
+  @override
+  String toString() => 'The offline download records could not be saved.';
 }

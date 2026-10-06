@@ -264,6 +264,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   Timer? _automaticRecoveryTimer;
   ({Track track, PlaybackFailure failure})? _pendingRecovery;
 
+  /// Whether the quick reconnect of a dropped stream is waiting out its
+  /// backoff, with nothing loaded yet (see [_beginStreamRecovery]).
+  bool _reconnectBackingOff = false;
+
   /// Whether the listener allows moving past a track whose recovery is spent
   /// ([setAutomaticSkipEnabled]). Off until they say so: without it the player
   /// stops on the failed track rather than changing songs by itself. Null
@@ -1052,12 +1056,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // cannot schedule a second overlapping recovery for the same wake.
     final bool shouldPlay = _recoverPlaybackOnForeground;
     _recoverPlaybackOnForeground = false;
+    final int generation = _playbackGeneration;
     try {
       final Duration backoff = suspendResumeBackoff;
       if (backoff > Duration.zero) {
         await Future<void>.delayed(backoff);
       }
-      if (_suspended) return;
+      if (_suspended || _disposed) return;
+      // A stop, a seek or another load during the wait owns playback now.
+      if (generation != _playbackGeneration) return;
       if (_queue.current?.uri != track.uri) return;
       if (!shouldPlay) return;
 
@@ -1250,6 +1257,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       }
       _currentHasPlayed = true;
       _cancelBufferingWatchdog();
+      // The stream came back on its own while an automatic retry or skip was
+      // waiting out its failure (a stall the watchdog had given up on): that
+      // failure is over, and the step must not reload or skip a track that is
+      // playing.
+      if (_pendingRecovery != null) _cancelAutomaticRecovery();
     }
     if (status == PlaybackStatus.buffering &&
         _state.status == PlaybackStatus.playing) {
@@ -1418,7 +1430,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Runs the single shared mid-stream recovery path. Returns immediately when
   /// another recovery is already in flight (or when there is nothing to recover).
   Future<void> _beginStreamRecovery(StreamInterruption interruption) async {
-    if (_suspended) return;
+    if (_suspended || _disposed) return;
     if (_streamRecoveryInFlight) return;
     // An automatic retry or move is already scheduled for this failure, or is
     // loading right now; a late engine error from the same dead source, or
@@ -1440,11 +1452,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // "playing" while we wait, and never looks like a permanent error.
         _emit(_state.copyWith(status: PlaybackStatus.reconnecting));
         _armBufferingWatchdog();
+        final int generation = _playbackGeneration;
         final Duration backoff = streamRetryBackoff;
         if (backoff > Duration.zero) {
-          await Future<void>.delayed(backoff);
+          _reconnectBackingOff = true;
+          try {
+            await Future<void>.delayed(backoff);
+          } finally {
+            _reconnectBackingOff = false;
+          }
         }
-        // A skip/stop during the backoff owns playback now — don't reload.
+        // A skip, a stop or a seek during the backoff owns playback now (a
+        // stop leaves the queue as it is, so only the generation tells), and
+        // nothing reloads after dispose.
+        if (_disposed || generation != _playbackGeneration) return;
         if (_queue.current?.uri != track.uri) return;
         await _playCurrent(startAt: _state.position, isRetry: true);
         return;
@@ -1468,6 +1489,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// fires, the stall is treated like a server that stopped responding.
   void _armBufferingWatchdog() {
     _cancelBufferingWatchdog();
+    // A recovery that ends after dispose must not leave a timer behind.
+    if (_disposed) return;
     _bufferingWatchdog = Timer(midStreamBufferingTimeout, _onBufferingTimeout);
   }
 
@@ -3512,6 +3535,19 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _retriesForCurrent = 0;
       _startFreshAfterFailures();
       await _playCurrent(startAt: position);
+      return;
+    }
+    // A reconnect waiting out its backoff has nothing to seek in either, and
+    // the seek would call it off: reload now, from the chosen spot, as that
+    // reconnect would have. Still a reload of this stream, so a pause during
+    // the wait holds, but the listener took over: the next drop gets its
+    // quick reconnect again.
+    if (_reconnectBackingOff && _queue.current != null) {
+      _reconnectBackingOff = false;
+      _retriesForCurrent = 0;
+      _startFreshAfterFailures();
+      _emit(_state.copyWith(position: position));
+      await _playCurrent(startAt: position, isRetry: true);
       return;
     }
     // Any seek is the listener acting, like play(): what failed before it is

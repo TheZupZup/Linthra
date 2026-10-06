@@ -41,9 +41,10 @@
 # PR they wrote.
 #
 # The updaters already behave that way by construction (`flutter pub upgrade`
-# only rewrites the lockfile; the SDK updater writes one version string). This
-# guard is the check that the behaviour actually held, so a bot cannot quietly
-# grow a wider blast radius than it was designed for.
+# rewrites the lockfile, and the plugin registrants only when the set of
+# plugins changes; the SDK updater writes one version string). This guard is
+# the check that the behaviour actually held, so a bot cannot quietly grow a
+# wider blast radius than it was designed for.
 #
 # It is used in two places, deliberately:
 #

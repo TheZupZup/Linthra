@@ -57,7 +57,12 @@ class SharedPreferencesDownloadStore implements DownloadStore {
     final String raw = jsonEncode(
       <Map<String, dynamic>>[for (final c in downloads) c.toJson()],
     );
-    await prefs.setString(_key, raw);
+    // `false` is a write that didn't happen (a full disk), while the plugin's
+    // in-memory copy already holds [raw]: the next launch would read the old
+    // document back (#786).
+    if (!await prefs.setString(_key, raw)) {
+      throw const DownloadStoreWriteException();
+    }
     // Keep the memo consistent with what was just persisted, so the very next
     // read (common right after a download completes) skips the decode too.
     _cachedRaw = raw;

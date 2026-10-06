@@ -124,9 +124,10 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
             '${info.serverVersion != null ? ' ${info.serverVersion}' : ''}.',
       );
       return true;
-    } on SubsonicException catch (error) {
-      _setFailure(error.message,
-          kind: error.kind, url: url, username: username);
+    } catch (error) {
+      final SubsonicException failure = _typed(error);
+      _setFailure(failure.message,
+          kind: failure.kind, url: url, username: username);
       return false;
     }
   }
@@ -196,12 +197,20 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         ref.read(subsonicSyncControllerProvider.notifier).autoSyncIfNeeded(),
       );
       return true;
-    } on SubsonicException catch (error) {
-      _setFailure(error.message,
-          kind: error.kind, url: url, username: username);
+    } catch (error) {
+      final SubsonicException failure = _typed(error);
+      _setFailure(failure.message,
+          kind: failure.kind, url: url, username: username);
       return false;
     }
   }
+
+  /// [error] as the [SubsonicException] it reports. Anything else (a
+  /// response that broke parsing, say) still has to end a test or sign-in,
+  /// or the card would stay busy until a restart.
+  static SubsonicException _typed(Object error) => error is SubsonicException
+      ? error
+      : SubsonicException.unsupportedResponse();
 
   /// Clears the saved session and resets to the disconnected state, also
   /// resetting the now-stale "Synced N tracks" status so it can't linger into a

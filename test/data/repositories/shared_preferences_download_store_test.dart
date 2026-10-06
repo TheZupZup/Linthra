@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/data/repositories/shared_preferences_download_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+/// Preferences on a disk with no room left: every write reports that it
+/// didn't happen, the way `LinuxSharedPreferencesStore` and Android's
+/// `commit()` do.
+class _FullDisk extends InMemorySharedPreferencesStore {
+  _FullDisk(super.data) : super.withData();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      false;
+}
 
 /// Covers the persistence contract *and* the in-memory memoization added to keep
 /// the hot playback read-path (the cached-track locator calls [loadDownloads] on
@@ -98,6 +110,39 @@ void main() {
 
     test('an empty store loads as nothing downloaded', () async {
       expect(await SharedPreferencesDownloadStore().loadDownloads(), isEmpty);
+    });
+
+    test(
+        'a write that did not happen throws, and the next launch reads the '
+        'set saved before it (#786)', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      await SharedPreferencesDownloadStore().saveDownloads(<CachedTrack>[
+        const CachedTrack(trackId: 'a', fileName: 'a.mp3', sizeBytes: 10),
+      ]);
+      final SharedPreferences saved = await SharedPreferences.getInstance();
+      SharedPreferencesStorePlatform.instance = _FullDisk(<String, Object>{
+        'flutter.offline_downloads_v2':
+            saved.getString('offline_downloads_v2')!,
+      });
+      SharedPreferences.resetStatic();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance =
+            InMemorySharedPreferencesStore.empty();
+        SharedPreferences.resetStatic();
+      });
+
+      await expectLater(
+        SharedPreferencesDownloadStore().saveDownloads(<CachedTrack>[
+          const CachedTrack(trackId: 'a', fileName: 'a.mp3', sizeBytes: 10),
+          const CachedTrack(trackId: 'b', fileName: 'b.mp3', sizeBytes: 20),
+        ]),
+        throwsA(isA<DownloadStoreWriteException>()),
+      );
+
+      SharedPreferences.resetStatic();
+      final List<CachedTrack> relaunched =
+          await SharedPreferencesDownloadStore().loadDownloads();
+      expect(relaunched.map((CachedTrack c) => c.trackId), <String>['a']);
     });
 
     test('a corrupt record reads as nothing downloaded', () async {

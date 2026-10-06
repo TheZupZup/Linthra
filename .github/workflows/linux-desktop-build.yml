@@ -210,7 +210,9 @@ jobs:
         run: python3 scripts/check_linux_runner.py
 
       - name: Test the Linux runner tooling
-        run: python3 test/tooling/check_linux_runner_test.py
+        run: |
+          python3 test/tooling/check_linux_runner_test.py
+          python3 test/tooling/check_linux_runner_quoted_permissions_test.py
 
       # Syntax half of the desktop entry check (#434); the identity half — the
       # filename, Name, Exec, Icon and the Flatpak install step — is in

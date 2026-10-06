@@ -199,4 +199,57 @@ void main() {
       expect(await VorbisCommentFields.read(write('bare.flac', bytes)), isNull);
     });
   });
+
+  group('FlacStreamInfo.duration', () {
+    late Directory root;
+
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('linthra_streaminfo_');
+    });
+
+    tearDown(() async {
+      if (root.existsSync()) await root.delete(recursive: true);
+    });
+
+    File write(String name, Uint8List bytes) =>
+        File('${root.path}/$name')..writeAsBytesSync(bytes, flush: true);
+
+    test('is the total samples over the sample rate', () async {
+      expect(
+          await FlacStreamInfo.duration(
+              write('a.flac', AudioTagFixtures.flac())),
+          const Duration(seconds: 3));
+      expect(
+          await FlacStreamInfo.duration(write(
+              'b.flac',
+              AudioTagFixtures.flac(
+                  sampleRate: 48000, totalSamples: 48000 * 90 + 24000))),
+          const Duration(seconds: 90, milliseconds: 500));
+    });
+
+    test('is unknown when the encoder did not record the length', () async {
+      expect(
+          await FlacStreamInfo.duration(
+              write('c.flac', AudioTagFixtures.flac(totalSamples: 0))),
+          isNull);
+    });
+
+    test('is null for anything but a FLAC opening with a whole STREAMINFO',
+        () async {
+      final Uint8List flac = AudioTagFixtures.flac();
+      expect(
+          await FlacStreamInfo.duration(
+              write('cut.flac', Uint8List.sublistView(flac, 0, 20))),
+          isNull);
+      expect(
+          await FlacStreamInfo.duration(write(
+              'notes.flac',
+              Uint8List.fromList('plain text, not a FLAC file, '
+                      'long enough to fill a header'
+                  .codeUnits))),
+          isNull);
+      expect(await FlacStreamInfo.duration(File('${root.path}/gone.flac')),
+          isNull);
+    });
+  });
 }

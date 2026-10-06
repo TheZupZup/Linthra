@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'directory_readability.dart';
@@ -44,12 +45,18 @@ abstract interface class AudioFileScanner {
 class IoAudioFileScanner implements AudioFileScanner {
   const IoAudioFileScanner({
     DirectoryReadability presence = const IoDirectoryReadability(),
-  }) : _presence = presence;
+    Duration stallLimit = storageStallLimit,
+  })  : _presence = presence,
+        _stallLimit = stallLimit;
 
   /// Asks whether the selected folder is still readable once the walk is done.
   /// Injected so "the drive was pulled mid-scan" can be reproduced in a test
   /// without a drive to pull.
   final DirectoryReadability _presence;
+
+  /// How long a directory listing may go without its next entry before that
+  /// directory counts as not answering. See [storageStallLimit].
+  final Duration _stallLimit;
 
   @override
   Future<List<String>> listFiles(
@@ -81,15 +88,29 @@ class IoAudioFileScanner implements AudioFileScanner {
       final bool wasRoot = isRoot;
       isRoot = false;
       try {
-        await for (final FileSystemEntity entity in directory.list(
-          followLinks: false,
-        )) {
+        await for (final FileSystemEntity entity
+            in directory.list(followLinks: false).timeout(_stallLimit)) {
           if (entity is File) {
             paths.add(entity.absolute.path);
           } else if (entity is Directory) {
             pending.add(entity);
           }
         }
+      } on TimeoutException {
+        // The storage stopped answering mid-listing: a share whose server went
+        // away blocks it for as long as the mount retries (#778). The listing
+        // stays blocked on its I/O thread; the walk doesn't wait for it.
+        if (wasRoot) {
+          throw rootFaultException(folder, LocalRootFault.unavailable);
+        }
+        // Deeper down, it can be a share mounted inside the music folder that
+        // went away on its own, skipped like any unreadable subfolder. Or it
+        // is the whole folder, and every directory still pending would stall
+        // the same way, one limit at a time: the folder itself says which.
+        onUnreadableDirectory?.call(directory.absolute.path);
+        final LocalRootFault? gone = await _inspect(folder);
+        if (gone != null) throw interruptedScanException(folder, gone);
+        continue;
       } on FileSystemException catch (error) {
         if (wasRoot) {
           throw rootFaultException(folder, classifyFilesystemFault(error));
@@ -116,19 +137,33 @@ class IoAudioFileScanner implements AudioFileScanner {
     // which is the one thing that must never happen. So a folder that has gone
     // away since the walk began is reported exactly like one that was already
     // gone: unavailable, keep what is indexed.
-    final LocalRootFault? interrupted = await _presence.inspect(folder);
+    final LocalRootFault? interrupted = await _inspect(folder);
     if (interrupted != null) {
-      throw FolderScanException(
-        "Linthra couldn't finish reading the selected folder. The drive may "
-        'have been disconnected while it was being scanned. Reconnect it, or '
-        'try selecting the folder again.',
-        folder: folder,
-        code: interrupted.code,
-      );
+      throw interruptedScanException(folder, interrupted);
     }
     return paths;
   }
+
+  /// Why [folder] can't be listed now, a folder that doesn't answer within
+  /// [_stallLimit] being [LocalRootFault.unavailable].
+  Future<LocalRootFault?> _inspect(String folder) => _presence
+      .inspect(folder)
+      .timeout(_stallLimit, onTimeout: () => LocalRootFault.unavailable);
 }
+
+/// The recoverable failure to raise for a selected folder that went away, or
+/// stopped answering, while it was being scanned.
+FolderScanException interruptedScanException(
+  String folder,
+  LocalRootFault fault,
+) =>
+    FolderScanException(
+      "Linthra couldn't finish reading the selected folder. The drive may "
+      'have been disconnected while it was being scanned. Reconnect it, or '
+      'try selecting the folder again.',
+      folder: folder,
+      code: fault.code,
+    );
 
 /// The recoverable failure to raise for a selected folder that could not be
 /// read, worded for [fault].

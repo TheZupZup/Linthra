@@ -336,11 +336,11 @@ run_python_test() {
 }
 
 # The Python unit tests under test/tooling/. CI runs them one `python3
-# test/tooling/<name>.py` step at a time, spread over ci.yml,
-# linux-desktop-build.yml, flatpak-build.yml, pr-security-review-tests.yml and
-# large-library-sql.yml. Repeating that list here would mean maintaining it in a
-# sixth place, so this runs whatever the directory holds: a test added to it is
-# picked up without anyone remembering to touch this script.
+# test/tooling/<name>.py` step at a time, spread over several workflows (and
+# test/tooling/tooling_tests_in_ci_test.dart fails on one that none of them
+# runs). Repeating that list here would mean maintaining it twice, so this runs
+# whatever the directory holds: a test added to it is picked up without anyone
+# remembering to touch this script.
 python_tooling_tests() {
   # A glob rather than `find`: one fewer external tool in the way, and no way
   # for a failure inside a process substitution to arrive here looking like an

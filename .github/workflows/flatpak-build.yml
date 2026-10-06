@@ -46,6 +46,7 @@ on:
       - 'scripts/verify_release_containment.py'
       - 'test/tooling/check_flatpak_sources_test.py'
       - 'test/tooling/check_linux_runner_test.py'
+      - 'test/tooling/check_linux_runner_quoted_permissions_test.py'
       - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
@@ -86,6 +87,7 @@ on:
       - 'scripts/verify_release_containment.py'
       - 'test/tooling/check_flatpak_sources_test.py'
       - 'test/tooling/check_linux_runner_test.py'
+      - 'test/tooling/check_linux_runner_quoted_permissions_test.py'
       - 'test/tooling/flatpak_bundle_test.py'
       - 'third_party/**'
       - 'tool/branding/linthra_icon.svg'
@@ -251,6 +253,7 @@ jobs:
           set -euo pipefail
           python3 scripts/check_linux_runner.py
           python3 test/tooling/check_linux_runner_test.py
+          python3 test/tooling/check_linux_runner_quoted_permissions_test.py
           python3 test/tooling/flatpak_bundle_test.py
 
           desktop_report="$(desktop-file-validate linux/packaging/io.github.thezupzup.linthra.desktop)"

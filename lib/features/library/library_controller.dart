@@ -17,6 +17,7 @@ import '../../core/sources/local/local_music_roots.dart';
 import '../../core/sources/local/local_music_source.dart';
 import '../../core/sources/local/local_scan_report.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
+import '../../data/repositories/local_tag_revision_store_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
 import 'library_providers.dart';
@@ -148,6 +149,7 @@ class LibraryController extends Notifier<LibraryState> {
           artists: const [],
         );
         ref.read(localScanReportProvider.notifier).clear();
+        await _forgetTagRevisions();
       } finally {
         await _load();
       }
@@ -305,6 +307,22 @@ class LibraryController extends Notifier<LibraryState> {
       final LocalMetadataReader metadataReader =
           ref.read(localMetadataReaderProvider);
 
+      // A folder last read in full by another revision of the tag reader, or
+      // never recorded, is read in full once more: unchanged files are never
+      // opened again otherwise, so a change to how tags are read would only
+      // ever reach new and edited ones (#783).
+      final int? tagRevision = metadataReader is LocalTagRevision
+          ? (metadataReader as LocalTagRevision).tagRevision
+          : null;
+      final Map<String, int>? readWith =
+          tagRevision == null ? null : await _tagRevisions();
+      if (generation != _scanGeneration) return null;
+      final Set<String> rereadRoots = <String>{
+        if (readWith != null)
+          for (final String root in roots)
+            if (readWith[root] != tagRevision) root,
+      };
+
       // An unchanged file's row is reused as it is, cover included, so a
       // cover its cache no longer holds (the cache was reclaimed) would stay
       // missing for good. Those files are read again instead.
@@ -331,7 +349,9 @@ class LibraryController extends Notifier<LibraryState> {
             androidMediaLibrary: ref.read(androidMediaLibraryProvider),
             metadataReader: metadataReader,
             statReader: statReader,
+            presence: ref.read(directoryReadabilityProvider),
             alreadyIndexed: alreadyIndexed,
+            readUnchanged: rereadRoots.contains(root),
             missingArtwork: missingArtwork,
           ).scanTracks();
         },
@@ -409,7 +429,14 @@ class LibraryController extends Notifier<LibraryState> {
         }
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
+        // Nor record how these folders were read: a scan that started then may
+        // have taken its rows from the catalog before this write, and would
+        // reuse them as read by this reader, writing the old tags back.
         if (generation != _scanGeneration) return null;
+        if (tagRevision != null && readWith != null) {
+          await _recordTagRevision(readWith, scan, tagRevision);
+          if (generation != _scanGeneration) return null;
+        }
 
         // The catalog just written *is* the live set, so anything else in the
         // local artwork cache belongs to a file that has since been deleted,
@@ -523,6 +550,61 @@ class LibraryController extends Notifier<LibraryState> {
       // The catalog would not answer either. That failure is this one's, not
       // the folder's, so it keeps its own message and its own retry.
       if (generation == _loadGeneration) state = LibraryState.error(message);
+    }
+  }
+
+  /// Which tag-reader revision each folder was last read in full with, or
+  /// null when that can't be read: nothing is then read in full on its
+  /// account, and nothing recorded.
+  Future<Map<String, int>?> _tagRevisions() async {
+    try {
+      return await ref.read(localTagRevisionStoreProvider).load();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Records [revision] for every folder [scan] could read, which it read in
+  /// full if it was due, keeping what [recorded] says for the others: a
+  /// folder that couldn't be read keeps its old rows, and is read in full
+  /// once it can be. So does one whose walk kept rows from a subfolder it
+  /// couldn't read: their files weren't read again. A subfolder that holds
+  /// nothing indexed (a `lost+found` nobody may list) doesn't count, or its
+  /// folder would be read in full on every scan.
+  ///
+  /// Only the folders scanned, which are the ones selected: a folder the user
+  /// removed is their own path, and no reason to keep it on the device.
+  Future<void> _recordTagRevision(
+    Map<String, int> recorded,
+    LocalLibraryScan scan,
+    int revision,
+  ) async {
+    final Map<String, int> next = <String, int>{
+      for (final LocalRootOutcome outcome in scan.roots)
+        if (outcome.available && outcome.carriedOver == 0)
+          outcome.root: revision
+        else if (recorded[outcome.root] case final int kept)
+          outcome.root: kept,
+    };
+    if (next.length == recorded.length &&
+        next.keys.every((String root) => recorded[root] == next[root])) {
+      return;
+    }
+    try {
+      await ref.read(localTagRevisionStoreProvider).save(next);
+    } catch (_) {
+      // Not recorded: those folders are read in full once more next time.
+    }
+  }
+
+  /// Drops what was recorded about how the local folders were read, with the
+  /// local source itself: those are the user's own paths. Best-effort: the
+  /// next scan keeps only the folders it scans anyway.
+  Future<void> _forgetTagRevisions() async {
+    try {
+      await ref.read(localTagRevisionStoreProvider).save(const <String, int>{});
+    } catch (_) {
+      // Pruned by the next scan.
     }
   }
 

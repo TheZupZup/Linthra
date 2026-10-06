@@ -58,6 +58,8 @@ abstract final class AudiobookshelfServerUrl {
       case ServerUrlErrorKind.emptyHost:
         return 'The address is missing a server name, e.g. '
             'audiobooks.example.com';
+      case ServerUrlErrorKind.invalidPort:
+        return 'The port must be a number from 1 to 65535, e.g. :13378';
     }
   }
 }
