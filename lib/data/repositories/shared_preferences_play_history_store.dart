@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/models/play_history.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/play_history_store.dart';
 
 /// A [PlayHistoryStore] backed by `shared_preferences`.
@@ -67,6 +68,8 @@ class SharedPreferencesPlayHistoryStore implements PlayHistoryStore {
           't': entry.value.lastPlayedAt.millisecondsSinceEpoch,
         },
     };
-    await prefs.setString(_key, jsonEncode(document));
+    if (!await prefs.setString(_key, jsonEncode(document))) {
+      throw const LocalStoreWriteException(LocalStoreArea.playHistory);
+    }
   }
 }

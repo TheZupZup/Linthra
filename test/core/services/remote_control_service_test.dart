@@ -265,6 +265,20 @@ void main() {
     expect(controller.playCount, 0);
   });
 
+  test('play/pause plays a stall the listener already paused', () async {
+    for (final PlaybackStatus stalled in <PlaybackStatus>[
+      PlaybackStatus.buffering,
+      PlaybackStatus.reconnecting,
+    ]) {
+      controller.emit(
+        PlaybackState.idle.copyWith(status: stalled, playWhenReady: false),
+      );
+      await send(const RemotePlayPause());
+    }
+    expect(controller.playCount, 2);
+    expect(controller.pauseCount, 0);
+  });
+
   test('a burst of commands all apply', () async {
     commands.add(const RemotePlay());
     commands.add(const RemoteSeek(Duration(seconds: 5)));

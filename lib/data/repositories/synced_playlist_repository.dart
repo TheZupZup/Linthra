@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import '../../core/models/playlist.dart';
 import '../../core/models/playlist_move.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
+import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/music_provider.dart';
 import '../../core/sources/subsonic/subsonic_track_mapper.dart';
@@ -1076,8 +1078,13 @@ class SyncedPlaylistRepository implements PlaylistRepository {
   List<Playlist> _snapshot() => List<Playlist>.unmodifiable(_playlists);
 
   Future<void> _persistAndEmit() async {
+    try {
+      await _store.save(_playlists);
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+      rethrow;
+    }
     _emit();
-    await _store.save(_playlists);
   }
 
   void _emit() {

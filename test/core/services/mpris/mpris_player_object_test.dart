@@ -208,6 +208,29 @@ void main() {
       }
     });
 
+    test('PlayPause plays a stall the listener already paused', () async {
+      // Paused during a reconnect: the state stays busy until the reconnect
+      // lands, and only the intent says the listener paused. Pausing again
+      // there left the media keys unable to resume until it was over.
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        controller.pauseCount = 0;
+        controller.playCount = 0;
+        controller.emit(PlaybackState(
+          status: status,
+          currentTrack: _track(),
+          playWhenReady: false,
+        ));
+
+        await call('PlayPause');
+
+        expect(controller.playCount, 1, reason: '$status');
+        expect(controller.pauseCount, 0, reason: '$status');
+      }
+    });
+
     test('PlayPause pauses while playing and plays otherwise', () async {
       controller.emit(PlaybackState(
         status: PlaybackStatus.playing,
@@ -348,6 +371,23 @@ void main() {
       }
     });
 
+    test('a stall the listener paused reads as paused', () {
+      // What the Android session reports for it too (#751). Playing here kept
+      // the shell's Pause button up and its progress bar moving.
+      for (final PlaybackStatus status in <PlaybackStatus>[
+        PlaybackStatus.buffering,
+        PlaybackStatus.reconnecting,
+      ]) {
+        controller.emit(PlaybackState(
+          status: status,
+          currentTrack: _track(),
+          playWhenReady: false,
+        ));
+        expect(property('PlaybackStatus'), const DBusString('Paused'),
+            reason: '$status');
+      }
+    });
+
     test('loading reads as paused, and nothing mid-recovery reads as stopped',
         () {
       // Reporting Stopped would make the shell's now-playing card disappear and
@@ -462,6 +502,32 @@ void main() {
         object.properties(MprisPlayerObject.playerInterface)['Metadata'],
         DBusDict.stringVariant(const <String, DBusValue>{}),
       );
+    });
+
+    test('the track id stays stable across a provider fallback (#798)', () {
+      const Track jellyfin = Track(
+        id: 'jf-1',
+        title: 'Same Song',
+        uri: 'jellyfin:jf-1',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+      const Track subsonic = Track(
+        id: 'sub-9',
+        title: 'Same Song',
+        uri: 'subsonic:sub-9',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+
+      controller.emit(const PlaybackState(currentTrack: jellyfin));
+      final DBusValue first = object.metadata()['mpris:trackid']!;
+
+      controller.emit(const PlaybackState(currentTrack: subsonic));
+
+      expect(object.metadata()['mpris:trackid'], first);
     });
 
     test('the track id is stable per track and changes with it', () {

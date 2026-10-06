@@ -295,8 +295,15 @@ void main() {
       await cache.warm(al12);
 
       expect(fetchedUrls, hasLength(2));
+      // The new file carries the real time, so read it on that clock: with
+      // the test's clock still moved on, the read would take it for stale
+      // too and start a refetch that outlives the test, still writing into
+      // the temp dir while tearDown deletes it.
+      now = DateTime.now();
       expect(await cache.cachedFile(al12)!.readAsBytes(),
           <int>[..._cover, 9, 9, 9]);
+      await cache.warm(al12);
+      expect(fetchedUrls, hasLength(2));
     });
 
     test('an old cover is kept when fetching it again fails', () async {

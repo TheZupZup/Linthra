@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/models/playlist.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/playlist_store.dart';
 
 /// A [PlaylistStore] backed by `shared_preferences`.
@@ -48,7 +49,9 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
     final String raw = jsonEncode(<Map<String, dynamic>>[
       for (final Playlist playlist in playlists) _toJson(playlist),
     ]);
-    await prefs.setString(_key, raw);
+    if (!await prefs.setString(_key, raw)) {
+      throw const LocalStoreWriteException(LocalStoreArea.playlists);
+    }
   }
 
   static Map<String, dynamic> _toJson(Playlist playlist) {

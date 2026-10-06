@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/repositories/favorites_store.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/music_provider.dart';
 
@@ -66,7 +67,9 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
       'remote': data.remoteIds.toList(),
       'pending': data.pendingWrites,
     });
-    await prefs.setString(_key, raw);
+    if (!await prefs.setString(_key, raw)) {
+      throw const LocalStoreWriteException(LocalStoreArea.favorites);
+    }
   }
 
   /// The provider-namespaced uri for a legacy v1 remote id. A bare Jellyfin item
