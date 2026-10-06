@@ -29,15 +29,8 @@ String subsonicAccountFingerprint(SubsonicSession session) {
 /// A song id is the server's, the same for every account on it, so this is
 /// what an offline copy of a song belongs to (see `OfflineCopyOrigins`). The
 /// base URL is all Linthra knows of a server, hashed like
-/// [subsonicAccountFingerprint], so it reveals no address.
-///
-/// Navidrome is the exception: it derives a song's id from its file's path,
-/// so the id names the same file at any address the server is reached
-/// through. Every Navidrome is [navidromeServerFingerprint], and its copies
-/// follow the listener from the LAN address to the reverse proxy and back.
-String subsonicServerFingerprint(SubsonicSession session) => session.isNavidrome
-    ? navidromeServerFingerprint
-    : sha256.convert(utf8.encode(session.baseUrl)).toString();
-
-/// The [subsonicServerFingerprint] of every Navidrome server.
-const String navidromeServerFingerprint = 'navidrome';
+/// [subsonicAccountFingerprint], so it reveals no address. Navidrome too: its
+/// ids come from file paths, and another installation can have another file
+/// at the same path.
+String subsonicServerFingerprint(SubsonicSession session) =>
+    sha256.convert(utf8.encode(session.baseUrl)).toString();

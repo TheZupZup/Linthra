@@ -63,9 +63,9 @@ class CachedTrack {
   /// another server is another song). The copy only ever stands in for its
   /// track while that server is the one connected (see
   /// `OfflineCopyOrigins`). The server's non-secret identity (a Plex
-  /// `machineIdentifier`, a hash of a Subsonic server's address, or
-  /// `navidrome` for any Navidrome), never an address or a credential. `null`
-  /// for every other provider, and for a copy saved before this was recorded.
+  /// `machineIdentifier`, a hash of a Subsonic server's address), never an
+  /// address or a credential. `null` for every other provider, and for a
+  /// copy saved before this was recorded.
   final String? origin;
 
   /// Whether this record points at app-managed downloaded bytes (vs. an

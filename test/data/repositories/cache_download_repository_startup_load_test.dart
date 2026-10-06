@@ -121,9 +121,6 @@ class _PlexOn implements OfflineCopyOrigins {
   String? current(String scheme) => scheme == 'plex' ? _server : null;
 
   @override
-  bool accepts(String scheme, String origin) => origin == current(scheme);
-
-  @override
   Stream<void> get changes => const Stream<void>.empty();
 }
 

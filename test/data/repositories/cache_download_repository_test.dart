@@ -386,9 +386,6 @@ class _PlexOrigins implements OfflineCopyOrigins {
   String? current(String scheme) => binds(scheme) ? server : null;
 
   @override
-  bool accepts(String scheme, String origin) => origin == current(scheme);
-
-  @override
   Stream<void> get changes => _changes.stream;
 
   void switchTo(String? next) {

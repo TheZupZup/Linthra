@@ -35,9 +35,10 @@ import '../../core/sources/subsonic/fake_subsonic_client.dart';
 // it. Signing in to another server clears the old catalog rows (#741), but the
 // offline cache, keyed by the same `subsonic` + id, kept the old server's
 // copies: the new server's song with that id read as downloaded and played the
-// old server's audio (#738). Navidrome derives its ids from the files, so its
-// copies stay usable across addresses. These run the real settings
-// controller, download repository and locator with the app's own bindings.
+// old server's audio (#738). Navidrome derives its ids from file paths, which
+// another installation can share for another file, so its copies are bound
+// the same way. These run the real settings controller, download repository
+// and locator with the app's own bindings.
 
 const String _airsonicA = 'https://a.example.com';
 const String _airsonicB = 'https://b.example.com';
@@ -371,25 +372,36 @@ void main() {
     });
 
     test(
-        'a copy keeps playing when the same server is reached at another '
-        'address', () async {
+        "another Navidrome's song with the same id is not the copy's, and "
+        'the copy is back at its own address', () async {
+      // Navidrome's ids come from file paths: another installation can have
+      // another file at the same path. All Linthra knows of a server is its
+      // address, so another address may be another installation.
       final Track song = _song('2f1e0c', 'Song');
       await downloads().requestDownload(song);
 
       await signOut();
       await signInTo(_navidromeProxy, info: _navidrome);
+      final Track other = _song('2f1e0c', 'Another song');
+      expect(await rowOf(other), isNull);
+      expect(await offlineBytes(other), isNull);
+      expect((await play(other)).source, PlaybackSource.streamingDirect);
 
+      await signInTo(_navidromeLan, info: _navidrome);
       expect(await rowOf(song), DownloadStatus.downloaded);
       expect((await play(song)).source, PlaybackSource.offlineCache);
       expect(await offlineBytes(song), _audioOfNavidrome);
     });
 
-    test('a copy still plays while signed out', () async {
+    test('signed out, a copy is set aside like any other, and comes back',
+        () async {
       final Track song = _song('2f1e0c', 'Song');
       await downloads().requestDownload(song);
 
       await signOut();
+      expect(await offlineBytes(song), isNull);
 
+      await signInTo(_navidromeLan, info: _navidrome);
       expect(await offlineBytes(song), _audioOfNavidrome);
     });
 
@@ -420,8 +432,8 @@ void main() {
       expect(await offlineBytes(songOnA), isNull,
           reason: "Navidrome's audio is served for server A's song");
 
-      // Still Navidrome's: back on Navidrome, at either address, it plays.
-      await signInTo(_navidromeProxy, info: _navidrome);
+      // Still that Navidrome's: back on it, it plays.
+      await signInTo(_navidromeLan, info: _navidrome);
       expect(await rowOf(song), DownloadStatus.downloaded);
       expect(await offlineBytes(song), _audioOfNavidrome);
     });

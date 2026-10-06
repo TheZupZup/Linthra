@@ -74,15 +74,14 @@ void main() {
       );
     });
 
-    test('is the same for every Navidrome, whatever its address', () {
-      // Its ids come from file paths, so a copy follows it between addresses.
-      final lan = _session.copyWith(serverType: 'navidrome');
-      final proxy = lan.copyWith(baseUrl: 'https://other.example.com');
-      expect(subsonicServerFingerprint(lan), navidromeServerFingerprint);
-      expect(subsonicServerFingerprint(proxy), navidromeServerFingerprint);
+    test('tells two Navidrome installations apart by their address', () {
+      // Navidrome's ids come from file paths, and another installation can
+      // have another file at the same path.
+      final one = _session.copyWith(serverType: 'navidrome');
+      final other = one.copyWith(baseUrl: 'https://other.example.com');
       expect(
-        subsonicServerFingerprint(_session),
-        isNot(navidromeServerFingerprint),
+        subsonicServerFingerprint(other),
+        isNot(subsonicServerFingerprint(one)),
       );
     });
 
@@ -92,19 +91,6 @@ void main() {
       expect(fingerprint, isNot(contains('salt-value')));
       expect(fingerprint, isNot(contains('music.example.com')));
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
-    });
-  });
-
-  group('isNavidrome', () {
-    test('reads the reported server type, whatever its case', () {
-      expect(_session.copyWith(serverType: 'navidrome').isNavidrome, isTrue);
-      expect(_session.copyWith(serverType: ' Navidrome ').isNavidrome, isTrue);
-    });
-
-    test('is false for any other server, or when none was reported', () {
-      expect(_session.isNavidrome, isFalse);
-      expect(_session.copyWith(serverType: 'gonic').isNavidrome, isFalse);
-      expect(_session.copyWith(serverType: 'airsonic').isNavidrome, isFalse);
     });
   });
 }

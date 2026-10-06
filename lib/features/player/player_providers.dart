@@ -573,11 +573,12 @@ final downloadAccountScopeOverride = downloadAccountScopeProvider.overrideWith(
 /// Production binding: a Plex or Subsonic download or pre-cache belongs to the
 /// server it came from. A Plex ratingKey, or the running number most Subsonic
 /// servers give a song (Airsonic, Ampache, gonic's `tr-N`), only means
-/// something on the server that issued it, so a copy from another server, or
-/// from before a reinstall, never plays or reads as downloaded for this
-/// server's song with the same id. It is kept, and comes back when its server
-/// is connected again. Read live; a change of server is announced so the
-/// cache re-sorts. Applied in `main`; tests keep the data-layer default
+/// something on the server that issued it, and Navidrome's path-derived ids
+/// can name another file on another installation, so a copy from another
+/// server, or from before a reinstall, never plays or reads as downloaded for
+/// this server's song with the same id. It is kept, and comes back when its
+/// server is connected again. Read live; a change of server is announced so
+/// the cache re-sorts. Applied in `main`; tests keep the data-layer default
 /// (nothing bound).
 final offlineCopyOriginsOverride =
     offlineCopyOriginsProvider.overrideWith((ref) {
@@ -605,13 +606,7 @@ String? _subsonicServerOf(SubsonicMusicSource? source) {
   return session == null ? null : subsonicServerFingerprint(session);
 }
 
-/// Plex and Subsonic copies, each used only where it came from.
-///
-/// A copy is judged by the origin it recorded, never by what kind of server
-/// is connected. A Navidrome copy records [navidromeServerFingerprint] rather
-/// than an address, so it plays on Navidrome at any address (LAN or reverse
-/// proxy) and on no other server; every other copy plays only on its own
-/// server.
+/// Plex and Subsonic copies, bound to the server connected now.
 class _ServerCopyOrigins implements OfflineCopyOrigins {
   _ServerCopyOrigins({
     required String? Function() plex,
@@ -644,16 +639,6 @@ class _ServerCopyOrigins implements OfflineCopyOrigins {
     if (scheme == _plexScheme) return _plexServer();
     if (scheme == _subsonicScheme) return _subsonicServer();
     return null;
-  }
-
-  @override
-  bool accepts(String scheme, String origin) {
-    final String? server = current(scheme);
-    if (server != null) return origin == server;
-    // Signed out of Subsonic, Navidrome copies keep playing as they always
-    // have: a Navidrome id comes from its file's path, so it names that file
-    // wherever it is found. Every other copy waits for its own server.
-    return scheme == _subsonicScheme && origin == navidromeServerFingerprint;
   }
 
   @override
