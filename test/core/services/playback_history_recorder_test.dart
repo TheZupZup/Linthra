@@ -70,6 +70,41 @@ void main() {
       expect(played.single.outcome, PlaybackHistoryOutcome.completed);
     });
 
+    test('a provider fallback mid-song stays one history entry (#798)', () {
+      const Track jellyfin = Track(
+        id: 'jf-1',
+        title: 'Same Song',
+        uri: 'jellyfin:jf-1',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+      const Track subsonic = Track(
+        id: 'sub-9',
+        title: 'Same Song',
+        uri: 'subsonic:sub-9',
+        artistName: 'Same Artist',
+        albumName: 'Same Album',
+        duration: Duration(minutes: 3),
+      );
+
+      recorder.onState(
+        _playing(jellyfin, position: const Duration(seconds: 30)),
+      );
+      recorder.onState(
+        _playing(subsonic, position: const Duration(seconds: 31)),
+      );
+
+      expect(played, isEmpty,
+          reason: 'changing provider copies is not a track change');
+
+      recorder.onState(_playing(_track('2')));
+
+      expect(played, <_Played>[
+        (uri: 'jellyfin:jf-1', outcome: PlaybackHistoryOutcome.skipped),
+      ]);
+    });
+
     test('a track abandoned in the middle is a skip', () {
       recorder.onState(_playing(_track('1')));
       recorder.onState(

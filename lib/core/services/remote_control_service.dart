@@ -95,9 +95,10 @@ class RemoteControlService {
         // is re-buffering or reconnecting is still playback (the sound comes
         // back on its own, and the server still shows it playing), so the
         // toggle has to stop it. Testing `isPlaying` alone called play() then,
-        // which changes nothing, and the music carried on.
+        // which changes nothing, and the music carried on. One the listener
+        // already paused plays.
         final PlaybackState state = _controller.state;
-        if (state.isPlaying || state.isBuffering) {
+        if (state.isPlayingOrStalled) {
           await _controller.pause();
         } else {
           await _controller.play();

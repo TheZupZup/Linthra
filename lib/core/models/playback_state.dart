@@ -184,6 +184,14 @@ class PlaybackState {
   /// Whether a temporary network drop is being recovered (fresh URL resolve).
   bool get isReconnecting => status == PlaybackStatus.reconnecting;
 
+  /// Whether a play/pause toggle reads this as playing, so pressing it pauses:
+  /// sound is coming out, or a stall ([isBuffering]) is working its way back
+  /// to sound the listener still wants. A stall the listener paused reads as
+  /// paused, so the toggle plays it again, which the reconnect honours when
+  /// it lands. Every toggle (the transport, the keyboard, MPRIS, a remote)
+  /// reads this one getter so they can never disagree.
+  bool get isPlayingOrStalled => isPlaying || (isBuffering && playWhenReady);
+
   /// Whether the player is preparing, re-buffering, or reconnecting — i.e.
   /// working, not idle and not steadily playing. The mini-player shows a
   /// spinner for this so it never looks frozen during a network stall.
