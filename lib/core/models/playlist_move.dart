@@ -52,6 +52,11 @@ List<String>? playlistWithMove(
   return ids;
 }
 
+/// Where the song [shown] at [index] is in [songs], counting copies the way
+/// [playlistWithMove] does, or -1 when it isn't there.
+int indexOfShownSong(List<String> songs, List<String> shown, int index) =>
+    _indexOfCopy(songs, shown[index], _copiesBefore(shown, index));
+
 /// How many copies of `songs[index]` come before [index].
 int _copiesBefore(List<String> songs, int index) {
   int copies = 0;

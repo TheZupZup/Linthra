@@ -14,6 +14,9 @@ class _DiskStore implements PlaylistStore {
   List<Playlist> saved = const <Playlist>[];
   bool refuse = false;
 
+  /// Thrown by the next save instead of a refusal: a store that broke.
+  Object? throwNext;
+
   bool _holdNext = false;
   Completer<bool> _release = Completer<bool>();
   Completer<void> _heldStarted = Completer<void>();
@@ -34,6 +37,9 @@ class _DiskStore implements PlaylistStore {
 
   @override
   Future<void> save(List<Playlist> playlists) async {
+    final Object? broken = throwNext;
+    throwNext = null;
+    if (broken != null) throw broken;
     bool written = !refuse;
     if (_holdNext) {
       _holdNext = false;
@@ -340,5 +346,39 @@ void main() {
       );
       expect(emitted.last.map((Playlist p) => p.name), <String>['Local']);
     });
+  });
+
+  test('a refresh whose merge could not be saved changes nothing', () async {
+    server.playlists = <RemotePlaylistData>[
+      const RemotePlaylistData(
+        remoteId: 'srv-1',
+        name: 'Server',
+        trackUris: <String>['subsonic:1'],
+      ),
+    ];
+    store.refuse = true;
+    await expectLater(repo.refreshFromRemote(), _refusedWrite);
+    store.refuse = false;
+    await _delivered();
+
+    expect(await repo.getAllPlaylists(), isEmpty);
+    expect(emitted, isEmpty);
+
+    // The next one that can be saved imports it, once.
+    await repo.refreshFromRemote();
+    expect((await repo.getAllPlaylists()).single.remoteId, 'srv-1');
+    expect(store.saved.single.remoteId, 'srv-1');
+  });
+
+  test('a store that breaks once does not stop the edits after it', () async {
+    store.throwNext = StateError('broken');
+    await expectLater(
+      repo.createPlaylist('Lost'),
+      throwsA(isA<StateError>()),
+    );
+    expect(await repo.getAllPlaylists(), isEmpty);
+
+    await repo.createPlaylist('Kept');
+    expect(store.saved.map((Playlist p) => p.name), <String>['Kept']);
   });
 }

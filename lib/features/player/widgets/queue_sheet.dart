@@ -415,13 +415,18 @@ class QueueSheet extends ConsumerWidget {
       ),
     );
     if (created == null) return;
-    final bool? saved = await saveOrReport(messenger, () async {
-      await repository.addTracks(
-        created.id,
-        <String>[for (final Track track in tracks) track.uri],
-      );
-      return true;
-    });
+    final bool? saved = await saveOrReport(
+      messenger,
+      () async {
+        await repository.addTracks(
+          created.id,
+          <String>[for (final Track track in tracks) track.uri],
+        );
+        return true;
+      },
+      // The playlist itself was saved, and is in the list empty.
+      what: 'the songs for “${edit.name}”',
+    );
     if (saved == null) return;
     messenger.showSnackBar(
       SnackBar(

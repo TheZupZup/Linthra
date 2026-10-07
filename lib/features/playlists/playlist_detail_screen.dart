@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
 import '../../core/models/playlist.dart';
+import '../../core/models/playlist_move.dart';
 import '../../core/models/track.dart';
+import '../../core/repositories/playlist_repository.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../data/repositories/download_repository_provider.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
@@ -580,6 +583,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   Future<void> _deletePlaylist(Playlist playlist) async {
     final NavigatorState navigator = Navigator.of(context);
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
     final ScaffoldMessengerState? messenger =
         ScaffoldMessenger.maybeOf(context);
     final repository = ref.read(playlistRepositoryProvider);
@@ -592,12 +596,44 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       confirmLabel: 'Delete',
     );
     if (!confirmed || !mounted) return;
-    // Leave first. The delete waits for the save and, for a synced playlist,
-    // the server (up to its timeout), while the list already shows it gone:
-    // the listener can go back meanwhile, and a pop after the wait would then
-    // close whatever screen they were on.
-    navigator.pop();
-    await saveOrReport(messenger, () => repository.deletePlaylist(playlist.id));
+    if (!await _deletedHere(playlist.id, repository, messenger)) return;
+    // Only this playlist's page, and only while it is the one showing: the
+    // listener may have gone back, or opened something over it, while the
+    // delete was saving, and a pop now would close that instead.
+    if (navigator.mounted && (route?.isCurrent ?? false)) navigator.pop();
+  }
+
+  /// Deletes the playlist with [id], completing with whether it is gone from
+  /// this device: once its delete has saved, not once [deletePlaylist] has
+  /// returned, which for a synced playlist also waits on the server (up to its
+  /// timeout). A delete the device refuses completes with false, the
+  /// listener told through [messenger].
+  Future<bool> _deletedHere(
+    String id,
+    PlaylistRepository repository,
+    ScaffoldMessengerState? messenger,
+  ) {
+    final Completer<bool> gone = Completer<bool>();
+    final ProviderSubscription<Playlist?> watching =
+        ref.listenManual<Playlist?>(playlistByIdProvider(id), (_, now) {
+      if (now == null && !gone.isCompleted) gone.complete(true);
+    });
+    unawaited(saveOrReport<bool>(messenger, () async {
+      await repository.deletePlaylist(id);
+      return true;
+    }).then(
+      (bool? deleted) {
+        if (!gone.isCompleted) gone.complete(deleted ?? false);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!gone.isCompleted) gone.complete(false);
+        // Not a refused save, so not this screen's to explain; still loud.
+        Error.throwWithStackTrace(error, stack);
+      },
+    ));
+    return gone.future.whenComplete(() {
+      if (mounted) watching.close();
+    });
   }
 
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
@@ -636,6 +672,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   Future<void> _removeFromPlaylist(List<Track> selected) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final repository = ref.read(playlistRepositoryProvider);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Remove from playlist',
@@ -646,14 +683,17 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       destructive: false,
     );
     if (!confirmed) return;
-    final repository = ref.read(playlistRepositoryProvider);
-    for (final Track track in selected) {
+    for (int i = 0; i < selected.length; i++) {
+      final int left = selected.length - i;
       final List<int>? removed = await saveOrReport(
         messenger,
-        () => repository.removeTrack(widget.playlistId, track.uri),
+        () => repository.removeTrack(widget.playlistId, selected[i].uri),
+        // The ones removed before it are gone from the list already.
+        what: i == 0
+            ? null
+            : 'the other ${left == 1 ? 'removal' : '$left removals'}',
       );
-      // The rest would most likely be refused too, and the ones removed so
-      // far are on screen.
+      // The rest would most likely be refused too.
       if (removed == null) return;
     }
     messenger.showSnackBar(
@@ -753,6 +793,10 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   /// and swap their focus nodes, so it is handed over again then.
   (int, int)? _follow;
 
+  /// How many moves this list has asked for, so a refused one can tell
+  /// whether a later move was asked for since.
+  int _moves = 0;
+
   @override
   void didUpdateWidget(_ReorderableTrackList oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -784,9 +828,9 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   /// chord at either end of the list — or an index left stale by a playlist
   /// that changed under the open screen — is simply harmless.
   ///
-  /// [shown] is the order [from] and [to] index into, when it is the rows as
-  /// they are on screen: the repository then moves that song by identity.
-  bool _move(int from, int to, {List<String>? shown}) {
+  /// [shown] is the order [from] and [to] index into: the repository moves
+  /// the song at [from] in it by identity, wherever the stored order has it.
+  bool _move(int from, int to, {required List<String> shown}) {
     final int count = widget.tracks.length;
     if (from < 0 || from >= count) return false;
     if (to < 0 || to >= count || to == from) return false;
@@ -797,7 +841,8 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
     return true;
   }
 
-  Future<void> _reorder(int oldIndex, int newIndex, List<String>? shown) async {
+  Future<void> _reorder(int oldIndex, int newIndex, List<String> shown) async {
+    final int move = ++_moves;
     final ScaffoldMessengerState? messenger =
         ScaffoldMessenger.maybeOf(context);
     final bool? saved = await saveOrReport(messenger, () async {
@@ -809,19 +854,47 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
           );
       return true;
     });
-    // Refused: the rows never move, so focus has nothing to follow.
-    if (saved == null && mounted) {
-      _walk.reset();
-      _follow = null;
+    // A later move owns where focus goes now.
+    if (saved != null || !mounted || move != _moves) return;
+    _refocusAfterRefusal(shown, oldIndex);
+  }
+
+  /// Puts focus back on the song a refused move left where it was.
+  ///
+  /// It had already gone ahead to the row the song was going to, which shows
+  /// another song: the next press would move that one.
+  void _refocusAfterRefusal(List<String> shown, int index) {
+    _walk.reset();
+    _follow = null;
+    if (_walk.focusedIndex < 0) return;
+    final List<String> rows = <String>[
+      for (final Track track in widget.tracks) track.uri,
+    ];
+    final int at = indexOfShownSong(rows, shown, index);
+    if (at >= 0) _walk.followTo(at, 0);
+    // An earlier move did land and the rows haven't caught up with it yet:
+    // follow the song to where they will show it.
+    final List<String>? stored =
+        ref.read(playlistByIdProvider(widget.playlistId))?.trackIds;
+    if (stored != null && !listEquals(stored, rows)) {
+      final int landing = indexOfShownSong(stored, shown, index);
+      if (landing >= 0) _follow = (landing, 0);
     }
   }
 
   /// The keyboard and screen-reader route: move the track the handle on row
   /// [rowIndex] belongs to by [delta] positions.
+  ///
+  /// By the song, like a drag. The rows can still be showing the order from
+  /// before the moves this walk has made, and one of those may yet be refused:
+  /// an index into an order that never happened moves another song.
   void _moveBy(int rowIndex, int delta) {
     final int from = _walk.sourceFor(rowIndex);
     final int to = from + delta;
-    if (!_move(from, to)) return;
+    final List<String> shown = _walk.walkedOrder(<String>[
+      for (final Track track in widget.tracks) track.uri,
+    ]);
+    if (!_move(from, to, shown: shown)) return;
     _walk.recordMove(rowIndex: rowIndex, to: to);
     _followTo(to, delta);
   }

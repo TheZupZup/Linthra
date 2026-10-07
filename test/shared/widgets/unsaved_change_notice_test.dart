@@ -31,8 +31,16 @@ class _FullFavoritesStore implements FavoritesStore {
 class _FullPlaylistStore extends InMemoryPlaylistStore {
   bool refuse = false;
 
+  /// How many more saves go through before the disk is full.
+  int? savesLeft;
+
   @override
   Future<void> save(List<Playlist> playlists) async {
+    final int? left = savesLeft;
+    if (left != null) {
+      if (left == 0) refuse = true;
+      savesLeft = left - 1;
+    }
     if (refuse) throw const LocalStoreWriteException(LocalStoreArea.playlists);
     return super.save(playlists);
   }
@@ -105,5 +113,47 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('Added to My Mix'), findsNothing);
+  });
+
+  testWidgets(
+      'a new playlist whose songs could not be saved says just that (#808)',
+      (tester) async {
+    final _FullPlaylistStore store = _FullPlaylistStore();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[playlistStoreProvider.overrideWithValue(store)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    showAddToPlaylistSheet(context, const <Track>[_song]),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New playlist'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Mix');
+    await tester.pump();
+    // The create saves; the songs after it don't.
+    store.savesLeft = 1;
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.textContaining("Couldn't save the songs for “Mix”"),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Added to'), findsNothing);
+    final List<Playlist> saved = await store.load();
+    expect(saved.single.name, 'Mix');
+    expect(saved.single.trackIds, isEmpty);
   });
 }

@@ -174,6 +174,8 @@ class _AddToPlaylistSheet extends ConsumerWidget {
         playlist: created,
         tracks: tracks,
       ),
+      // The playlist itself was saved, and is in the list empty.
+      what: 'the songs for “${created.name}”',
     );
     if (plan == null) return;
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
