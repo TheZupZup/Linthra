@@ -634,6 +634,25 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// then on, what the engine reports is that source's.
   int? _openedAttempt;
 
+  /// Completed with the engine's error when the source a load has opened
+  /// fails before that load has started it ([_startLoadedSource]). Set for
+  /// exactly that stretch, and null otherwise.
+  ///
+  /// setUrl has answered by then, so it can't report the failure, and on
+  /// Android the load may be waiting on a seek that never will be answered: a
+  /// seek is answered at the next ready, which a failed source never reaches
+  /// (#832).
+  ///
+  /// The engine's errors don't say which source they are about. One that
+  /// arrives while this is set is about the source the engine holds, which
+  /// is this load's: the stretch only starts once its setUrl has answered,
+  /// and Android sends that answer after everything about the source before
+  /// it. A load that has been superseded keeps this until it unwinds (its
+  /// seek is answered at the next source's ready) or the next load starts
+  /// its own source, and ignores what it catches meanwhile, as it would its
+  /// own failure.
+  Completer<Object>? _startingSourceFailed;
+
   /// The [_sourceAttempt] that has reported loading: the engine has switched
   /// to it, so every report after that one is its own. The replaced song's
   /// last reports, still on their way, come before it. setUrl only returns
@@ -1327,6 +1346,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// What an error means depends on what is playing: see [_interruptionFor].
   void _onEngineError(Object error, StackTrace _) {
     if (_suspended) return;
+    // The source a load has opened failed before that load could start it,
+    // typically while moving it to where it should start. That is the load's
+    // failure, and the load acts on it: recovering here instead would find
+    // the reconnect it belongs to still holding the gate, and a Retry still
+    // loading, and drop it either way (#832).
+    final Completer<Object>? starting = _startingSourceFailed;
+    if (starting != null) {
+      if (!starting.isCompleted) starting.complete(error);
+      return;
+    }
     // The source failed while the listener had it paused: the engine goes on
     // buffering ahead, and a load that fails then (the network cut while the
     // device dozes, a stream URL whose token ran out) is reported like any
@@ -1343,7 +1372,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         // Loading with no load of ours in flight is the engine's own: a pause
         // during a mid-stream stall reads as loading while the engine goes on
         // buffering, and the source failing then is still a stream that
-        // dropped. A load of ours reports its own failure through setUrl.
+        // dropped. A load of ours reports its own failure: through setUrl, or
+        // through [_startingSourceFailed] once that has answered.
         !(_state.status == PlaybackStatus.loading && !_loadInFlight)) {
       return;
     }
@@ -1602,7 +1632,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
 
-    _resetRecoveryBudget();
     final Track played = outcome.track;
     final bool swappedProvider = played.uri != track.uri;
     if (swappedProvider) _queue = _queue.replaceCurrent(played);
@@ -1616,7 +1645,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       ),
       force: swappedProvider,
     );
-    await _startLoadedSource(generation, startAt);
+    try {
+      await _startLoadedSource(generation, startAt, outcome.resolved.source);
+    } on PlaybackResolutionException catch (error) {
+      if (generation != _playbackGeneration) return;
+      _giveUp(played, _failureFrom(played, error));
+      return;
+    }
+    if (generation == _playbackGeneration) _resetRecoveryBudget();
   }
 
   /// Drives [_handleStreamFailure] from a test without a platform engine error.
@@ -1927,7 +1963,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
 
-    _resetRecoveryBudget();
     // Replace the queue's current entry rather than adding one: this is the same
     // song, playing from somewhere else, and it keeps its place in the queue.
     final Track played = outcome.track;
@@ -1946,7 +1981,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       force: true,
     );
 
-    await _startLoadedSource(generation, startAt);
+    try {
+      await _startLoadedSource(generation, startAt, outcome.resolved.source);
+    } on PlaybackResolutionException catch (error) {
+      // That copy opened but failed before it could start.
+      if (generation != _playbackGeneration) return;
+      _giveUp(played, _failureFrom(played, error));
+      return;
+    }
+    if (generation == _playbackGeneration) _resetRecoveryBudget();
   }
 
   @override
@@ -2443,10 +2486,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
 
-    // Something played: whatever the listener spent on recovering the previous
-    // attempt is theirs again if this track later fails.
-    _resetRecoveryBudget();
-
     // Make the copy that actually started the current one, so the queue, the
     // mini-player, and the "Playing from …" indicator all reflect the source
     // that succeeded — not the preferred one that may have failed. The resolved
@@ -2474,12 +2513,28 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Level this track before it's heard (its ReplayGain, or full volume when
     // normalization is off); resume at the preserved position after a cast
     // handoff; then start — the source is already loaded.
-    await _startLoadedSource(
-      generation,
-      startAt,
-      autoplay: autoplay,
-      mayStart: mayStart,
-    );
+    try {
+      await _startLoadedSource(
+        generation,
+        startAt,
+        outcome.resolved.source,
+        autoplay: autoplay,
+        mayStart: mayStart,
+      );
+    } on PlaybackResolutionException catch (error) {
+      // The source opened but failed before it could start: handled as the
+      // failed open above is.
+      if (generation != _playbackGeneration) return;
+      _giveUp(
+        played,
+        _failureFrom(played, error),
+        autoplay: (autoplay || _playWhenLoaded) && (mayStart?.call() ?? true),
+      );
+      return;
+    }
+    // Something played: whatever the listener spent on recovering the previous
+    // attempt is theirs again if this track later fails.
+    if (generation == _playbackGeneration) _resetRecoveryBudget();
   }
 
   /// Opens [generation]'s load window: until [_startLoadedSource] finishes (or
@@ -2500,7 +2555,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// while opening it (a playing state, a position, a duration) came from the
   /// song before, so put the track back as its load found it: a retry must not
   /// resume it from that song's position, or as a track that already played.
-  void _forgetReportsWhileOpening(int generation) {
+  ///
+  /// The same goes for a source that opened and failed before its load could
+  /// start it: it never played, and where it opened is not where the track
+  /// is. [at] is where that load was moving it to.
+  void _forgetReportsWhileOpening(int generation, {Duration? at}) {
     final ({Duration position, Duration duration, bool played})? before =
         _beforeLoad;
     // A stop or a newer load owns the state now.
@@ -2513,7 +2572,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _resetPositionFlush();
     // A seek the listener made while it opened is theirs, not the engine's:
     // it stands.
-    final Duration position = _seekDuringLoad ?? before.position;
+    final Duration position = _seekDuringLoad ?? at ?? before.position;
     if (_state.position != position || _state.duration != before.duration) {
       _emit(_state.copyWith(position: position, duration: before.duration));
     }
@@ -2555,17 +2614,23 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// starts only while [_playWhenLoaded] holds (a pause that arrived during
   /// the load reached an engine with nothing to pause yet) and no call is
   /// holding playback (the regain starts it then).
+  ///
+  /// Throws a [PlaybackResolutionException], as a failed open does, when the
+  /// source fails before it could be started (see [_startingSourceFailed]).
+  /// [source] is what kind of source it is, to word that failure.
   Future<void> _startLoadedSource(
     int generation,
-    Duration startAt, {
+    Duration startAt,
+    PlaybackSource source, {
     bool autoplay = true,
     bool Function()? mayStart,
   }) async {
+    final Completer<Object> failed = _startingSourceFailed = Completer();
     // Where the load last moved its source to, if anywhere.
     Duration? landedAt;
+    Duration? target = startAt > Duration.zero ? startAt : null;
     try {
       await _applyVolume();
-      Duration? target = startAt > Duration.zero ? startAt : null;
       while (generation == _playbackGeneration) {
         final Duration? sought = _seekDuringLoad;
         final bool soughtAfterEnd = sought != null && _seekDuringLoadAfterEnd;
@@ -2574,7 +2639,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         _seekDuringLoadAfterEnd = false;
         if (target == null) break;
         final int attempt = _sourceAttempt;
-        await _player.seek(target);
+        await Future.any<void>(<Future<void>>[
+          _player.seek(target),
+          failed.future,
+        ]);
+        if (failed.isCompleted) break;
         landedAt = target;
         // A seek back puts the source under way again, so an end it reported
         // before is not where it is now. With a known end, anything before it
@@ -2594,7 +2663,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         }
         target = null;
       }
+      // The source failed before it could be started (while being moved to
+      // where it starts, or before that), so this load failed, and is worded
+      // and recorded as one whose open failed.
+      if (failed.isCompleted) {
+        final Object error = await failed.future;
+        _forgetReportsWhileOpening(generation, at: target);
+        final PlaybackResolutionException failure =
+            loadFailureFor(error, source);
+        StabilityDiagnostics.playbackError(
+            loadFailureBreadcrumb(error, failure));
+        throw failure;
+      }
     } finally {
+      if (identical(_startingSourceFailed, failed)) {
+        _startingSourceFailed = null;
+      }
       _endLoad(generation);
     }
     // One last check before audio starts: a skip that landed while this track
