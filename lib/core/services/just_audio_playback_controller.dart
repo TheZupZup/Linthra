@@ -29,6 +29,14 @@ import 'stream_interruption.dart';
 /// or authenticated stream URL.
 typedef TrackCompletionCallback = void Function(Track track);
 
+/// Starts a copy of the track being loaded once the engine has opened it
+/// ([JustAudioPlaybackController._startCandidate]). Throws a
+/// [PlaybackResolutionException] when that copy fails before it starts.
+typedef _CandidateStart = Future<void> Function(
+  Track candidate,
+  ResolvedPlayable resolved,
+);
+
 /// What a failed read of an on-device file turned out to be.
 enum _LocalReadFailure {
   /// The path is not there any more.
@@ -1616,7 +1624,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final ({Track track, ResolvedPlayable resolved})? outcome;
     _beginLoad(generation);
     try {
-      outcome = await _loadFirstWorkingCandidate(remaining, generation);
+      outcome = await _loadFirstWorkingCandidate(
+        remaining,
+        generation,
+        (Track played, ResolvedPlayable resolved) =>
+            _startCandidate(track, played, resolved, generation, startAt),
+      );
     } on PlaybackResolutionException catch (error) {
       _endLoad(generation);
       if (generation != _playbackGeneration) return;
@@ -1631,28 +1644,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _endLoad(generation);
       return;
     }
-
-    final Track played = outcome.track;
-    final bool swappedProvider = played.uri != track.uri;
-    if (swappedProvider) _queue = _queue.replaceCurrent(played);
-    _emit(
-      _state.copyWith(
-        currentTrack: played,
-        source: outcome.resolved.source,
-        upNext: _queue.upNext,
-        previous: _queue.history,
-        hasPrevious: _queue.hasPrevious,
-      ),
-      force: swappedProvider,
-    );
-    try {
-      await _startLoadedSource(generation, startAt, outcome.resolved.source);
-    } on PlaybackResolutionException catch (error) {
-      if (generation != _playbackGeneration) return;
-      _giveUp(played, _failureFrom(played, error));
-      return;
-    }
-    if (generation == _playbackGeneration) _resetRecoveryBudget();
+    _resetRecoveryBudget();
   }
 
   /// Drives [_handleStreamFailure] from a test without a platform engine error.
@@ -1944,7 +1936,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final ({Track track, ResolvedPlayable resolved})? outcome;
     _beginLoad(generation);
     try {
-      outcome = await _loadFirstWorkingCandidate(alternates, generation);
+      outcome = await _loadFirstWorkingCandidate(
+        alternates,
+        generation,
+        (Track played, ResolvedPlayable resolved) =>
+            _startCandidate(track, played, resolved, generation, startAt),
+      );
     } on PlaybackResolutionException catch (error) {
       _endLoad(generation);
       if (generation != _playbackGeneration) return;
@@ -1962,34 +1959,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _endLoad(generation);
       return;
     }
-
-    // Replace the queue's current entry rather than adding one: this is the same
-    // song, playing from somewhere else, and it keeps its place in the queue.
-    final Track played = outcome.track;
-    _queue = _queue.replaceCurrent(played);
-    _emit(
-      _state.copyWith(
-        currentTrack: played,
-        source: outcome.resolved.source,
-        upNext: _queue.upNext,
-        previous: _queue.history,
-        hasPrevious: _queue.hasPrevious,
-      ),
-      // A same-bare-id swap (jellyfin:101 -> subsonic:101) leaves every field
-      // equal under PlaybackState ==, so force the emission: otherwise the UI
-      // would keep naming the provider that failed.
-      force: true,
-    );
-
-    try {
-      await _startLoadedSource(generation, startAt, outcome.resolved.source);
-    } on PlaybackResolutionException catch (error) {
-      // That copy opened but failed before it could start.
-      if (generation != _playbackGeneration) return;
-      _giveUp(played, _failureFrom(played, error));
-      return;
-    }
-    if (generation == _playbackGeneration) _resetRecoveryBudget();
+    _resetRecoveryBudget();
   }
 
   @override
@@ -2445,7 +2415,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final ({Track track, ResolvedPlayable resolved})? outcome;
     _beginLoad(generation);
     try {
-      outcome = await _loadFirstWorkingCandidate(candidates, generation);
+      outcome = await _loadFirstWorkingCandidate(
+        candidates,
+        generation,
+        // Level each copy before it's heard (its ReplayGain, or full volume
+        // when normalization is off), move it to where it should start
+        // (where it stopped, or the end of a cast handoff), then start it.
+        (Track played, ResolvedPlayable resolved) => _startCandidate(
+          track,
+          played,
+          resolved,
+          generation,
+          startAt,
+          autoplay: autoplay,
+          mayStart: mayStart,
+        ),
+      );
     } on PlaybackResolutionException catch (error) {
       _endLoad(generation);
       // A failure from a transition the user has already skipped past must not
@@ -2485,21 +2470,42 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _endLoad(generation);
       return;
     }
+    // Something played: whatever the listener spent on recovering the previous
+    // attempt is theirs again if this track later fails.
+    _resetRecoveryBudget();
+  }
 
-    // Make the copy that actually started the current one, so the queue, the
-    // mini-player, and the "Playing from …" indicator all reflect the source
-    // that succeeded — not the preferred one that may have failed. The resolved
-    // source rides along on later position/status updates until the next load.
-    final Track played = outcome.track;
+  /// Starts [played], the copy of [track] that [resolved] has just opened for
+  /// [generation] ([_CandidateStart]).
+  ///
+  /// It becomes the queue's current entry first, so the queue, the
+  /// mini-player and the "Playing from …" indicator all name the copy that is
+  /// starting, not a preferred one that failed. The resolved source rides
+  /// along on later position/status updates until the next load. A copy that
+  /// fails before it starts puts [track] back, so the next copy tried, or the
+  /// failure, is about the song as the queue had it.
+  Future<void> _startCandidate(
+    Track track,
+    Track played,
+    ResolvedPlayable resolved,
+    int generation,
+    Duration startAt, {
+    bool autoplay = true,
+    bool Function()? mayStart,
+  }) async {
+    // A newer skip, play or stop owns the queue and the engine now.
+    if (generation != _playbackGeneration) return;
     // Compare by uri, not the bare id: a fallback can land on another provider's
     // copy that shares the bare id (jellyfin:101 -> subsonic:101), and the queue
-    // must still swap to it so completion/retry read the copy that started.
-    final bool swappedProvider = played.uri != track.uri;
-    if (swappedProvider) _queue = _queue.replaceCurrent(played);
+    // must still swap to it so completion/retry read the copy that started. It
+    // replaces the queue's current entry rather than adding one: this is the
+    // same song, playing from somewhere else, and it keeps its place.
+    final bool swapped = played.uri != track.uri;
+    if (swapped) _queue = _queue.replaceCurrent(played);
     _emit(
       _state.copyWith(
         currentTrack: played,
-        source: outcome.resolved.source,
+        source: resolved.source,
         upNext: _queue.upNext,
         previous: _queue.history,
         hasPrevious: _queue.hasPrevious,
@@ -2507,34 +2513,31 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // A same-bare-id provider swap leaves every field equal under
       // PlaybackState == (Track == is by bare id), so force the emission —
       // otherwise UI/reporting keep showing the failed provider's copy.
-      force: swappedProvider,
+      force: swapped,
     );
-
-    // Level this track before it's heard (its ReplayGain, or full volume when
-    // normalization is off); resume at the preserved position after a cast
-    // handoff; then start — the source is already loaded.
     try {
       await _startLoadedSource(
         generation,
         startAt,
-        outcome.resolved.source,
+        resolved.source,
         autoplay: autoplay,
         mayStart: mayStart,
       );
-    } on PlaybackResolutionException catch (error) {
-      // The source opened but failed before it could start: handled as the
-      // failed open above is.
-      if (generation != _playbackGeneration) return;
-      _giveUp(
-        played,
-        _failureFrom(played, error),
-        autoplay: (autoplay || _playWhenLoaded) && (mayStart?.call() ?? true),
-      );
-      return;
+    } on PlaybackResolutionException {
+      if (swapped && generation == _playbackGeneration) {
+        _queue = _queue.replaceCurrent(track);
+        _emit(
+          _state.copyWith(
+            currentTrack: track,
+            upNext: _queue.upNext,
+            previous: _queue.history,
+            hasPrevious: _queue.hasPrevious,
+          ),
+          force: true,
+        );
+      }
+      rethrow;
     }
-    // Something played: whatever the listener spent on recovering the previous
-    // attempt is theirs again if this track later fails.
-    if (generation == _playbackGeneration) _resetRecoveryBudget();
   }
 
   /// Opens [generation]'s load window: until [_startLoadedSource] finishes (or
@@ -2557,9 +2560,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// resume it from that song's position, or as a track that already played.
   ///
   /// The same goes for a source that opened and failed before its load could
-  /// start it: it never played, and where it opened is not where the track
-  /// is. [at] is where that load was moving it to.
-  void _forgetReportsWhileOpening(int generation, {Duration? at}) {
+  /// start it: it never played, and where it opened is not where the track is.
+  void _forgetReportsWhileOpening(int generation) {
     final ({Duration position, Duration duration, bool played})? before =
         _beforeLoad;
     // A stop or a newer load owns the state now.
@@ -2572,7 +2574,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _resetPositionFlush();
     // A seek the listener made while it opened is theirs, not the engine's:
     // it stands.
-    final Duration position = _seekDuringLoad ?? at ?? before.position;
+    final Duration position = _seekDuringLoad ?? before.position;
     if (_state.position != position || _state.duration != before.duration) {
       _emit(_state.copyWith(position: position, duration: before.duration));
     }
@@ -2617,7 +2619,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   ///
   /// Throws a [PlaybackResolutionException], as a failed open does, when the
   /// source fails before it could be started (see [_startingSourceFailed]).
-  /// [source] is what kind of source it is, to word that failure.
+  /// [source] is what kind of source it is, to word that failure. The load
+  /// stays open then, aimed where this source was going: the next copy of the
+  /// song is tried as after a failed open ([_openAndStart]), and starts there.
   Future<void> _startLoadedSource(
     int generation,
     Duration startAt,
@@ -2626,6 +2630,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     bool Function()? mayStart,
   }) async {
     final Completer<Object> failed = _startingSourceFailed = Completer();
+    bool failedToStart = false;
     // Where the load last moved its source to, if anywhere.
     Duration? landedAt;
     Duration? target = startAt > Duration.zero ? startAt : null;
@@ -2668,18 +2673,22 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // and recorded as one whose open failed.
       if (failed.isCompleted) {
         final Object error = await failed.future;
-        _forgetReportsWhileOpening(generation, at: target);
+        // Unless the listener has moved it since, the next copy starts where
+        // this one was going.
+        if (_loadingGeneration == generation) _seekDuringLoad ??= target;
+        _forgetReportsWhileOpening(generation);
         final PlaybackResolutionException failure =
             loadFailureFor(error, source);
         StabilityDiagnostics.playbackError(
             loadFailureBreadcrumb(error, failure));
+        failedToStart = true;
         throw failure;
       }
     } finally {
       if (identical(_startingSourceFailed, failed)) {
         _startingSourceFailed = null;
       }
-      _endLoad(generation);
+      if (!failedToStart) _endLoad(generation);
     }
     // One last check before audio starts: a skip that landed while this track
     // was loading owns playback now, so don't start a track the user has
@@ -2733,9 +2742,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (start) unawaited(_player.play());
   }
 
-  /// Tries [candidates] in order — **at most once each** — resolving and loading
-  /// the first that works, returning it with its resolved source. Throws a
-  /// single, safe [PlaybackResolutionException] when every candidate fails.
+  /// Tries [candidates] in order — **at most once each** — resolving, loading
+  /// and starting ([start]) the first that works, returning it with its
+  /// resolved source. A copy works once it has started: one that opens and
+  /// then fails before it starts is moved on from like one that won't open.
+  /// Throws a single, safe [PlaybackResolutionException] when every candidate
+  /// fails.
   ///
   /// A one-candidate list (the common, single-source case) rethrows that
   /// candidate's own specific failure, so single-source playback errors are
@@ -2752,6 +2764,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _loadFirstWorkingCandidate(
     List<Track> candidates,
     int generation,
+    _CandidateStart start,
   ) async {
     // One audio engine serves every candidate, so an engine that cannot take a
     // source at all is settled here, before anything is resolved: no network
@@ -2787,48 +2800,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // resolve await (which is where the time goes) and before touching the
       // shared engine.
       if (generation != _playbackGeneration) return null;
-      try {
-        // setUrl handles file://, content:// (Android), and https:// URIs alike,
-        // so local files, SAF documents, and remote streams share one path. The
-        // resolver guarantees this is never a bare `jellyfin:`/`subsonic:` scheme
-        // — that is turned into an authenticated stream URL before it gets here.
-        _engineSourceGeneration = generation;
-        _engineUri = resolved.uri;
-        _abandonedSourceGeneration = null;
-        _openedAttempt = await _handOver(resolved.uri, generation);
-        return (track: candidate, resolved: resolved);
-      } catch (error) {
-        _forgetReportsWhileOpening(generation);
-        // Resolved (and, for streams, probed) OK but the engine couldn't open
-        // it: a start failure. Word it for the source.
-        final PlaybackResolutionException failure =
-            loadFailureFor(error, resolved.source);
-        // An engine that turned out to be unusable only once it was handed
-        // bytes ends the pass here. The streaming fallback below and every
-        // remaining candidate go through the same engine, so both would fail
-        // identically, and proving it costs the listener a network round trip
-        // and reads as "this song is broken" rather than "this machine is".
-        if (failure.kind ==
-            PlaybackResolutionErrorKind.playbackEngineUnavailable) {
-          StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
-          throw failure;
-        }
-        StabilityDiagnostics.playbackError(
-            loadFailureBreadcrumb(error, failure));
-        // A cached file that won't open (reclaimed after the existence check,
-        // corrupt, or an unreadable codec) must not strand a single-source
-        // track on an error: re-resolve the same copy past the offline cache
-        // and try the live stream once before moving on.
-        final ({Track track, ResolvedPlayable resolved})? streamed =
-            await _retryFromStream(candidate, resolved, generation);
-        if (streamed != null) return streamed;
-        // Superseded by a newer skip/seek while the stream retry ran: drop this
-        // stale transition rather than recording a failure on a track the user
-        // has already moved past.
-        if (generation != _playbackGeneration) return null;
-        failures.add(failure);
-        continue;
-      }
+      final PlaybackResolutionException? failure =
+          await _openAndStart(candidate, resolved, generation, start);
+      if (failure == null) return (track: candidate, resolved: resolved);
+      // A cached file that won't open or start (reclaimed after the existence
+      // check, corrupt, or an unreadable codec) must not strand a
+      // single-source track on an error: re-resolve the same copy past the
+      // offline cache and try the live stream once before moving on.
+      final ({Track track, ResolvedPlayable resolved})? streamed =
+          await _retryFromStream(candidate, resolved, generation, start);
+      if (streamed != null) return streamed;
+      // Superseded by a newer skip/seek while the stream retry ran: drop this
+      // stale transition rather than recording a failure on a track the user
+      // has already moved past.
+      if (generation != _playbackGeneration) return null;
+      failures.add(failure);
     }
     if (failures.length == 1) throw failures.first;
     // Every copy failed the same way (all unreachable, none decodable): keep
@@ -2846,10 +2832,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   /// Re-resolves [candidate] through the streaming fallback resolver and loads
-  /// it, for when its first resolution was an offline-cache file the engine
-  /// wouldn't open. This is the "a cache failure falls back to streaming"
-  /// guarantee — it works even for a single-source track with no sibling copy,
-  /// because it re-resolves the *same* track past the cache.
+  /// and starts it, for when its first resolution was an offline-cache file
+  /// the engine wouldn't open or start (#832). This is the "a cache failure
+  /// falls back to streaming" guarantee — it works even for a single-source
+  /// track with no sibling copy, because it re-resolves the *same* track past
+  /// the cache.
   ///
   /// Returns the loaded result, or null when: there is no fallback resolver (the
   /// default / tests), the failed load was *not* a cache hit (a stream that
@@ -2862,6 +2849,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     Track candidate,
     ResolvedPlayable failed,
     int generation,
+    _CandidateStart start,
   ) async {
     final PlayableUriResolver? streamResolver = _streamingFallbackResolver;
     if (streamResolver == null ||
@@ -2880,28 +2868,65 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Don't hand a now-stale source to the shared engine if the user skipped or
     // seeked while the stream resolved.
     if (generation != _playbackGeneration) return null;
+    // The cache miss is this track's problem; an engine that cannot take a
+    // source is every track's, and is thrown rather than returned: swallowing
+    // it as "the stream didn't work either" would report the cached copy's
+    // failure, walk on through the remaining candidates, and never show the
+    // engine recovery.
+    final PlaybackResolutionException? failure =
+        await _openAndStart(candidate, streamed, generation, start);
+    return failure == null ? (track: candidate, resolved: streamed) : null;
+  }
+
+  /// Hands [resolved] to the engine for [generation] and starts it with
+  /// [start]. Returns null once it has started, otherwise why it could not be
+  /// opened or failed before it started (#832): either way the copy didn't
+  /// work, and the caller moves on from it alike.
+  ///
+  /// An engine that turned out to be unusable only once it was handed bytes
+  /// is thrown instead, ending the pass. The streaming fallback and every
+  /// remaining candidate go through the same engine, so they would fail
+  /// identically, and proving it costs the listener a network round trip and
+  /// reads as "this song is broken" rather than "this machine is".
+  Future<PlaybackResolutionException?> _openAndStart(
+    Track candidate,
+    ResolvedPlayable resolved,
+    int generation,
+    _CandidateStart start,
+  ) async {
     try {
+      // setUrl handles file://, content:// (Android), and https:// URIs alike,
+      // so local files, SAF documents, and remote streams share one path. The
+      // resolver guarantees this is never a bare `jellyfin:`/`subsonic:` scheme
+      // — that is turned into an authenticated stream URL before it gets here.
       _engineSourceGeneration = generation;
-      _engineUri = streamed.uri;
+      _engineUri = resolved.uri;
       _abandonedSourceGeneration = null;
-      _openedAttempt = await _handOver(streamed.uri, generation);
-      return (track: candidate, resolved: streamed);
+      _openedAttempt = await _handOver(resolved.uri, generation);
     } catch (error) {
       _forgetReportsWhileOpening(generation);
-      // The cache miss is this track's problem; an engine that cannot take a
-      // source is every track's. Swallowing the second as "the stream didn't
-      // open either" would report the cached copy's failure, walk on through
-      // the remaining candidates, and never show the engine recovery, so it
-      // is classified here too and thrown rather than returned.
+      // Resolved (and, for streams, probed) OK but the engine couldn't open
+      // it: a start failure. Word it for the source.
       final PlaybackResolutionException failure =
-          loadFailureFor(error, streamed.source);
+          loadFailureFor(error, resolved.source);
       if (failure.kind ==
           PlaybackResolutionErrorKind.playbackEngineUnavailable) {
         StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
         throw failure;
       }
       StabilityDiagnostics.playbackError(loadFailureBreadcrumb(error, failure));
+      return failure;
+    }
+    try {
+      await start(candidate, resolved);
       return null;
+    } on PlaybackResolutionException catch (failure) {
+      if (failure.kind ==
+          PlaybackResolutionErrorKind.playbackEngineUnavailable) {
+        StabilityDiagnostics.playbackError(engineUnavailableBreadcrumb);
+        rethrow;
+      }
+      return failure;
     }
   }
 

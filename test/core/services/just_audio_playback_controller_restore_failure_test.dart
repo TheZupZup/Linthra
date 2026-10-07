@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_source.dart';
@@ -42,6 +43,9 @@ class _AndroidEngine extends Fake implements AudioPlayer {
   /// Holds the answer to the next setVolume, which every load awaits between
   /// its source opening and moving it to its start.
   Completer<void>? holdVolume;
+
+  /// Holds the next open between its loading report and its ready.
+  Completer<void>? holdOpen;
 
   bool _playing = false;
   bool _failed = false;
@@ -109,6 +113,9 @@ class _AndroidEngine extends Fake implements AudioPlayer {
     _failed = false;
     _processing = ProcessingState.loading;
     _report();
+    final Completer<void>? hold = holdOpen;
+    holdOpen = null;
+    if (hold != null) await hold.future;
     await Future<void>.delayed(Duration.zero);
     if (failingOpens > 0) {
       failingOpens--;
@@ -160,8 +167,15 @@ class _AndroidEngine extends Fake implements AudioPlayer {
     if (hold != null) await hold.future;
   }
 
+  /// just_audio drops its playing flag on a stop. A seek still waiting is
+  /// left waiting, as on Android.
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    _playing = false;
+    _processing = ProcessingState.idle;
+    _report();
+  }
+
   @override
   Future<void> dispose() async {
     await _states.close();
@@ -169,9 +183,11 @@ class _AndroidEngine extends Fake implements AudioPlayer {
   }
 }
 
-/// Resolves at once, except a uri the test holds.
+/// Resolves at once, except a uri the test holds. A uri in [cached] resolves
+/// to its offline-cache file.
 class _Resolver implements PlayableUriResolver {
   final Map<String, Completer<void>> held = <String, Completer<void>>{};
+  final Set<String> cached = <String>{};
 
   @override
   bool handles(Track track) => true;
@@ -180,8 +196,33 @@ class _Resolver implements PlayableUriResolver {
   Future<ResolvedPlayable> resolve(Track track) async {
     final Completer<void>? gate = held.remove(track.uri);
     if (gate != null) await gate.future;
+    final String path = track.uri.replaceAll(':', '/');
+    if (cached.contains(track.uri)) {
+      return ResolvedPlayable(
+        Uri.parse('file:///cache/$path'),
+        PlaybackSource.offlineCache,
+      );
+    }
     return ResolvedPlayable(
-      Uri.parse('https://host/${track.uri.replaceAll(':', '/')}'),
+      Uri.parse('https://host/$path'),
+      PlaybackSource.streamingDirect,
+    );
+  }
+}
+
+/// The streaming fallback: resolves past the offline cache to the live
+/// stream, and records what it was asked for.
+class _StreamResolver implements PlayableUriResolver {
+  final List<String> calls = <String>[];
+
+  @override
+  bool handles(Track track) => true;
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async {
+    calls.add(track.uri);
+    return ResolvedPlayable(
+      Uri.parse('https://host/stream/${track.uri.replaceAll(':', '/')}'),
       PlaybackSource.streamingDirect,
     );
   }
@@ -226,11 +267,13 @@ void main() {
   JustAudioPlaybackController controllerFor({
     PlaybackRecoveryPolicy? policy,
     PlaybackCandidateSource candidates = const NoFallbackCandidateSource(),
+    PlayableUriResolver? streaming,
   }) {
     final JustAudioPlaybackController controller = JustAudioPlaybackController(
       player: engine,
       resolver: resolver,
       candidates: candidates,
+      streamingFallbackResolver: streaming,
       automaticRecovery: policy,
     )
       ..streamRetryBackoff = Duration.zero
@@ -683,6 +726,497 @@ void main() {
 
       expect(controller.state.status, PlaybackStatus.error);
       expect(controller.state.failure?.canRetry, isTrue);
+    });
+  });
+
+  group('loads that overlap', () {
+    // The engine holds one source at a time, and its errors don't say which.
+    // A load only starts listening for one once its own setUrl has answered:
+    // anything before that fails the open itself, and the source before it
+    // has been stopped by then. What a superseded load does as it unwinds
+    // must not take that away from the load that replaced it.
+
+    test(
+        'a stuck Retry that unwinds while the load after Stop and Play sets '
+        'its volume leaves that load its own failure', () async {
+      const Duration later = Duration(minutes: 1);
+      final JustAudioPlaybackController controller = controllerFor();
+      await failedAtSpot(controller, _track('a'));
+      engine.stallSeeks = true;
+      unawaited(controller.retryCurrentTrack());
+      await _settle();
+      expect(engine.seekWaiting, isTrue);
+
+      await controller.stop();
+      await controller.seek(later);
+      final Completer<void> volume = engine.holdVolume = Completer<void>();
+      bool returned = false;
+      unawaited(controller.play().whenComplete(() {
+        returned = true;
+      }));
+      await _settle();
+      // Open, and its ready has answered the Retry's seek: the Retry has
+      // unwound while this load still sets its volume.
+      expect(engine.opened, hasLength(3));
+      expect(engine.seekWaiting, isFalse);
+
+      engine.failSource();
+      await _settle();
+      volume.complete();
+      await _settle();
+
+      expect(returned, isTrue);
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.position, later);
+    });
+
+    test(
+        'a reconnect, a skip still resolving and a jump to a third song: '
+        'only the third song\'s load answers for its source', () async {
+      final Track a = _track('a');
+      final Track b = _track('b');
+      final Track c = _track('c');
+      final JustAudioPlaybackController controller = controllerFor();
+      await reconnectStuckSeeking(controller, <Track>[a, b, c]);
+
+      final Completer<void> bServer = resolver.held[b.uri] = Completer<void>();
+      unawaited(controller.skipToNext());
+      await _settle();
+      // A's source fails while B resolves: neither A nor B is told.
+      engine.failSource();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+      expect(controller.state.failure, isNull);
+
+      final Completer<void> volume = engine.holdVolume = Completer<void>();
+      unawaited(controller.playFromQueue(0));
+      await _settle();
+      expect(controller.state.currentTrack, c);
+      expect(engine.opened, <String>[
+        'https://host/jellyfin/a',
+        'https://host/jellyfin/a',
+        'https://host/jellyfin/c',
+      ]);
+      expect(engine.seekWaiting, isFalse,
+          reason: "C's ready answered A's seek");
+
+      // C's source fails while C sets its volume, after A has unwound.
+      engine.failSource();
+      await _settle();
+      volume.complete();
+      await _settle();
+      bServer.complete();
+      await _settle();
+
+      expect(controller.state.currentTrack, c);
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(engine.opened, hasLength(3),
+          reason: 'B never reached the engine, and nothing reconnected C');
+    });
+
+    test(
+        'a source failing while a cast holds playback leaves the stuck '
+        'reload alone, and the reload after the cast plays', () async {
+      final JustAudioPlaybackController controller = controllerFor();
+      await failedAtSpot(controller, _track('a'));
+      engine.stallSeeks = true;
+      bool returned = false;
+      unawaited(controller.retryCurrentTrack().whenComplete(() {
+        returned = true;
+      }));
+      await _settle();
+
+      await controller.suspend();
+      engine.failSource();
+      await _settle();
+      expect(controller.state.status, isNot(PlaybackStatus.error),
+          reason: 'the cast owns playback; nothing local fails under it');
+
+      engine.stallSeeks = false;
+      await controller.resume(at: _spot, play: true);
+      await _settle();
+
+      expect(returned, isTrue);
+      expect(engine.seeks.last, _spot);
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.sounding, isTrue);
+    });
+  });
+
+  group('a copy that opens and fails before it starts', () {
+    // Such a copy is one that didn't work, exactly like one that wouldn't
+    // open: the cached file gets its one try from the live stream, and the
+    // song's other copies are walked, each once.
+    const String cache = 'file:///cache/jellyfin/a';
+    const String liveA = 'https://host/stream/jellyfin/a';
+    const String otherA = 'https://host/subsonic/a';
+
+    late _StreamResolver streaming;
+
+    setUp(() {
+      streaming = _StreamResolver();
+      resolver.cached.add('jellyfin:a');
+    });
+
+    /// Plays A from its cached file, then drops it at [_spot]: the
+    /// reconnect reopens the cached file and is left seeking back.
+    Future<void> reconnectStuckOnCache(
+      JustAudioPlaybackController controller,
+    ) async {
+      await controller.playTracks(<Track>[_track('a')]);
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.playing);
+      controller.setPositionForTesting(_spot);
+      engine.stallSeeks = true;
+      engine.failSource();
+      await _settle();
+      expect(engine.opened, <String>[cache, cache]);
+      expect(engine.seekWaiting, isTrue);
+    }
+
+    test('a cached file that fails getting back plays on from the stream',
+        () async {
+      final JustAudioPlaybackController controller =
+          controllerFor(streaming: streaming);
+      await reconnectStuckOnCache(controller);
+
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      expect(streaming.calls, <String>['jellyfin:a']);
+      expect(engine.opened.last, liveA);
+      expect(engine.seeks.last, _spot);
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.failure, isNull);
+      expect(controller.state.source, PlaybackSource.streamingDirect);
+      expect(engine.sounding, isTrue);
+    });
+
+    test(
+        'a copy that fails getting back hands over to the next copy, which '
+        'takes its place in the queue', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(
+          controller, <Track>[_track('a'), _track('b')]);
+
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      expect(engine.opened.last, otherA);
+      expect(engine.seeks.last, _spot);
+      expect(controller.state.currentTrack?.uri, 'subsonic:a');
+      expect(controller.state.upNext.single.uri, 'jellyfin:b');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.failure, isNull);
+      expect(engine.sounding, isTrue);
+    });
+
+    test(
+        'a cached file and its stream that both fail still leave the other '
+        'copy its one try, and nothing after it', () async {
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies(), streaming: streaming);
+      await reconnectStuckOnCache(controller);
+
+      engine.failingOpens = 1;
+      engine.failSource();
+      await _settle();
+      expect(engine.opened, <String>[cache, cache, liveA, otherA]);
+      expect(engine.seekWaiting, isTrue);
+
+      engine.failSource();
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.currentTrack?.uri, 'jellyfin:a');
+      expect(controller.state.position, _spot);
+      expect(streaming.calls, <String>['jellyfin:a']);
+      expect(engine.opened, hasLength(4));
+    });
+
+    test('a restored queue that falls back to the stream stays paused',
+        () async {
+      final JustAudioPlaybackController controller =
+          controllerFor(streaming: streaming, policy: _instant);
+      engine.stallSeeks = true;
+      final Future<void> restore = controller.restoreSession(
+        tracks: <Track>[_track('a')],
+        position: _spot,
+      );
+      await _settle();
+      expect(engine.opened, <String>[cache]);
+
+      engine.stallSeeks = false;
+      engine.failSource();
+      await restore;
+      await _settle();
+
+      expect(engine.opened.last, liveA);
+      expect(engine.seeks.last, _spot);
+      expect(controller.state.status, PlaybackStatus.paused);
+      expect(controller.state.playWhenReady, isFalse);
+      expect(controller.state.failure, isNull);
+      expect(engine.playing, isFalse);
+    });
+
+    test('a call during an automatic retry\'s fallback keeps it from starting',
+        () async {
+      final JustAudioPlaybackController controller =
+          controllerFor(streaming: streaming, policy: _instant)
+            ..focusPauseDebounce = Duration.zero;
+      await controller.playTracks(<Track>[_track('a')]);
+      await _settle();
+      controller.setPositionForTesting(_spot);
+      // The quick reconnect opens neither the cached file nor the stream;
+      // the automatic retry after it opens the cached file and is left
+      // seeking back.
+      engine.failingOpens = 2;
+      engine.stallSeeks = true;
+      engine.failSource();
+      await _settle();
+      expect(engine.opened, <String>[cache, cache, liveA, cache]);
+      expect(engine.seekWaiting, isTrue);
+
+      controller.onAudioInterruption(
+          AudioInterruptionEvent(true, AudioInterruptionType.pause));
+      await _settle();
+      expect(engine.playing, isFalse);
+
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      expect(engine.opened.last, liveA);
+      expect(engine.seeks.last, _spot);
+      expect(engine.playing, isFalse, reason: 'the call holds playback');
+      expect(controller.state.status, isNot(PlaybackStatus.playing));
+    });
+
+    test('a pause while the next copy resolves holds when it lands', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(controller, <Track>[_track('a')]);
+      final Completer<void> other =
+          resolver.held['subsonic:a'] = Completer<void>();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      await controller.pause();
+      other.complete();
+      await _settle();
+
+      expect(engine.opened.last, otherA);
+      expect(engine.seeks.last, _spot);
+      expect(controller.state.currentTrack?.uri, 'subsonic:a');
+      expect(controller.state.status, PlaybackStatus.paused);
+      expect(engine.playing, isFalse);
+    });
+
+    test(
+        'a skip while the next copy resolves leaves the queue and the engine '
+        'to the next song', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(
+          controller, <Track>[_track('a'), _track('b')]);
+      final Completer<void> other =
+          resolver.held['subsonic:a'] = Completer<void>();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      await controller.skipToNext();
+      await _settle();
+      other.complete();
+      await _settle();
+
+      expect(engine.opened, isNot(contains(otherA)));
+      expect(controller.state.currentTrack?.uri, 'jellyfin:b');
+      expect(controller.state.previous.single.uri, 'jellyfin:a');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('a seek while the next copy resolves is where that copy starts',
+        () async {
+      const Duration later = Duration(minutes: 2);
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(controller, <Track>[_track('a')]);
+      final Completer<void> other =
+          resolver.held['subsonic:a'] = Completer<void>();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      bool sought = false;
+      unawaited(controller.seek(later).whenComplete(() {
+        sought = true;
+      }));
+      await _settle();
+      expect(sought, isTrue);
+      other.complete();
+      await _settle();
+
+      expect(engine.opened.last, otherA);
+      expect(engine.seeks.last, later);
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(engine.sounding, isTrue);
+    });
+
+    test(
+        'a skip while the next copy opens leaves the next song its own place '
+        'in the queue', () async {
+      resolver.cached.clear();
+      final Track b = _track('b');
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(controller, <Track>[_track('a'), b]);
+      final Completer<void> opening = engine.holdOpen = Completer<void>();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+      expect(engine.opened.last, otherA);
+
+      // The skip's song still resolves when the old copy's open answers.
+      final Completer<void> bServer = resolver.held[b.uri] = Completer<void>();
+      final Future<void> skip = controller.skipToNext();
+      await _settle();
+      opening.complete();
+      await _settle();
+      expect(controller.state.currentTrack?.uri, 'jellyfin:b');
+
+      bServer.complete();
+      await skip;
+      await _settle();
+      expect(engine.opened.last, 'https://host/jellyfin/b');
+      expect(controller.state.currentTrack?.uri, 'jellyfin:b');
+      expect(controller.state.previous.single.uri, 'jellyfin:a');
+      expect(controller.state.status, PlaybackStatus.playing);
+    });
+
+    test('a stop while the next copy resolves loads nothing more', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(controller, <Track>[_track('a')]);
+      final Completer<void> other =
+          resolver.held['subsonic:a'] = Completer<void>();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await _settle();
+
+      await controller.stop();
+      other.complete();
+      await _settle();
+
+      expect(engine.opened, isNot(contains(otherA)));
+      expect(controller.state.currentTrack?.uri, 'jellyfin:a');
+      expect(controller.state.status, PlaybackStatus.idle);
+      expect(engine.playing, isFalse);
+    });
+
+    test(
+        'a skip while the next copy starts does not start it under the next '
+        'song', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      await reconnectStuckSeeking(
+          controller, <Track>[_track('a'), _track('b')]);
+      engine.stallSeeks = false;
+      final Completer<void> volume = engine.holdVolume = Completer<void>();
+      engine.failSource();
+      await _settle();
+      expect(engine.opened.last, otherA);
+
+      await controller.skipToNext();
+      volume.complete();
+      await _settle();
+
+      expect(engine.opened.last, 'https://host/jellyfin/b');
+      expect(controller.state.currentTrack?.uri, 'jellyfin:b');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.failure, isNull);
+    });
+
+    test(
+        'a Retry that walks every copy and fails spends one attempt, '
+        'however many copies failed', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      engine.failingOpens = 2;
+      await controller.playTracks(<Track>[_track('a')]);
+      await _settle();
+      await controller.seek(_spot);
+
+      engine.stallSeeks = true;
+      final Future<void> retry = controller.retryCurrentTrack();
+      await _settle();
+      engine.failSource();
+      await _settle();
+      expect(engine.opened.last, otherA);
+      engine.failSource();
+      await retry;
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.error);
+
+      int offered = 0;
+      while (controller.state.failure?.canRetry ?? false) {
+        offered++;
+        engine.failingOpens = 2;
+        await controller.retryCurrentTrack();
+        await _settle();
+      }
+      expect(
+          offered, JustAudioPlaybackController.maxRecoveryAttemptsPerTrack - 1);
+    });
+
+    test(
+        'a Retry that plays from the next copy gives the song its attempts '
+        'back', () async {
+      resolver.cached.clear();
+      final JustAudioPlaybackController controller =
+          controllerFor(candidates: _TwoCopies());
+      engine.failingOpens = 2;
+      await controller.playTracks(<Track>[_track('a')]);
+      await _settle();
+      await controller.seek(_spot);
+      engine.failingOpens = 2;
+      await controller.retryCurrentTrack();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.error);
+
+      engine.stallSeeks = true;
+      final Future<void> retry = controller.retryCurrentTrack();
+      await _settle();
+      engine.stallSeeks = false;
+      engine.failSource();
+      await retry;
+      await _settle();
+      expect(controller.state.currentTrack?.uri, 'subsonic:a');
+      expect(controller.state.status, PlaybackStatus.playing);
+
+      // Later the song is played again and neither copy opens.
+      engine.failingOpens = 2;
+      await controller.playTracks(<Track>[_track('a')]);
+      await _settle();
+      int offered = 0;
+      while (controller.state.failure?.canRetry ?? false) {
+        offered++;
+        engine.failingOpens = 2;
+        await controller.retryCurrentTrack();
+        await _settle();
+      }
+      expect(offered, JustAudioPlaybackController.maxRecoveryAttemptsPerTrack);
     });
   });
 
