@@ -129,9 +129,11 @@ class PersistedPlaybackSession {
   /// unusable (wrong version, corrupt shape, no restorable tracks).
   ///
   /// Invalid individual tracks are dropped; [currentIndex] is remapped onto the
-  /// surviving list. A wholly empty result yields `null`. When that is only
-  /// because [isTrackRestorable] turned every track down, the record itself is
-  /// still sound and is not a reason to clear the store.
+  /// surviving list. The saved position comes back only with the saved current
+  /// song (or another copy of it): a song standing in for one that was dropped
+  /// starts from the top (#793). A wholly empty result yields `null`. When that
+  /// is only because [isTrackRestorable] turned every track down, the record
+  /// itself is still sound and is not a reason to clear the store.
   static PersistedPlaybackSession? fromJson(
     Map<String, dynamic> json, {
     bool Function(Track track)? isTrackRestorable,
@@ -143,9 +145,12 @@ class PersistedPlaybackSession {
     if (rawTracks is! List) return null;
 
     final Object? rawIndex = json['i'];
-    final int requestedIndex = rawIndex is int ? rawIndex : 0;
+    // Unreadable: nothing in the queue is known to be the saved current song.
+    final int? requestedIndex = rawIndex is int ? rawIndex : null;
     String? preferredCurrentUri;
-    if (requestedIndex >= 0 && requestedIndex < rawTracks.length) {
+    if (requestedIndex != null &&
+        requestedIndex >= 0 &&
+        requestedIndex < rawTracks.length) {
       final Object? preferred = rawTracks[requestedIndex];
       if (preferred is Map) {
         final Object? uri = preferred['uri'];
@@ -173,14 +178,13 @@ class PersistedPlaybackSession {
     // Prefer the originally current entry when it survived filtering, then
     // another copy of it; otherwise land on the first surviving track so
     // restore never points past the end or at a dropped remote/local row.
-    int currentIndex = 0;
-    if (savedEntryAt != null) {
-      currentIndex = savedEntryAt;
-    } else if (preferredCurrentUri != null) {
+    int? savedSongAt = savedEntryAt;
+    if (savedSongAt == null && preferredCurrentUri != null) {
       final int found =
           parsed.indexWhere((Track t) => t.uri == preferredCurrentUri);
-      if (found >= 0) currentIndex = found;
+      if (found >= 0) savedSongAt = found;
     }
+    final int currentIndex = savedSongAt ?? 0;
 
     final Object? rawPosition = json['p'];
     final int positionMs =
@@ -209,11 +213,14 @@ class PersistedPlaybackSession {
       if (order.isNotEmpty && _sameSongs(order, parsed)) originalOrder = order;
     }
 
-    final Track current = parsed[currentIndex];
-    final Duration position = _clampPosition(
-      Duration(milliseconds: positionMs),
-      current.duration,
-    );
+    // The saved position is the saved song's. Carried to another one it
+    // starts that one partway in, or clamped to its length, at its end.
+    final Duration position = savedSongAt == null
+        ? Duration.zero
+        : _clampPosition(
+            Duration(milliseconds: positionMs),
+            parsed[currentIndex].duration,
+          );
 
     return PersistedPlaybackSession(
       tracks: parsed,
