@@ -82,6 +82,14 @@ class SyncedFavoritesRepository
   /// newer toggle was made while it was out.
   final Map<String, int> _toggles = <String, int>{};
 
+  /// Numbers each server fetch in the order it was sent, and, by uri scheme,
+  /// the fetch each provider's hearts were last adopted from. Two refreshes
+  /// can be out at once (a sync finishing as the app comes back to the
+  /// front), and the older answer may land last: it predates the newer one
+  /// and is not adopted over it.
+  int _fetchesSent = 0;
+  final Map<String, int> _adoptedFetch = <String, int>{};
+
   FavoritesData _data = FavoritesData.empty;
   bool _loaded = false;
 
@@ -317,11 +325,14 @@ class SyncedFavoritesRepository
       for (final RemoteFavoritesGateway g in connected)
         g.uriScheme: _clearsOf(g.uriScheme),
     };
-    final Set<String> toggled = <String>{};
+    // Toggled since the refresh began, or still on their way to a server when
+    // it did. Either way newer than an answer that may have been read before
+    // the push landed: a push can land, and settle, while the fetch is out.
+    final Set<String> toggled = <String>{..._pendingWrites.keys};
     _toggledDuringRefresh.add(toggled);
     try {
-      final Map<RemoteFavoritesGateway, Set<String>> fetched =
-          <RemoteFavoritesGateway, Set<String>>{};
+      final Map<RemoteFavoritesGateway, ({Set<String> uris, int fetch})>
+          fetched = <RemoteFavoritesGateway, ({Set<String> uris, int fetch})>{};
       int failures = 0;
       for (final RemoteFavoritesGateway gateway in connected) {
         // 1) Re-attempt this provider's pending writes first, so a heart that
@@ -360,8 +371,10 @@ class SyncedFavoritesRepository
           );
         }
 
+        final int fetch = ++_fetchesSent;
         try {
-          fetched[gateway] = await gateway.fetchFavoriteUris();
+          fetched[gateway] =
+              (uris: await gateway.fetchFavoriteUris(), fetch: fetch);
         } on RemoteSyncException {
           // Offline or transient for this provider: keep its subset, try the
           // rest.
@@ -380,16 +393,17 @@ class SyncedFavoritesRepository
   /// Folds the servers' [fetched] answers into the favourites as they are now.
   /// Called in turn; see [refreshFromRemote].
   Future<FavoritesSyncResult> _adopt(
-    Map<RemoteFavoritesGateway, Set<String>> fetched,
+    Map<RemoteFavoritesGateway, ({Set<String> uris, int fetch})> fetched,
     Map<String, int> clears,
     Set<String> toggled,
     int failures,
   ) async {
     Set<String> remoteIds = <String>{..._data.remoteIds};
+    final Map<String, int> adopted = <String, int>{};
     int total = 0;
     int applied = 0;
-    for (final MapEntry<RemoteFavoritesGateway, Set<String>> entry
-        in fetched.entries) {
+    for (final MapEntry<RemoteFavoritesGateway,
+        ({Set<String> uris, int fetch})> entry in fetched.entries) {
       final String scheme = entry.key.uriScheme;
       // Signed out (or cleared) while the fetch was out: the answer is that
       // account's, which is gone. A gateway can still look connected on a
@@ -397,15 +411,19 @@ class SyncedFavoritesRepository
       if (!entry.key.isConnected || _clearsOf(scheme) != clears[scheme]) {
         continue;
       }
+      final Set<String> answer = entry.value.uris;
       applied++;
-      total += entry.value.length;
+      total += answer.length;
+      // A newer answer was adopted while this one was out.
+      if ((_adoptedFetch[scheme] ?? 0) > entry.value.fetch) continue;
+      adopted[scheme] = entry.value.fetch;
       // Replace only this provider's scheme subset with the server truth,
       // except hearts toggled since the refresh began: the answer predates
       // them, so they keep their local state…
       remoteIds = <String>{
         for (final String uri in remoteIds)
           if (!uri.startsWith(scheme) || toggled.contains(uri)) uri,
-        for (final String uri in entry.value)
+        for (final String uri in answer)
           if (!toggled.contains(uri)) uri,
       };
       // …then overlay any writes still pending for this scheme, so an
@@ -431,6 +449,7 @@ class SyncedFavoritesRepository
       await _write(_data.copyWith(remoteIds: remoteIds), _pendingWrites);
       _emit();
     }
+    _adoptedFetch.addAll(adopted);
     if (applied == 0) {
       return failures > 0
           ? const FavoritesSyncResult.failed()

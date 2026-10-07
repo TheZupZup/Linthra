@@ -18,6 +18,9 @@ class _DiskStore implements FavoritesStore {
   bool refuse = false;
   int saves = 0;
 
+  /// Thrown by the next save instead of a refusal: a store that broke.
+  Object? throwNext;
+
   /// While set, the next save waits on [_release] and then fails or lands.
   bool _holdNext = false;
   Completer<bool> _release = Completer<bool>();
@@ -40,6 +43,9 @@ class _DiskStore implements FavoritesStore {
   @override
   Future<void> save(FavoritesData data) async {
     saves++;
+    final Object? broken = throwNext;
+    throwNext = null;
+    if (broken != null) throw broken;
     bool written = !refuse;
     if (_holdNext) {
       _holdNext = false;
@@ -55,6 +61,9 @@ class _DiskStore implements FavoritesStore {
 
 class _Gateway implements RemoteFavoritesGateway {
   final Set<String> serverUris = <String>{};
+
+  /// Runs as a push lands, the way the disk can fill up while one is out.
+  void Function()? onPush;
   final List<({String uri, bool favorite})> pushes =
       <({String uri, bool favorite})>[];
 
@@ -88,6 +97,7 @@ class _Gateway implements RemoteFavoritesGateway {
   @override
   Future<void> pushFavorite(String trackUri, bool favorite) async {
     pushes.add((uri: trackUri, favorite: favorite));
+    onPush?.call();
     if (favorite) {
       serverUris.add(trackUri);
     } else {
@@ -297,5 +307,35 @@ void main() {
     await repo.setFavorite(_local('c'), true);
     expect(store.saved.remoteIds, isEmpty);
     expect(store.saved.pendingWrites, isEmpty);
+  });
+
+  test('a push that landed but whose record could not be saved is retried',
+      () async {
+    gateway.onPush = () => store.refuse = true;
+    await repo.setFavorite(_subsonic('a'), true);
+    gateway.onPush = null;
+
+    // Memory and disk agree: the write is still pending in both.
+    expect(gateway.serverUris, <String>{'subsonic:a'});
+    expect(repo.pendingRemoteWriteCount, 1);
+    expect(store.saved.pendingWrites, <String, bool>{'subsonic:a': true});
+
+    store.refuse = false;
+    await repo.refreshFromRemote();
+    expect(repo.pendingRemoteWriteCount, 0);
+    expect(store.saved.pendingWrites, isEmpty);
+    expect(repo.isFavorite('subsonic:a'), isTrue);
+  });
+
+  test('a store that breaks once does not stop the changes after it', () async {
+    store.throwNext = StateError('broken');
+    await expectLater(
+      repo.setFavorite(_local('a'), true),
+      throwsA(isA<StateError>()),
+    );
+    expect(repo.isFavorite('file:///a.mp3'), isFalse);
+
+    await repo.setFavorite(_local('b'), true);
+    expect(store.saved.localIds, <String>{'file:///b.mp3'});
   });
 }
