@@ -14,6 +14,7 @@ import '../../shared/widgets/confirm_dialog.dart';
 import '../../shared/widgets/context_menu_region.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
+import '../../shared/widgets/unsaved_change_notice.dart';
 import '../library/remote_library_refresher.dart';
 import 'playlist_add.dart';
 import 'playlist_drag.dart';
@@ -136,12 +137,15 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
       context,
       syncTargets: targets,
     );
-    if (edit == null) return;
-    await ref.read(playlistRepositoryProvider).createPlaylist(
-          edit.name,
-          description: edit.description,
-          source: edit.source,
-        );
+    if (edit == null || !context.mounted) return;
+    await saveOrReport(
+      ScaffoldMessenger.maybeOf(context),
+      () => ref.read(playlistRepositoryProvider).createPlaylist(
+            edit.name,
+            description: edit.description,
+            source: edit.source,
+          ),
+    );
   }
 }
 
@@ -202,11 +206,15 @@ class _PlaylistTile extends ConsumerWidget {
     List<Track> tracks,
   ) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    final PlaylistAddPlan plan = await addTracksToPlaylist(
-      repository: ref.read(playlistRepositoryProvider),
-      playlist: playlist,
-      tracks: tracks,
+    final PlaylistAddPlan? plan = await saveOrReport(
+      messenger,
+      () => addTracksToPlaylist(
+        repository: ref.read(playlistRepositoryProvider),
+        playlist: playlist,
+        tracks: tracks,
+      ),
     );
+    if (plan == null) return;
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 
@@ -275,22 +283,29 @@ class _PlaylistTile extends ConsumerWidget {
     // window, a refresh that dropped a playlist), and reading through its ref
     // then throws: the name the listener saved would never be applied.
     final PlaylistRepository repository = ref.read(playlistRepositoryProvider);
+    final ScaffoldMessengerState? messenger =
+        ScaffoldMessenger.maybeOf(context);
     final PlaylistEdit? edit = await showRenamePlaylistDialog(
       context,
       initialName: playlist.name,
       initialDescription: playlist.description,
     );
     if (edit == null) return;
-    await repository.renamePlaylist(
-      playlist.id,
-      edit.name,
-      description: edit.description,
+    await saveOrReport(
+      messenger,
+      () => repository.renamePlaylist(
+        playlist.id,
+        edit.name,
+        description: edit.description,
+      ),
     );
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
     // Read before the dialog, for the same reason as in [_rename].
     final PlaylistRepository repository = ref.read(playlistRepositoryProvider);
+    final ScaffoldMessengerState? messenger =
+        ScaffoldMessenger.maybeOf(context);
     final bool confirmed = await showConfirmDialog(
       context,
       title: 'Delete playlist',
@@ -300,7 +315,7 @@ class _PlaylistTile extends ConsumerWidget {
       confirmLabel: 'Delete',
     );
     if (!confirmed) return;
-    await repository.deletePlaylist(playlist.id);
+    await saveOrReport(messenger, () => repository.deletePlaylist(playlist.id));
   }
 }
 

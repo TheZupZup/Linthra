@@ -16,6 +16,7 @@ import '../../../shared/layout/desktop_presentation.dart';
 import '../../../shared/widgets/now_playing_indicator.dart';
 import '../../../shared/widgets/reorder_focus_walk.dart';
 import '../../../shared/widgets/reorder_handle.dart';
+import '../../../shared/widgets/unsaved_change_notice.dart';
 import '../../playlists/widgets/create_playlist_dialog.dart';
 import '../now_playing.dart';
 import '../playback_history_providers.dart';
@@ -405,15 +406,23 @@ class QueueSheet extends ConsumerWidget {
     final PlaylistEdit? edit = await showCreatePlaylistDialog(context);
     if (edit == null) return;
 
-    final Playlist created = await repository.createPlaylist(
-      edit.name,
-      description: edit.description,
-      source: PlaylistSource.local,
+    final Playlist? created = await saveOrReport(
+      messenger,
+      () => repository.createPlaylist(
+        edit.name,
+        description: edit.description,
+        source: PlaylistSource.local,
+      ),
     );
-    await repository.addTracks(
-      created.id,
-      <String>[for (final Track track in tracks) track.uri],
-    );
+    if (created == null) return;
+    final bool? saved = await saveOrReport(messenger, () async {
+      await repository.addTracks(
+        created.id,
+        <String>[for (final Track track in tracks) track.uri],
+      );
+      return true;
+    });
+    if (saved == null) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(

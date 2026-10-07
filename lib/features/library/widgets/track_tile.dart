@@ -17,6 +17,7 @@ import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/layout/desktop_presentation.dart';
 import '../../../shared/widgets/context_menu_region.dart';
+import '../../../shared/widgets/unsaved_change_notice.dart';
 import '../../downloads/download_providers.dart';
 import '../../player/favorites_providers.dart';
 import '../../player/now_playing.dart';
@@ -487,9 +488,12 @@ Future<void> _runTrackAction(
       // its uri routes local/Jellyfin/Subsonic favourites (and the Subsonic
       // sync push) correctly.
       final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
-      await ref
-          .read(favoritesRepositoryProvider)
-          .setFavorite(track, !isFavorite);
+      await saveOrReport(
+        ScaffoldMessenger.maybeOf(context),
+        () => ref
+            .read(favoritesRepositoryProvider)
+            .setFavorite(track, !isFavorite),
+      );
     case _TrackAction.playNext:
       ref.read(playbackControllerProvider).playNext(track);
     case _TrackAction.addToQueue:

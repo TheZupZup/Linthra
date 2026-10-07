@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/playback_state.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
+import '../../../shared/widgets/unsaved_change_notice.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 import '../favorites_providers.dart';
 import '../now_playing_favorite_target.dart';
@@ -97,9 +98,12 @@ class NowPlayingActions extends ConsumerWidget {
       children: [
         IconButton(
           iconSize: 22,
-          onPressed: () => ref
-              .read(favoritesRepositoryProvider)
-              .setFavorite(favoriteTarget, !isFavorite),
+          onPressed: () => saveOrReport(
+            ScaffoldMessenger.maybeOf(context),
+            () => ref
+                .read(favoritesRepositoryProvider)
+                .setFavorite(favoriteTarget, !isFavorite),
+          ),
           icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
           color: isFavorite ? theme.colorScheme.primary : muted,
           isSelected: isFavorite,

@@ -6,6 +6,7 @@ import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/unsaved_change_notice.dart';
 import '../playlist_add.dart';
 import '../playlist_providers.dart';
 import 'create_playlist_dialog.dart';
@@ -132,11 +133,15 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     final repository = ref.read(playlistRepositoryProvider);
     // A tap that lands while the sheet is already closing adds nothing.
     if (!_closeSheet(context)) return;
-    final PlaylistAddPlan plan = await addTracksToPlaylist(
-      repository: repository,
-      playlist: playlist,
-      tracks: tracks,
+    final PlaylistAddPlan? plan = await saveOrReport(
+      messenger,
+      () => addTracksToPlaylist(
+        repository: repository,
+        playlist: playlist,
+        tracks: tracks,
+      ),
     );
+    if (plan == null) return;
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 
@@ -151,18 +156,26 @@ class _AddToPlaylistSheet extends ConsumerWidget {
     );
     if (edit == null || !context.mounted) return;
     if (!_closeSheet(context)) return;
-    final Playlist created = await repository.createPlaylist(
-      edit.name,
-      description: edit.description,
-      source: edit.source,
+    final Playlist? created = await saveOrReport(
+      messenger,
+      () => repository.createPlaylist(
+        edit.name,
+        description: edit.description,
+        source: edit.source,
+      ),
     );
+    if (created == null) return;
     // A freshly created playlist is empty, so every addable track is genuinely
     // added; the skipped remainder (if any) was filtered as a different source.
-    final PlaylistAddPlan plan = await addTracksToPlaylist(
-      repository: repository,
-      playlist: created,
-      tracks: tracks,
+    final PlaylistAddPlan? plan = await saveOrReport(
+      messenger,
+      () => addTracksToPlaylist(
+        repository: repository,
+        playlist: created,
+        tracks: tracks,
+      ),
     );
+    if (plan == null) return;
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 }

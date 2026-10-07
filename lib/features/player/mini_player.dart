@@ -13,6 +13,7 @@ import '../../core/models/track.dart';
 import '../../core/services/playback_source_label.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/host_platform_provider.dart';
+import '../../shared/widgets/unsaved_change_notice.dart';
 import '../../shared/widgets/wavy_progress_indicator.dart';
 import 'cast/cast_providers.dart';
 import 'favorites_providers.dart';
@@ -510,8 +511,12 @@ class _FavoriteButton extends ConsumerWidget {
     // `subsonic:101` each reflect their own heart.
     final bool isFavorite = ref.watch(isFavoriteProvider(track.uri));
     return IconButton(
-      onPressed: () =>
-          ref.read(favoritesRepositoryProvider).setFavorite(track, !isFavorite),
+      onPressed: () => saveOrReport(
+        ScaffoldMessenger.maybeOf(context),
+        () => ref
+            .read(favoritesRepositoryProvider)
+            .setFavorite(track, !isFavorite),
+      ),
       icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
       iconSize: 22,
       // The same violet the now-playing screen's heart uses, so a liked track

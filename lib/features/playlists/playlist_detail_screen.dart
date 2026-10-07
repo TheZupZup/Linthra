@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +15,7 @@ import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/reorder_focus_walk.dart';
 import '../../shared/widgets/reorder_handle.dart';
+import '../../shared/widgets/unsaved_change_notice.dart';
 import '../downloads/collection_download_actions.dart';
 import '../library/song_actions.dart';
 import '../player/favorites_providers.dart';
@@ -171,12 +174,15 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   /// "Add to playlist" sheet and the Playlists tab both use.
   Future<void> _addDropped(Playlist playlist, List<Track> tracks) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    final PlaylistAddPlan plan = await addTracksToPlaylist(
-      repository: ref.read(playlistRepositoryProvider),
-      playlist: playlist,
-      tracks: tracks,
+    final PlaylistAddPlan? plan = await saveOrReport(
+      messenger,
+      () => addTracksToPlaylist(
+        repository: ref.read(playlistRepositoryProvider),
+        playlist: playlist,
+        tracks: tracks,
+      ),
     );
-    if (!mounted) return;
+    if (plan == null || !mounted) return;
     messenger.showSnackBar(SnackBar(content: Text(plan.resultMessage)));
   }
 
@@ -516,9 +522,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         // heart changed after the menu opened; the real [Track] uri routes the
         // favourite to the right source (and its Subsonic sync push).
         final bool isFavorite = ref.read(isFavoriteProvider(track.uri));
-        await ref
-            .read(favoritesRepositoryProvider)
-            .setFavorite(track, !isFavorite);
+        await saveOrReport(
+          ScaffoldMessenger.maybeOf(context),
+          () => ref
+              .read(favoritesRepositoryProvider)
+              .setFavorite(track, !isFavorite),
+        );
       case _RowAction.playNext:
         ref.read(playbackControllerProvider).playNext(track);
       case _RowAction.addToQueue:
@@ -536,12 +545,15 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       initialName: playlist.name,
       initialDescription: playlist.description,
     );
-    if (edit == null) return;
-    await ref.read(playlistRepositoryProvider).renamePlaylist(
-          playlist.id,
-          edit.name,
-          description: edit.description,
-        );
+    if (edit == null || !mounted) return;
+    await saveOrReport(
+      ScaffoldMessenger.maybeOf(context),
+      () => ref.read(playlistRepositoryProvider).renamePlaylist(
+            playlist.id,
+            edit.name,
+            description: edit.description,
+          ),
+    );
   }
 
   /// Downloads every song currently in this playlist for offline use, through
@@ -568,6 +580,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   Future<void> _deletePlaylist(Playlist playlist) async {
     final NavigatorState navigator = Navigator.of(context);
+    final ScaffoldMessengerState? messenger =
+        ScaffoldMessenger.maybeOf(context);
     final repository = ref.read(playlistRepositoryProvider);
     final bool confirmed = await showConfirmDialog(
       context,
@@ -583,15 +597,18 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     // the listener can go back meanwhile, and a pop after the wait would then
     // close whatever screen they were on.
     navigator.pop();
-    await repository.deletePlaylist(playlist.id);
+    await saveOrReport(messenger, () => repository.deletePlaylist(playlist.id));
   }
 
   Future<void> _removeOneFromPlaylist(Playlist playlist, Track track) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final repository = ref.read(playlistRepositoryProvider);
     final _RemovalTrail removals = _removals..note(playlist.trackIds);
-    final List<int> positions =
-        await repository.removeTrack(playlist.id, track.uri);
+    final List<int>? positions = await saveOrReport(
+      messenger,
+      () => repository.removeTrack(playlist.id, track.uri),
+    );
+    if (positions == null) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text('Removed “${track.title}” from playlist.'),
@@ -600,13 +617,16 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           // Back where it was, not at the end.
           onPressed: () async {
             final Playlist? now = await repository.getPlaylistById(playlist.id);
-            await repository.restoreTrack(
-              playlist.id,
-              track.uri,
-              (now == null
-                      ? null
-                      : removals.positionsFor(track.uri, now.trackIds)) ??
-                  positions,
+            await saveOrReport(
+              messenger,
+              () => repository.restoreTrack(
+                playlist.id,
+                track.uri,
+                (now == null
+                        ? null
+                        : removals.positionsFor(track.uri, now.trackIds)) ??
+                    positions,
+              ),
             );
           },
         ),
@@ -628,7 +648,13 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     if (!confirmed) return;
     final repository = ref.read(playlistRepositoryProvider);
     for (final Track track in selected) {
-      await repository.removeTrack(widget.playlistId, track.uri);
+      final List<int>? removed = await saveOrReport(
+        messenger,
+        () => repository.removeTrack(widget.playlistId, track.uri),
+      );
+      // The rest would most likely be refused too, and the ones removed so
+      // far are on screen.
+      if (removed == null) return;
     }
     messenger.showSnackBar(
       SnackBar(
@@ -767,13 +793,27 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
     // The repository still takes the legacy pre-removal insertion index, so a
     // downward move is converted at this one boundary and persistence
     // behaviour stays exactly what it was.
-    ref.read(playlistRepositoryProvider).reorderTracks(
-          widget.playlistId,
-          from,
-          to > from ? to + 1 : to,
-          shown: shown,
-        );
+    unawaited(_reorder(from, to > from ? to + 1 : to, shown));
     return true;
+  }
+
+  Future<void> _reorder(int oldIndex, int newIndex, List<String>? shown) async {
+    final ScaffoldMessengerState? messenger =
+        ScaffoldMessenger.maybeOf(context);
+    final bool? saved = await saveOrReport(messenger, () async {
+      await ref.read(playlistRepositoryProvider).reorderTracks(
+            widget.playlistId,
+            oldIndex,
+            newIndex,
+            shown: shown,
+          );
+      return true;
+    });
+    // Refused: the rows never move, so focus has nothing to follow.
+    if (saved == null && mounted) {
+      _walk.reset();
+      _follow = null;
+    }
   }
 
   /// The keyboard and screen-reader route: move the track the handle on row
