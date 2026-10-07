@@ -43,7 +43,9 @@ void main() {
 
   /// A move the scan proved, handed over the way the library controller does.
   Future<void> move({String from = _from, String to = _to}) =>
-      LocalTrackMoveApplier(<Object>[repo]).apply(
+      LocalTrackMoveApplier(
+        <String, Object>{LocalTrackMoveApplier.playlists: repo},
+      ).apply(
         LocalCatalogReconciliation(
           moves: <LocalTrackMove>[LocalTrackMove(from: from, to: to)],
         ),

@@ -5,11 +5,13 @@ import '../../core/models/track.dart';
 import '../../core/repositories/catalog_track_counter.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/reconciling_catalog_writer.dart';
 import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/music_provider.dart';
 
 /// A [MusicLibraryRepository] decorator that stamps each track with the time it
@@ -281,7 +283,18 @@ class RecordingMusicLibraryRepository
       addedAt[track.uri] = now;
       changed = true;
     }
-    if (changed) await _addedStore.save(addedAt);
+    if (changed) await _saveQuietly(addedAt);
+  }
+
+  /// Saves [addedAt], reporting a refused write rather than failing the
+  /// catalog write it comes with, as it always did: a track left with no time
+  /// is stamped by a later write, and a key left behind is only a stale entry.
+  Future<void> _saveQuietly(Map<String, DateTime> addedAt) async {
+    try {
+      await _addedStore.save(addedAt);
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+    }
   }
 
   /// Carries a moved local file's "added on" time to its new path, so moving an
@@ -291,24 +304,33 @@ class RecordingMusicLibraryRepository
   /// Must run **before** the catalog write that introduces the new path,
   /// otherwise [_stampFirstSeen] gets there first and stamps `now`, which is the very
   /// thing this prevents. `LocalTrackMoveApplier` is what enforces that order.
-  /// A timestamp already stored for [toUri] wins: it is either the same file
-  /// re-scanned or a different file that genuinely arrived there first, and in
-  /// both cases the earlier record is the honest one.
+  /// When [toUri] already has a time, the earlier of the two is kept: that is
+  /// when the song first came into the library. It is also what makes a move
+  /// asked again after the catalog write right, since that write stamped the
+  /// new path with `now`.
+  ///
+  /// A refused save keeps the old key and completes with false, so the move
+  /// is kept and asked again.
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) async {
-    if (fromUri == toUri) return;
+    if (fromUri == toUri) return true;
     try {
       final Map<String, DateTime> addedAt = await _addedStore.load();
       final DateTime? moving = addedAt.remove(fromUri);
-      if (moving == null) return;
-      addedAt.putIfAbsent(toUri, () => moving);
+      if (moving == null) return true;
+      final DateTime? there = addedAt[toUri];
+      if (there == null || moving.isBefore(there)) addedAt[toUri] = moving;
       await _addedStore.save(addedAt);
-    } catch (_) {
-      // A store that cannot be written right now keeps the old key; the track
-      // simply reads as newly added until a later scan re-keys it.
+      return true;
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+      return false;
+    } catch (error) {
+      StabilityDiagnostics.trackMoveFailedUnexpectedly('library', error);
+      return false;
     }
   }
 
@@ -346,7 +368,7 @@ class RecordingMusicLibraryRepository
       addedAt.remove(bareId);
       changed = true;
     });
-    if (changed) await _addedStore.save(addedAt);
+    if (changed) await _saveQuietly(addedAt);
   }
 
   @override
@@ -370,6 +392,6 @@ class RecordingMusicLibraryRepository
       final String? legacyId = MusicProviders.bareRemoteIdForTrackUri(uri);
       if (legacyId != null && addedAt.remove(legacyId) != null) changed = true;
     }
-    if (changed) await _addedStore.save(addedAt);
+    if (changed) await _saveQuietly(addedAt);
   }
 }

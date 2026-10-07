@@ -833,14 +833,16 @@ class SyncedPlaylistRepository
   /// edit, so [Playlist.updatedAt] stays as it was.
   ///
   /// Never throws: a save the disk refuses leaves every playlist as it was
-  /// (#808) rather than failing the scan that asked.
+  /// (#808) and completes with false, so the move is kept and asked again
+  /// rather than failing the scan that asked. Asked again, it finds the old
+  /// path gone from every playlist and saves nothing.
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) async {
-    if (fromUri == toUri) return;
-    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return;
+    if (fromUri == toUri) return true;
+    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return true;
     try {
       await _ensureLoaded();
       await _inTurn(() async {
@@ -862,8 +864,12 @@ class SyncedPlaylistRepository
         }
         if (changed) await _write(next);
       });
-    } catch (_) {
-      // The scan goes on; see above.
+      return true;
+    } on LocalStoreWriteException {
+      return false; // Already reported by [_write].
+    } catch (error) {
+      StabilityDiagnostics.trackMoveFailedUnexpectedly('playlists', error);
+      return false;
     }
   }
 

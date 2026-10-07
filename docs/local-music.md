@@ -314,6 +314,12 @@ Every one of those falls back to the same safe result: the old path counts as
 removed, the new one as a new track, and no listening history changes hands.
 It is better to lose a play count than to hand one song's history to another.
 
+Once a move is proven, it reaches everything keyed on the path: play counts,
+hearts, the "added on" date and the song's place in your local playlists. If
+one of those can't be saved right then (a full disk, say), the move is kept
+and applied on a later scan, also after a restart, so nothing stays behind at
+the old path.
+
 **If the file that is playing disappears**, playback stops on that track with a
 message saying so, and the queue is left exactly as it is: the track keeps its
 place and skipping past it works normally.

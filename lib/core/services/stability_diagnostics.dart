@@ -121,6 +121,33 @@ abstract final class StabilityDiagnostics {
   static String describeLocalStoreWriteFailure(String area) =>
       'local storage write failed: $area';
 
+  /// A store ([target], a fixed name such as `playlists`) that could not take
+  /// a local file's move yet, which is kept for the next scan. Never a path.
+  static void trackMoveKept(String target) {
+    SafeEventLog.instance.record('track-move-kept', target);
+    _log(describeTrackMoveKept(target));
+  }
+
+  static String describeTrackMoveKept(String target) =>
+      'local track move kept for later: $target';
+
+  /// A store ([target]) that failed to take a local file's move for a reason
+  /// other than a refused write: a bug rather than a full disk. Only the
+  /// error's type is recorded. The move is kept and asked again all the same.
+  static void trackMoveFailedUnexpectedly(String target, Object error) {
+    SafeEventLog.instance.record(
+      'track-move-error',
+      '$target: ${error.runtimeType}',
+    );
+    _log(describeTrackMoveFailedUnexpectedly(target, error));
+  }
+
+  static String describeTrackMoveFailedUnexpectedly(
+    String target,
+    Object error,
+  ) =>
+      'local track move failed unexpectedly: $target (${error.runtimeType})';
+
   /// An automatic recovery step the player took on its own after a track
   /// failed: `retry` (one more try at the same track), `advance` (moving on to
   /// the next one), or `settled` (stopped, waiting for the listener). A fixed

@@ -6,6 +6,8 @@ enum LocalStoreArea {
   playlists,
   favorites,
   playHistory,
+  libraryAdded,
+  trackMoves,
 }
 
 /// A durable local-store write that explicitly reported it did not happen.

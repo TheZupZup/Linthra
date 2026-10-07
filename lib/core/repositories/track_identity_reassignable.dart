@@ -19,17 +19,20 @@
 /// ambiguity, so implementations can treat a call as authoritative and do not
 /// second-guess it.
 abstract interface class TrackIdentityReassignable {
-  /// Moves whatever is stored under [fromUri] to [toUri].
+  /// Moves whatever is stored under [fromUri] to [toUri], completing with
+  /// whether that is now saved: true also when there was nothing to move.
   ///
   /// A no-op when nothing is stored under [fromUri], or when the two are equal.
   /// When [toUri] already carries state, the two are merged in whichever way
   /// loses nothing (counts add up, the later timestamp wins, a heart stays a
   /// heart). The implementation decides, because only it knows what its state
-  /// means.
+  /// means. Asked again with the same move, it changes nothing more.
   ///
-  /// Must never throw: a store that cannot re-key right now leaves its state
-  /// alone rather than failing the scan that asked.
-  Future<void> reassignTrack({
+  /// Must never throw: a store that cannot save right now leaves its state
+  /// alone and completes with false rather than failing the scan that asked.
+  /// The move is then kept and asked again later (see `LocalTrackMoveApplier`):
+  /// once the catalog has the new path, no later scan can find it again.
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   });
