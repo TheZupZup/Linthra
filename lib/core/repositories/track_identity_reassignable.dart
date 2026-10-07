@@ -5,9 +5,9 @@
 /// catalog itself needs no help (the file is re-scanned at its new path and
 /// the row is written there), but a local track's uri *is* its path, so every
 /// store keyed on that uri (play counts, hearts, the "added on" date behind
-/// Recently added) is suddenly pointing at a path nothing lives at. Without
-/// this, dragging an album into a different folder quietly resets the listening
-/// history the user built up for it.
+/// Recently added, playlist entries) is suddenly pointing at a path nothing
+/// lives at. Without this, dragging an album into a different folder quietly
+/// resets the listening history the user built up for it.
 ///
 /// Kept as a separate capability, in the same shape as `SourceCatalogReader`
 /// and `IncrementalCatalogWriter`, so the many stores and test fakes that never

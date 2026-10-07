@@ -20,6 +20,7 @@ import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/local_tag_revision_store_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
+import '../../data/repositories/playlist_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_root_availability_controller.dart';
@@ -409,6 +410,7 @@ class LibraryController extends Notifier<LibraryState> {
           repository,
           ref.read(favoritesRepositoryProvider),
           ref.read(playHistoryRepositoryProvider),
+          ref.read(playlistRepositoryProvider),
         ]).apply(scan.reconciliation);
         final List<Track> tracks = scan.plainTracks;
         if (repository is StampedCatalogWriter) {

@@ -8,9 +8,10 @@ import '../sources/local/local_catalog_reconciliation.dart';
 /// The catalog itself needs nothing from this: the moved file was re-scanned at
 /// its new path and its row is written there. What breaks without it is
 /// everything else keyed on that path: the play count behind Most played, the
-/// heart, the "added on" date behind Recently added, all of which would still
-/// be pointing at a file that no longer exists, so the user's own listening
-/// history quietly resets because they tidied up a folder.
+/// heart, the "added on" date behind Recently added, the song's place in a
+/// playlist, all of which would still be pointing at a file that no longer
+/// exists, so the user's own listening history quietly resets because they
+/// tidied up a folder.
 ///
 /// Collaborators opt in by implementing [TrackIdentityReassignable]; anything
 /// that does not is skipped, so a test fake or a store with no per-track state

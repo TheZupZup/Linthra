@@ -13,7 +13,9 @@ all** — local-only playlists and favourites live entirely on-device.
 A playlist is a user-authored, ordered collection of tracks. Each playlist
 stores stable Linthra track ids (for Jellyfin tracks these are the Jellyfin item
 ids), not copies of the tracks, so membership and order survive a library
-re-scan.
+re-scan. A local file moved to another folder keeps its place too, when the
+scan can tell from its tags that it is the same song (the same rule that
+carries its play count and heart across).
 
 What you can do:
 
