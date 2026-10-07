@@ -148,6 +148,23 @@ abstract final class StabilityDiagnostics {
   ) =>
       'local track move failed unexpectedly: $target (${error.runtimeType})';
 
+  /// Trouble with the record of local moves some store still has to take, as
+  /// one fixed [event]: `read-failed`, `corrupt`, `write-failed`, or
+  /// `held-back` (a scan's catalog write waited, because one of its moves
+  /// could neither reach every store nor be kept). Never a path.
+  static void trackMoveJournal(String event) {
+    SafeEventLog.instance.record('track-move-journal', event);
+    _log(describeTrackMoveJournal(event));
+  }
+
+  static String describeTrackMoveJournal(String event) =>
+      'local track move record: $event';
+
+  /// The record of kept moves failed in a way it doesn't report itself: a bug
+  /// rather than storage. Only the error's type is recorded.
+  static void trackMoveJournalFailedUnexpectedly(Object error) =>
+      trackMoveJournal('unexpected: ${error.runtimeType}');
+
   /// An automatic recovery step the player took on its own after a track
   /// failed: `retry` (one more try at the same track), `advance` (moving on to
   /// the next one), or `settled` (stopped, waiting for the listener). A fixed

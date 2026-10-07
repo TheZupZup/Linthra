@@ -1,3 +1,4 @@
+import '../repositories/local_store_write_exception.dart';
 import '../repositories/pending_track_move_store.dart';
 import '../repositories/track_identity_reassignable.dart';
 import '../sources/local/local_catalog_reconciliation.dart';
@@ -56,6 +57,13 @@ class LocalTrackMoveApplier {
   /// nothing yet: after `a -> b` and `b -> c`, a playlist still on `a` needs
   /// both, in that order.
   ///
+  /// A record of pending moves that can't be read is never taken for an empty
+  /// one, and never rewritten. When it didn't answer, it may hold a move this
+  /// scan's must follow, so nothing is moved and `kept` is false for any scan
+  /// that proved a move: the next scan finds them again. When it is corrupt,
+  /// waiting won't make it readable, so this scan's moves are offered as if
+  /// there were no record: `kept` only if every store took them.
+  ///
   /// **Call this before the catalog write.** `RecordingMusicLibraryRepository`
   /// stamps any uri it has never seen with `now`, so a write that introduces
   /// the new path first would mark the moved file as newly added before its
@@ -78,19 +86,26 @@ class LocalTrackMoveApplier {
     final List<LocalTrackMove> moves = reconciliation.moves;
 
     List<PendingTrackMove> waiting = const <PendingTrackMove>[];
-    bool readable = true;
+    bool corrupt = false;
     final PendingTrackMoveStore? store = pending;
     if (store != null) {
       try {
         waiting = await store.load();
-      } catch (_) {
-        // What was kept can't be read now. It is still there, so it is left
-        // alone; only this scan's moves are offered.
-        readable = false;
+      } on PendingTrackMoveJournalUnreadable catch (error) {
+        if (error.fault == PendingTrackMoveJournalFault.corrupt) {
+          StabilityDiagnostics.trackMoveJournal('corrupt');
+          corrupt = true;
+        } else {
+          StabilityDiagnostics.trackMoveJournal('read-failed');
+          return _done(moves.length, kept: moves.isEmpty || stores.isEmpty);
+        }
+      } catch (error) {
+        StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
+        return _done(moves.length, kept: moves.isEmpty || stores.isEmpty);
       }
     }
     if (waiting.isEmpty && (moves.isEmpty || stores.isEmpty)) {
-      return (moves: moves.length, kept: true);
+      return _done(moves.length, kept: true);
     }
 
     final List<_Move> work = <_Move>[
@@ -139,16 +154,25 @@ class LocalTrackMoveApplier {
     // them again changes nothing. One from this scan has no record elsewhere.
     final bool newOnesLeft =
         work.any((_Move move) => move.fromThisScan && move.left.isNotEmpty);
-    if (store == null || !readable) {
-      return (moves: moves.length, kept: !newOnesLeft);
+    if (store == null || corrupt) {
+      return _done(moves.length, kept: !newOnesLeft);
     }
-    if (_same(left, waiting)) return (moves: moves.length, kept: true);
+    if (_same(left, waiting)) return _done(moves.length, kept: true);
     try {
       await store.save(left);
-    } catch (_) {
-      return (moves: moves.length, kept: !newOnesLeft);
+    } on LocalStoreWriteException {
+      StabilityDiagnostics.trackMoveJournal('write-failed');
+      return _done(moves.length, kept: !newOnesLeft);
+    } catch (error) {
+      StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
+      return _done(moves.length, kept: !newOnesLeft);
     }
-    return (moves: moves.length, kept: true);
+    return _done(moves.length, kept: true);
+  }
+
+  static ({int moves, bool kept}) _done(int moves, {required bool kept}) {
+    if (!kept) StabilityDiagnostics.trackMoveJournal('held-back');
+    return (moves: moves, kept: kept);
   }
 
   static bool _same(List<PendingTrackMove> a, List<PendingTrackMove> b) {

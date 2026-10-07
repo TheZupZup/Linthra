@@ -2,6 +2,7 @@
 // it again: only to the stores still missing it, in the order the moves were
 // made, and never in a way that could move something it shouldn't.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/repositories/local_store_write_exception.dart';
 import 'package:linthra/core/repositories/pending_track_move_store.dart';
 import 'package:linthra/core/repositories/track_identity_reassignable.dart';
@@ -26,24 +27,41 @@ class _Store implements TrackIdentityReassignable {
 /// A pending record that can refuse its own save, or fail to be read.
 class _Journal extends InMemoryPendingTrackMoveStore {
   bool refuse = false;
-  bool unreadable = false;
+
+  /// Thrown by [load] instead of answering, when set.
+  Object? loadError;
+
+  /// Thrown by [save] instead of a refusal, when set.
+  Object? saveError;
   int loads = 0;
   int saves = 0;
 
   @override
   Future<List<PendingTrackMove>> load() {
     loads++;
-    if (unreadable) throw StateError('unreadable');
+    if (loadError case final Object error) throw error;
     return super.load();
   }
 
   @override
   Future<void> save(List<PendingTrackMove> moves) async {
     saves++;
+    if (saveError case final Object error) throw error;
     if (refuse) throw const LocalStoreWriteException(LocalStoreArea.trackMoves);
     return super.save(moves);
   }
 }
+
+const PendingTrackMoveJournalUnreadable _corrupt =
+    PendingTrackMoveJournalUnreadable(PendingTrackMoveJournalFault.corrupt);
+const PendingTrackMoveJournalUnreadable _readFailed =
+    PendingTrackMoveJournalUnreadable(PendingTrackMoveJournalFault.readFailed);
+
+/// What the journal's diagnostics recorded since the test began.
+List<String> _reported() => <String>[
+      for (final SafeEvent event in SafeEventLog.instance.events)
+        if (event.category == 'track-move-journal') event.detail,
+    ];
 
 LocalCatalogReconciliation _moves(List<(String, String)> moves) =>
     LocalCatalogReconciliation(moves: <LocalTrackMove>[
@@ -58,6 +76,7 @@ void main() {
   late _Journal journal;
 
   setUp(() {
+    SafeEventLog.instance.clear();
     a = _Store();
     b = _Store();
     c = _Store();
@@ -178,23 +197,127 @@ void main() {
     expect(await journal.load(), hasLength(1));
   });
 
-  test('an unreadable record is left alone; this scan still moves', () async {
-    journal.unreadable = true;
+  group('a record that is there but cannot be read', () {
+    setUp(() async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+          from: '/a.flac',
+          to: '/b.flac',
+          targets: <String>{'b'},
+        ),
+      ]);
+      journal.saves = 0;
+    });
 
-    final result = await applier().apply(
-      _moves(<(String, String)>[('/old.flac', '/new.flac')]),
-    );
+    test('is reported, never rewritten, and not taken for nothing pending',
+        () async {
+      journal.loadError = _corrupt;
 
-    expect(result.kept, isTrue);
-    expect(a.calls, <String>['/old.flac -> /new.flac']);
-    expect(journal.saves, 0);
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/old.flac', '/new.flac')]),
+      );
 
+      // Every store took this scan's move, so there is nothing to keep.
+      expect(result.kept, isTrue);
+      expect(a.calls, <String>['/old.flac -> /new.flac']);
+      expect(b.calls, <String>['/old.flac -> /new.flac']);
+      expect(journal.saves, 0);
+      expect(_reported(), <String>['corrupt']);
+
+      // One store misses it: with nowhere to keep it, the catalog waits.
+      b.refuse = true;
+      final refused = await applier().apply(
+        _moves(<(String, String)>[('/x.flac', '/y.flac')]),
+      );
+      expect(refused.kept, isFalse);
+      expect(journal.saves, 0);
+      expect(_reported(), <String>['corrupt', 'corrupt', 'held-back']);
+    });
+
+    test('holds back a scan that moved anything while it cannot be read',
+        () async {
+      journal.loadError = _readFailed;
+
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/b.flac', '/c.flac')]),
+      );
+
+      // What it holds may come before this move, so nothing is moved yet:
+      // with the catalog still at the old path, the next scan finds it again.
+      expect(result.kept, isFalse);
+      expect(a.calls, isEmpty);
+      expect(b.calls, isEmpty);
+      expect(journal.saves, 0);
+      expect(_reported(), <String>['read-failed', 'held-back']);
+
+      // A scan that moved nothing has nothing to lose.
+      expect(
+        (await applier().apply(LocalCatalogReconciliation.none)).kept,
+        isTrue,
+      );
+      expect(journal.saves, 0);
+    });
+
+    test('an unexpected error reading it counts as a failed read', () async {
+      journal.loadError = StateError('bug');
+
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/b.flac', '/c.flac')]),
+      );
+
+      expect(result.kept, isFalse);
+      expect(a.calls, isEmpty);
+      expect(journal.saves, 0);
+      expect(_reported(), <String>['unexpected: StateError', 'held-back']);
+    });
+
+    test(
+        'once it can be read again, the moves land in the order they were made',
+        () async {
+      journal.loadError = _readFailed;
+      await applier().apply(_moves(<(String, String)>[('/b.flac', '/c.flac')]));
+
+      journal.loadError = null;
+      // The catalog was held back, so the next scan proves the move again.
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/b.flac', '/c.flac')]),
+      );
+
+      expect(result.kept, isTrue);
+      expect(b.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
+      expect(a.calls, <String>['/b.flac -> /c.flac']);
+      expect(await journal.load(), isEmpty);
+    });
+  });
+
+  test('a record that could not be saved is reported', () async {
     b.refuse = true;
-    final refused = await applier().apply(
-      _moves(<(String, String)>[('/x.flac', '/y.flac')]),
+    journal.refuse = true;
+    await applier().apply(_moves(<(String, String)>[('/a.flac', '/b.flac')]));
+    expect(_reported(), <String>['write-failed', 'held-back']);
+
+    SafeEventLog.instance.clear();
+    journal
+      ..refuse = false
+      ..saveError = StateError('bug');
+    final result = await applier()
+        .apply(_moves(<(String, String)>[('/c.flac', '/d.flac')]));
+    expect(result.kept, isFalse);
+    expect(_reported(), <String>['unexpected: StateError', 'held-back']);
+  });
+
+  test('the diagnostics never carry a path', () async {
+    journal.loadError = _corrupt;
+    b.refuse = true;
+    await applier().apply(
+      _moves(<(String, String)>[('/music/Private Name.flac', '/music/x.flac')]),
     );
-    expect(refused.kept, isFalse);
-    expect(journal.saves, 0);
+
+    expect(_reported(), isNotEmpty);
+    for (final String line in SafeEventLog.instance.lines) {
+      expect(line, isNot(contains('/')));
+      expect(line, isNot(contains('Private')));
+    }
   });
 
   test('a scan with no moves and nothing kept writes nothing', () async {

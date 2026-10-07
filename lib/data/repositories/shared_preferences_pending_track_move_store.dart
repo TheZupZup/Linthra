@@ -9,8 +9,12 @@ import '../../core/repositories/pending_track_move_store.dart';
 ///
 /// Stored as `[{"f": from, "t": to, "s": [store, …]}, …]` under its own key,
 /// which is removed once nothing is pending, so a library whose moves all
-/// landed keeps no record at all. An entry that can't be read drops only
-/// itself.
+/// landed keeps no record at all.
+///
+/// Only a missing key means nothing is pending. A record that can't be read,
+/// even one entry of it, is reported as corrupt rather than read around:
+/// that entry may be the only trace of a move, and where it stood among the
+/// others matters as much as what it says.
 class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
   const SharedPreferencesPendingTrackMoveStore();
 
@@ -18,20 +22,22 @@ class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
 
   @override
   Future<List<PendingTrackMove>> load() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String? raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const <PendingTrackMove>[];
-    Object? decoded;
+    final Object? raw;
     try {
-      decoded = jsonDecode(raw);
-    } on FormatException {
-      return const <PendingTrackMove>[];
+      raw = (await SharedPreferences.getInstance()).get(_key);
+    } catch (_) {
+      throw const PendingTrackMoveJournalUnreadable(
+        PendingTrackMoveJournalFault.readFailed,
+      );
     }
-    if (decoded is! List) return const <PendingTrackMove>[];
-    return <PendingTrackMove>[
-      for (final Object? entry in decoded)
-        if (_fromJson(entry) case final PendingTrackMove move) move,
-    ];
+    if (raw == null) return const <PendingTrackMove>[];
+    final List<PendingTrackMove>? moves = raw is String ? _decode(raw) : null;
+    if (moves == null) {
+      throw const PendingTrackMoveJournalUnreadable(
+        PendingTrackMoveJournalFault.corrupt,
+      );
+    }
+    return moves;
   }
 
   @override
@@ -61,6 +67,25 @@ class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
     }
   }
 
+  /// Every entry of [raw], or null when any part of it can't be read. An
+  /// empty string is never written, so one is a write cut short.
+  static List<PendingTrackMove>? _decode(String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! List) return null;
+    final List<PendingTrackMove> moves = <PendingTrackMove>[];
+    for (final Object? entry in decoded) {
+      final PendingTrackMove? move = _fromJson(entry);
+      if (move == null) return null;
+      moves.add(move);
+    }
+    return moves;
+  }
+
   static PendingTrackMove? _fromJson(Object? entry) {
     if (entry is! Map) return null;
     final Object? from = entry['f'];
@@ -68,12 +93,12 @@ class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
     final Object? targets = entry['s'];
     if (from is! String || from.isEmpty) return null;
     if (to is! String || to.isEmpty || to == from) return null;
-    if (targets is! List) return null;
-    final Set<String> names = <String>{
-      for (final Object? name in targets)
-        if (name is String && name.isNotEmpty) name,
-    };
-    if (names.isEmpty) return null;
+    if (targets is! List || targets.isEmpty) return null;
+    final Set<String> names = <String>{};
+    for (final Object? name in targets) {
+      if (name is! String || name.isEmpty) return null;
+      names.add(name);
+    }
     return PendingTrackMove(from: from, to: to, targets: names);
   }
 }

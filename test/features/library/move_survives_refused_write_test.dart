@@ -6,6 +6,7 @@
 // and rebuild it from what was saved, as a restart does.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/diagnostics/safe_event_log.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
@@ -58,6 +59,28 @@ class _Disk extends InMemorySharedPreferencesStore {
   }
 }
 
+/// The record of kept moves, failing to be read while [unreadable] is set, the
+/// way storage that is there but not answering would.
+class _Journal implements PendingTrackMoveStore {
+  bool unreadable = false;
+
+  static const PendingTrackMoveStore _disk =
+      SharedPreferencesPendingTrackMoveStore();
+
+  @override
+  Future<List<PendingTrackMove>> load() {
+    if (unreadable) {
+      throw const PendingTrackMoveJournalUnreadable(
+        PendingTrackMoveJournalFault.readFailed,
+      );
+    }
+    return _disk.load();
+  }
+
+  @override
+  Future<void> save(List<PendingTrackMove> moves) => _disk.save(moves);
+}
+
 class _MapMetadataReader implements LocalMetadataReader {
   _MapMetadataReader(this.byPath);
 
@@ -87,10 +110,12 @@ const LocalAudioMetadata _towers = LocalAudioMetadata(
 
 const String _old = '/music/inbox/track05.flac';
 const String _new = '/music/Bon Iver/05 Holocene.flac';
+const String _newer = '/music/Bon Iver/Bon Iver/05 Holocene.flac';
 const String _other = '/music/Bon Iver/06 Towers.flac';
 
 const String _playlistsKey = 'flutter.playlists_v1';
 const String _favoritesKey = 'flutter.favorites_v2';
+const String _journalKey = 'flutter.pending_track_moves_v1';
 
 final DateTime _addedLongAgo = DateTime.utc(2021, 6, 1);
 
@@ -103,6 +128,7 @@ void main() {
   late FakeAudioFileScanner scanner;
   late _MapMetadataReader tags;
   late ProviderContainer c;
+  late _Journal journal;
 
   /// Starts the app over what [disk] and [catalog] hold.
   Future<void> launch() async {
@@ -124,8 +150,7 @@ void main() {
             .overrideWithValue(const SharedPreferencesPlayHistoryStore()),
         libraryAddedStoreProvider
             .overrideWithValue(const SharedPreferencesLibraryAddedStore()),
-        pendingTrackMoveStoreProvider
-            .overrideWithValue(const SharedPreferencesPendingTrackMoveStore()),
+        pendingTrackMoveStoreProvider.overrideWithValue(journal),
         musicLibraryRepositoryProvider.overrideWith(
           (Ref ref) => RecordingMusicLibraryRepository(
             delegate: catalog,
@@ -196,6 +221,8 @@ void main() {
           InMemorySharedPreferencesStore.empty();
       SharedPreferences.resetStatic();
     });
+    SafeEventLog.instance.clear();
+    journal = _Journal();
     catalog = InMemoryMusicLibraryRepository();
     scanner = FakeAudioFileScanner();
     tags = _MapMetadataReader(const <String, LocalAudioMetadata>{});
@@ -231,6 +258,14 @@ void main() {
 
   void moveTheFile() => onDisk(
       const <String, LocalAudioMetadata>{_new: _holocene, _other: _towers});
+
+  /// What the record of kept moves holds on disk, as it is stored.
+  Future<Object?> journalOnDisk() async => (await disk.getAll())[_journalKey];
+
+  List<String> reported() => <String>[
+        for (final SafeEvent event in SafeEventLog.instance.events)
+          if (event.category == 'track-move-journal') event.detail,
+      ];
 
   test('a move the playlists missed reaches them after a restart', () async {
     moveTheFile();
@@ -328,5 +363,111 @@ void main() {
       'b': <String>[_new, _other],
       'c': <String>[_other],
     });
+  });
+
+  group('a record of kept moves that is broken on disk', () {
+    const Map<String, String> broken = <String, String>{
+      'not JSON': '{this is broken',
+      'cut short': '[{"f":"/a","t":"/b"',
+      'a bad entry': '[{"f": "/a", "t": "/b", "s": ["playlists"]},'
+          '{"garbage": true}]',
+    };
+    for (final MapEntry<String, String> record in broken.entries) {
+      test(
+          '${record.key}: is kept as it is, and a move it could not keep '
+          'waits in the catalog', () async {
+        await disk.setValue('String', _journalKey, record.value);
+        await quit();
+        await launch();
+
+        moveTheFile();
+        disk.refusing.add(_playlistsKey);
+        await rescan();
+
+        // Writing the catalog now would lose the playlists' part of the
+        // move: the record can't take it, and the next scan wouldn't see it.
+        expect(await catalogUris(), <String>[_old, _other]..sort());
+        expect((await saved()).playlist, <String>[_old, _other]);
+        expect(await journalOnDisk(), record.value);
+        expect(reported(), containsAll(<String>['corrupt', 'held-back']));
+
+        await quit();
+        disk.refusing.clear();
+        await launch();
+        await rescan();
+
+        // Every store takes it this time, so nothing has to be kept.
+        await expectAllAt(_new, gone: _old);
+        expect(await catalogUris(), <String>[_new, _other]..sort());
+        expect(await journalOnDisk(), record.value);
+      });
+    }
+  });
+
+  test('once a broken record is gone, moves are kept again as before',
+      () async {
+    await disk.setValue('String', _journalKey, '{this is broken');
+    await quit();
+    await launch();
+    moveTheFile();
+    disk.refusing.add(_playlistsKey);
+    await rescan();
+    expect(await catalogUris(), <String>[_old, _other]..sort());
+
+    // Cleared while the app was closed; the playlists still refuse.
+    await quit();
+    await disk.remove(_journalKey);
+    await launch();
+    await rescan();
+
+    expect(await catalogUris(), <String>[_new, _other]..sort());
+    expect(await kept(), const <PendingTrackMove>[
+      PendingTrackMove(
+        from: _old,
+        to: _new,
+        targets: <String>{LocalTrackMoveApplier.playlists},
+      ),
+    ]);
+
+    await quit();
+    disk.refusing.clear();
+    await launch();
+    await rescan();
+
+    await expectAllAt(_new, gone: _old);
+    expect(await journalOnDisk(), isNull);
+  });
+
+  test(
+      'a record that cannot be read holds the scan back, and the moves land '
+      'in order once it can', () async {
+    moveTheFile();
+    disk.refusing.add(_playlistsKey);
+    await rescan();
+    disk.refusing.clear();
+
+    // The song moves again while the record, still holding the playlists'
+    // part of the first move, cannot be read.
+    journal.unreadable = true;
+    onDisk(
+        const <String, LocalAudioMetadata>{_newer: _holocene, _other: _towers});
+    await rescan();
+
+    // The playlists still need the first move before this one; with the
+    // catalog left as it was, the next scan finds this one again.
+    expect(await catalogUris(), <String>[_new, _other]..sort());
+    expect((await saved()).playlist, <String>[_old, _other]);
+    expect((await saved()).hearts, <String>{_new});
+    expect(reported(), <String>['read-failed', 'held-back']);
+
+    await quit();
+    journal.unreadable = false;
+    await launch();
+    await rescan();
+
+    await expectAllAt(_newer, gone: _new);
+    expect((await saved()).playlist, isNot(contains(_old)));
+    expect(await catalogUris(), <String>[_newer, _other]..sort());
+    expect(await kept(), isEmpty);
   });
 }

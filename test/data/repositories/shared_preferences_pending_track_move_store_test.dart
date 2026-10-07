@@ -5,6 +5,7 @@ import 'package:linthra/data/repositories/shared_preferences_library_added_store
 import 'package:linthra/data/repositories/shared_preferences_pending_track_move_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 
 class _FullDisk extends InMemorySharedPreferencesStore {
   _FullDisk() : super.empty();
@@ -16,6 +17,32 @@ class _FullDisk extends InMemorySharedPreferencesStore {
   @override
   Future<bool> remove(String key) async => false;
 }
+
+/// Preferences the platform fails to hand over at all.
+class _UnreadableDisk extends InMemorySharedPreferencesStore {
+  _UnreadableDisk() : super.empty();
+
+  @override
+  Future<Map<String, Object>> getAll() async => throw StateError('io');
+
+  @override
+  Future<Map<String, Object>> getAllWithParameters(
+    GetAllParameters parameters,
+  ) async =>
+      throw StateError('io');
+}
+
+const PendingTrackMoveJournalFault _corrupt =
+    PendingTrackMoveJournalFault.corrupt;
+const PendingTrackMoveJournalFault _readFailed =
+    PendingTrackMoveJournalFault.readFailed;
+
+Matcher _unreadable(PendingTrackMoveJournalFault fault) =>
+    isA<PendingTrackMoveJournalUnreadable>().having(
+      (PendingTrackMoveJournalUnreadable e) => e.fault,
+      'fault',
+      fault,
+    );
 
 const PendingTrackMove _move = PendingTrackMove(
   from: '/music/inbox/a.flac',
@@ -43,6 +70,18 @@ void main() {
     expect(await store.load(), const <PendingTrackMove>[_move, later]);
   });
 
+  test('no record at all is nothing pending', () async {
+    expect(await store.load(), isEmpty);
+  });
+
+  test('an empty list is nothing pending too', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'pending_track_moves_v1': '[]',
+    });
+
+    expect(await store.load(), isEmpty);
+  });
+
   test('nothing pending leaves no record at all', () async {
     await store.save(const <PendingTrackMove>[_move]);
     await store.save(const <PendingTrackMove>[]);
@@ -52,18 +91,55 @@ void main() {
     expect(await store.load(), isEmpty);
   });
 
-  test('an entry that cannot be read drops only itself', () async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'pending_track_moves_v1': '[{"f": "/a", "t": "/b", "s": ["playlists"]},'
-          '{"f": 3, "t": "/c", "s": ["playlists"]},'
-          '{"f": "/d", "t": "/d", "s": ["playlists"]},'
-          '{"f": "/e", "t": "/f", "s": []},'
-          '"junk"]',
+  group('a record that cannot be read is never taken for an empty one', () {
+    const Map<String, String> broken = <String, String>{
+      'not JSON': '{this is broken',
+      'cut short': '[{"f":"/a","t":"/b"',
+      'empty': '',
+      'not a list': '{"f": "/a", "t": "/b", "s": ["playlists"]}',
+      'a bad entry among good ones':
+          '[{"f": "/a", "t": "/b", "s": ["playlists"]},'
+              '{"garbage": true},'
+              '{"f": "/c", "t": "/d", "s": ["favorites"]}]',
+      'an entry with no stores': '[{"f": "/a", "t": "/b", "s": []}]',
+      'an entry that moves nowhere': '[{"f": "/a", "t": "/a", "s": ["x"]}]',
+      'an entry with a number for a path': '[{"f": 3, "t": "/b", "s": ["x"]}]',
+      'an entry with a blank store': '[{"f": "/a", "t": "/b", "s": [""]}]',
+      'an entry that is not an object': '["junk"]',
+    };
+    for (final MapEntry<String, String> record in broken.entries) {
+      test(record.key, () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'pending_track_moves_v1': record.value,
+        });
+
+        await expectLater(store.load(), throwsA(_unreadable(_corrupt)));
+
+        // Left exactly as it was found.
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('pending_track_moves_v1'), record.value);
+      });
+    }
+
+    test('a value of another type', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'pending_track_moves_v1': 42,
+      });
+
+      await expectLater(store.load(), throwsA(_unreadable(_corrupt)));
     });
 
-    expect(await store.load(), const <PendingTrackMove>[
-      PendingTrackMove(from: '/a', to: '/b', targets: <String>{'playlists'}),
-    ]);
+    test('preferences the platform cannot read', () async {
+      SharedPreferencesStorePlatform.instance = _UnreadableDisk();
+      SharedPreferences.resetStatic();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance =
+            InMemorySharedPreferencesStore.empty();
+        SharedPreferences.resetStatic();
+      });
+
+      await expectLater(store.load(), throwsA(_unreadable(_readFailed)));
+    });
   });
 
   group('on a full disk', () {

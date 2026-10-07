@@ -318,7 +318,9 @@ Once a move is proven, it reaches everything keyed on the path: play counts,
 hearts, the "added on" date and the song's place in your local playlists. If
 one of those can't be saved right then (a full disk, say), the move is kept
 and applied on a later scan, also after a restart, so nothing stays behind at
-the old path.
+the old path. If the record of kept moves can't be read, it is never taken for
+an empty one or rewritten: a rescan that couldn't keep its move leaves the
+library as it was, and the move is found again next time.
 
 **If the file that is playing disappears**, playback stops on that track with a
 message saying so, and the queue is left exactly as it is: the track keeps its

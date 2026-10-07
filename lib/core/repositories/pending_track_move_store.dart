@@ -33,6 +33,30 @@ class PendingTrackMove {
   String toString() => 'PendingTrackMove($from -> $to, $targets)';
 }
 
+/// Why a [PendingTrackMoveStore] could not say what is pending.
+enum PendingTrackMoveJournalFault {
+  /// The storage did not answer. What it holds may be fine, and may be
+  /// readable on the next try.
+  readFailed,
+
+  /// The record is there but is not one this version can read, in whole or
+  /// in part: cut short by an interrupted write, damaged, or written by
+  /// something else. Reading it again won't change that.
+  corrupt,
+}
+
+/// Thrown by [PendingTrackMoveStore.load] when it can't tell what is pending.
+/// Never the same as nothing pending: the record it couldn't read may be the
+/// only trace of a move some store still has to take.
+class PendingTrackMoveJournalUnreadable implements Exception {
+  const PendingTrackMoveJournalUnreadable(this.fault);
+
+  final PendingTrackMoveJournalFault fault;
+
+  @override
+  String toString() => 'PendingTrackMoveJournalUnreadable(${fault.name})';
+}
+
 /// Where the moves some store missed wait to be applied again, in the order
 /// they were made.
 ///
@@ -44,6 +68,8 @@ class PendingTrackMove {
 /// Holds local paths only, the same ones the catalog and the other stores
 /// keep. Empty almost always: a move is here only until every store has it.
 abstract interface class PendingTrackMoveStore {
+  /// What is pending, in order: empty only when nothing is. Throws
+  /// [PendingTrackMoveJournalUnreadable] when that can't be told.
   Future<List<PendingTrackMove>> load();
 
   /// Replaces what is kept with [moves]; an empty list clears it. Throws
