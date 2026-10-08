@@ -128,4 +128,44 @@ void main() {
       'subsonic:1': DateTime.utc(2020),
     });
   });
+
+  test(
+      'a refused pre-v2 migration still knows the owner when another provider '
+      'with the same id is written before it retries', () async {
+    final _Added legacy = _Added();
+    await legacy.save(<String, DateTime>{'1': DateTime.utc(2020)});
+    final InMemoryMusicLibraryRepository catalog =
+        InMemoryMusicLibraryRepository();
+    await catalog.upsertCatalog(
+      sourceId: 'subsonic',
+      tracks: const <Track>[_back],
+      albums: const [],
+      artists: const [],
+    );
+    final RecordingMusicLibraryRepository upgraded =
+        RecordingMusicLibraryRepository(
+      delegate: catalog,
+      addedStore: legacy,
+      now: () => DateTime.utc(2026),
+    );
+    Future<void> sync(String sourceId, Track track) => upgraded.upsertCatalog(
+          sourceId: sourceId,
+          tracks: <Track>[track],
+          albums: const [],
+          artists: const [],
+        );
+    const Track sameId = Track(id: '1', uri: 'jellyfin:1', title: 'Other');
+
+    // A newly added server's track shares the bare id, and its write goes on
+    // although the migration before it was refused.
+    legacy.refuseNext = 1;
+    await sync('jellyfin', sameId);
+    await sync('subsonic', _back);
+    await sync('jellyfin', sameId);
+
+    expect(await legacy.load(), <String, DateTime>{
+      'subsonic:1': DateTime.utc(2020),
+      'jellyfin:1': DateTime.utc(2026),
+    });
+  });
 }

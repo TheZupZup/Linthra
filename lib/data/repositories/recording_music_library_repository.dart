@@ -76,6 +76,11 @@ class RecordingMusicLibraryRepository
   /// [_migrateLegacyAddedKeysOnce]).
   bool _migratedLegacyAddedKeys = false;
 
+  /// The owner of each legacy bare id, as the migration's first try found
+  /// them. A retry uses these: the write that went on after a refused try may
+  /// have added another provider's row under the same id.
+  Map<String, String?>? _legacyOwners;
+
   /// Tracks removed from the catalog whose first-seen times are still on disk,
   /// because the store refused the write that dropped them. They go with the
   /// next write that saves, and are never taken for the time of a track that
@@ -387,14 +392,8 @@ class RecordingMusicLibraryRepository
       _migratedLegacyAddedKeys = true;
       return;
     }
-    // bare id -> owner uri, or null when more than one provider exposes that id.
-    final Map<String, String?> ownerByBareId = <String, String?>{};
-    for (final Track track in await _delegate.getAllTracks()) {
-      // Local tracks have id == uri, so they are never legacy bare-id-keyed.
-      if (track.uri == track.id) continue;
-      ownerByBareId[track.id] =
-          ownerByBareId.containsKey(track.id) ? null : track.uri;
-    }
+    final Map<String, String?> ownerByBareId =
+        _legacyOwners ??= await _ownersByBareId();
     bool changed = loaded.changed;
     ownerByBareId.forEach((String bareId, String? ownerUri) {
       // Ambiguous bare id — leave it for the read-time fallback, don't guess.
@@ -406,7 +405,22 @@ class RecordingMusicLibraryRepository
       addedAt.remove(bareId);
       changed = true;
     });
-    if (!changed || await _saveQuietly(loaded)) _migratedLegacyAddedKeys = true;
+    if (!changed || await _saveQuietly(loaded)) {
+      _migratedLegacyAddedKeys = true;
+      _legacyOwners = null;
+    }
+  }
+
+  /// Bare id -> owner uri, or null when more than one provider exposes that id.
+  Future<Map<String, String?>> _ownersByBareId() async {
+    final Map<String, String?> ownerByBareId = <String, String?>{};
+    for (final Track track in await _delegate.getAllTracks()) {
+      // Local tracks have id == uri, so they are never legacy bare-id-keyed.
+      if (track.uri == track.id) continue;
+      ownerByBareId[track.id] =
+          ownerByBareId.containsKey(track.id) ? null : track.uri;
+    }
+    return ownerByBareId;
   }
 
   @override
