@@ -13,8 +13,15 @@ class _Added extends InMemoryLibraryAddedStore {
   _Added() : super(<String, DateTime>{});
   bool refuse = false;
 
+  /// How many of the next saves are refused, after which they work again.
+  int refuseNext = 0;
+
   @override
   Future<void> save(Map<String, DateTime> addedAt) async {
+    if (refuseNext > 0) {
+      refuseNext--;
+      throw const LocalStoreWriteException(LocalStoreArea.libraryAdded);
+    }
     if (refuse) {
       throw const LocalStoreWriteException(LocalStoreArea.libraryAdded);
     }
@@ -84,6 +91,41 @@ void main() {
 
     expect(await added.load(), <String, DateTime>{
       'subsonic:2': DateTime.utc(2021),
+    });
+  });
+
+  test(
+      'a pre-v2 time whose migration was refused is not stamped over, and '
+      'moves over at the next write', () async {
+    final _Added legacy = _Added();
+    await legacy.save(<String, DateTime>{'1': DateTime.utc(2020)});
+    final InMemoryMusicLibraryRepository catalog =
+        InMemoryMusicLibraryRepository();
+    await catalog.upsertCatalog(
+      sourceId: 'subsonic',
+      tracks: const <Track>[_back],
+      albums: const [],
+      artists: const [],
+    );
+    final RecordingMusicLibraryRepository upgraded =
+        RecordingMusicLibraryRepository(
+      delegate: catalog,
+      addedStore: legacy,
+      now: () => DateTime.utc(2026),
+    );
+    Future<void> rescan() => upgraded.upsertCatalog(
+          sourceId: 'subsonic',
+          tracks: const <Track>[_back],
+          albums: const [],
+          artists: const [],
+        );
+
+    legacy.refuseNext = 1;
+    await rescan();
+    await rescan();
+
+    expect(await legacy.load(), <String, DateTime>{
+      'subsonic:1': DateTime.utc(2020),
     });
   });
 }

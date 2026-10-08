@@ -71,8 +71,9 @@ class RecordingMusicLibraryRepository
   final LibraryAddedStore _addedStore;
   final DateTime Function() _now;
 
-  /// Guards the one-time legacy added-at key migration so it runs at most once,
-  /// at the first catalog write (see [_migrateLegacyAddedKeysOnce]).
+  /// Guards the one-time legacy added-at key migration: set once it is saved,
+  /// at the first catalog write that can save it (see
+  /// [_migrateLegacyAddedKeysOnce]).
   bool _migratedLegacyAddedKeys = false;
 
   /// Tracks removed from the catalog whose first-seen times are still on disk,
@@ -280,7 +281,7 @@ class RecordingMusicLibraryRepository
   /// before any catalog write), so by the time a track is stamped here a missing
   /// uri key always means genuinely new — never a legacy entry to adopt.
   Future<void> _stampFirstSeen(List<Track> tracks) async {
-    if (tracks.isEmpty) return;
+    if (tracks.isEmpty || !_migratedLegacyAddedKeys) return;
     final _Loaded loaded = await _load();
     final Map<String, DateTime> addedAt = loaded.addedAt;
     final DateTime now = _now();
@@ -375,12 +376,17 @@ class RecordingMusicLibraryRepository
   /// provider (synced after this) can't adopt it. A bare id the catalog already
   /// exposes under more than one provider is left untouched (ambiguous → not
   /// mis-attributed; the read-time fallback still surfaces it).
+  ///
+  /// Done only once it is saved: until then [_stampFirstSeen] stamps nothing,
+  /// or a track still under its bare id would get `now` under its uri.
   Future<void> _migrateLegacyAddedKeysOnce() async {
     if (_migratedLegacyAddedKeys) return;
-    _migratedLegacyAddedKeys = true;
     final _Loaded loaded = await _load();
     final Map<String, DateTime> addedAt = loaded.addedAt;
-    if (addedAt.isEmpty && !loaded.changed) return;
+    if (addedAt.isEmpty && !loaded.changed) {
+      _migratedLegacyAddedKeys = true;
+      return;
+    }
     // bare id -> owner uri, or null when more than one provider exposes that id.
     final Map<String, String?> ownerByBareId = <String, String?>{};
     for (final Track track in await _delegate.getAllTracks()) {
@@ -400,7 +406,7 @@ class RecordingMusicLibraryRepository
       addedAt.remove(bareId);
       changed = true;
     });
-    if (changed) await _saveQuietly(loaded);
+    if (!changed || await _saveQuietly(loaded)) _migratedLegacyAddedKeys = true;
   }
 
   @override
