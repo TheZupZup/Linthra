@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/pending_track_move_store.dart';
+import 'shared_preferences_write.dart';
 
 /// A [PendingTrackMoveStore] backed by `shared_preferences`.
 ///
@@ -48,21 +49,24 @@ class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
     bool written;
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      written = moves.isEmpty
-          ? await prefs.remove(_key)
-          : await prefs.setString(
-              _key,
-              jsonEncode(<Map<String, Object>>[
-                for (final PendingTrackMove move in moves)
-                  <String, Object>{
-                    'f': move.from,
-                    't': move.to,
-                    's': move.targets.toList()..sort(),
-                  },
-              ]),
-            );
+      written = await writeOrRestore(
+        prefs,
+        _key,
+        () => moves.isEmpty
+            ? prefs.remove(_key)
+            : prefs.setString(
+                _key,
+                jsonEncode(<Map<String, Object>>[
+                  for (final PendingTrackMove move in moves)
+                    <String, Object>{
+                      'f': move.from,
+                      't': move.to,
+                      's': move.targets.toList()..sort(),
+                    },
+                ]),
+              ),
+      );
     } catch (_) {
-      // Thrown rather than answered false: it didn't happen either.
       written = false;
     }
     if (!written) {
@@ -83,48 +87,20 @@ class SharedPreferencesPendingTrackMoveStore implements PendingTrackMoveStore {
     if (raw == null) return true;
     final Object value = raw;
     if (value is String && _decode(value) != null) return false;
-    // `shared_preferences` changes what it holds in memory before the
-    // platform answers, and keeps the change when the write is refused. So
-    // each refused step is undone in memory, or this run would read what the
-    // disk doesn't hold: a copy that was never saved, or no record at all.
     final Object? earlier = prefs.get(_setAsideKey);
     if (earlier == null) {
-      if (!await _attempt(() => _put(prefs, _setAsideKey, value))) {
-        await _attempt(() => prefs.remove(_setAsideKey));
-        return false;
-      }
+      final bool copied = await writeOrRestore(
+        prefs,
+        _setAsideKey,
+        () => putPreference(prefs, _setAsideKey, value),
+      );
+      if (!copied) return false;
     } else if (!_same(earlier, value)) {
       // One set aside before stays as it is.
       return false;
     }
-    if (await _attempt(() => prefs.remove(_key))) return true;
-    await _attempt(() => _put(prefs, _key, value));
-    return false;
+    return writeOrRestore(prefs, _key, () => prefs.remove(_key));
   }
-
-  static Future<bool> _attempt(Future<bool> Function() write) async {
-    try {
-      return await write();
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Writes [value] under [key] with the type it was read with.
-  static Future<bool> _put(
-    SharedPreferences prefs,
-    String key,
-    Object value,
-  ) async =>
-      switch (value) {
-        final String text => await prefs.setString(key, text),
-        final bool flag => await prefs.setBool(key, flag),
-        final int number => await prefs.setInt(key, number),
-        final double number => await prefs.setDouble(key, number),
-        final List<Object?> list when list.every((Object? e) => e is String) =>
-          await prefs.setStringList(key, list.cast<String>()),
-        _ => false,
-      };
 
   static bool _same(Object a, Object b) =>
       a is List && b is List ? listEquals(a, b) : a == b;

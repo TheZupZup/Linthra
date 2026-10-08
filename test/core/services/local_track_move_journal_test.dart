@@ -513,6 +513,27 @@ void main() {
     });
   });
 
+  test('a scan whose record change cannot be saved waits, even with no moves',
+      () async {
+    await journal.save(const <PendingTrackMove>[
+      PendingTrackMove(from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+    ]);
+    journal.refuse = true;
+    int commits = 0;
+
+    // A file is at /a.flac again, so the kept move is dropped; written as
+    // it is, the catalog would make that move look sound next time.
+    final result = await applier().apply(
+      LocalCatalogReconciliation.none,
+      commit: () async => commits++,
+      isPresent: (String uri) => uri == '/a.flac',
+    );
+
+    expect(result.committed, isFalse);
+    expect(commits, 0);
+    expect(b.calls, isEmpty);
+  });
+
   test('a kept move for a store that is no longer there is dropped', () async {
     await journal.save(const <PendingTrackMove>[
       PendingTrackMove(

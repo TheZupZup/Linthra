@@ -155,11 +155,11 @@ class LocalTrackMoveApplier {
     List<PendingTrackMove> onDisk = waiting;
     final List<PendingTrackMove> ahead = _pending(work);
     if (!_same(ahead, onDisk)) {
-      if (await _save(store, ahead)) {
-        onDisk = ahead;
-      } else if (moves.isNotEmpty) {
-        return _heldBack(moves.length);
-      }
+      // Even with no move of its own, a scan whose changes to the record
+      // can't be saved waits: an entry it dropped as a guess would otherwise
+      // be found again, after this write has made it look sound.
+      if (!await _save(store, ahead)) return _heldBack(moves.length);
+      onDisk = ahead;
     }
     await write();
     await _offer(stores, work);

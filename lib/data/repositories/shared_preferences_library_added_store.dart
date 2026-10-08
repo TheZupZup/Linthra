@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/local_store_write_exception.dart';
+import 'shared_preferences_write.dart';
 
 /// A [LibraryAddedStore] backed by `shared_preferences`.
 ///
@@ -54,9 +55,13 @@ class SharedPreferencesLibraryAddedStore implements LibraryAddedStore {
     bool written;
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      written = await prefs.setString(_key, jsonEncode(document));
+      // Read again on every write, so a refused one must not stay in memory.
+      written = await writeOrRestore(
+        prefs,
+        _key,
+        () => prefs.setString(_key, jsonEncode(document)),
+      );
     } catch (_) {
-      // Thrown rather than answered false: it didn't happen either.
       written = false;
     }
     if (!written) {

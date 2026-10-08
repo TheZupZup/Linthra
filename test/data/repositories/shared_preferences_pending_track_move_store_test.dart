@@ -258,6 +258,32 @@ void main() {
       );
     });
 
+    test('a refused save leaves what was saved before, also in memory',
+        () async {
+      SharedPreferencesStorePlatform.instance = _FullDisk.holding(
+        <String, Object>{
+          'flutter.pending_track_moves_v1':
+              '[{"f": "/a", "t": "/b", "s": ["playlists"]}]',
+        },
+      );
+      SharedPreferences.resetStatic();
+      const List<PendingTrackMove> before = <PendingTrackMove>[
+        PendingTrackMove(from: '/a', to: '/b', targets: <String>{'playlists'}),
+      ];
+
+      await expectLater(
+        store.save(const <PendingTrackMove>[_move]),
+        throwsA(isA<LocalStoreWriteException>()),
+      );
+      expect(await store.load(), before);
+
+      await expectLater(
+        store.save(const <PendingTrackMove>[]),
+        throwsA(isA<LocalStoreWriteException>()),
+      );
+      expect(await store.load(), before);
+    });
+
     test('a broken record is left where it is', () async {
       SharedPreferencesStorePlatform.instance = _FullDisk.holding(
         <String, Object>{'flutter.pending_track_moves_v1': '{this is broken'},
@@ -269,6 +295,25 @@ void main() {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       expect(prefs.get('pending_track_moves_v1'), '{this is broken');
       expect(prefs.get('pending_track_moves_v1_unreadable'), isNull);
+    });
+
+    test('an "added on" save refused leaves the times saved before', () async {
+      SharedPreferencesStorePlatform.instance = _FullDisk.holding(
+        <String, Object>{'flutter.library_added_v1': '{"/a.flac": 1000}'},
+      );
+      SharedPreferences.resetStatic();
+      const SharedPreferencesLibraryAddedStore added =
+          SharedPreferencesLibraryAddedStore();
+
+      await expectLater(
+        added.save(<String, DateTime>{'/b.flac': DateTime.utc(2026)}),
+        throwsA(isA<LocalStoreWriteException>()),
+      );
+
+      expect(
+        (await added.load()).keys,
+        <String>['/a.flac'],
+      );
     });
 
     test('an "added on" time that was not saved says so', () async {
