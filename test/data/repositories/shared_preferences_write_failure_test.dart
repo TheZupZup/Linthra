@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/playlist.dart';
@@ -17,6 +19,16 @@ class _FullDisk extends InMemorySharedPreferencesStore {
   @override
   Future<bool> setValue(String valueType, String key, Object value) async =>
       false;
+}
+
+/// A preferences backend that can't go through with a write at all: the
+/// Linux store throws when it can't read the file it would rewrite (#823).
+class _UnreadableDisk extends InMemorySharedPreferencesStore {
+  _UnreadableDisk() : super.empty();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      throw const FileSystemException('Input/output error');
 }
 
 void main() {
@@ -116,5 +128,42 @@ void main() {
     );
     expect((await history.load()).playCountFor('jellyfin:saved'), 2);
     expect((await history.load()).playCountFor('jellyfin:not-saved'), 0);
+  });
+
+  test(
+      'a playlist or favorite write the platform throws on is refused like '
+      'one it reports failed (#808)', () async {
+    SharedPreferencesStorePlatform.instance = _UnreadableDisk();
+    SharedPreferences.resetStatic();
+    addTearDown(() {
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.empty();
+      SharedPreferences.resetStatic();
+    });
+
+    await expectLater(
+      const SharedPreferencesPlaylistStore().save(const <Playlist>[
+        Playlist(id: 'p', name: 'Not saved'),
+      ]),
+      throwsA(
+        isA<LocalStoreWriteException>().having(
+          (LocalStoreWriteException error) => error.area,
+          'area',
+          LocalStoreArea.playlists,
+        ),
+      ),
+    );
+    await expectLater(
+      const SharedPreferencesFavoritesStore().save(const FavoritesData(
+        localIds: <String>{'file:///not-saved.mp3'},
+      )),
+      throwsA(
+        isA<LocalStoreWriteException>().having(
+          (LocalStoreWriteException error) => error.area,
+          'area',
+          LocalStoreArea.favorites,
+        ),
+      ),
+    );
   });
 }

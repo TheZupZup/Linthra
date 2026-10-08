@@ -61,13 +61,21 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
 
   @override
   Future<void> save(FavoritesData data) async {
-    final prefs = await SharedPreferences.getInstance();
     final String raw = jsonEncode(<String, dynamic>{
       'local': data.localIds.toList(),
       'remote': data.remoteIds.toList(),
       'pending': data.pendingWrites,
     });
-    if (!await prefs.setString(_key, raw)) {
+    bool written;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      written = await prefs.setString(_key, raw);
+    } catch (_) {
+      // Thrown rather than answered false (the Linux store can't read the
+      // file it would rewrite): it didn't happen either.
+      written = false;
+    }
+    if (!written) {
       throw const LocalStoreWriteException(LocalStoreArea.favorites);
     }
   }

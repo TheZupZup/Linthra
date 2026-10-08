@@ -80,4 +80,29 @@ void main() {
       expect(walk.focusedIndex, -1);
     });
   });
+
+  group('ReorderFocusWalk.walkedOrder', () {
+    test('is the rows themselves with no walk in flight', () {
+      final ReorderFocusWalk walk = ReorderFocusWalk();
+      final List<String> rows = <String>['a', 'b', 'c'];
+      expect(walk.walkedOrder(rows), same(rows));
+    });
+
+    test('moves the walking row to where it landed', () {
+      final ReorderFocusWalk walk = ReorderFocusWalk()
+        ..recordMove(rowIndex: 0, to: 2);
+      expect(
+          walk.walkedOrder(<String>['a', 'b', 'c']), <String>['b', 'c', 'a']);
+      walk.recordMove(rowIndex: 2, to: 1);
+      expect(
+          walk.walkedOrder(<String>['a', 'b', 'c']), <String>['a', 'c', 'b']);
+    });
+
+    test('is the rows again once the walk is reset', () {
+      final ReorderFocusWalk walk = ReorderFocusWalk()
+        ..recordMove(rowIndex: 0, to: 1)
+        ..reset();
+      expect(walk.walkedOrder(<String>['a', 'b']), <String>['a', 'b']);
+    });
+  });
 }

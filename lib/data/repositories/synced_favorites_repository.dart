@@ -16,10 +16,10 @@ import '../../core/sources/music_provider.dart';
 /// Favourites live in a [FavoritesStore] split into device-local uris (local
 /// tracks) and remote uris (server-mirrored — Jellyfin, Subsonic/Navidrome, …),
 /// keyed by the provider-namespaced [Track.uri] so a heart on `jellyfin:101`
-/// can't collide with `subsonic:101`. A toggle updates the right set
-/// immediately, emits, and persists; for a remote track whose provider is
-/// connected it then pushes to that server best-effort through the provider's
-/// [RemoteFavoritesGateway].
+/// can't collide with `subsonic:101`. A toggle is saved, then made current and
+/// emitted; for a remote track whose provider is connected it is then pushed to
+/// that server best-effort through the provider's [RemoteFavoritesGateway]. A
+/// toggle the disk refuses changes nothing and throws (see [_write]).
 ///
 /// Reliability of the heart: a push that fails (offline, a transient server
 /// error, or the provider not connected yet) is **not** dropped — the intended
@@ -82,8 +82,20 @@ class SyncedFavoritesRepository
   /// newer toggle was made while it was out.
   final Map<String, int> _toggles = <String, int>{};
 
+  /// Numbers each server fetch in the order it was sent, and, by uri scheme,
+  /// the fetch each provider's hearts were last adopted from. Two refreshes
+  /// can be out at once (a sync finishing as the app comes back to the
+  /// front), and the older answer may land last: it predates the newer one
+  /// and is not adopted over it.
+  int _fetchesSent = 0;
+  final Map<String, int> _adoptedFetch = <String, int>{};
+
   FavoritesData _data = FavoritesData.empty;
   bool _loaded = false;
+
+  /// The end of the queue every change to [_data] and [_pendingWrites] waits
+  /// in. See [_inTurn].
+  Future<void> _queue = Future<void>.value();
 
   /// How many remote heart writes are still waiting to reach a server (failed or
   /// queued while offline). Exposed for diagnostics/tests; a non-zero value means
@@ -97,27 +109,41 @@ class SyncedFavoritesRepository
     _loaded = true;
   }
 
-  /// Saves the favourites together with the writes still pending, so a heart
-  /// whose push never landed is retried after a restart rather than undone by
-  /// the first refresh.
-  Future<void> _save() async {
+  /// Runs [change] once every change queued before it has finished, so each
+  /// one starts from what the last one left and nothing else changes the
+  /// favourites between its read and its save.
+  Future<T> _inTurn<T>(Future<T> Function() change) {
+    final Future<T> run = _queue.then((_) => change());
+    _queue = run.then((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// Saves [next] with the [pending] writes and only then makes them current.
+  /// Called in turn (see [_inTurn]).
+  ///
+  /// The pending writes are saved with the favourites, so a heart whose push
+  /// never landed is retried after a restart rather than undone by the first
+  /// refresh. A save the disk refuses leaves memory, the stream and the disk
+  /// all as they were: the change is not half there, where a later save that
+  /// works would write it after all (#808).
+  Future<void> _write(FavoritesData next, Map<String, bool> pending) async {
     try {
       await _store.save(
-        _data.copyWith(pendingWrites: Map<String, bool>.of(_pendingWrites)),
+        next.copyWith(pendingWrites: Map<String, bool>.of(pending)),
       );
     } on LocalStoreWriteException catch (error) {
       StabilityDiagnostics.localStoreWriteFailure(error.area.name);
       rethrow;
     }
+    _commit(next, pending);
   }
 
-  /// Saves only the pending writes' latest state after a push settled. Best
-  /// effort: a stale record on disk only means one write is pushed again.
-  Future<void> _savePendingQuietly() async {
-    try {
-      await _save();
-    } catch (_) {
-      // See above: never worth failing the heart over.
+  void _commit(FavoritesData next, Map<String, bool> pending) {
+    _data = next;
+    if (!identical(pending, _pendingWrites)) {
+      _pendingWrites
+        ..clear()
+        ..addAll(pending);
     }
   }
 
@@ -142,36 +168,34 @@ class SyncedFavoritesRepository
     final String key = track.uri;
     final bool remote = _isRemoteUri(key);
     final RemoteFavoritesGateway? gateway = remote ? _gatewayForUri(key) : null;
-    final int toggle = (_toggles[key] ?? 0) + 1;
-    if (remote) {
-      final Set<String> ids = <String>{..._data.remoteIds};
-      if (favorite) {
-        ids.add(key);
-      } else {
-        ids.remove(key);
+    // Throws, having changed nothing, when the disk refuses the save: the
+    // heart isn't shown, kept, or pushed (#808).
+    final int toggle = await _inTurn(() async {
+      if (!remote) {
+        await _write(
+          _data.copyWith(localIds: _withMember(_data.localIds, key, favorite)),
+          _pendingWrites,
+        );
+        _emit();
+        return 0;
       }
-      _data = _data.copyWith(remoteIds: ids);
-      for (final Set<String> toggled in _toggledDuringRefresh) {
-        toggled.add(key);
-      }
-      _toggles[key] = toggle;
+      final Map<String, bool> pending = Map<String, bool>.of(_pendingWrites);
       // Pending from this moment until a push of it is confirmed, so a
       // refresh that lands first keeps it rather than adopting an answer that
       // predates it, and a push that never comes back leaves it to retry.
-      if (gateway != null && _hasAccount(gateway)) {
-        _pendingWrites[key] = favorite;
+      if (gateway != null && _hasAccount(gateway)) pending[key] = favorite;
+      await _write(
+        _data.copyWith(remoteIds: _withMember(_data.remoteIds, key, favorite)),
+        pending,
+      );
+      for (final Set<String> toggled in _toggledDuringRefresh) {
+        toggled.add(key);
       }
-    } else {
-      final Set<String> ids = <String>{..._data.localIds};
-      if (favorite) {
-        ids.add(key);
-      } else {
-        ids.remove(key);
-      }
-      _data = _data.copyWith(localIds: ids);
-    }
-    await _save();
-    _emit();
+      final int toggle = (_toggles[key] ?? 0) + 1;
+      _toggles[key] = toggle;
+      _emit();
+      return toggle;
+    });
 
     // Push to the owning provider's server best-effort. A failure (or the
     // provider not being connected yet) leaves the write pending, retried on
@@ -186,21 +210,61 @@ class SyncedFavoritesRepository
       } catch (_) {
         landed = false;
       }
-      if (_settlePush(
+      await _settle(
         key,
         favorite,
         landed: landed,
         toggle: toggle,
         clearsBefore: clearsBefore,
         scheme: gateway.uriScheme,
-      )) {
-        await _savePendingQuietly();
-      }
+      );
     }
   }
 
+  static Set<String> _withMember(Set<String> ids, String key, bool member) {
+    final Set<String> next = <String>{...ids};
+    if (member) {
+      next.add(key);
+    } else {
+      next.remove(key);
+    }
+    return next;
+  }
+
   /// Settles [key]'s pending write once the push of toggle number [toggle]
-  /// ([favorite]) has come back, [landed] or not.
+  /// ([favorite]) has come back, [landed] or not, in turn with the other
+  /// changes. Saved best effort: a stale record on disk only means one write is
+  /// pushed again, so a refused save just leaves it pending.
+  Future<void> _settle(
+    String key,
+    bool favorite, {
+    required bool landed,
+    required int? toggle,
+    required int clearsBefore,
+    required String scheme,
+  }) =>
+      _inTurn(() async {
+        final Map<String, bool> pending = Map<String, bool>.of(_pendingWrites);
+        if (!_settlePush(
+          pending,
+          key,
+          favorite,
+          landed: landed,
+          toggle: toggle,
+          clearsBefore: clearsBefore,
+          scheme: scheme,
+        )) {
+          return;
+        }
+        try {
+          await _write(_data, pending);
+        } catch (_) {
+          // Never worth failing the heart over; see above.
+        }
+      });
+
+  /// Works out in [pending] how [key]'s write settles once the push of toggle
+  /// number [toggle] ([favorite]) has come back, [landed] or not.
   ///
   /// Only the newest toggle decides. Taps are quicker than a server, so an
   /// older push can come back after a newer one, or fail after it landed:
@@ -211,8 +275,9 @@ class SyncedFavoritesRepository
   ///  - a push from an account that signed out meanwhile settles nothing: its
   ///    writes were dropped with it, and must not be queued for the next one.
   ///
-  /// Returns whether the pending writes changed, so the caller saves them.
+  /// Returns whether [pending] changed, so the caller saves it.
   bool _settlePush(
+    Map<String, bool> pending,
     String key,
     bool favorite, {
     required bool landed,
@@ -223,12 +288,12 @@ class SyncedFavoritesRepository
     if (_clearsOf(scheme) != clearsBefore) return false;
     if (_toggles[key] != toggle) {
       final bool intended = _data.remoteIds.contains(key);
-      if (_pendingWrites[key] == intended) return false;
-      _pendingWrites[key] = intended;
+      if (pending[key] == intended) return false;
+      pending[key] = intended;
       return true;
     }
-    if (landed && _pendingWrites[key] == favorite) {
-      _pendingWrites.remove(key);
+    if (landed && pending[key] == favorite) {
+      pending.remove(key);
       return true;
     }
     return false;
@@ -255,17 +320,19 @@ class SyncedFavoritesRepository
     // The user keeps hearting (and may sign out) while the requests below are
     // out, so nothing read from [_data] before an await is written back after
     // it. The servers are asked first; their answers are then adopted into the
-    // favourites as they are when the answers land, in one synchronous step.
+    // favourites as they are when the answers land, in turn with the toggles.
     final Map<String, int> clears = <String, int>{
       for (final RemoteFavoritesGateway g in connected)
         g.uriScheme: _clearsOf(g.uriScheme),
     };
-    final Set<String> toggled = <String>{};
+    // Toggled since the refresh began, or still on their way to a server when
+    // it did. Either way newer than an answer that may have been read before
+    // the push landed: a push can land, and settle, while the fetch is out.
+    final Set<String> toggled = <String>{..._pendingWrites.keys};
     _toggledDuringRefresh.add(toggled);
-    bool pendingChanged = false;
     try {
-      final Map<RemoteFavoritesGateway, Set<String>> fetched =
-          <RemoteFavoritesGateway, Set<String>>{};
+      final Map<RemoteFavoritesGateway, ({Set<String> uris, int fetch})>
+          fetched = <RemoteFavoritesGateway, ({Set<String> uris, int fetch})>{};
       int failures = 0;
       for (final RemoteFavoritesGateway gateway in connected) {
         // 1) Re-attempt this provider's pending writes first, so a heart that
@@ -294,19 +361,20 @@ class SyncedFavoritesRepository
             // Kept pending; tried again on the next refresh.
             landed = false;
           }
-          pendingChanged = _settlePush(
-                uri,
-                favorite,
-                landed: landed,
-                toggle: toggle,
-                clearsBefore: clearsBefore,
-                scheme: gateway.uriScheme,
-              ) ||
-              pendingChanged;
+          await _settle(
+            uri,
+            favorite,
+            landed: landed,
+            toggle: toggle,
+            clearsBefore: clearsBefore,
+            scheme: gateway.uriScheme,
+          );
         }
 
+        final int fetch = ++_fetchesSent;
         try {
-          fetched[gateway] = await gateway.fetchFavoriteUris();
+          fetched[gateway] =
+              (uris: await gateway.fetchFavoriteUris(), fetch: fetch);
         } on RemoteSyncException {
           // Offline or transient for this provider: keep its subset, try the
           // rest.
@@ -314,63 +382,80 @@ class SyncedFavoritesRepository
         }
       }
 
-      // 2) Adopt the answers. From here to the assignment there is no await.
-      Set<String> remoteIds = <String>{..._data.remoteIds};
-      int total = 0;
-      int applied = 0;
-      for (final MapEntry<RemoteFavoritesGateway, Set<String>> entry
-          in fetched.entries) {
-        final String scheme = entry.key.uriScheme;
-        // Signed out (or cleared) while the fetch was out: the answer is that
-        // account's, which is gone. A gateway can still look connected on a
-        // session it captured earlier; the clear count is what says so.
-        if (!entry.key.isConnected || _clearsOf(scheme) != clears[scheme]) {
-          continue;
-        }
-        applied++;
-        total += entry.value.length;
-        // Replace only this provider's scheme subset with the server truth,
-        // except hearts toggled since the refresh began: the answer predates
-        // them, so they keep their local state…
-        remoteIds = <String>{
-          for (final String uri in remoteIds)
-            if (!uri.startsWith(scheme) || toggled.contains(uri)) uri,
-          for (final String uri in entry.value)
-            if (!toggled.contains(uri)) uri,
-        };
-        // …then overlay any writes still pending for this scheme, so an
-        // un-landed local heart isn't dropped just because the server list
-        // doesn't have it yet (non-destructive: local intent wins until it's
-        // confirmed).
-        for (final String uri in _pendingForScheme(scheme)) {
-          if (_pendingWrites[uri]!) {
-            remoteIds.add(uri);
-          } else {
-            remoteIds.remove(uri);
-          }
-        }
-      }
-
-      // Skip the emit/save when nothing changed, to avoid churn — but still
-      // report the (unchanged) count as a successful sync.
-      final bool unchanged = remoteIds.length == _data.remoteIds.length &&
-          remoteIds.containsAll(_data.remoteIds);
-      if (!unchanged) {
-        _data = _data.copyWith(remoteIds: remoteIds);
-        await _save();
-        _emit();
-      } else if (pendingChanged) {
-        await _savePendingQuietly();
-      }
-      if (applied == 0) {
-        return failures > 0
-            ? const FavoritesSyncResult.failed()
-            : const FavoritesSyncResult.notConfigured();
-      }
-      return FavoritesSyncResult.synced(total);
+      // 2) Adopt the answers, in turn: nothing else changes the favourites
+      //    between reading them here and saving the result.
+      return await _inTurn(() => _adopt(fetched, clears, toggled, failures));
     } finally {
       _toggledDuringRefresh.remove(toggled);
     }
+  }
+
+  /// Folds the servers' [fetched] answers into the favourites as they are now.
+  /// Called in turn; see [refreshFromRemote].
+  Future<FavoritesSyncResult> _adopt(
+    Map<RemoteFavoritesGateway, ({Set<String> uris, int fetch})> fetched,
+    Map<String, int> clears,
+    Set<String> toggled,
+    int failures,
+  ) async {
+    Set<String> remoteIds = <String>{..._data.remoteIds};
+    final Map<String, int> adopted = <String, int>{};
+    int total = 0;
+    int applied = 0;
+    for (final MapEntry<RemoteFavoritesGateway,
+        ({Set<String> uris, int fetch})> entry in fetched.entries) {
+      final String scheme = entry.key.uriScheme;
+      // Signed out (or cleared) while the fetch was out: the answer is that
+      // account's, which is gone. A gateway can still look connected on a
+      // session it captured earlier; the clear count is what says so.
+      if (!entry.key.isConnected || _clearsOf(scheme) != clears[scheme]) {
+        continue;
+      }
+      final Set<String> answer = entry.value.uris;
+      applied++;
+      total += answer.length;
+      // A newer answer was adopted while this one was out.
+      if ((_adoptedFetch[scheme] ?? 0) > entry.value.fetch) continue;
+      adopted[scheme] = entry.value.fetch;
+      // Replace only this provider's scheme subset with the server truth,
+      // except hearts toggled since the refresh began: the answer predates
+      // them, so they keep their local state…
+      remoteIds = <String>{
+        for (final String uri in remoteIds)
+          if (!uri.startsWith(scheme) || toggled.contains(uri)) uri,
+        for (final String uri in answer)
+          if (!toggled.contains(uri)) uri,
+      };
+      // …then overlay any writes still pending for this scheme, so an
+      // un-landed local heart isn't dropped just because the server list
+      // doesn't have it yet (non-destructive: local intent wins until it's
+      // confirmed).
+      for (final String uri in _pendingForScheme(scheme)) {
+        if (_pendingWrites[uri]!) {
+          remoteIds.add(uri);
+        } else {
+          remoteIds.remove(uri);
+        }
+      }
+    }
+
+    // Skip the emit/save when nothing changed, to avoid churn — but still
+    // report the (unchanged) count as a successful sync.
+    final bool unchanged = remoteIds.length == _data.remoteIds.length &&
+        remoteIds.containsAll(_data.remoteIds);
+    if (!unchanged) {
+      // A refused save throws, and the refresh reports it failed, with the
+      // favourites left as they were.
+      await _write(_data.copyWith(remoteIds: remoteIds), _pendingWrites);
+      _emit();
+    }
+    _adoptedFetch.addAll(adopted);
+    if (applied == 0) {
+      return failures > 0
+          ? const FavoritesSyncResult.failed()
+          : const FavoritesSyncResult.notConfigured();
+    }
+    return FavoritesSyncResult.synced(total);
   }
 
   int _clearsOf(String scheme) => _clears[scheme] ?? 0;
@@ -394,28 +479,35 @@ class SyncedFavoritesRepository
       }
     }
     await _ensureLoaded();
-    // Drop this provider's queued writes too — its session is going away, so
-    // there is nothing left to reconcile them against, and whoever signs in
-    // next did not make them. Saved even when no heart changes, or they would
-    // come back from disk on the next launch.
-    final int pendingBefore = _pendingWrites.length;
-    _pendingWrites.removeWhere((String uri, bool _) =>
-        providerScheme == null || uri.startsWith(providerScheme));
-    final bool pendingDropped = _pendingWrites.length != pendingBefore;
-    final Set<String> next = providerScheme == null
-        ? const <String>{}
-        : <String>{
-            for (final String uri in _data.remoteIds)
-              if (!uri.startsWith(providerScheme)) uri,
-          };
-    if (next.length == _data.remoteIds.length) {
-      // No heart to drop.
-      if (pendingDropped) await _save();
-      return;
-    }
-    _data = _data.copyWith(remoteIds: next);
-    await _save();
-    _emit();
+    await _inTurn(() async {
+      // Drop this provider's queued writes too — its session is going away, so
+      // there is nothing left to reconcile them against, and whoever signs in
+      // next did not make them. Saved even when no heart changes, or they
+      // would come back from disk on the next launch.
+      final Map<String, bool> pending = Map<String, bool>.of(_pendingWrites)
+        ..removeWhere((String uri, bool _) =>
+            providerScheme == null || uri.startsWith(providerScheme));
+      final bool pendingDropped = pending.length != _pendingWrites.length;
+      final Set<String> next = providerScheme == null
+          ? const <String>{}
+          : <String>{
+              for (final String uri in _data.remoteIds)
+                if (!uri.startsWith(providerScheme)) uri,
+            };
+      final bool heartsDropped = next.length != _data.remoteIds.length;
+      if (!heartsDropped && !pendingDropped) return;
+      final FavoritesData cleared = _data.copyWith(remoteIds: next);
+      try {
+        await _write(cleared, pending);
+      } finally {
+        // Unlike a heart, this stands even when the disk refuses it: the
+        // account is signed out either way, and keeping its hearts and queued
+        // writes would show them, and push them, for whoever signs in next.
+        // The next save that lands writes the clear too.
+        _commit(cleared, pending);
+        if (heartsDropped) _emit();
+      }
+    });
   }
 
   /// Carries a moved local file's heart to its new path.
@@ -435,14 +527,18 @@ class SyncedFavoritesRepository
     if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return;
     try {
       await _ensureLoaded();
-      if (!_data.localIds.contains(fromUri)) return;
-      _data = _data.copyWith(
-        localIds: <String>{..._data.localIds}
-          ..remove(fromUri)
-          ..add(toUri),
-      );
-      await _save();
-      _emit();
+      await _inTurn(() async {
+        if (!_data.localIds.contains(fromUri)) return;
+        await _write(
+          _data.copyWith(
+            localIds: <String>{..._data.localIds}
+              ..remove(fromUri)
+              ..add(toUri),
+          ),
+          _pendingWrites,
+        );
+        _emit();
+      });
     } catch (_) {
       // A store that cannot be written right now leaves the heart where it is
       // rather than failing the scan that asked; the next scan tries again.
