@@ -189,6 +189,26 @@ void main() {
       expect(scan.unavailableRoots, <String>['/media/usb']);
     });
 
+    test('only a file the scan found counts as seen, not a row it kept',
+        () async {
+      final scanner = LocalLibraryScanner(
+        _scanner(
+          <String, List<String>>{
+            '/music': <String>['/music/a.mp3']
+          },
+          unavailable: <String>{'/media/usb'},
+        ),
+      );
+
+      final LocalLibraryScan scan = await scanner.scan(
+        roots: <String>['/music', '/media/usb'],
+        previousTracks: <StampedTrack>[_indexed('/media/usb/kept.mp3')],
+      );
+
+      expect(_uris(scan), contains('/media/usb/kept.mp3'));
+      expect(scan.seen, <String>{'/music/a.mp3'});
+    });
+
     test('a track no selected folder owns is dropped', () async {
       final scanner = LocalLibraryScanner(
         _scanner(

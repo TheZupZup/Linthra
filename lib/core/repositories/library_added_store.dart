@@ -13,5 +13,7 @@
 /// here — never a token or an authenticated URL. It never leaves the device.
 abstract interface class LibraryAddedStore {
   Future<Map<String, DateTime>> load();
+
+  /// Throws `LocalStoreWriteException` when the platform did not save it.
   Future<void> save(Map<String, DateTime> addedAt);
 }

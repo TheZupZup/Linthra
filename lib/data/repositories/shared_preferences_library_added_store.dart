@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/repositories/library_added_store.dart';
+import '../../core/repositories/local_store_write_exception.dart';
+import 'shared_preferences_write.dart';
 
 /// A [LibraryAddedStore] backed by `shared_preferences`.
 ///
@@ -46,11 +48,24 @@ class SharedPreferencesLibraryAddedStore implements LibraryAddedStore {
 
   @override
   Future<void> save(Map<String, DateTime> addedAt) async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
     final Map<String, dynamic> document = <String, dynamic>{
       for (final MapEntry<String, DateTime> entry in addedAt.entries)
         entry.key: entry.value.millisecondsSinceEpoch,
     };
-    await prefs.setString(_key, jsonEncode(document));
+    bool written;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      // Read again on every write, so a refused one must not stay in memory.
+      written = await writeOrRestore(
+        prefs,
+        _key,
+        () => prefs.setString(_key, jsonEncode(document)),
+      );
+    } catch (_) {
+      written = false;
+    }
+    if (!written) {
+      throw const LocalStoreWriteException(LocalStoreArea.libraryAdded);
+    }
   }
 }

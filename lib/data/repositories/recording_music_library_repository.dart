@@ -5,11 +5,13 @@ import '../../core/models/track.dart';
 import '../../core/repositories/catalog_track_counter.dart';
 import '../../core/repositories/incremental_catalog_writer.dart';
 import '../../core/repositories/library_added_store.dart';
+import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/music_library_repository.dart';
 import '../../core/repositories/reconciling_catalog_writer.dart';
 import '../../core/repositories/source_catalog_reader.dart';
 import '../../core/repositories/stamped_catalog_writer.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/music_provider.dart';
 
 /// A [MusicLibraryRepository] decorator that stamps each track with the time it
@@ -69,9 +71,21 @@ class RecordingMusicLibraryRepository
   final LibraryAddedStore _addedStore;
   final DateTime Function() _now;
 
-  /// Guards the one-time legacy added-at key migration so it runs at most once,
-  /// at the first catalog write (see [_migrateLegacyAddedKeysOnce]).
+  /// Guards the one-time legacy added-at key migration: set once it is saved,
+  /// at the first catalog write that can save it (see
+  /// [_migrateLegacyAddedKeysOnce]).
   bool _migratedLegacyAddedKeys = false;
+
+  /// The owner of each legacy bare id, as the migration's first try found
+  /// them. A retry uses these: the write that went on after a refused try may
+  /// have added another provider's row under the same id.
+  Map<String, String?>? _legacyOwners;
+
+  /// Tracks removed from the catalog whose first-seen times are still on disk,
+  /// because the store refused the write that dropped them. They go with the
+  /// next write that saves, and are never taken for the time of a track that
+  /// comes back meanwhile.
+  final Set<String> _unforgotten = <String>{};
 
   @override
   Future<List<Track>> getAllTracks() => _delegate.getAllTracks();
@@ -272,43 +286,88 @@ class RecordingMusicLibraryRepository
   /// before any catalog write), so by the time a track is stamped here a missing
   /// uri key always means genuinely new — never a legacy entry to adopt.
   Future<void> _stampFirstSeen(List<Track> tracks) async {
-    if (tracks.isEmpty) return;
-    final Map<String, DateTime> addedAt = await _addedStore.load();
+    if (tracks.isEmpty || !_migratedLegacyAddedKeys) return;
+    final _Loaded loaded = await _load();
+    final Map<String, DateTime> addedAt = loaded.addedAt;
     final DateTime now = _now();
-    bool changed = false;
+    bool changed = loaded.changed;
     for (final Track track in tracks) {
       if (addedAt.containsKey(track.uri)) continue;
       addedAt[track.uri] = now;
       changed = true;
     }
-    if (changed) await _addedStore.save(addedAt);
+    if (changed) await _saveQuietly(loaded);
+  }
+
+  /// The first-seen times, without those of [_unforgotten].
+  Future<_Loaded> _load() async {
+    final Map<String, DateTime> addedAt = await _addedStore.load();
+    final Set<String> dropped = <String>{..._unforgotten};
+    bool changed = false;
+    for (final String uri in dropped) {
+      if (_drop(addedAt, uri)) changed = true;
+    }
+    return (addedAt: addedAt, dropped: dropped, changed: changed);
+  }
+
+  /// Removes [uri]'s time from [addedAt], with any pre-v2 bare-id key for
+  /// it, and says whether there was one.
+  static bool _drop(Map<String, DateTime> addedAt, String uri) {
+    bool removed = addedAt.remove(uri) != null;
+    // A remote track that hasn't been migrated yet may still have its time
+    // under the bare id, which _stampFirstSeen would otherwise adopt.
+    final String? legacyId = MusicProviders.bareRemoteIdForTrackUri(uri);
+    if (legacyId != null && addedAt.remove(legacyId) != null) removed = true;
+    return removed;
+  }
+
+  /// Saves [loaded], reporting a refused write rather than failing the
+  /// catalog write it comes with, as it always did: a track left with no time
+  /// is stamped by a later write. Completes with whether it saved.
+  Future<bool> _saveQuietly(_Loaded loaded) async {
+    try {
+      await _addedStore.save(loaded.addedAt);
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+      return false;
+    }
+    _unforgotten.removeAll(loaded.dropped);
+    return true;
   }
 
   /// Carries a moved local file's "added on" time to its new path, so moving an
   /// album into a different folder doesn't make a five-year-old rip jump to the
   /// top of Recently added.
   ///
-  /// Must run **before** the catalog write that introduces the new path,
-  /// otherwise [_stampFirstSeen] gets there first and stamps `now`, which is the very
-  /// thing this prevents. `LocalTrackMoveApplier` is what enforces that order.
-  /// A timestamp already stored for [toUri] wins: it is either the same file
-  /// re-scanned or a different file that genuinely arrived there first, and in
-  /// both cases the earlier record is the honest one.
+  /// `LocalTrackMoveApplier` asks after the catalog write that introduces
+  /// the new path, which [_stampFirstSeen] has just stamped with `now`. When
+  /// [toUri] already has a time, the earlier of the two is kept: that is when
+  /// the song first came into the library.
+  ///
+  /// A refused save keeps the old key and completes with false, so the move
+  /// is kept and asked again.
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) async {
-    if (fromUri == toUri) return;
+    if (fromUri == toUri) return true;
     try {
-      final Map<String, DateTime> addedAt = await _addedStore.load();
+      final _Loaded loaded = await _load();
+      final Map<String, DateTime> addedAt = loaded.addedAt;
       final DateTime? moving = addedAt.remove(fromUri);
-      if (moving == null) return;
-      addedAt.putIfAbsent(toUri, () => moving);
+      if (moving == null) return true;
+      final DateTime? there = addedAt[toUri];
+      if (there == null || moving.isBefore(there)) addedAt[toUri] = moving;
       await _addedStore.save(addedAt);
-    } catch (_) {
-      // A store that cannot be written right now keeps the old key; the track
-      // simply reads as newly added until a later scan re-keys it.
+      _unforgotten.removeAll(loaded.dropped);
+      return true;
+    } on LocalStoreWriteException catch (error) {
+      StabilityDiagnostics.localStoreWriteFailure(error.area.name);
+      return false;
+    } catch (error) {
+      StabilityDiagnostics.trackMoveFailedUnexpectedly('library', error);
+      return false;
     }
   }
 
@@ -322,20 +381,20 @@ class RecordingMusicLibraryRepository
   /// provider (synced after this) can't adopt it. A bare id the catalog already
   /// exposes under more than one provider is left untouched (ambiguous → not
   /// mis-attributed; the read-time fallback still surfaces it).
+  ///
+  /// Done only once it is saved: until then [_stampFirstSeen] stamps nothing,
+  /// or a track still under its bare id would get `now` under its uri.
   Future<void> _migrateLegacyAddedKeysOnce() async {
     if (_migratedLegacyAddedKeys) return;
-    _migratedLegacyAddedKeys = true;
-    final Map<String, DateTime> addedAt = await _addedStore.load();
-    if (addedAt.isEmpty) return;
-    // bare id -> owner uri, or null when more than one provider exposes that id.
-    final Map<String, String?> ownerByBareId = <String, String?>{};
-    for (final Track track in await _delegate.getAllTracks()) {
-      // Local tracks have id == uri, so they are never legacy bare-id-keyed.
-      if (track.uri == track.id) continue;
-      ownerByBareId[track.id] =
-          ownerByBareId.containsKey(track.id) ? null : track.uri;
+    final _Loaded loaded = await _load();
+    final Map<String, DateTime> addedAt = loaded.addedAt;
+    if (addedAt.isEmpty && !loaded.changed) {
+      _migratedLegacyAddedKeys = true;
+      return;
     }
-    bool changed = false;
+    final Map<String, String?> ownerByBareId =
+        _legacyOwners ??= await _ownersByBareId();
+    bool changed = loaded.changed;
     ownerByBareId.forEach((String bareId, String? ownerUri) {
       // Ambiguous bare id — leave it for the read-time fallback, don't guess.
       if (ownerUri == null) return;
@@ -346,7 +405,22 @@ class RecordingMusicLibraryRepository
       addedAt.remove(bareId);
       changed = true;
     });
-    if (changed) await _addedStore.save(addedAt);
+    if (!changed || await _saveQuietly(loaded)) {
+      _migratedLegacyAddedKeys = true;
+      _legacyOwners = null;
+    }
+  }
+
+  /// Bare id -> owner uri, or null when more than one provider exposes that id.
+  Future<Map<String, String?>> _ownersByBareId() async {
+    final Map<String, String?> ownerByBareId = <String, String?>{};
+    for (final Track track in await _delegate.getAllTracks()) {
+      // Local tracks have id == uri, so they are never legacy bare-id-keyed.
+      if (track.uri == track.id) continue;
+      ownerByBareId[track.id] =
+          ownerByBareId.containsKey(track.id) ? null : track.uri;
+    }
+    return ownerByBareId;
   }
 
   @override
@@ -356,20 +430,23 @@ class RecordingMusicLibraryRepository
   }
 
   /// Drops the first-seen times of [trackUris], shared by [removeTracks] and
-  /// [removeTracksNotIn].
+  /// [removeTracksNotIn], so a track that comes back counts as newly added.
+  /// Times the store refuses to drop now are dropped by a later write.
   Future<void> _forgetFirstSeen(List<String> trackUris) async {
     if (trackUris.isEmpty) return;
-    final Map<String, DateTime> addedAt = await _addedStore.load();
-    bool changed = false;
+    final _Loaded loaded = await _load();
+    bool changed = loaded.changed;
     for (final String uri in trackUris) {
-      if (addedAt.remove(uri) != null) changed = true;
-      // Also drop a pre-v2 bare-id entry for a remote track that hasn't been
-      // migrated yet, so a remove-then-readd before the first post-upgrade sync
-      // is correctly treated as newly added (rather than adopting the stale
-      // legacy timestamp in _stampFirstSeen).
-      final String? legacyId = MusicProviders.bareRemoteIdForTrackUri(uri);
-      if (legacyId != null && addedAt.remove(legacyId) != null) changed = true;
+      if (_drop(loaded.addedAt, uri)) changed = true;
     }
-    if (changed) await _addedStore.save(addedAt);
+    if (changed && !await _saveQuietly(loaded)) _unforgotten.addAll(trackUris);
   }
 }
+
+/// First-seen times as loaded, and the [RecordingMusicLibraryRepository]
+/// removals left out of them (`dropped`; `changed` when one was there).
+typedef _Loaded = ({
+  Map<String, DateTime> addedAt,
+  Set<String> dropped,
+  bool changed,
+});
