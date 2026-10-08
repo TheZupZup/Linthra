@@ -81,9 +81,10 @@ class LocalTrackMoveApplier {
   /// A record that can't be read is never taken for an empty one, and never
   /// rewritten. When it didn't answer, it may hold a move this scan's must
   /// follow, so a scan that proved a move writes nothing. When it is corrupt,
-  /// waiting won't make it readable, so this scan's moves are handled as with
-  /// no record at all: the stores are told first, and the catalog is written
-  /// only once all of them have the moves.
+  /// waiting won't make it readable, so it is set aside as it is and a new
+  /// record starts. If even that can't be done, this scan's moves are handled
+  /// as with no record at all: the stores are told first, and the catalog is
+  /// written only once all of them have the moves.
   ///
   /// The catalog write stamps any uri it has never seen with `now`. That is
   /// fine for a move told after it: the library keeps the earlier of two
@@ -118,7 +119,7 @@ class LocalTrackMoveApplier {
       } on PendingTrackMoveJournalUnreadable catch (error) {
         if (error.fault == PendingTrackMoveJournalFault.corrupt) {
           StabilityDiagnostics.trackMoveJournal('corrupt');
-          corrupt = true;
+          corrupt = !await _setAside(store);
         } else {
           StabilityDiagnostics.trackMoveJournal('read-failed');
           return _withoutMoving(moves.length, write);
@@ -196,6 +197,17 @@ class LocalTrackMoveApplier {
     if (moves > 0) return _heldBack(moves);
     await write();
     return (moves: moves, committed: true);
+  }
+
+  static Future<bool> _setAside(PendingTrackMoveStore store) async {
+    try {
+      if (!await store.setAside()) return false;
+    } catch (error) {
+      StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
+      return false;
+    }
+    StabilityDiagnostics.trackMoveJournal('set-aside');
+    return true;
   }
 
   /// Offers [work] to each store in order, up to the first move it refuses or

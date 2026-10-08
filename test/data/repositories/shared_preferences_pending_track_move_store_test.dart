@@ -7,8 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
 
+/// Preferences that save but refuse to remove anything.
+class _NoRemoving extends InMemorySharedPreferencesStore {
+  _NoRemoving(super.data) : super.withData();
+
+  @override
+  Future<bool> remove(String key) async => false;
+}
+
 class _FullDisk extends InMemorySharedPreferencesStore {
   _FullDisk() : super.empty();
+  _FullDisk.holding(super.data) : super.withData();
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) async =>
@@ -142,6 +151,91 @@ void main() {
     });
   });
 
+  group('a record that cannot be read is set aside', () {
+    Future<Map<String, Object?>> onDisk() async {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      return <String, Object?>{
+        'record': prefs.get('pending_track_moves_v1'),
+        'aside': prefs.get('pending_track_moves_v1_unreadable'),
+      };
+    }
+
+    for (final Object broken in <Object>[
+      '{this is broken',
+      '[{"f":"/a","t":"/b"',
+      '[{"f": "/a", "t": "/b", "s": ["playlists"]}, {"garbage": true}]',
+      42,
+    ]) {
+      test('exactly as it is ($broken), leaving room for a new one', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'pending_track_moves_v1': broken,
+        });
+
+        expect(await store.setAside(), isTrue);
+
+        expect(await onDisk(), <String, Object?>{
+          'record': null,
+          'aside': broken,
+        });
+        expect(await store.load(), isEmpty);
+      });
+    }
+
+    test('never over one set aside before', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'pending_track_moves_v1': '{this is broken',
+        'pending_track_moves_v1_unreadable': 'older',
+      });
+
+      expect(await store.setAside(), isFalse);
+
+      expect(await onDisk(), <String, Object?>{
+        'record': '{this is broken',
+        'aside': 'older',
+      });
+    });
+
+    test('again, after a try that copied it but could not clear it', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'pending_track_moves_v1': '{this is broken',
+        'pending_track_moves_v1_unreadable': '{this is broken',
+      });
+
+      expect(await store.setAside(), isTrue);
+      expect(await onDisk(), <String, Object?>{
+        'record': null,
+        'aside': '{this is broken',
+      });
+    });
+
+    test('and, when it cannot be cleared, is still there to be found',
+        () async {
+      SharedPreferencesStorePlatform.instance = _NoRemoving(
+        <String, Object>{'flutter.pending_track_moves_v1': '{this is broken'},
+      );
+      SharedPreferences.resetStatic();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance =
+            InMemorySharedPreferencesStore.empty();
+        SharedPreferences.resetStatic();
+      });
+
+      expect(await store.setAside(), isFalse);
+
+      // Not "nothing pending" for the rest of this run either.
+      await expectLater(store.load(), throwsA(_unreadable(_corrupt)));
+      SharedPreferences.resetStatic();
+      await expectLater(store.load(), throwsA(_unreadable(_corrupt)));
+    });
+
+    test('but never one that reads fine', () async {
+      await store.save(const <PendingTrackMove>[_move]);
+
+      expect(await store.setAside(), isFalse);
+      expect(await store.load(), const <PendingTrackMove>[_move]);
+    });
+  });
+
   group('on a full disk', () {
     setUp(() {
       SharedPreferencesStorePlatform.instance = _FullDisk();
@@ -162,6 +256,19 @@ void main() {
         store.save(const <PendingTrackMove>[]),
         throwsA(isA<LocalStoreWriteException>()),
       );
+    });
+
+    test('a broken record is left where it is', () async {
+      SharedPreferencesStorePlatform.instance = _FullDisk.holding(
+        <String, Object>{'flutter.pending_track_moves_v1': '{this is broken'},
+      );
+      SharedPreferences.resetStatic();
+
+      expect(await store.setAside(), isFalse);
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.get('pending_track_moves_v1'), '{this is broken');
+      expect(prefs.get('pending_track_moves_v1_unreadable'), isNull);
     });
 
     test('an "added on" time that was not saved says so', () async {

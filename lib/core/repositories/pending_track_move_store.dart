@@ -75,4 +75,10 @@ abstract interface class PendingTrackMoveStore {
   /// Replaces what is kept with [moves]; an empty list clears it. Throws
   /// `LocalStoreWriteException` when the platform did not save it.
   Future<void> save(List<PendingTrackMove> moves);
+
+  /// Moves a record [load] found corrupt out of the way, unchanged, to a place
+  /// of its own where it is never deleted, so a new record can start.
+  /// Completes with whether that is done: never by overwriting a record set
+  /// aside earlier, and never for one that reads fine. Never throws.
+  Future<bool> setAside();
 }

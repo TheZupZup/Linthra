@@ -81,6 +81,9 @@ class _Journal implements PendingTrackMoveStore {
 
   @override
   Future<void> save(List<PendingTrackMove> moves) => _disk.save(moves);
+
+  @override
+  Future<bool> setAside() => _disk.setAside();
 }
 
 /// The catalog, which can fail its next write the way a full disk or a
@@ -140,6 +143,7 @@ const String _other = '/music/Bon Iver/06 Towers.flac';
 const String _playlistsKey = 'flutter.playlists_v1';
 const String _favoritesKey = 'flutter.favorites_v2';
 const String _journalKey = 'flutter.pending_track_moves_v1';
+const String _setAsideKey = 'flutter.pending_track_moves_v1_unreadable';
 
 final DateTime _addedLongAgo = DateTime.utc(2021, 6, 1);
 
@@ -298,6 +302,9 @@ void main() {
   /// What the record of kept moves holds on disk, as it is stored.
   Future<Object?> journalOnDisk() async => (await disk.getAll())[_journalKey];
 
+  /// A broken record moved out of the way, as it is stored.
+  Future<Object?> setAsideOnDisk() async => (await disk.getAll())[_setAsideKey];
+
   List<String> reported() => <String>[
         for (final SafeEvent event in SafeEventLog.instance.events)
           if (event.category == 'track-move-journal') event.detail,
@@ -409,9 +416,8 @@ void main() {
           '{"garbage": true}]',
     };
     for (final MapEntry<String, String> record in broken.entries) {
-      test(
-          '${record.key}: is kept as it is, and a move it could not keep '
-          'waits in the catalog', () async {
+      test('${record.key}: is set aside as it is, and a new one keeps the move',
+          () async {
         await disk.setValue('String', _journalKey, record.value);
         await quit();
         await launch();
@@ -420,58 +426,57 @@ void main() {
         disk.refusing.add(_playlistsKey);
         await rescan();
 
-        // Writing the catalog now would lose the playlists' part of the
-        // move: the record can't take it, and the next scan wouldn't see it.
-        expect(await catalogUris(), <String>[_old, _other]..sort());
+        expect(await setAsideOnDisk(), record.value);
+        expect(reported(), containsAll(<String>['corrupt', 'set-aside']));
+        expect(await catalogUris(), <String>[_new, _other]..sort());
         expect((await saved()).playlist, <String>[_old, _other]);
-        expect(await journalOnDisk(), record.value);
-        expect(reported(), containsAll(<String>['corrupt', 'held-back']));
+        expect(await kept(), const <PendingTrackMove>[
+          PendingTrackMove(
+            from: _old,
+            to: _new,
+            targets: <String>{LocalTrackMoveApplier.playlists},
+          ),
+        ]);
 
         await quit();
         disk.refusing.clear();
         await launch();
         await rescan();
 
-        // Every store takes it this time, so nothing has to be kept.
         await expectAllAt(_new, gone: _old);
-        expect(await catalogUris(), <String>[_new, _other]..sort());
-        expect(await journalOnDisk(), record.value);
+        expect(await journalOnDisk(), isNull);
+        expect(await setAsideOnDisk(), record.value);
       });
     }
-  });
 
-  test('once a broken record is gone, moves are kept again as before',
-      () async {
-    await disk.setValue('String', _journalKey, '{this is broken');
-    await quit();
-    await launch();
-    moveTheFile();
-    disk.refusing.add(_playlistsKey);
-    await rescan();
-    expect(await catalogUris(), <String>[_old, _other]..sort());
+    test(
+        'one that cannot be set aside is kept as it is, and a move it could '
+        'not keep waits in the catalog', () async {
+      // Another broken record was set aside before, and is never replaced.
+      await disk.setValue('String', _setAsideKey, 'older');
+      await disk.setValue('String', _journalKey, '{this is broken');
+      await quit();
+      await launch();
 
-    // Cleared while the app was closed; the playlists still refuse.
-    await quit();
-    await disk.remove(_journalKey);
-    await launch();
-    await rescan();
+      moveTheFile();
+      disk.refusing.add(_playlistsKey);
+      await rescan();
 
-    expect(await catalogUris(), <String>[_new, _other]..sort());
-    expect(await kept(), const <PendingTrackMove>[
-      PendingTrackMove(
-        from: _old,
-        to: _new,
-        targets: <String>{LocalTrackMoveApplier.playlists},
-      ),
-    ]);
+      expect(await catalogUris(), <String>[_old, _other]..sort());
+      expect((await saved()).playlist, <String>[_old, _other]);
+      expect(await journalOnDisk(), '{this is broken');
+      expect(await setAsideOnDisk(), 'older');
+      expect(reported(), containsAll(<String>['corrupt', 'held-back']));
 
-    await quit();
-    disk.refusing.clear();
-    await launch();
-    await rescan();
+      await quit();
+      disk.refusing.clear();
+      await launch();
+      await rescan();
 
-    await expectAllAt(_new, gone: _old);
-    expect(await journalOnDisk(), isNull);
+      await expectAllAt(_new, gone: _old);
+      expect(await journalOnDisk(), '{this is broken');
+      expect(await setAsideOnDisk(), 'older');
+    });
   });
 
   test(

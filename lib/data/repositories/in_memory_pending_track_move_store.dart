@@ -12,4 +12,8 @@ class InMemoryPendingTrackMoveStore implements PendingTrackMoveStore {
   Future<void> save(List<PendingTrackMove> moves) async {
     _moves = List<PendingTrackMove>.unmodifiable(moves);
   }
+
+  /// Nothing here is ever unreadable, so there is never anything to set aside.
+  @override
+  Future<bool> setAside() async => false;
 }

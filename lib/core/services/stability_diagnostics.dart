@@ -149,7 +149,8 @@ abstract final class StabilityDiagnostics {
       'local track move failed unexpectedly: $target (${error.runtimeType})';
 
   /// Trouble with the record of local moves some store still has to take, as
-  /// one fixed [event]: `read-failed`, `corrupt`, `write-failed`, or
+  /// one fixed [event]: `read-failed`, `corrupt`, `set-aside` (a corrupt one
+  /// was moved, unchanged, to a key of its own), `write-failed`, or
   /// `held-back` (a scan's catalog write waited, because one of its moves
   /// could neither reach every store nor be kept). Never a path.
   static void trackMoveJournal(String event) {

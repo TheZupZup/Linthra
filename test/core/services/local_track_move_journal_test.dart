@@ -33,6 +33,11 @@ class _Journal extends InMemoryPendingTrackMoveStore {
 
   /// Thrown by [save] instead of a refusal, when set.
   Object? saveError;
+
+  /// Whether [setAside] can move a corrupt record out of the way, which
+  /// leaves an empty record behind.
+  bool setsAside = false;
+  int setAsides = 0;
   int loads = 0;
   int saves = 0;
 
@@ -41,6 +46,15 @@ class _Journal extends InMemoryPendingTrackMoveStore {
     loads++;
     if (loadError case final Object error) throw error;
     return super.load();
+  }
+
+  @override
+  Future<bool> setAside() async {
+    setAsides++;
+    if (!setsAside) return false;
+    loadError = null;
+    await super.save(const <PendingTrackMove>[]);
+    return true;
   }
 
   @override
@@ -451,8 +465,35 @@ void main() {
     });
 
     test(
-        'with a corrupt record, it waits until every store has the move, '
-        'and is skipped when one refuses', () async {
+        'a corrupt record set aside leaves a new one, which keeps moves '
+        'as usual', () async {
+      journal
+        ..loadError = _corrupt
+        ..setsAside = true;
+      b.refuse = true;
+      List<String>? toldAtCommit;
+
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/a.flac', '/b.flac')]),
+        commit: () async =>
+            toldAtCommit = <String>[...a.calls, ...b.calls, ...c.calls],
+      );
+
+      expect(result.committed, isTrue);
+      expect(toldAtCommit, isEmpty);
+      expect(_reported(), <String>['corrupt', 'set-aside']);
+      expect(await journal.load(), const <PendingTrackMove>[
+        PendingTrackMove(
+          from: '/a.flac',
+          to: '/b.flac',
+          targets: <String>{'b'},
+        ),
+      ]);
+    });
+
+    test(
+        'with a corrupt record that cannot be set aside, it waits until '
+        'every store has the move, and is skipped when one refuses', () async {
       journal.loadError = _corrupt;
       final List<String> order = <String>[];
 
