@@ -74,6 +74,19 @@ class ReorderFocusWalk {
           ? _walkLanded!
           : rowIndex;
 
+  /// [rows] in the order the walk in flight has put them, the row it started
+  /// from moved to where it landed: what [sourceFor]'s index points into.
+  /// [rows] itself when no walk is in flight.
+  List<T> walkedOrder<T>(List<T> rows) {
+    final int? origin = _walkOrigin;
+    final int? landed = _walkLanded;
+    if (origin == null || landed == null || origin == landed) return rows;
+    if (origin >= rows.length || landed >= rows.length) return rows;
+    final List<T> order = List<T>.of(rows);
+    order.insert(landed, order.removeAt(origin));
+    return order;
+  }
+
   /// Records that the row whose handle sits on [rowIndex] has landed on [to].
   void recordMove({required int rowIndex, required int to}) {
     _walkOrigin = rowIndex;

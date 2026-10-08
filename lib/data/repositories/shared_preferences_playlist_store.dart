@@ -45,11 +45,19 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
 
   @override
   Future<void> save(List<Playlist> playlists) async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String raw = jsonEncode(<Map<String, dynamic>>[
       for (final Playlist playlist in playlists) _toJson(playlist),
     ]);
-    if (!await prefs.setString(_key, raw)) {
+    bool written;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      written = await prefs.setString(_key, raw);
+    } catch (_) {
+      // Thrown rather than answered false (the Linux store can't read the
+      // file it would rewrite): it didn't happen either.
+      written = false;
+    }
+    if (!written) {
       throw const LocalStoreWriteException(LocalStoreArea.playlists);
     }
   }
