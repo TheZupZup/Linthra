@@ -301,13 +301,10 @@ class RecordingMusicLibraryRepository
   /// album into a different folder doesn't make a five-year-old rip jump to the
   /// top of Recently added.
   ///
-  /// Must run **before** the catalog write that introduces the new path,
-  /// otherwise [_stampFirstSeen] gets there first and stamps `now`, which is the very
-  /// thing this prevents. `LocalTrackMoveApplier` is what enforces that order.
-  /// When [toUri] already has a time, the earlier of the two is kept: that is
-  /// when the song first came into the library. It is also what makes a move
-  /// asked again after the catalog write right, since that write stamped the
-  /// new path with `now`.
+  /// `LocalTrackMoveApplier` asks after the catalog write that introduces
+  /// the new path, which [_stampFirstSeen] has just stamped with `now`. When
+  /// [toUri] already has a time, the earlier of the two is kept: that is when
+  /// the song first came into the library.
   ///
   /// A refused save keeps the old key and completes with false, so the move
   /// is kept and asked again.

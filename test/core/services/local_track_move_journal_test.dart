@@ -94,7 +94,7 @@ void main() {
       ('/old.flac', '/new.flac'),
     ]));
 
-    expect(result.kept, isTrue);
+    expect(result.committed, isTrue);
     expect(await journal.load(), <PendingTrackMove>[
       const PendingTrackMove(
         from: '/old.flac',
@@ -180,7 +180,7 @@ void main() {
       _moves(<(String, String)>[('/old.flac', '/new.flac')]),
     );
 
-    expect(result.kept, isFalse);
+    expect(result.committed, isFalse);
   });
 
   test('a kept move whose record is not rewritten is still kept', () async {
@@ -193,7 +193,7 @@ void main() {
     final result = await applier().apply(LocalCatalogReconciliation.none);
 
     // The old record still names the move; asked again, b changes nothing.
-    expect(result.kept, isTrue);
+    expect(result.committed, isTrue);
     expect(await journal.load(), hasLength(1));
   });
 
@@ -218,7 +218,7 @@ void main() {
       );
 
       // Every store took this scan's move, so there is nothing to keep.
-      expect(result.kept, isTrue);
+      expect(result.committed, isTrue);
       expect(a.calls, <String>['/old.flac -> /new.flac']);
       expect(b.calls, <String>['/old.flac -> /new.flac']);
       expect(journal.saves, 0);
@@ -229,7 +229,7 @@ void main() {
       final refused = await applier().apply(
         _moves(<(String, String)>[('/x.flac', '/y.flac')]),
       );
-      expect(refused.kept, isFalse);
+      expect(refused.committed, isFalse);
       expect(journal.saves, 0);
       expect(_reported(), <String>['corrupt', 'corrupt', 'held-back']);
     });
@@ -244,7 +244,7 @@ void main() {
 
       // What it holds may come before this move, so nothing is moved yet:
       // with the catalog still at the old path, the next scan finds it again.
-      expect(result.kept, isFalse);
+      expect(result.committed, isFalse);
       expect(a.calls, isEmpty);
       expect(b.calls, isEmpty);
       expect(journal.saves, 0);
@@ -252,7 +252,7 @@ void main() {
 
       // A scan that moved nothing has nothing to lose.
       expect(
-        (await applier().apply(LocalCatalogReconciliation.none)).kept,
+        (await applier().apply(LocalCatalogReconciliation.none)).committed,
         isTrue,
       );
       expect(journal.saves, 0);
@@ -265,7 +265,7 @@ void main() {
         _moves(<(String, String)>[('/b.flac', '/c.flac')]),
       );
 
-      expect(result.kept, isFalse);
+      expect(result.committed, isFalse);
       expect(a.calls, isEmpty);
       expect(journal.saves, 0);
       expect(_reported(), <String>['unexpected: StateError', 'held-back']);
@@ -283,7 +283,7 @@ void main() {
         _moves(<(String, String)>[('/b.flac', '/c.flac')]),
       );
 
-      expect(result.kept, isTrue);
+      expect(result.committed, isTrue);
       expect(b.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
       expect(a.calls, <String>['/b.flac -> /c.flac']);
       expect(await journal.load(), isEmpty);
@@ -302,7 +302,7 @@ void main() {
       ..saveError = StateError('bug');
     final result = await applier()
         .apply(_moves(<(String, String)>[('/c.flac', '/d.flac')]));
-    expect(result.kept, isFalse);
+    expect(result.committed, isFalse);
     expect(_reported(), <String>['unexpected: StateError', 'held-back']);
   });
 
@@ -321,10 +321,124 @@ void main() {
   });
 
   test('a scan with no moves and nothing kept writes nothing', () async {
-    await applier().apply(LocalCatalogReconciliation.none);
+    final result = await applier().apply(LocalCatalogReconciliation.none);
+
+    expect(result.committed, isTrue);
+    expect(journal.saves, 0);
+  });
+
+  test('a move every store takes leaves no record behind', () async {
     await applier().apply(_moves(<(String, String)>[('/a.flac', '/b.flac')]));
 
-    expect(journal.saves, 0);
+    expect(await journal.load(), isEmpty);
+  });
+
+  group('with the catalog write', () {
+    test('the moves are on disk before it, and no store has moved yet',
+        () async {
+      List<PendingTrackMove>? onDiskAtCommit;
+      List<String>? toldAtCommit;
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/a.flac', '/b.flac')]),
+        commit: () async {
+          onDiskAtCommit = await journal.load();
+          toldAtCommit = <String>[...a.calls, ...b.calls, ...c.calls];
+        },
+      );
+
+      expect(result.committed, isTrue);
+      expect(onDiskAtCommit, const <PendingTrackMove>[
+        PendingTrackMove(
+          from: '/a.flac',
+          to: '/b.flac',
+          targets: <String>{'a', 'b', 'c'},
+        ),
+      ]);
+      expect(toldAtCommit, isEmpty);
+      expect(a.calls, <String>['/a.flac -> /b.flac']);
+      expect(await journal.load(), isEmpty);
+    });
+
+    test(
+        'one that fails moves no store, and the next scan proves the move '
+        'again from where the catalog still is', () async {
+      await expectLater(
+        applier().apply(
+          _moves(<(String, String)>[('/a.flac', '/b.flac')]),
+          commit: () async => throw StateError('disk full'),
+        ),
+        throwsStateError,
+      );
+      expect(<String>[...a.calls, ...b.calls, ...c.calls], isEmpty);
+
+      // The file moved again meanwhile; the catalog still has /a.flac.
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/a.flac', '/c.flac')]),
+        wasIndexed: (String uri) => uri == '/a.flac',
+      );
+
+      expect(result.committed, isTrue);
+      for (final _Store store in <_Store>[a, b, c]) {
+        expect(store.calls, <String>['/a.flac -> /c.flac']);
+      }
+      expect(await journal.load(), isEmpty);
+    });
+
+    test('a move written but never told is told on the next scan', () async {
+      // As left by an app stopped right after the catalog write.
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+          from: '/a.flac',
+          to: '/b.flac',
+          targets: <String>{'a', 'b', 'c'},
+        ),
+      ]);
+
+      await applier().apply(
+        LocalCatalogReconciliation.none,
+        wasIndexed: (String uri) => uri == '/b.flac',
+      );
+
+      for (final _Store store in <_Store>[a, b, c]) {
+        expect(store.calls, <String>['/a.flac -> /b.flac']);
+      }
+      expect(await journal.load(), isEmpty);
+    });
+
+    test('is not reached when the moves cannot be written ahead', () async {
+      journal.refuse = true;
+      int commits = 0;
+
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/a.flac', '/b.flac')]),
+        commit: () async => commits++,
+      );
+
+      expect(result.committed, isFalse);
+      expect(commits, 0);
+      expect(<String>[...a.calls, ...b.calls, ...c.calls], isEmpty);
+    });
+
+    test(
+        'with a corrupt record, it waits until every store has the move, '
+        'and is skipped when one refuses', () async {
+      journal.loadError = _corrupt;
+      final List<String> order = <String>[];
+
+      await applier().apply(
+        _moves(<(String, String)>[('/a.flac', '/b.flac')]),
+        commit: () async => order.add('commit:${a.calls.length}'),
+      );
+      expect(order, <String>['commit:1']);
+
+      b.refuse = true;
+      final result = await applier().apply(
+        _moves(<(String, String)>[('/c.flac', '/d.flac')]),
+        commit: () async => order.add('commit'),
+      );
+      expect(result.committed, isFalse);
+      expect(order, <String>['commit:1']);
+    });
   });
 
   test('a kept move for a store that is no longer there is dropped', () async {
@@ -349,6 +463,6 @@ void main() {
       <String, Object>{'a': a, 'b': b},
     ).apply(_moves(<(String, String)>[('/old.flac', '/new.flac')]));
 
-    expect(result.kept, isFalse);
+    expect(result.committed, isFalse);
   });
 }

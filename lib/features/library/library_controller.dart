@@ -404,16 +404,34 @@ class LibraryController extends Notifier<LibraryState> {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
-        // Before the write, never after: the catalog write stamps any uri it
-        // has not seen before as newly added, so the moved file's real "added
-        // on" date has to be carried across first.
-        //
-        // A move some store couldn't take is kept and offered again on later
-        // scans, since after this write none of them can find it. When even
-        // that can't be saved, the catalog isn't written either: still at the
-        // old path, it is what lets the next scan find the move again.
+        final List<Track> tracks = scan.plainTracks;
+        Future<void> writeCatalog() async {
+          if (repository is StampedCatalogWriter) {
+            // Same write, plus the stamps a later scan compares against.
+            // Without them every scan re-parses everything, which is correct
+            // but is the cost this exists to remove.
+            await (repository as StampedCatalogWriter).upsertStampedCatalog(
+              sourceId: _localSourceId,
+              tracks: scan.tracks,
+            );
+          } else {
+            await repository.upsertCatalog(
+              sourceId: _localSourceId,
+              tracks: tracks,
+              albums: groupAlbums(tracks),
+              artists: groupArtists(tracks),
+            );
+          }
+        }
+
+        // The catalog and everything else keyed on a moved song's path move
+        // together: after this write no scan can find the move again, so the
+        // applier keeps it on disk first and tells the stores after. When it
+        // can't be kept, the catalog isn't written either: still at the old
+        // path, it is what lets the next scan find the move again.
         Set<String>? scanned;
-        final ({int moves, bool kept}) moved = await LocalTrackMoveApplier(
+        Set<String>? indexed;
+        final ({int moves, bool committed}) moved = await LocalTrackMoveApplier(
           <String, Object>{
             LocalTrackMoveApplier.library: repository,
             LocalTrackMoveApplier.favorites:
@@ -426,29 +444,20 @@ class LibraryController extends Notifier<LibraryState> {
           pending: ref.read(pendingTrackMoveStoreProvider),
         ).apply(
           scan.reconciliation,
+          commit: writeCatalog,
           isPresent: (String uri) => (scanned ??= <String>{
-            for (final Track track in scan.plainTracks) track.uri,
+            for (final Track track in tracks) track.uri,
           })
               .contains(uri),
+          wasIndexed: previousTracks == null
+              ? null
+              : (String uri) => (indexed ??= <String>{
+                    for (final StampedTrack stamped in previousTracks)
+                      stamped.track.uri,
+                  })
+                      .contains(uri),
         );
-        if (!moved.kept) throw const _MovesNotKept();
-        final List<Track> tracks = scan.plainTracks;
-        if (repository is StampedCatalogWriter) {
-          // Same write, plus the stamps a later scan compares against. Without
-          // them every scan re-parses everything, which is correct but is the
-          // cost this exists to remove.
-          await (repository as StampedCatalogWriter).upsertStampedCatalog(
-            sourceId: _localSourceId,
-            tracks: scan.tracks,
-          );
-        } else {
-          await repository.upsertCatalog(
-            sourceId: _localSourceId,
-            tracks: tracks,
-            albums: groupAlbums(tracks),
-            artists: groupArtists(tracks),
-          );
-        }
+        if (!moved.committed) throw const _MovesNotKept();
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
         // Nor record how these folders were read: a scan that started then may

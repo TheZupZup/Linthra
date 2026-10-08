@@ -24,7 +24,8 @@ import 'stability_diagnostics.dart';
 /// [pending], with the names of the stores still to take it, and offered to
 /// them again on every scan until they all have. It can't be left to the next
 /// scan to find: once the catalog has the new path, the file is simply there,
-/// and no scan sees a move any more.
+/// and no scan sees a move any more. For the same reason the stores and the
+/// catalog move together, through [apply].
 class LocalTrackMoveApplier {
   const LocalTrackMoveApplier(this.targets, {this.pending});
 
@@ -44,38 +45,49 @@ class LocalTrackMoveApplier {
   /// kept, and [apply] says so.
   final PendingTrackMoveStore? pending;
 
-  /// Offers the moves still pending from earlier scans, then every move in
-  /// [reconciliation], in order, to every reassignable target, and keeps
-  /// whatever a target couldn't take.
+  /// Applies every move in [reconciliation], and those still pending from
+  /// earlier scans, to every reassignable target, and writes the catalog
+  /// through [commit] where neither can get ahead of the other. Completes with
+  /// whether the catalog was written; when it wasn't, no store moved either,
+  /// and the catalog still at the old path lets the next scan find the move
+  /// again. A [commit] that throws is rethrown.
+  ///
+  /// With a readable record, this scan's moves are saved to it first, for
+  /// every store, then the catalog is written, then the stores are told, and
+  /// the record keeps only what a store refused. So a store is never ahead of
+  /// the catalog: if the write fails, or the app stops before it, no store has
+  /// moved, and the next scan drops this scan's entries ([wasIndexed] says
+  /// their old path is still in the catalog) and proves the moves again from
+  /// there, wherever the file went since. If the app stops after the write,
+  /// the record still names every store, and a move offered again to a store
+  /// that has it changes nothing.
   ///
   /// A pending move whose old path [isPresent] reports has a file again is
-  /// dropped: what is left under that path may be that file's now, and moving
-  /// it would be a guess.
+  /// dropped as well: what is left under that path may be that file's now, and
+  /// moving it would be a guess.
   ///
   /// Moves go to each target in the order they were made. Once one is refused,
   /// the target's later moves wait behind it, even those that would change
   /// nothing yet: after `a -> b` and `b -> c`, a playlist still on `a` needs
   /// both, in that order.
   ///
-  /// A record of pending moves that can't be read is never taken for an empty
-  /// one, and never rewritten. When it didn't answer, it may hold a move this
-  /// scan's must follow, so nothing is moved and `kept` is false for any scan
-  /// that proved a move: the next scan finds them again. When it is corrupt,
-  /// waiting won't make it readable, so this scan's moves are offered as if
-  /// there were no record: `kept` only if every store took them.
+  /// A record that can't be read is never taken for an empty one, and never
+  /// rewritten. When it didn't answer, it may hold a move this scan's must
+  /// follow, so a scan that proved a move writes nothing. When it is corrupt,
+  /// waiting won't make it readable, so this scan's moves are handled as with
+  /// no record at all: the stores are told first, and the catalog is written
+  /// only once all of them have the moves.
   ///
-  /// **Call this before the catalog write.** `RecordingMusicLibraryRepository`
-  /// stamps any uri it has never seen with `now`, so a write that introduces
-  /// the new path first would mark the moved file as newly added before its
-  /// real date could be carried over. And only write the catalog when the
-  /// result says `kept`: otherwise a move some store missed couldn't be saved
-  /// for later, and the catalog still at the old path is the only record of it
-  /// (the next scan finds the move again).
+  /// The catalog write stamps any uri it has never seen with `now`. That is
+  /// fine for a move told after it: the library keeps the earlier of two
+  /// "added on" times, which is the moved file's.
   ///
   /// `moves` is how many moves the scan proved.
-  Future<({int moves, bool kept})> apply(
+  Future<({int moves, bool committed})> apply(
     LocalCatalogReconciliation reconciliation, {
+    Future<void> Function()? commit,
     bool Function(String uri)? isPresent,
+    bool Function(String uri)? wasIndexed,
   }) async {
     final Map<String, TrackIdentityReassignable> stores =
         <String, TrackIdentityReassignable>{
@@ -84,10 +96,15 @@ class LocalTrackMoveApplier {
           target.key: target.value as TrackIdentityReassignable,
     };
     final List<LocalTrackMove> moves = reconciliation.moves;
+    final Future<void> Function() write = commit ?? () async {};
+    if (stores.isEmpty) {
+      await write();
+      return (moves: moves.length, committed: true);
+    }
 
+    final PendingTrackMoveStore? store = pending;
     List<PendingTrackMove> waiting = const <PendingTrackMove>[];
     bool corrupt = false;
-    final PendingTrackMoveStore? store = pending;
     if (store != null) {
       try {
         waiting = await store.load();
@@ -97,37 +114,78 @@ class LocalTrackMoveApplier {
           corrupt = true;
         } else {
           StabilityDiagnostics.trackMoveJournal('read-failed');
-          return _done(moves.length, kept: moves.isEmpty || stores.isEmpty);
+          return _withoutMoving(moves.length, write);
         }
       } catch (error) {
         StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
-        return _done(moves.length, kept: moves.isEmpty || stores.isEmpty);
+        return _withoutMoving(moves.length, write);
       }
     }
-    if (waiting.isEmpty && (moves.isEmpty || stores.isEmpty)) {
-      return _done(moves.length, kept: true);
-    }
+    if (store == null || corrupt) return _storesFirst(stores, moves, write);
 
     final List<_Move> work = <_Move>[
       for (final PendingTrackMove move in waiting)
-        if (!(isPresent?.call(move.from) ?? false))
-          _Move(
-            move.from,
-            move.to,
-            <String>{
-              for (final String name in move.targets)
-                if (stores.containsKey(name)) name,
-            },
-            fromThisScan: false,
-          ),
+        if (!(isPresent?.call(move.from) ?? false) &&
+            !(wasIndexed?.call(move.from) ?? false))
+          _Move(move.from, move.to, <String>{
+            for (final String name in move.targets)
+              if (stores.containsKey(name)) name,
+          }),
       for (final LocalTrackMove move in moves)
-        _Move(
-          move.from,
-          move.to,
-          <String>{...stores.keys},
-          fromThisScan: true,
-        ),
+        _Move(move.from, move.to, <String>{...stores.keys}),
     ];
+    List<PendingTrackMove> onDisk = waiting;
+    final List<PendingTrackMove> ahead = _pending(work);
+    if (!_same(ahead, onDisk)) {
+      if (await _save(store, ahead)) {
+        onDisk = ahead;
+      } else if (moves.isNotEmpty) {
+        return _heldBack(moves.length);
+      }
+    }
+    await write();
+    await _offer(stores, work);
+    final List<PendingTrackMove> left = _pending(work);
+    // Not saved, the record still holds moves some store has since taken:
+    // offered again, they change nothing.
+    if (!_same(left, onDisk)) await _save(store, left);
+    return (moves: moves.length, committed: true);
+  }
+
+  /// With no record to keep a move in, the stores are told first, and the
+  /// catalog is written only once all of them have this scan's moves.
+  static Future<({int moves, bool committed})> _storesFirst(
+    Map<String, TrackIdentityReassignable> stores,
+    List<LocalTrackMove> moves,
+    Future<void> Function() write,
+  ) async {
+    final List<_Move> work = <_Move>[
+      for (final LocalTrackMove move in moves)
+        _Move(move.from, move.to, <String>{...stores.keys}),
+    ];
+    await _offer(stores, work);
+    if (work.any((_Move move) => move.left.isNotEmpty)) {
+      return _heldBack(moves.length);
+    }
+    await write();
+    return (moves: moves.length, committed: true);
+  }
+
+  /// The catalog is written only when this scan proved no move.
+  static Future<({int moves, bool committed})> _withoutMoving(
+    int moves,
+    Future<void> Function() write,
+  ) async {
+    if (moves > 0) return _heldBack(moves);
+    await write();
+    return (moves: moves, committed: true);
+  }
+
+  /// Offers [work] to each store in order, up to the first move it refuses.
+  static Future<void> _offer(
+    Map<String, TrackIdentityReassignable> stores,
+    List<_Move> work,
+  ) async {
     for (final MapEntry<String, TrackIdentityReassignable> target
         in stores.entries) {
       for (final _Move move in work) {
@@ -143,36 +201,37 @@ class LocalTrackMoveApplier {
         move.left.remove(target.key);
       }
     }
-
-    final List<PendingTrackMove> left = <PendingTrackMove>[
-      for (final _Move move in work)
-        if (move.left.isNotEmpty)
-          PendingTrackMove(from: move.from, to: move.to, targets: move.left),
-    ];
-    // A move from an earlier scan whose record isn't rewritten is still kept
-    // as it was, at worst naming stores that have it since: offering it to
-    // them again changes nothing. One from this scan has no record elsewhere.
-    final bool newOnesLeft =
-        work.any((_Move move) => move.fromThisScan && move.left.isNotEmpty);
-    if (store == null || corrupt) {
-      return _done(moves.length, kept: !newOnesLeft);
-    }
-    if (_same(left, waiting)) return _done(moves.length, kept: true);
-    try {
-      await store.save(left);
-    } on LocalStoreWriteException {
-      StabilityDiagnostics.trackMoveJournal('write-failed');
-      return _done(moves.length, kept: !newOnesLeft);
-    } catch (error) {
-      StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
-      return _done(moves.length, kept: !newOnesLeft);
-    }
-    return _done(moves.length, kept: true);
   }
 
-  static ({int moves, bool kept}) _done(int moves, {required bool kept}) {
-    if (!kept) StabilityDiagnostics.trackMoveJournal('held-back');
-    return (moves: moves, kept: kept);
+  static List<PendingTrackMove> _pending(List<_Move> work) =>
+      <PendingTrackMove>[
+        for (final _Move move in work)
+          if (move.left.isNotEmpty)
+            PendingTrackMove(
+              from: move.from,
+              to: move.to,
+              targets: <String>{...move.left},
+            ),
+      ];
+
+  static Future<bool> _save(
+    PendingTrackMoveStore store,
+    List<PendingTrackMove> moves,
+  ) async {
+    try {
+      await store.save(moves);
+      return true;
+    } on LocalStoreWriteException {
+      StabilityDiagnostics.trackMoveJournal('write-failed');
+    } catch (error) {
+      StabilityDiagnostics.trackMoveJournalFailedUnexpectedly(error);
+    }
+    return false;
+  }
+
+  static ({int moves, bool committed}) _heldBack(int moves) {
+    StabilityDiagnostics.trackMoveJournal('held-back');
+    return (moves: moves, committed: false);
   }
 
   static bool _same(List<PendingTrackMove> a, List<PendingTrackMove> b) {
@@ -186,10 +245,9 @@ class LocalTrackMoveApplier {
 
 /// A move being offered, and the targets it is still to reach.
 class _Move {
-  _Move(this.from, this.to, this.left, {required this.fromThisScan});
+  _Move(this.from, this.to, this.left);
 
   final String from;
   final String to;
   final Set<String> left;
-  final bool fromThisScan;
 }

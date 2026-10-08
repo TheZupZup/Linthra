@@ -7,6 +7,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/diagnostics/safe_event_log.dart';
+import 'package:linthra/core/models/album.dart';
+import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
@@ -81,6 +83,28 @@ class _Journal implements PendingTrackMoveStore {
   Future<void> save(List<PendingTrackMove> moves) => _disk.save(moves);
 }
 
+/// The catalog, which can fail its next write the way a full disk or a
+/// database gone read-only would.
+class _Catalog extends InMemoryMusicLibraryRepository {
+  bool failWrites = false;
+
+  @override
+  Future<void> upsertCatalog({
+    required String sourceId,
+    required List<Track> tracks,
+    required List<Album> albums,
+    required List<Artist> artists,
+  }) async {
+    if (failWrites) throw StateError('catalog write failed');
+    return super.upsertCatalog(
+      sourceId: sourceId,
+      tracks: tracks,
+      albums: albums,
+      artists: artists,
+    );
+  }
+}
+
 class _MapMetadataReader implements LocalMetadataReader {
   _MapMetadataReader(this.byPath);
 
@@ -124,7 +148,7 @@ void main() {
   tearDown(LocalScanDiagnostics.reset);
 
   late _Disk disk;
-  late InMemoryMusicLibraryRepository catalog;
+  late _Catalog catalog;
   late FakeAudioFileScanner scanner;
   late _MapMetadataReader tags;
   late ProviderContainer c;
@@ -223,7 +247,7 @@ void main() {
     });
     SafeEventLog.instance.clear();
     journal = _Journal();
-    catalog = InMemoryMusicLibraryRepository();
+    catalog = _Catalog();
     scanner = FakeAudioFileScanner();
     tags = _MapMetadataReader(const <String, LocalAudioMetadata>{});
     SharedPreferences.resetStatic();
@@ -468,6 +492,51 @@ void main() {
     await expectAllAt(_newer, gone: _new);
     expect((await saved()).playlist, isNot(contains(_old)));
     expect(await catalogUris(), <String>[_newer, _other]..sort());
+    expect(await kept(), isEmpty);
+  });
+
+  test(
+      'a move every store took, whose catalog write then failed, still '
+      'follows the song when it moves again', () async {
+    moveTheFile();
+    catalog.failWrites = true;
+    await rescan();
+    expect(await catalogUris(), <String>[_old, _other]..sort());
+
+    // The app closes, and the song moves on again before the next scan,
+    // which finds a move from where the catalog still is.
+    await quit();
+    catalog.failWrites = false;
+    onDisk(
+        const <String, LocalAudioMetadata>{_newer: _holocene, _other: _towers});
+    await launch();
+    await rescan();
+
+    await expectAllAt(_newer, gone: _new);
+    expect((await saved()).playlist, isNot(contains(_old)));
+    expect(await catalogUris(), <String>[_newer, _other]..sort());
+    expect(await kept(), isEmpty);
+  });
+
+  test(
+      'a scan held back because its move could not be kept leaves every '
+      'store where the catalog is', () async {
+    moveTheFile();
+    // The playlists refuse the move and the record of it can't be saved, so
+    // the catalog is held back. The hearts must not have moved ahead of it.
+    disk.refusing.addAll(<String>{_playlistsKey, _journalKey});
+    await rescan();
+    expect(await catalogUris(), <String>[_old, _other]..sort());
+    expect((await saved()).hearts, <String>{_old});
+
+    await quit();
+    disk.refusing.clear();
+    onDisk(
+        const <String, LocalAudioMetadata>{_newer: _holocene, _other: _towers});
+    await launch();
+    await rescan();
+
+    await expectAllAt(_newer, gone: _new);
     expect(await kept(), isEmpty);
   });
 }
