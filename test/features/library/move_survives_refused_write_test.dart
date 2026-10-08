@@ -143,6 +143,7 @@ const String _other = '/music/Bon Iver/06 Towers.flac';
 const String _playlistsKey = 'flutter.playlists_v1';
 const String _favoritesKey = 'flutter.favorites_v2';
 const String _journalKey = 'flutter.pending_track_moves_v1';
+const String _addedKey = 'flutter.library_added_v1';
 const String _setAsideKey = 'flutter.pending_track_moves_v1_unreadable';
 
 final DateTime _addedLongAgo = DateTime.utc(2021, 6, 1);
@@ -589,6 +590,23 @@ void main() {
 
     await expectAllAt(moved, gone: _old);
     expect(await catalogUris(), <String>[moved, _other]..sort());
+    expect(await kept(), isEmpty);
+  });
+
+  test(
+      'a song removed from Linthra while its move was kept counts as new '
+      'when a scan brings it back', () async {
+    moveTheFile();
+    disk.refusing.add(_addedKey);
+    await rescan();
+    expect(await kept(), hasLength(1));
+
+    // Removed from Linthra; the file stays, so the next scan adds it again.
+    disk.refusing.clear();
+    await c.read(musicLibraryRepositoryProvider).removeTracks(<String>[_new]);
+    await rescan();
+
+    expect((await saved()).added[_new]?.toUtc(), DateTime.utc(2026, 9, 10));
     expect(await kept(), isEmpty);
   });
 }

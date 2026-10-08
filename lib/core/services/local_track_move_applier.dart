@@ -73,6 +73,9 @@ class LocalTrackMoveApplier {
   ///    with it every later move for the same stores. [wasIndexed] says the
   ///    old path is still in the catalog.
   ///
+  /// A written move whose new path has left the catalog since (removed from
+  /// Linthra, or deleted) is dropped, unless a later one goes on from there.
+  ///
   /// Moves go to each target in the order they were made. Once one is refused,
   /// the target's later moves wait behind it, even those that would change
   /// nothing yet: after `a -> b` and `b -> c`, a playlist still on `a` needs
@@ -135,10 +138,12 @@ class LocalTrackMoveApplier {
       for (final LocalTrackMove move in moves) move.from,
     };
     final Set<String> goneNow = <String>{...reconciliation.removedUris};
+    final Set<PendingTrackMove> leftBehind = _leftBehind(waiting, wasIndexed);
     final List<_Move> work = <_Move>[
       for (final PendingTrackMove move in waiting)
         if (!(isPresent?.call(move.from) ?? false) &&
-            !movedNow.contains(move.from))
+            !movedNow.contains(move.from) &&
+            !leftBehind.contains(move))
           _Move(
             move.from,
             move.to,
@@ -168,6 +173,29 @@ class LocalTrackMoveApplier {
     // offered again, they change nothing.
     if (!_same(left, onDisk)) await _save(store, left);
     return (moves: moves.length, committed: true);
+  }
+
+  /// The written moves whose song has since left the catalog: removed from
+  /// Linthra, or deleted, with no later move going on from there. Told now,
+  /// they would hand the old path's state to a song that counts as new if it
+  /// ever comes back.
+  static Set<PendingTrackMove> _leftBehind(
+    List<PendingTrackMove> waiting,
+    bool Function(String uri)? wasIndexed,
+  ) {
+    if (wasIndexed == null) return const <PendingTrackMove>{};
+    final Set<PendingTrackMove> left = <PendingTrackMove>{};
+    final Set<String> goesOnFrom = <String>{};
+    for (final PendingTrackMove move in waiting.reversed) {
+      if (!wasIndexed(move.from) &&
+          !wasIndexed(move.to) &&
+          !goesOnFrom.contains(move.to)) {
+        left.add(move);
+      } else {
+        goesOnFrom.add(move.from);
+      }
+    }
+    return left;
   }
 
   /// With no record to keep a move in, the stores are told first, and the

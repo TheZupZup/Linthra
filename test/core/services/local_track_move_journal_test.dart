@@ -534,6 +534,57 @@ void main() {
     expect(b.calls, isEmpty);
   });
 
+  group('a written move whose new path has left the catalog', () {
+    test('is dropped', () async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+      ]);
+
+      await applier().apply(
+        LocalCatalogReconciliation.none,
+        wasIndexed: (String uri) => false,
+      );
+
+      expect(b.calls, isEmpty);
+      expect(await journal.load(), isEmpty);
+    });
+
+    test('is kept when a later one goes on from there', () async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+        PendingTrackMove(
+            from: '/b.flac', to: '/c.flac', targets: <String>{'b'}),
+      ]);
+
+      await applier().apply(
+        LocalCatalogReconciliation.none,
+        wasIndexed: (String uri) => uri == '/c.flac',
+      );
+
+      expect(b.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
+      expect(await journal.load(), isEmpty);
+    });
+
+    test('goes with the whole chain when its end has left too', () async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+        PendingTrackMove(
+            from: '/b.flac', to: '/c.flac', targets: <String>{'b'}),
+      ]);
+
+      await applier().apply(
+        LocalCatalogReconciliation.none,
+        wasIndexed: (String uri) => false,
+      );
+
+      expect(b.calls, isEmpty);
+      expect(await journal.load(), isEmpty);
+    });
+  });
+
   test('a kept move for a store that is no longer there is dropped', () async {
     await journal.save(const <PendingTrackMove>[
       PendingTrackMove(
