@@ -609,4 +609,22 @@ void main() {
     expect((await saved()).added[_new]?.toUtc(), DateTime.utc(2026, 9, 10));
     expect(await kept(), isEmpty);
   });
+
+  test(
+      'a song removed from Linthra while its playlist move was kept is in '
+      'that playlist when a scan brings it back', () async {
+    moveTheFile();
+    disk.refusing.addAll(<String>{_addedKey, _playlistsKey});
+    await rescan();
+    expect((await saved()).playlist, <String>[_old, _other]);
+
+    // Removing from Linthra keeps the song's playlists, for when it's back.
+    disk.refusing.clear();
+    await c.read(musicLibraryRepositoryProvider).removeTracks(<String>[_new]);
+    await rescan();
+
+    expect((await saved()).playlist, <String>[_new, _other]);
+    expect((await saved()).added[_new]?.toUtc(), DateTime.utc(2026, 9, 10));
+    expect(await kept(), isEmpty);
+  });
 }

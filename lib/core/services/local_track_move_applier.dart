@@ -74,7 +74,9 @@ class LocalTrackMoveApplier {
   ///    old path is still in the catalog.
   ///
   /// A written move whose new path has left the catalog since (removed from
-  /// Linthra, or deleted) is dropped, unless a later one goes on from there.
+  /// Linthra, or deleted) no longer goes to the library, unless a later one
+  /// goes on from there: a song that comes back counts as new. The other
+  /// stores keep the song past its removal, so they still take it.
   ///
   /// Moves go to each target in the order they were made. Once one is refused,
   /// the target's later moves wait behind it, even those that would change
@@ -142,14 +144,15 @@ class LocalTrackMoveApplier {
     final List<_Move> work = <_Move>[
       for (final PendingTrackMove move in waiting)
         if (!(isPresent?.call(move.from) ?? false) &&
-            !movedNow.contains(move.from) &&
-            !leftBehind.contains(move))
+            !movedNow.contains(move.from))
           _Move(
             move.from,
             move.to,
             <String>{
               for (final String name in move.targets)
-                if (stores.containsKey(name)) name,
+                if (stores.containsKey(name) &&
+                    !(name == library && leftBehind.contains(move)))
+                  name,
             },
             waits: (wasIndexed?.call(move.from) ?? false) &&
                 !goneNow.contains(move.from),
@@ -176,9 +179,9 @@ class LocalTrackMoveApplier {
   }
 
   /// The written moves whose song has since left the catalog: removed from
-  /// Linthra, or deleted, with no later move going on from there. Told now,
-  /// they would hand the old path's state to a song that counts as new if it
-  /// ever comes back.
+  /// Linthra, or deleted, with no later move going on from there. Told to the
+  /// library now, they would hand the old path's "added on" time to a song
+  /// that counts as new if it ever comes back.
   static Set<PendingTrackMove> _leftBehind(
     List<PendingTrackMove> waiting,
     bool Function(String uri)? wasIndexed,

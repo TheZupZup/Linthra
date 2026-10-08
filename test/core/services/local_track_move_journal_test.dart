@@ -535,52 +535,79 @@ void main() {
   });
 
   group('a written move whose new path has left the catalog', () {
-    test('is dropped', () async {
+    const String library = LocalTrackMoveApplier.library;
+
+    // The library under its own name, next to a store that keeps the song
+    // past its removal.
+    LocalTrackMoveApplier withLibrary() => LocalTrackMoveApplier(
+          <String, Object>{library: a, 'b': b},
+          pending: journal,
+        );
+
+    test('no longer goes to the library', () async {
       await journal.save(const <PendingTrackMove>[
         PendingTrackMove(
-            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+            from: '/a.flac', to: '/b.flac', targets: <String>{library}),
       ]);
 
-      await applier().apply(
+      await withLibrary().apply(
         LocalCatalogReconciliation.none,
         wasIndexed: (String uri) => false,
       );
 
-      expect(b.calls, isEmpty);
+      expect(a.calls, isEmpty);
       expect(await journal.load(), isEmpty);
     });
 
-    test('is kept when a later one goes on from there', () async {
+    test('still goes to the stores that keep the song', () async {
       await journal.save(const <PendingTrackMove>[
         PendingTrackMove(
-            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
-        PendingTrackMove(
-            from: '/b.flac', to: '/c.flac', targets: <String>{'b'}),
+            from: '/a.flac', to: '/b.flac', targets: <String>{library, 'b'}),
       ]);
 
-      await applier().apply(
+      await withLibrary().apply(
+        LocalCatalogReconciliation.none,
+        wasIndexed: (String uri) => false,
+      );
+
+      expect(a.calls, isEmpty);
+      expect(b.calls, <String>['/a.flac -> /b.flac']);
+      expect(await journal.load(), isEmpty);
+    });
+
+    test('still goes to the library when a later one goes on from there',
+        () async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+            from: '/a.flac', to: '/b.flac', targets: <String>{library}),
+        PendingTrackMove(
+            from: '/b.flac', to: '/c.flac', targets: <String>{library}),
+      ]);
+
+      await withLibrary().apply(
         LocalCatalogReconciliation.none,
         wasIndexed: (String uri) => uri == '/c.flac',
       );
 
-      expect(b.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
+      expect(a.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
       expect(await journal.load(), isEmpty);
     });
 
-    test('goes with the whole chain when its end has left too', () async {
+    test('takes the whole chain from the library when its end has left too',
+        () async {
       await journal.save(const <PendingTrackMove>[
         PendingTrackMove(
-            from: '/a.flac', to: '/b.flac', targets: <String>{'b'}),
+            from: '/a.flac', to: '/b.flac', targets: <String>{library}),
         PendingTrackMove(
-            from: '/b.flac', to: '/c.flac', targets: <String>{'b'}),
+            from: '/b.flac', to: '/c.flac', targets: <String>{library}),
       ]);
 
-      await applier().apply(
+      await withLibrary().apply(
         LocalCatalogReconciliation.none,
         wasIndexed: (String uri) => false,
       );
 
-      expect(b.calls, isEmpty);
+      expect(a.calls, isEmpty);
       expect(await journal.load(), isEmpty);
     });
   });
