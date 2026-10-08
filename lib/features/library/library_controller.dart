@@ -429,7 +429,6 @@ class LibraryController extends Notifier<LibraryState> {
         // applier keeps it on disk first and tells the stores after. When it
         // can't be kept, the catalog isn't written either: still at the old
         // path, it is what lets the next scan find the move again.
-        Set<String>? scanned;
         Set<String>? indexed;
         final ({int moves, bool committed}) moved = await LocalTrackMoveApplier(
           <String, Object>{
@@ -445,10 +444,7 @@ class LibraryController extends Notifier<LibraryState> {
         ).apply(
           scan.reconciliation,
           commit: writeCatalog,
-          isPresent: (String uri) => (scanned ??= <String>{
-            for (final Track track in tracks) track.uri,
-          })
-              .contains(uri),
+          isPresent: scan.seen.contains,
           wasIndexed: previousTracks == null
               ? null
               : (String uri) => (indexed ??= <String>{

@@ -405,6 +405,37 @@ void main() {
       expect(await journal.load(), isEmpty);
     });
 
+    test(
+        'an entry it never wrote waits while its old folder is unread, and '
+        'later moves for the same stores wait behind it', () async {
+      await journal.save(const <PendingTrackMove>[
+        PendingTrackMove(
+          from: '/a.flac',
+          to: '/b.flac',
+          targets: <String>{'a', 'b', 'c'},
+        ),
+      ]);
+      // /a.flac is still in the catalog, and this scan says nothing about it.
+      await applier().apply(
+        _moves(<(String, String)>[('/b.flac', '/c.flac')]),
+        wasIndexed: (String uri) => uri == '/a.flac' || uri == '/b.flac',
+      );
+      expect(<String>[...a.calls, ...b.calls, ...c.calls], isEmpty);
+      expect(await journal.load(), hasLength(2));
+
+      // Its folder is read again, and the file is gone from there. The
+      // catalog has moved on to /c.flac since.
+      await applier().apply(
+        const LocalCatalogReconciliation(removedUris: <String>['/a.flac']),
+        wasIndexed: (String uri) => uri == '/a.flac' || uri == '/c.flac',
+      );
+      for (final _Store store in <_Store>[a, b, c]) {
+        expect(
+            store.calls, <String>['/a.flac -> /b.flac', '/b.flac -> /c.flac']);
+      }
+      expect(await journal.load(), isEmpty);
+    });
+
     test('is not reached when the moves cannot be written ahead', () async {
       journal.refuse = true;
       int commits = 0;

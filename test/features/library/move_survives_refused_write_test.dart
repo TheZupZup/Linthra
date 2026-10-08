@@ -153,6 +153,7 @@ void main() {
   late _MapMetadataReader tags;
   late ProviderContainer c;
   late _Journal journal;
+  List<String> folders = const <String>['/music'];
 
   /// Starts the app over what [disk] and [catalog] hold.
   Future<void> launch() async {
@@ -162,9 +163,7 @@ void main() {
         folderPickerServiceProvider
             .overrideWithValue(FakeFolderPickerService()),
         selectedMusicFolderRepositoryProvider.overrideWithValue(
-          InMemorySelectedMusicFolderRepository(
-            initialFolders: const <String>['/music'],
-          ),
+          InMemorySelectedMusicFolderRepository(initialFolders: folders),
         ),
         favoritesStoreProvider
             .overrideWithValue(const SharedPreferencesFavoritesStore()),
@@ -203,6 +202,18 @@ void main() {
     tags.byPath = files;
     scanner.filesByFolder = <String, List<String>>{
       '/music': files.keys.toList(),
+    };
+  }
+
+  void onDisks(Map<String, Map<String, LocalAudioMetadata>> byFolder) {
+    tags.byPath = <String, LocalAudioMetadata>{
+      for (final Map<String, LocalAudioMetadata> files in byFolder.values)
+        ...files,
+    };
+    scanner.filesByFolder = <String, List<String>>{
+      for (final MapEntry<String, Map<String, LocalAudioMetadata>> folder
+          in byFolder.entries)
+        folder.key: folder.value.keys.toList(),
     };
   }
 
@@ -246,6 +257,7 @@ void main() {
       SharedPreferences.resetStatic();
     });
     SafeEventLog.instance.clear();
+    folders = const <String>['/music'];
     journal = _Journal();
     catalog = _Catalog();
     scanner = FakeAudioFileScanner();
@@ -537,6 +549,41 @@ void main() {
     await rescan();
 
     await expectAllAt(_newer, gone: _new);
+    expect(await kept(), isEmpty);
+  });
+
+  test(
+      'a move whose catalog write failed waits while its old folder is '
+      'offline, and lands once it is back', () async {
+    const String moved = '/drive/Bon Iver/05 Holocene.flac';
+    await quit();
+    folders = const <String>['/drive', '/music'];
+    await launch();
+
+    onDisks(const <String, Map<String, LocalAudioMetadata>>{
+      '/drive': <String, LocalAudioMetadata>{moved: _holocene},
+      '/music': <String, LocalAudioMetadata>{_other: _towers},
+    });
+    catalog.failWrites = true;
+    await rescan();
+
+    // Restarted while /music is unplugged: this scan can't tell where the
+    // song went, so it writes the new file without moving anything to it.
+    await quit();
+    catalog.failWrites = false;
+    scanner.unavailable = <String>{'/music'};
+    await launch();
+    await rescan();
+    expect(await catalogUris(), <String>[moved, _old, _other]..sort());
+    expect((await saved()).playlist, <String>[_old, _other]);
+    expect(await kept(), hasLength(1));
+
+    // Back, with the song gone from its old path: the kept move lands.
+    scanner.unavailable = <String>{};
+    await rescan();
+
+    await expectAllAt(moved, gone: _old);
+    expect(await catalogUris(), <String>[moved, _other]..sort());
     expect(await kept(), isEmpty);
   });
 }

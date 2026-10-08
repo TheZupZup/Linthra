@@ -55,16 +55,23 @@ class LocalTrackMoveApplier {
   /// With a readable record, this scan's moves are saved to it first, for
   /// every store, then the catalog is written, then the stores are told, and
   /// the record keeps only what a store refused. So a store is never ahead of
-  /// the catalog: if the write fails, or the app stops before it, no store has
-  /// moved, and the next scan drops this scan's entries ([wasIndexed] says
-  /// their old path is still in the catalog) and proves the moves again from
-  /// there, wherever the file went since. If the app stops after the write,
-  /// the record still names every store, and a move offered again to a store
-  /// that has it changes nothing.
+  /// the catalog. If the app stops after the write, the record still names
+  /// every store, and a move offered again to a store that has it changes
+  /// nothing.
   ///
-  /// A pending move whose old path [isPresent] reports has a file again is
-  /// dropped as well: what is left under that path may be that file's now, and
-  /// moving it would be a guess.
+  /// If the write fails, or the app stops before it, the catalog still has
+  /// the old path, and this scan's entries wait in the record until a scan
+  /// settles them:
+  ///
+  ///  * one that proves a move from the same path replaces the entry,
+  ///    wherever the file went since;
+  ///  * one that finds a file at the old path again ([isPresent]) drops it:
+  ///    what is under that path may be that file's now, and moving it would be
+  ///    a guess (this goes for any pending move);
+  ///  * one that confirms the file is gone from there lets it through;
+  ///  * one that couldn't read the old path's folder leaves it waiting, and
+  ///    with it every later move for the same stores. [wasIndexed] says the
+  ///    old path is still in the catalog.
   ///
   /// Moves go to each target in the order they were made. Once one is refused,
   /// the target's later moves wait behind it, even those that would change
@@ -123,14 +130,24 @@ class LocalTrackMoveApplier {
     }
     if (store == null || corrupt) return _storesFirst(stores, moves, write);
 
+    final Set<String> movedNow = <String>{
+      for (final LocalTrackMove move in moves) move.from,
+    };
+    final Set<String> goneNow = <String>{...reconciliation.removedUris};
     final List<_Move> work = <_Move>[
       for (final PendingTrackMove move in waiting)
         if (!(isPresent?.call(move.from) ?? false) &&
-            !(wasIndexed?.call(move.from) ?? false))
-          _Move(move.from, move.to, <String>{
-            for (final String name in move.targets)
-              if (stores.containsKey(name)) name,
-          }),
+            !movedNow.contains(move.from))
+          _Move(
+            move.from,
+            move.to,
+            <String>{
+              for (final String name in move.targets)
+                if (stores.containsKey(name)) name,
+            },
+            waits: (wasIndexed?.call(move.from) ?? false) &&
+                !goneNow.contains(move.from),
+          ),
       for (final LocalTrackMove move in moves)
         _Move(move.from, move.to, <String>{...stores.keys}),
     ];
@@ -181,7 +198,8 @@ class LocalTrackMoveApplier {
     return (moves: moves, committed: true);
   }
 
-  /// Offers [work] to each store in order, up to the first move it refuses.
+  /// Offers [work] to each store in order, up to the first move it refuses or
+  /// that has to wait.
   static Future<void> _offer(
     Map<String, TrackIdentityReassignable> stores,
     List<_Move> work,
@@ -190,6 +208,7 @@ class LocalTrackMoveApplier {
         in stores.entries) {
       for (final _Move move in work) {
         if (!move.left.contains(target.key)) continue;
+        if (move.waits) break;
         final bool saved = await target.value.reassignTrack(
           fromUri: move.from,
           toUri: move.to,
@@ -245,9 +264,12 @@ class LocalTrackMoveApplier {
 
 /// A move being offered, and the targets it is still to reach.
 class _Move {
-  _Move(this.from, this.to, this.left);
+  _Move(this.from, this.to, this.left, {this.waits = false});
 
   final String from;
   final String to;
   final Set<String> left;
+
+  /// Its catalog write never happened, and this scan couldn't settle it.
+  final bool waits;
 }
