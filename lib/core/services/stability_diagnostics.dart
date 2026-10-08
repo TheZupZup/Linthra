@@ -121,6 +121,51 @@ abstract final class StabilityDiagnostics {
   static String describeLocalStoreWriteFailure(String area) =>
       'local storage write failed: $area';
 
+  /// A store ([target], a fixed name such as `playlists`) that could not take
+  /// a local file's move yet, which is kept for the next scan. Never a path.
+  static void trackMoveKept(String target) {
+    SafeEventLog.instance.record('track-move-kept', target);
+    _log(describeTrackMoveKept(target));
+  }
+
+  static String describeTrackMoveKept(String target) =>
+      'local track move kept for later: $target';
+
+  /// A store ([target]) that failed to take a local file's move for a reason
+  /// other than a refused write: a bug rather than a full disk. Only the
+  /// error's type is recorded. The move is kept and asked again all the same.
+  static void trackMoveFailedUnexpectedly(String target, Object error) {
+    SafeEventLog.instance.record(
+      'track-move-error',
+      '$target: ${error.runtimeType}',
+    );
+    _log(describeTrackMoveFailedUnexpectedly(target, error));
+  }
+
+  static String describeTrackMoveFailedUnexpectedly(
+    String target,
+    Object error,
+  ) =>
+      'local track move failed unexpectedly: $target (${error.runtimeType})';
+
+  /// Trouble with the record of local moves some store still has to take, as
+  /// one fixed [event]: `read-failed`, `corrupt`, `set-aside` (a corrupt one
+  /// was moved, unchanged, to a key of its own), `write-failed`, or
+  /// `held-back` (a scan's catalog write waited, because one of its moves
+  /// could neither reach every store nor be kept). Never a path.
+  static void trackMoveJournal(String event) {
+    SafeEventLog.instance.record('track-move-journal', event);
+    _log(describeTrackMoveJournal(event));
+  }
+
+  static String describeTrackMoveJournal(String event) =>
+      'local track move record: $event';
+
+  /// The record of kept moves failed in a way it doesn't report itself: a bug
+  /// rather than storage. Only the error's type is recorded.
+  static void trackMoveJournalFailedUnexpectedly(Object error) =>
+      trackMoveJournal('unexpected: ${error.runtimeType}');
+
   /// An automatic recovery step the player took on its own after a track
   /// failed: `retry` (one more try at the same track), `advance` (moving on to
   /// the next one), or `settled` (stopped, waiting for the listener). A fixed

@@ -33,6 +33,8 @@ String unsavedChangeMessage(LocalStoreArea area, {String? what}) {
         LocalStoreArea.favorites => 'that favorite',
         LocalStoreArea.playlists => 'that playlist change',
         LocalStoreArea.playHistory => 'your listening history',
+        LocalStoreArea.libraryAdded => 'when your songs were added',
+        LocalStoreArea.trackMoves => 'where your moved songs went',
       };
   return "Couldn't save $unsaved. Check that your device has free storage, "
       'then try again.';

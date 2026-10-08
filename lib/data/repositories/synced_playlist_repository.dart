@@ -10,6 +10,7 @@ import '../../core/repositories/playlist_repository.dart';
 import '../../core/repositories/playlist_store.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
+import '../../core/repositories/track_identity_reassignable.dart';
 import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/music_provider.dart';
@@ -32,7 +33,8 @@ import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 ///
 /// Security: only non-secret metadata and track ids are stored or sent. Sessions
 /// (with their tokens) live behind the gateways — never logged or persisted here.
-class SyncedPlaylistRepository implements PlaylistRepository {
+class SyncedPlaylistRepository
+    implements PlaylistRepository, TrackIdentityReassignable {
   SyncedPlaylistRepository({
     required PlaylistStore store,
     List<RemotePlaylistGateway> gateways = const <RemotePlaylistGateway>[],
@@ -820,6 +822,60 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     if (changed) await _write(next, keepIfRefused: true);
   }
 
+  /// Carries a moved local file to its new path in every device playlist that
+  /// holds it, in the same place, so tidying a folder doesn't leave the song
+  /// missing from them (#794).
+  ///
+  /// Only device playlists and local paths take part: a synced playlist holds
+  /// its server's songs, and a `scheme:` uri is a server's to change, so one
+  /// is refused rather than rewritten. Nothing is pushed anywhere. A playlist
+  /// that already lists the new path keeps whichever entry came first. Not an
+  /// edit, so [Playlist.updatedAt] stays as it was.
+  ///
+  /// Never throws: a save the disk refuses leaves every playlist as it was
+  /// (#808) and completes with false, so the move is kept and asked again
+  /// rather than failing the scan that asked. Asked again, it finds the old
+  /// path gone from every playlist and saves nothing.
+  @override
+  Future<bool> reassignTrack({
+    required String fromUri,
+    required String toUri,
+  }) async {
+    if (fromUri == toUri) return true;
+    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return true;
+    try {
+      await _ensureLoaded();
+      await _inTurn(() async {
+        bool changed = false;
+        final List<Playlist> next = <Playlist>[];
+        for (final Playlist p in _playlists) {
+          if (p.source != PlaylistSource.local ||
+              !p.trackIds.contains(fromUri)) {
+            next.add(p);
+            continue;
+          }
+          changed = true;
+          next.add(p.copyWith(
+            trackIds: _rekeyed(
+              p.trackIds,
+              (String id) => id == fromUri ? toUri : id,
+            ),
+          ));
+        }
+        if (changed) await _write(next);
+      });
+      return true;
+    } on LocalStoreWriteException {
+      return false; // Already reported by [_write].
+    } catch (error) {
+      StabilityDiagnostics.trackMoveFailedUnexpectedly('playlists', error);
+      return false;
+    }
+  }
+
+  static bool _isRemoteUri(String trackUri) =>
+      MusicProviders.bareRemoteIdForTrackUri(trackUri) != null;
+
   // --- Internal helpers --------------------------------------------------
 
   /// Re-keys a pre-uri store's bare-`id` membership onto the provider-namespaced
@@ -897,15 +953,27 @@ class SyncedPlaylistRepository implements PlaylistRepository {
     Playlist playlist,
     Set<String> catalogUris,
     Map<String, String?> ownerByBareId,
+  ) =>
+      _rekeyed(
+        playlist.trackIds,
+        (String id) =>
+            _migrateOneTrackId(id, playlist.source, catalogUris, ownerByBareId),
+      );
+
+  /// [trackIds] with every entry replaced by what [rekey] maps it to, or
+  /// [trackIds] itself when nothing changed. Two different entries the re-key
+  /// makes one are collapsed, the first staying where it was; a song the list
+  /// already held twice stays twice (see [_migrateTrackIds]).
+  static List<String> _rekeyed(
+    List<String> trackIds,
+    String Function(String id) rekey,
   ) {
-    if (playlist.trackIds.isEmpty) return playlist.trackIds;
     bool changed = false;
-    // The entry each migrated id was first made from.
+    // The entry each re-keyed id was first made from.
     final Map<String, String> firstFrom = <String, String>{};
     final List<String> result = <String>[];
-    for (final String id in playlist.trackIds) {
-      final String mapped =
-          _migrateOneTrackId(id, playlist.source, catalogUris, ownerByBareId);
+    for (final String id in trackIds) {
+      final String mapped = rekey(id);
       if (mapped != id) changed = true;
       if (firstFrom.putIfAbsent(mapped, () => id) == id) {
         result.add(mapped);
@@ -913,7 +981,7 @@ class SyncedPlaylistRepository implements PlaylistRepository {
         changed = true; // two entries the re-key made one: collapsed away
       }
     }
-    return changed ? result : playlist.trackIds;
+    return changed ? result : trackIds;
   }
 
   /// Maps one legacy membership entry to its provider uri. Entries that already

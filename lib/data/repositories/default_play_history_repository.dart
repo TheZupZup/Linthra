@@ -107,28 +107,36 @@ class DefaultPlayHistoryRepository
   /// [PlayHistory.remapKey] does the merging: if the new path somehow already
   /// had stats (the same song was there before, then replaced) the counts add
   /// up and the later last-played time wins, so nothing is lost either way.
+  ///
+  /// Saved before it becomes the history, unlike a recorded play: a refused
+  /// save leaves the counts where they were and completes with false, so the
+  /// move is kept and asked again. Kept only in memory, it would be gone with
+  /// the next launch, while the move itself would already count as done.
+  /// Asked again after it landed, it finds nothing under the old path.
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) {
-    _writes = _writes.then((_) async {
+    final Future<bool> moved = _writes.then((_) async {
       try {
         await _ensureLoaded();
         final PlayHistory remapped = _history.remapKey(fromUri, toUri);
-        if (identical(remapped, _history)) return;
+        if (identical(remapped, _history)) return true;
+        await _store.save(remapped);
         _history = remapped;
-        await _store.save(_history);
         if (!_changes.isClosed) _changes.add(_history);
+        return true;
       } on LocalStoreWriteException catch (error) {
         StabilityDiagnostics.localStoreWriteFailure(error.area.name);
-      } catch (_) {
-        // Same contract as recordCompletion: never throw at the caller. A
-        // failed persist keeps the re-keyed history in memory and the next
-        // write retries the save.
+        return false;
+      } catch (error) {
+        StabilityDiagnostics.trackMoveFailedUnexpectedly('playHistory', error);
+        return false;
       }
     });
-    return _writes;
+    _writes = moved;
+    return moved;
   }
 
   /// Re-keys a pre-uri store's bare-`id`-keyed stats onto the provider-namespaced

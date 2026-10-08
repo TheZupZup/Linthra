@@ -74,6 +74,7 @@ class LocalLibraryScan {
     required this.roots,
     this.retentionUnavailable = false,
     this.reconciliation = LocalCatalogReconciliation.none,
+    this.seen = const <String>{},
   });
 
   /// The complete local catalog to persist: every readable folder's tracks,
@@ -112,6 +113,11 @@ class LocalLibraryScan {
   /// on"). Empty when the caller passed no [LocalLibraryScanner.scan]
   /// `previousTracks`, since without them nothing can be compared.
   final LocalCatalogReconciliation reconciliation;
+
+  /// The uris whose file this scan actually found, in a folder it read. Not
+  /// the same as [tracks]: those also carry the rows of folders, or parts of
+  /// folders, it could not read, which say nothing about what is on disk.
+  final Set<String> seen;
 
   /// No folder could be read. Nothing new was learned, so the catalog should be
   /// left exactly as it is.
@@ -236,6 +242,7 @@ class LocalLibraryScanner {
     // in a folder it did read: listed and then unreadable, or under a
     // subfolder that stopped answering. See [_dropMovedAway].
     final Set<String> unseen = <String>{};
+    final Set<String> seen = <String>{};
 
     final Set<String> confirmedEmpty = <String>{
       for (final String root in acceptEmpty) LocalMusicRoots.canonicalize(root),
@@ -255,6 +262,7 @@ class LocalLibraryScanner {
         int imported = 0;
         int carriedOver = 0;
         for (final Track track in scan.tracks) {
+          if (!scan.vanished.contains(track.uri)) seen.add(track.uri);
           if (merged.containsKey(track.uri)) continue;
           merged[track.uri] = StampedTrack(
             track: track,
@@ -376,6 +384,7 @@ class LocalLibraryScanner {
       ),
       roots: outcomes,
       retentionUnavailable: retentionUnavailable,
+      seen: seen,
       // Only meaningful against a known previous state, and only worth
       // computing for a scan whose result may actually be written.
       reconciliation: previousTracks == null || everyRootFailed

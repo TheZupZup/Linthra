@@ -19,12 +19,16 @@ class _NotReassignable {}
 class _RecordingTarget implements TrackIdentityReassignable {
   final List<String> calls = <String>[];
 
+  /// While set, every move is refused, the way a full disk refuses its save.
+  bool refuse = false;
+
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) async {
     calls.add('$fromUri -> $toUri');
+    return !refuse;
   }
 }
 
@@ -34,16 +38,17 @@ void main() {
       final a = _RecordingTarget();
       final b = _RecordingTarget();
 
-      final int applied = await LocalTrackMoveApplier(<Object>[
-        a,
-        _NotReassignable(),
-        b,
-      ]).apply(const LocalCatalogReconciliation(
+      final int applied = (await LocalTrackMoveApplier(<String, Object>{
+        'a': a,
+        'not': _NotReassignable(),
+        'b': b,
+      }).apply(const LocalCatalogReconciliation(
         moves: <LocalTrackMove>[
           LocalTrackMove(from: '/old/1.flac', to: '/new/1.flac'),
           LocalTrackMove(from: '/old/2.flac', to: '/new/2.flac'),
         ],
-      ));
+      )))
+          .moves;
 
       expect(applied, 2);
       expect(a.calls, <String>[
@@ -56,11 +61,13 @@ void main() {
     test('a reconciliation with only deletions moves nothing', () async {
       final target = _RecordingTarget();
 
-      final int applied = await LocalTrackMoveApplier(<Object>[target]).apply(
+      final int applied =
+          (await LocalTrackMoveApplier(<String, Object>{'t': target}).apply(
         const LocalCatalogReconciliation(
           removedUris: <String>['/music/gone.flac'],
         ),
-      );
+      ))
+              .moves;
 
       expect(applied, 0);
       expect(target.calls, isEmpty);

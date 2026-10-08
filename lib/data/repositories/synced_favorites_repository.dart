@@ -516,15 +516,18 @@ class SyncedFavoritesRepository
   /// filesystem path, so it can never be a `scheme:`-namespaced remote uri, and
   /// a caller handing us one is asking for something a *server* owns. It is refused
   /// rather than quietly rewritten, since no server was told about it and the
-  /// next refresh would revert it anyway. Nothing is pushed anywhere: local
-  /// hearts never leave the device.
+  /// next refresh would revert it anyway: there is nothing of ours to move.
+  /// Nothing is pushed anywhere: local hearts never leave the device.
+  ///
+  /// A save the disk refuses leaves the heart where it was (#808) and
+  /// completes with false, so the move is kept and asked again.
   @override
-  Future<void> reassignTrack({
+  Future<bool> reassignTrack({
     required String fromUri,
     required String toUri,
   }) async {
-    if (fromUri == toUri) return;
-    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return;
+    if (fromUri == toUri) return true;
+    if (_isRemoteUri(fromUri) || _isRemoteUri(toUri)) return true;
     try {
       await _ensureLoaded();
       await _inTurn(() async {
@@ -539,9 +542,12 @@ class SyncedFavoritesRepository
         );
         _emit();
       });
-    } catch (_) {
-      // A store that cannot be written right now leaves the heart where it is
-      // rather than failing the scan that asked; the next scan tries again.
+      return true;
+    } on LocalStoreWriteException {
+      return false; // Already reported by [_write].
+    } catch (error) {
+      StabilityDiagnostics.trackMoveFailedUnexpectedly('favorites', error);
+      return false;
     }
   }
 

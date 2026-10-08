@@ -19,7 +19,9 @@ import '../../core/sources/local/local_scan_report.dart';
 import '../../data/repositories/favorites_repository_provider.dart';
 import '../../data/repositories/local_tag_revision_store_provider.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
+import '../../data/repositories/pending_track_move_store_provider.dart';
 import '../../data/repositories/play_history_repository_provider.dart';
+import '../../data/repositories/playlist_repository_provider.dart';
 import 'library_providers.dart';
 import 'library_state.dart';
 import 'local_root_availability_controller.dart';
@@ -402,31 +404,56 @@ class LibraryController extends Notifier<LibraryState> {
         // Check at commit time, not merely when the filesystem walk finishes.
         if (generation != _scanGeneration) return null;
         final repository = ref.read(musicLibraryRepositoryProvider);
-        // Before the write, never after: the catalog write stamps any uri it
-        // has not seen before as newly added, so the moved file's real "added
-        // on" date has to be carried across first.
-        await LocalTrackMoveApplier(<Object>[
-          repository,
-          ref.read(favoritesRepositoryProvider),
-          ref.read(playHistoryRepositoryProvider),
-        ]).apply(scan.reconciliation);
         final List<Track> tracks = scan.plainTracks;
-        if (repository is StampedCatalogWriter) {
-          // Same write, plus the stamps a later scan compares against. Without
-          // them every scan re-parses everything, which is correct but is the
-          // cost this exists to remove.
-          await (repository as StampedCatalogWriter).upsertStampedCatalog(
-            sourceId: _localSourceId,
-            tracks: scan.tracks,
-          );
-        } else {
-          await repository.upsertCatalog(
-            sourceId: _localSourceId,
-            tracks: tracks,
-            albums: groupAlbums(tracks),
-            artists: groupArtists(tracks),
-          );
+        Future<void> writeCatalog() async {
+          if (repository is StampedCatalogWriter) {
+            // Same write, plus the stamps a later scan compares against.
+            // Without them every scan re-parses everything, which is correct
+            // but is the cost this exists to remove.
+            await (repository as StampedCatalogWriter).upsertStampedCatalog(
+              sourceId: _localSourceId,
+              tracks: scan.tracks,
+            );
+          } else {
+            await repository.upsertCatalog(
+              sourceId: _localSourceId,
+              tracks: tracks,
+              albums: groupAlbums(tracks),
+              artists: groupArtists(tracks),
+            );
+          }
         }
+
+        // The catalog and everything else keyed on a moved song's path move
+        // together: after this write no scan can find the move again, so the
+        // applier keeps it on disk first and tells the stores after. When it
+        // can't be kept, the catalog isn't written either: still at the old
+        // path, it is what lets the next scan find the move again.
+        Set<String>? indexed;
+        final ({int moves, bool committed}) moved = await LocalTrackMoveApplier(
+          <String, Object>{
+            LocalTrackMoveApplier.library: repository,
+            LocalTrackMoveApplier.favorites:
+                ref.read(favoritesRepositoryProvider),
+            LocalTrackMoveApplier.playHistory:
+                ref.read(playHistoryRepositoryProvider),
+            LocalTrackMoveApplier.playlists:
+                ref.read(playlistRepositoryProvider),
+          },
+          pending: ref.read(pendingTrackMoveStoreProvider),
+        ).apply(
+          scan.reconciliation,
+          commit: writeCatalog,
+          isPresent: scan.seen.contains,
+          wasIndexed: previousTracks == null
+              ? null
+              : (String uri) => (indexed ??= <String>{
+                    for (final StampedTrack stamped in previousTracks)
+                      stamped.track.uri,
+                  })
+                      .contains(uri),
+        );
+        if (!moved.committed) throw const _MovesNotKept();
         // A newer action may have started while the write was awaiting I/O.
         // Its queued write will run after this one; do not publish stale status.
         // Nor record how these folders were read: a scan that started then may
@@ -686,3 +713,9 @@ class LibraryController extends Notifier<LibraryState> {
 
 final libraryControllerProvider =
     NotifierProvider<LibraryController, LibraryState>(LibraryController.new);
+
+/// Thrown, and handled like a failed catalog write, when a scan's moves could
+/// neither reach every store nor be kept for later. See [LocalTrackMoveApplier].
+class _MovesNotKept implements Exception {
+  const _MovesNotKept();
+}
