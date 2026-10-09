@@ -426,4 +426,94 @@ void main() {
     expect(controller.pauseCount, 0);
     await idle.dispose();
   });
+
+  // On Android a backgrounded app may only start audio from a foreground
+  // service the user started; Android 17 silences anything else for apps
+  // targeting API 37. A command from a Jellyfin remote on another device is not
+  // the user's own tap, so with Linthra off screen it may not start sound.
+  group('a remote cannot start sound while Linthra is off screen', () {
+    late StreamController<RemoteCommand> remote;
+    late FakePlaybackController player;
+    late RemoteControlService gated;
+    bool onScreen = false;
+
+    setUp(() {
+      onScreen = false;
+      remote = StreamController<RemoteCommand>.broadcast();
+      player = FakePlaybackController(
+        initial: PlaybackState.idle.copyWith(status: PlaybackStatus.paused),
+      );
+      gated = RemoteControlService(
+        receiver: _StreamReceiver(remote),
+        controller: player,
+        mayStartPlayback: () => onScreen,
+      );
+    });
+
+    tearDown(() async {
+      await gated.dispose();
+      await player.dispose();
+      await remote.close();
+    });
+
+    Future<void> sendGated(RemoteCommand command) async {
+      remote.add(command);
+      await pumpEventQueue();
+    }
+
+    test('Play, Play/Pause, Next and Previous from a pause are ignored',
+        () async {
+      await sendGated(const RemotePlay());
+      await sendGated(const RemotePlayPause());
+      await sendGated(const RemoteNext());
+      await sendGated(const RemotePrevious());
+      expect(player.playCount, 0);
+      expect(player.skipCount, 0);
+      expect(player.previousCount, 0);
+    });
+
+    test('Pause, Stop and Seek always apply', () async {
+      await sendGated(const RemotePause());
+      await sendGated(const RemoteStop());
+      await sendGated(const RemoteSeek(Duration(seconds: 7)));
+      expect(player.pauseCount, 1);
+      expect(player.stopCount, 1);
+      expect(player.seeks, <Duration>[const Duration(seconds: 7)]);
+    });
+
+    test('playback already under way can still be driven', () async {
+      player.emit(PlaybackState.idle.copyWith(status: PlaybackStatus.playing));
+      await sendGated(const RemoteNext());
+      await sendGated(const RemotePrevious());
+      await sendGated(const RemotePlayPause());
+      expect(player.skipCount, 1);
+      expect(player.previousCount, 1);
+      expect(player.pauseCount, 1);
+    });
+
+    test('on screen, a remote starts playback as before', () async {
+      onScreen = true;
+      await sendGated(const RemotePlay());
+      await sendGated(const RemoteNext());
+      expect(player.playCount, 1);
+      expect(player.skipCount, 1);
+    });
+
+    test('a failing check counts as "not now", never as a crash', () async {
+      final StreamController<RemoteCommand> other =
+          StreamController<RemoteCommand>.broadcast();
+      final RemoteControlService throwing = RemoteControlService(
+        receiver: _StreamReceiver(other),
+        controller: player,
+        mayStartPlayback: () => throw StateError('lifecycle unknown'),
+      );
+      addTearDown(() async {
+        await throwing.dispose();
+        await other.close();
+      });
+      other.add(const RemotePlay());
+      await pumpEventQueue();
+      expect(player.playCount, 0);
+    });
+  });
 }

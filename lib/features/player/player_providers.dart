@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../core/lifecycle/app_visibility.dart';
 import '../../core/lifecycle/async_disposal_registry.dart';
 import '../../core/lifecycle/system_sleep_watcher.dart';
 import '../../core/models/playback_state.dart';
@@ -539,9 +540,13 @@ final remoteControlReceiverProvider = Provider<RemoteControlReceiver>((ref) {
 /// — flowing through cast routing, the media session, and reporting alike.
 /// Side-effect-only; `main` instantiates it once after startup.
 final remoteControlServiceProvider = Provider<RemoteControlService>((ref) {
+  final bool isAndroid = ref.read(hostPlatformProvider).isAndroid;
   final service = RemoteControlService(
     receiver: ref.read(remoteControlReceiverProvider),
     controller: ref.read(playbackControllerProvider),
+    // Android: a remote may start sound only while Linthra is on screen. See
+    // RemoteControlService for why.
+    mayStartPlayback: isAndroid ? () => ref.read(appVisibilityProvider) : null,
   );
   ref.onDisposeAsync(service.dispose);
   return service;
