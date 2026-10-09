@@ -1554,6 +1554,51 @@ void main() {
       );
     });
 
+    test(
+        "a lookup with credentials since replaced does not fail the new "
+        "session's write", () async {
+      // The same user signed in again, with new credentials, while a long
+      // write from the old session was still asking.
+      const SubsonicSession renewed = SubsonicSession(
+        baseUrl: _base,
+        username: 'alice',
+        salt: 'salt9',
+        token: 'tok9',
+      );
+      final Completer<http.Response> oldLookup = Completer<http.Response>();
+      int lookups = 0;
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) {
+          lookups++;
+          return request.url.queryParameters['t'] == 'tok1'
+              ? oldLookup.future
+              : extensions(<String>['formPost']);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      final Future<void> old =
+          client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await pumpEventQueue();
+      final Future<void> current =
+          client.setPlaylistSongs(renewed, 'p-2', manySongs(400));
+      await pumpEventQueue();
+      oldLookup.complete(http.Response('', 401));
+
+      await expectLater(old, throwsA(isA<SubsonicException>()));
+      await current;
+      expect(writes.single.method, 'POST');
+      expect(Uri(query: writes.single.body).queryParameters['t'], 'tok9');
+
+      // The answer is the server's, so the new session's next write reuses
+      // it.
+      await client.setPlaylistSongs(renewed, 'p-3', manySongs(400));
+      expect(lookups, 2);
+      expect(writes.last.method, 'POST');
+    });
+
     test('two servers keep their own answers', () async {
       const SubsonicSession other = SubsonicSession(
         baseUrl: 'https://other.example.org',

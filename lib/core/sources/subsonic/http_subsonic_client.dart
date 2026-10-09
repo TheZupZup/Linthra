@@ -42,12 +42,18 @@ class HttpSubsonicClient implements SubsonicClient {
   static const int _shortUrlLength = 2000;
 
   /// Whether each server lists the OpenSubsonic `formPost` extension, by base
-  /// URL and user: a lookup carries one user's credentials, so its failure
-  /// must not fail another user's write. Only an answer is kept. A lookup
-  /// that failed, or got no answer either way, is asked again by the next
-  /// long write.
-  final Map<(String, String), Future<bool?>> _formPostSupport =
-      <(String, String), Future<bool?>>{};
+  /// URL and user. Only an answer is kept: a lookup that failed, or got no
+  /// answer either way, is asked again by the next long write.
+  final Map<(String, String), bool> _formPostAnswers =
+      <(String, String), bool>{};
+
+  /// The lookups still out, by the credentials they carry. Writes with the
+  /// same credentials wait on one; any others (another user, or the same one
+  /// signed in again) ask for themselves, so a refusal of one session's
+  /// credentials can't fail another's write. Dropped as each one ends, so no
+  /// credentials are kept once it has.
+  final Map<(String, String, String), Future<bool?>> _formPostLookups =
+      <(String, String, String), Future<bool?>>{};
 
   @override
   Future<SubsonicServerInfo> ping(
@@ -432,31 +438,23 @@ class HttpSubsonicClient implements SubsonicClient {
     });
   }
 
-  /// Whether to send [session]'s long playlist writes as form posts. Writes
-  /// that start while a lookup is out wait on that one rather than asking
-  /// again. A server that didn't say either way gets a GET, as it did before
-  /// form posts.
+  /// Whether to send [session]'s long playlist writes as form posts. A server
+  /// that didn't say either way gets a GET, as it did before form posts.
   Future<bool> _supportsFormPost(SubsonicSession session) async {
-    final (String, String) key = (session.baseUrl, session.username);
-    Future<bool?>? lookup = _formPostSupport[key];
-    if (lookup == null) {
-      final Future<bool?> asked = _lookUpFormPost(session);
-      _formPostSupport[key] = asked;
-      lookup = asked;
-      void forget() {
-        if (identical(_formPostSupport[key], asked)) {
-          _formPostSupport.remove(key);
-        }
-      }
-
-      unawaited(asked.then<void>(
-        (bool? answer) {
-          if (answer == null) forget();
-        },
-        onError: (Object _) => forget(),
-      ));
-    }
-    return await lookup ?? false;
+    final (String, String) server = (session.baseUrl, session.username);
+    final bool? known = _formPostAnswers[server];
+    if (known != null) return known;
+    final (String, String, String) asker =
+        (session.baseUrl, session.username, session.token);
+    final Future<bool?> lookup =
+        _formPostLookups[asker] ??= _lookUpFormPost(session).whenComplete(() {
+      // A block, not an arrow: the removed value is this very future, and
+      // returning it would have whenComplete wait on itself.
+      _formPostLookups.remove(asker);
+    });
+    final bool? answer = await lookup;
+    if (answer != null) _formPostAnswers[server] = answer;
+    return answer ?? false;
   }
 
   /// Asks [session]'s server whether it takes form posts: `true` or `false`
