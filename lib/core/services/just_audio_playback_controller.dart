@@ -1606,6 +1606,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (step <= Duration.zero || step > _maxProgressStep) return;
     _playedSinceReconnect += step;
     if (_playedSinceReconnect < healthyPlaybackBeforeRetryRefill) return;
+    _giveReconnectBack();
+  }
+
+  /// Gives the spent quick reconnect back: the stream has proven itself.
+  void _giveReconnectBack() {
     _retriesForCurrent = 0;
     _playedSinceReconnect = Duration.zero;
     _lastProgressPosition = null;
@@ -2312,8 +2317,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // repeat-one replay for a dead stream and reconnect it.
     _cancelBufferingWatchdog();
     // A track that played to its end is proof the source works again: the
-    // next failure gets a fresh bounded recovery.
+    // next failure gets a fresh bounded recovery, and a repeat-one replay
+    // (which rewinds rather than reloads) its quick reconnect back.
     _startFreshAfterFailures();
+    _giveReconnectBack();
     // The track that just finished is still current here, before any advance.
     // Record the completed play once, regardless of what plays next.
     final Track? finished = _queue.current;

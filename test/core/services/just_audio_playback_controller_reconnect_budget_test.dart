@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
+import 'package:linthra/core/models/repeat_mode.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
@@ -86,6 +87,10 @@ class _AndroidLikePlayer extends Fake implements AudioPlayer {
 
   /// A seek, or a reload landing somewhere else: one jump in position.
   void jumpTo(Duration position) => _positions.add(position);
+
+  /// The source plays to its natural end.
+  void complete() =>
+      _states.add(PlayerState(_playing, ProcessingState.completed));
 
   /// The stream dies under ExoPlayer: a source error on the event stream.
   void dropStream() => _events.addError(
@@ -241,6 +246,30 @@ void main() {
 
     expect(resolver.resolves, 2);
     expect(controller.state.status, PlaybackStatus.error);
+  });
+
+  test('a track that plays to its end gives the reconnect back for its replay',
+      () async {
+    // Reconnected in the last seconds, so not long enough to earn it back
+    // on time; the end of the track proves the stream worked anyway.
+    controller.setRepeatMode(RepeatMode.one);
+    final Duration at =
+        player.playOn(Duration.zero, const Duration(minutes: 5));
+    await drop();
+    expect(resolver.resolves, 2);
+    player.jumpTo(at);
+    player.playOn(at, const Duration(seconds: 10));
+    player.complete();
+    await pumpEventQueue();
+
+    // The replay rewinds the same source rather than reloading it, then
+    // drops early on.
+    player.jumpTo(Duration.zero);
+    player.playOn(Duration.zero, const Duration(seconds: 5));
+    await drop();
+
+    expect(resolver.resolves, 3, reason: 'the replay reconnects quickly');
+    expect(controller.state.status, PlaybackStatus.playing);
   });
 
   test('playback before the drop does not pay for the reconnect', () async {
