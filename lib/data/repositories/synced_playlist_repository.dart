@@ -118,10 +118,10 @@ class SyncedPlaylistRepository
   /// until it has finished. See [_pushInOrder].
   final Map<String, Future<void>> _pushes = <String, Future<void>>{};
 
-  /// The creates still out, each as the provider it went to and that
-  /// provider's sign-out count when it left. See [_mergeRemote].
-  final List<({PlaylistSource source, int clears})> _createsOut =
-      <({PlaylistSource source, int clears})>[];
+  /// The creates still out, each as the provider and account it went to and
+  /// that provider's sign-out count when it left. See [_mergeRemote].
+  final List<({PlaylistSource source, int clears, String? account})>
+      _createsOut = <({PlaylistSource source, int clears, String? account})>[];
 
   /// Server playlists deleted here that a refresh answer may still list: `null`
   /// while the delete is out, then the number of the last fetch sent before it
@@ -241,8 +241,8 @@ class SyncedPlaylistRepository
       final Playlist pending = playlist;
       // Out until it has settled (bound to its server id, failed, or deleted
       // on the server again); see [_mergeRemote].
-      final ({PlaylistSource source, int clears}) create =
-          (source: source, clears: _clearsOf(source));
+      final ({PlaylistSource source, int clears, String? account}) create =
+          (source: source, clears: _clearsOf(source), account: account);
       _createsOut.add(create);
       try {
         playlist = await _pushInOrder(
@@ -844,8 +844,10 @@ class SyncedPlaylistRepository
     // copy of that playlist, bound to the same server playlist. What is new
     // on the server waits for the next refresh instead.
     final bool creating = _createsOut.any(
-      (({PlaylistSource source, int clears}) c) =>
-          c.source == source && c.clears == _clearsOf(source),
+      (({PlaylistSource source, int clears, String? account}) c) =>
+          c.source == source &&
+          c.clears == _clearsOf(source) &&
+          c.account == account,
     );
     for (final RemotePlaylistData dto in remote) {
       if (creating || !known.add(dto.remoteId)) continue;

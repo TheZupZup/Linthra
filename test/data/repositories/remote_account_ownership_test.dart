@@ -145,6 +145,19 @@ class _HeldPlaylists extends _Playlists {
 
   Completer<void>? hold;
 
+  /// While set, a create waits on it before it reaches the server.
+  Completer<void>? holdCreate;
+
+  @override
+  Future<String> createRemotePlaylist(
+    String name,
+    List<String> trackUris,
+  ) async {
+    final Completer<void>? held = holdCreate;
+    if (held != null) await held.future;
+    return super.createRemotePlaylist(name, trackUris);
+  }
+
   @override
   Future<RemotePlaylistListing> fetchPlaylists() async {
     final _Account? asked = world.current;
@@ -646,6 +659,41 @@ void main() {
       final List<Playlist> playlists = await repo.getAllPlaylists();
       expect(playlists.map((Playlist p) => p.remoteId), <String?>['srv-b']);
       expect(playlists.single.owner, _bob);
+    });
+
+    test(
+        "another account's create still out does not hold back this "
+        "account's new server playlists", () async {
+      world.signedIn = _alice;
+      world[_bob].playlists['srv-b'] = const RemotePlaylistData(
+        remoteId: 'srv-b',
+        name: "Bob's mix",
+        trackUris: <String>['subsonic:2'],
+      );
+      final _HeldPlaylists gateway = _HeldPlaylists(world)
+        ..holdCreate = Completer<void>();
+      final SyncedPlaylistRepository repo = SyncedPlaylistRepository(
+        store: disk,
+        gateways: <RemotePlaylistGateway>[gateway],
+      );
+      addTearDown(repo.dispose);
+
+      // Alice's create hangs on her server.
+      final Future<Object?> create = repo.createPlaylist(
+        "Alice's new mix",
+        source: PlaylistSource.subsonic,
+      );
+      await pumpEventQueue();
+      // Bob takes over without a sign-out in between.
+      world.signedIn = _bob;
+      await repo.refreshFromRemote();
+
+      expect(
+        (await repo.getAllPlaylists()).map((Playlist p) => p.remoteId),
+        contains('srv-b'),
+      );
+      gateway.holdCreate!.complete();
+      await create;
     });
 
     test('a playlist made under one account is not created under the next',
