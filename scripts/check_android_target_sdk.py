@@ -29,7 +29,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-BADGING_LEVEL = re.compile(r"^(sdkVersion|targetSdkVersion):'(\d+)'$", re.MULTILINE)
+# `dump badging` names the minimum "sdkVersion" (aapt) or "minSdkVersion"
+# (newer aapt2); `dump xmltree` prints the manifest attributes themselves.
+BADGING_MIN = re.compile(r"^\s*(?:sdkVersion|minSdkVersion):'(\d+)'", re.MULTILINE)
+BADGING_TARGET = re.compile(r"^\s*targetSdkVersion:'(\d+)'", re.MULTILINE)
+XMLTREE_LEVEL = re.compile(
+    r"android:(minSdkVersion|targetSdkVersion)\(0x[0-9a-fA-F]+\)=(\d+)"
+)
 
 
 class CheckError(Exception):
@@ -59,12 +65,43 @@ def find_aapt2(sdk_root: str | None) -> Path:
 
 def parse_levels(badging: str) -> dict[str, int]:
     """minSdk and targetSdk from `aapt2 dump badging` output."""
-    levels = {name: int(value) for name, value in BADGING_LEVEL.findall(badging)}
-    if "sdkVersion" not in levels or "targetSdkVersion" not in levels:
+    min_sdk = BADGING_MIN.search(badging)
+    target = BADGING_TARGET.search(badging)
+    if min_sdk is None or target is None:
+        raise CheckError("aapt2 badging did not report the SDK levels.")
+    return {"min": int(min_sdk.group(1)), "target": int(target.group(1))}
+
+
+def parse_xmltree_levels(xmltree: str) -> dict[str, int]:
+    """minSdk and targetSdk from `aapt2 dump xmltree` of AndroidManifest.xml."""
+    levels = {name: int(value) for name, value in XMLTREE_LEVEL.findall(xmltree)}
+    if "minSdkVersion" not in levels or "targetSdkVersion" not in levels:
+        raise CheckError("the manifest's uses-sdk carries no numeric SDK levels.")
+    return {"min": levels["minSdkVersion"], "target": levels["targetSdkVersion"]}
+
+
+def _excerpt(text: str) -> str:
+    lines = [line for line in text.splitlines() if "Sdk" in line or "sdk" in line]
+    return "; ".join(lines[:6]) or "(nothing about SDK levels)"
+
+
+def levels_of_apk(aapt2: Path, apk: Path) -> dict[str, int]:
+    """Reads the levels from badging, or from the manifest tree if badging
+    words them in a way this does not know."""
+    badging = run([str(aapt2), "dump", "badging", str(apk)])
+    try:
+        return parse_levels(badging)
+    except CheckError:
+        pass
+    xmltree = run(
+        [str(aapt2), "dump", "xmltree", "--file", "AndroidManifest.xml", str(apk)]
+    )
+    try:
+        return parse_xmltree_levels(xmltree)
+    except CheckError as error:
         raise CheckError(
-            "aapt2 badging did not report sdkVersion and targetSdkVersion."
-        )
-    return {"min": levels["sdkVersion"], "target": levels["targetSdkVersion"]}
+            f"{error} badging: {_excerpt(badging)} | xmltree: {_excerpt(xmltree)}"
+        ) from None
 
 
 def proto_apk_from_bundle(aab: Path, out: Path) -> None:
@@ -112,8 +149,8 @@ def levels_of(aapt2: Path, artifact: Path) -> dict[str, int]:
                     str(proto),
                 ]
             )
-            return parse_levels(run([str(aapt2), "dump", "badging", str(binary)]))
-    return parse_levels(run([str(aapt2), "dump", "badging", str(artifact)]))
+            return levels_of_apk(aapt2, binary)
+    return levels_of_apk(aapt2, artifact)
 
 
 def main(argv: list[str]) -> int:

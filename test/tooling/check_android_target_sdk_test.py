@@ -33,9 +33,14 @@ STUB_AAPT2 = textwrap.dedent(
     #!/usr/bin/env python3
     import shutil, sys, zipfile
     args = sys.argv[1:]
+    def member(path, name):
+        with zipfile.ZipFile(path) as apk:
+            return apk.read(name).decode() if name in apk.namelist() else ""
     if args[:2] == ["dump", "badging"]:
-        with zipfile.ZipFile(args[2]) as apk:
-            sys.stdout.write(apk.read("AndroidManifest.xml").decode())
+        sys.stdout.write(member(args[2], "AndroidManifest.xml"))
+        sys.exit(0)
+    if args[:2] == ["dump", "xmltree"]:
+        sys.stdout.write(member(args[-1], "xmltree.txt"))
         sys.exit(0)
     if args[0] == "convert":
         out = args[args.index("-o") + 1]
@@ -124,6 +129,31 @@ class CheckAndroidTargetSdkTest(unittest.TestCase):
         finally:
             os.environ.clear()
             os.environ.update(saved)
+
+    def test_aapt2s_min_sdk_version_wording_is_read(self) -> None:
+        # Newer aapt2 badging says minSdkVersion where aapt said sdkVersion.
+        text = badging(24, 37).replace("sdkVersion:'24'", "minSdkVersion:'24'")
+        self.assertEqual(self.check(self.apk("app.apk", text)), 0)
+
+    def test_the_manifest_tree_is_read_when_badging_is_not_understood(self) -> None:
+        path = self.dir / "tree.apk"
+        with zipfile.ZipFile(path, "w") as apk:
+            apk.writestr("AndroidManifest.xml", "package: name='x'\n")
+            apk.writestr(
+                "xmltree.txt",
+                "N: android=http://schemas.android.com/apk/res/android\n"
+                "  E: manifest (line=2)\n"
+                "    E: uses-sdk (line=7)\n"
+                "      A: http://schemas.android.com/apk/res/android:minSdkVersion"
+                "(0x0101020c)=24\n"
+                "      A: http://schemas.android.com/apk/res/android:targetSdkVersion"
+                "(0x01010270)=37\n",
+            )
+        self.assertEqual(self.check(path), 0)
+
+    def test_nothing_readable_fails_and_says_what_it_saw(self) -> None:
+        path = self.apk("blank.apk", "package: name='x'\n")
+        self.assertEqual(self.check(path), 2)
 
     def test_a_missing_aapt2_never_skips(self) -> None:
         self.env = {"ANDROID_HOME": str(self.dir / "nowhere")}
