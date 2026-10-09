@@ -1711,6 +1711,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
     _resetRecoveryBudget();
+    // Another copy is another stream: its own first drop gets the quick
+    // reconnect, rather than inheriting the one the failed copy spent.
+    _giveReconnectBack();
   }
 
   /// Drives [_handleStreamFailure] from a test without a platform engine error.
@@ -2026,6 +2029,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       return;
     }
     _resetRecoveryBudget();
+    // A fresh start on another copy, like a Retry: its own first drop gets
+    // the quick reconnect.
+    _giveReconnectBack();
   }
 
   @override

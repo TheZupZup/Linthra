@@ -102,11 +102,20 @@ class _AndroidLikePlayer extends Fake implements AudioPlayer {
 class _CountingResolver implements PlayableUriResolver {
   int resolves = 0;
 
+  /// Copies whose server can't be reached right now.
+  final Set<String> unreachable = <String>{};
+
   @override
   bool handles(Track track) => true;
 
   @override
   Future<ResolvedPlayable> resolve(Track track) async {
+    if (unreachable.contains(track.uri)) {
+      throw const PlaybackResolutionException(
+        "Couldn't reach your music server.",
+        kind: PlaybackResolutionErrorKind.serverUnreachable,
+      );
+    }
     resolves++;
     return ResolvedPlayable(
       Uri.parse('https://server.example/stream/${track.id}?n=$resolves'),
@@ -116,6 +125,9 @@ class _CountingResolver implements PlayableUriResolver {
 }
 
 const Track _track = Track(id: '7', title: 'Long Song', uri: 'jellyfin:7');
+
+/// The same song on a second server.
+const Track _otherCopy = Track(id: '7', title: 'Long Song', uri: 'subsonic:7');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -283,5 +295,85 @@ void main() {
 
     expect(resolver.resolves, 2);
     expect(controller.state.status, PlaybackStatus.error);
+  });
+
+  group('another copy of the song', () {
+    // Its own engine and resolver: the controller set up above listens to
+    // the shared ones, and would answer these drops too.
+    late _AndroidLikePlayer engine;
+    late _CountingResolver servers;
+    late JustAudioPlaybackController twoCopies;
+
+    Future<void> dropIt() async {
+      engine.dropStream();
+      await pumpEventQueue();
+    }
+
+    setUp(() async {
+      engine = _AndroidLikePlayer();
+      servers = _CountingResolver();
+      twoCopies = JustAudioPlaybackController(
+        player: engine,
+        resolver: servers,
+        candidates: MapPlaybackCandidateSource(
+          () => <String, List<Track>>{
+            _track.uri: <Track>[_track, _otherCopy],
+          },
+        ),
+      )
+        ..streamRetryBackoff = Duration.zero
+        ..midStreamBufferingTimeout = const Duration(hours: 1);
+      addTearDown(twoCopies.dispose);
+      await twoCopies.playTracks(<Track>[_track]);
+      await pumpEventQueue();
+    });
+
+    test('a fallback to it gets its own quick reconnect', () async {
+      final int before = servers.resolves;
+      final Duration at =
+          engine.playOn(Duration.zero, const Duration(minutes: 1));
+      await dropIt();
+      engine.jumpTo(at);
+      // The first copy's reconnect is spent: this drop moves to the other.
+      await dropIt();
+      expect(servers.resolves, before + 2);
+      expect(twoCopies.state.currentTrack?.uri, _otherCopy.uri);
+      expect(twoCopies.state.status, PlaybackStatus.playing);
+
+      engine.jumpTo(at);
+      engine.playOn(at, const Duration(seconds: 5));
+      await dropIt();
+
+      expect(servers.resolves, before + 3, reason: 'its own drop reconnects');
+      expect(twoCopies.state.status, PlaybackStatus.playing);
+    });
+
+    test('so does one the listener picks after a failure', () async {
+      final int before = servers.resolves;
+      final Duration at =
+          engine.playOn(Duration.zero, const Duration(minutes: 1));
+      await dropIt();
+      engine.jumpTo(at);
+      // The other server is down when the automatic fallback looks for it.
+      servers.unreachable.add(_otherCopy.uri);
+      await dropIt();
+      expect(twoCopies.state.status, PlaybackStatus.error);
+
+      // Back up, and the listener asks for it.
+      servers.unreachable.clear();
+      await twoCopies.tryAnotherSource();
+      await pumpEventQueue();
+      expect(twoCopies.state.currentTrack?.uri, _otherCopy.uri);
+      expect(twoCopies.state.status, PlaybackStatus.playing);
+      final int started = servers.resolves;
+
+      engine.jumpTo(at);
+      engine.playOn(at, const Duration(seconds: 5));
+      await dropIt();
+
+      expect(servers.resolves, started + 1, reason: 'its own drop reconnects');
+      expect(twoCopies.state.status, PlaybackStatus.playing);
+      expect(started, before + 2);
+    });
   });
 }
