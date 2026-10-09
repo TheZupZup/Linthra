@@ -211,12 +211,12 @@ internal/closed testing.
    draft in [docs/privacy-policy.md](./privacy-policy.md).
 4. **Data Safety form completed** in the Play Console **(closed-testing
    blocker)** — draft in [docs/play-store-data-safety.md](./play-store-data-safety.md).
-5. **Target API level** meets Play's current minimum. Linthra inherits
-   `targetSdk` from `flutter.targetSdkVersion` (`android/app/build.gradle`), so
-   the effective value depends on the pinned Flutter SDK. Play raises the
-   minimum target each year — **verify the built AAB's `targetSdkVersion` meets
-   the current Play requirement** before upload, and bump the Flutter SDK if
-   needed.
+5. **Target API level** meets Play's current minimum. Linthra sets
+   `targetSdk = 37` (Android 17) explicitly in `android/app/build.gradle`; Play
+   currently requires 36 for new apps and updates. CI reads the level back out
+   of the built App Bundle (`scripts/check_android_target_sdk.py`), so a
+   release can't silently ship a lower one. Play raises the minimum each year;
+   see [android-17.md](./android-17.md) for the current state.
 6. **Alpha feature maturity.** Tag parsing/artwork, artist/album browse, search,
    playlists, and batch downloads are still planned (see the README roadmap).
    This is fine for closed testing but is a judgment-call blocker for a
@@ -286,6 +286,7 @@ Play's Data Safety and review process expects each to be justified.
 | `POST_NOTIFICATIONS` | Android 13+ runtime permission for the media notification and its lock-screen / transport controls. Requested once on first launch; denial only suppresses the notification, playback still works. |
 | `WAKE_LOCK` | Keep the CPU awake while audio plays so playback and streaming survive the screen turning off. Held only while the playback service is playing. |
 | `ACCESS_NETWORK_STATE` | Read whether the active connection is unmetered, metered or offline so downloads can follow the user's network preference. No runtime prompt. The permission also allows reading link details such as local IP addresses; Linthra's network channel only reads connectivity and metering state and returns a category, never an SSID, carrier, IP address or location. |
+| `ACCESS_LOCAL_NETWORK` | Android 17 runtime permission ("Nearby devices" group) needed to connect to a **user-configured server on the local network** once the app targets API 37. Asked only when the user tests, signs in to or plays from a server that resolves to a local address; never at launch, never for an internet server. Denial leaves local music and internet servers working. |
 | `CHANGE_WIFI_MULTICAST_STATE` | Receive multicast Wi-Fi packets for **mDNS** (`_googlecast._tcp`) so Chromecast devices on the **local network** can be discovered. Grants no internet or storage access of its own. |
 | `READ_MEDIA_AUDIO` | Android 13+ permission for the optional **All music on this device** mode. It is requested only after the user chooses that mode; normal SAF folder access does not need it. |
 | `READ_EXTERNAL_STORAGE` (maxSdkVersion 32) | Legacy permission for the same optional device-wide mode on Android 12 and older, requested only after the user chooses it. Capped at API 32, so Android 13+ never sees it. The OS grant is broader than audio on these releases (see the note below). |

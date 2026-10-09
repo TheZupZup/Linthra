@@ -123,6 +123,7 @@ A short rationale; the full table is in
 | Notifications (Android 13+) | Show the media-playback notification and controls. Optional — denial only hides the notification. |
 | Foreground service / media playback | Keep audio playing in the background. |
 | Internet | Reach the **user-configured** server and run a Cast session. Not used for the local-first features. |
+| Local network access / Nearby devices (Android 17+) | Reach a music server the user set up on their own network (a Jellyfin, Navidrome or Plex box at home). Asked only when they connect to or play from such a server; an internet server or local files never trigger it. |
 | Local-network multicast | Discover Cast/Chromecast devices on the local network when the user chooses to cast. |
 | Music and audio (Android 13+) | Optional device-wide local-library mode. Requested only when the user chooses **All music on this device**. |
 | Read external storage (Android 12 and older) | Legacy equivalent for the same optional device-wide local-library mode; capped at API 32. The OS grant is wider than audio on those releases; Linthra only queries MediaStore audio with it. |
