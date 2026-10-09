@@ -141,14 +141,22 @@ void main() {
       );
     });
 
-    test('a missing or non-FLAC file is null, never a throw', () async {
-      expect(await VorbisCommentFields.read(File('${root.path}/gone.flac')),
-          isNull);
+    test('a non-FLAC file is null, never a throw', () async {
       expect(
         await VorbisCommentFields.read(
           write('song.wav', AudioTagFixtures.wav(title: 'X')),
         ),
         isNull,
+      );
+    });
+
+    test('a file gone by the time it is read throws, as an I/O error does',
+        () async {
+      // Null would read as "no comments here", and the caller would settle
+      // for less than the file says.
+      await expectLater(
+        VorbisCommentFields.read(File('${root.path}/gone.flac')),
+        throwsA(isA<FileSystemException>()),
       );
     });
 
@@ -201,55 +209,33 @@ void main() {
   });
 
   group('FlacStreamInfo.duration', () {
-    late Directory root;
+    /// The STREAMINFO block of [flac]: the 34 bytes after `fLaC` and the
+    /// block's own 4-byte header.
+    Uint8List streamInfo(Uint8List flac) => Uint8List.sublistView(flac, 8, 42);
 
-    setUp(() async {
-      root = await Directory.systemTemp.createTemp('linthra_streaminfo_');
-    });
-
-    tearDown(() async {
-      if (root.existsSync()) await root.delete(recursive: true);
-    });
-
-    File write(String name, Uint8List bytes) =>
-        File('${root.path}/$name')..writeAsBytesSync(bytes, flush: true);
-
-    test('is the total samples over the sample rate', () async {
-      expect(
-          await FlacStreamInfo.duration(
-              write('a.flac', AudioTagFixtures.flac())),
+    test('is the total samples over the sample rate', () {
+      expect(FlacStreamInfo.duration(streamInfo(AudioTagFixtures.flac())),
           const Duration(seconds: 3));
       expect(
-          await FlacStreamInfo.duration(write(
-              'b.flac',
-              AudioTagFixtures.flac(
-                  sampleRate: 48000, totalSamples: 48000 * 90 + 24000))),
+          FlacStreamInfo.duration(streamInfo(AudioTagFixtures.flac(
+              sampleRate: 48000, totalSamples: 48000 * 90 + 24000))),
           const Duration(seconds: 90, milliseconds: 500));
     });
 
-    test('is unknown when the encoder did not record the length', () async {
+    test('is unknown when the encoder did not record the length', () {
       expect(
-          await FlacStreamInfo.duration(
-              write('c.flac', AudioTagFixtures.flac(totalSamples: 0))),
+          FlacStreamInfo.duration(
+              streamInfo(AudioTagFixtures.flac(totalSamples: 0))),
           isNull);
     });
 
-    test('is null for anything but a FLAC opening with a whole STREAMINFO',
-        () async {
+    test('is null for anything but a whole STREAMINFO', () {
       final Uint8List flac = AudioTagFixtures.flac();
       expect(
-          await FlacStreamInfo.duration(
-              write('cut.flac', Uint8List.sublistView(flac, 0, 20))),
-          isNull);
+          FlacStreamInfo.duration(Uint8List.sublistView(flac, 8, 28)), isNull);
+      expect(FlacStreamInfo.duration(Uint8List(0)), isNull);
       expect(
-          await FlacStreamInfo.duration(write(
-              'notes.flac',
-              Uint8List.fromList('plain text, not a FLAC file, '
-                      'long enough to fill a header'
-                  .codeUnits))),
-          isNull);
-      expect(await FlacStreamInfo.duration(File('${root.path}/gone.flac')),
-          isNull);
+          FlacStreamInfo.duration(Uint8List.sublistView(flac, 8, 43)), isNull);
     });
   });
 }
