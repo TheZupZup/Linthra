@@ -24,6 +24,18 @@ abstract interface class ServerPlaybackReporter {
   /// from its opaque uri scheme, like `PlayableUriResolver.handles`).
   bool handles(Track track);
 
+  /// This reporter as it stands now: the session and client a report started
+  /// this instant would use, fixed, with the same memory of the play in
+  /// progress.
+  ///
+  /// Reports go out one at a time, so one can wait behind a slow one. Built
+  /// from a capture taken when the event happened, it still goes to the
+  /// account that was signed in then, and still goes out once the app has
+  /// started tearing down and the live session can no longer be read: the
+  /// closing stop of a quit, queued behind a report the server is still
+  /// answering.
+  ServerPlaybackReporter capture();
+
   /// A track started playing (a fresh start — not a resume after pause).
   Future<void> onPlaybackStarted(
       Track track, Duration position, Duration duration);
@@ -62,6 +74,9 @@ class NoOpServerPlaybackReporter implements ServerPlaybackReporter {
 
   @override
   bool handles(Track track) => true;
+
+  @override
+  ServerPlaybackReporter capture() => this;
 
   @override
   Future<void> onPlaybackStarted(

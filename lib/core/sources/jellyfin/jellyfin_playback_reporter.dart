@@ -38,8 +38,9 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
   JellyfinPlaybackReporter({
     required JellyfinSession? Function() session,
     required JellyfinClient Function() client,
-  })  : _session = session,
-        _client = client;
+  }) : this._(session, client, _JellyfinPlay());
+
+  JellyfinPlaybackReporter._(this._session, this._client, this._play);
 
   /// Supplies the live signed-in session, or `null` when not connected.
   final JellyfinSession? Function() _session;
@@ -47,22 +48,19 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
   /// Supplies the live client (whose auth header names this install).
   final JellyfinClient Function() _client;
 
-  /// The last position actually reported for the current track, so
-  /// [onTrackChanged] can close the outgoing track's session at an honest
-  /// position (that event carries no position of its own).
-  String? _lastReportedUri;
-  Duration _lastReportedPosition = Duration.zero;
-
-  /// The play reported last, and the account its first report went to.
-  /// Signing out never stops playback, so a song can play on while the
-  /// listener signs in as someone else. The rest of that play still belongs
-  /// to the account it started under, and is not reported to the new one.
-  String? _playUri;
-  String? _playUserId;
-
   @override
   bool handles(Track track) =>
       track.uri.startsWith(JellyfinTrackMapper.uriScheme);
+
+  /// The play in progress, shared with every [capture] of this reporter.
+  final _JellyfinPlay _play;
+
+  @override
+  ServerPlaybackReporter capture() {
+    final JellyfinSession? session = _session();
+    final JellyfinClient client = _client();
+    return JellyfinPlaybackReporter._(() => session, () => client, _play);
+  }
 
   @override
   Future<void> onPlaybackStarted(
@@ -111,11 +109,11 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
     // (another Jellyfin track, another provider's, or nothing). The incoming
     // track announces itself via onPlaybackStarted once it actually plays.
     if (previousTrack == null || !handles(previousTrack)) return;
-    final bool remembered = previousTrack.uri == _lastReportedUri;
+    final bool remembered = previousTrack.uri == _play.lastReportedUri;
     await _report(
       previousTrack,
       JellyfinPlaybackEvent.stopped,
-      remembered ? _lastReportedPosition : Duration.zero,
+      remembered ? _play.lastReportedPosition : Duration.zero,
     );
   }
 
@@ -137,19 +135,19 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
     // and only that account hears the rest of the play (through another
     // address too). One that starts while nobody is signed in is bound to
     // nobody, so an account signing in during it isn't told about it either.
-    if (event == JellyfinPlaybackEvent.started || track.uri != _playUri) {
-      _playUri = track.uri;
-      _playUserId = session?.userId;
-    } else if (session?.userId != _playUserId) {
+    if (event == JellyfinPlaybackEvent.started || track.uri != _play.playUri) {
+      _play.playUri = track.uri;
+      _play.playUserId = session?.userId;
+    } else if (session?.userId != _play.playUserId) {
       return;
     }
     if (session == null) return;
 
     if (event == JellyfinPlaybackEvent.stopped) {
-      if (track.uri == _lastReportedUri) _lastReportedUri = null;
+      if (track.uri == _play.lastReportedUri) _play.lastReportedUri = null;
     } else {
-      _lastReportedUri = track.uri;
-      _lastReportedPosition = position;
+      _play.lastReportedUri = track.uri;
+      _play.lastReportedPosition = position;
     }
 
     try {
@@ -172,4 +170,22 @@ class JellyfinPlaybackReporter implements ServerPlaybackReporter {
     if (!kDebugMode) return;
     developer.log(message, name: 'linthra.jellyfin');
   }
+}
+
+/// What [JellyfinPlaybackReporter] remembers about the play in progress,
+/// shared with every [JellyfinPlaybackReporter.capture] of it.
+class _JellyfinPlay {
+  /// The last position actually reported for the current track, so
+  /// [JellyfinPlaybackReporter.onTrackChanged] can close the outgoing track's
+  /// session at an honest position (that event carries no position of its
+  /// own).
+  String? lastReportedUri;
+  Duration lastReportedPosition = Duration.zero;
+
+  /// The play reported last, and the account its first report went to.
+  /// Signing out never stops playback, so a song can play on while the
+  /// listener signs in as someone else. The rest of that play still belongs
+  /// to the account it started under, and is not reported to the new one.
+  String? playUri;
+  String? playUserId;
 }
