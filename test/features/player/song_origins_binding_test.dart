@@ -27,6 +27,12 @@ import '../../core/sources/subsonic/fake_subsonic_client.dart';
 /// The app's binding for #795: Subsonic references follow the signed-in
 /// account, read from the real settings controller.
 
+/// A keyring that is locked: the saved sign-in can't be read.
+class _LockedSessionStore extends InMemorySubsonicSessionStore {
+  @override
+  Future<SubsonicSession?> read() async => throw StateError('keyring locked');
+}
+
 const SubsonicSession _alice = SubsonicSession(
   baseUrl: 'https://a.example.com',
   username: 'alice',
@@ -48,14 +54,19 @@ void main() {
   });
 
   /// One launch of the app, with [restored] as the saved Subsonic sign-in.
-  Future<ProviderContainer> launch(SubsonicSession? restored) async {
+  Future<ProviderContainer> launch(
+    SubsonicSession? restored, {
+    bool keyringLocked = false,
+  }) async {
     final ProviderContainer container = ProviderContainer(
       overrides: <Override>[
         subsonicClientProvider.overrideWithValue(FakeSubsonicClient(
           serverInfo: const SubsonicServerInfo(apiVersion: '1.16.1'),
         )),
         subsonicSessionStoreProvider.overrideWithValue(
-          InMemorySubsonicSessionStore(initialSession: restored),
+          keyringLocked
+              ? _LockedSessionStore()
+              : InMemorySubsonicSessionStore(initialSession: restored),
         ),
         songOriginLegacyStoreProvider.overrideWithValue(legacy),
         playlistStoreProvider.overrideWithValue(playlists),
@@ -136,6 +147,20 @@ void main() {
     expect(
       container.read(songOriginsProvider).legacy('subsonic:1'),
       noSongOrigin,
+    );
+  });
+
+  test(
+      'a keyring locked at the first launch settles nothing for Subsonic, '
+      'and the next launch that reads the sign-in does', () async {
+    final ProviderContainer locked = await launch(null, keyringLocked: true);
+    expect(locked.read(songOriginsProvider).legacy('subsonic:1'), isNull);
+    locked.dispose();
+
+    final ProviderContainer unlocked = await launch(_alice);
+    expect(
+      unlocked.read(songOriginsProvider).legacy('subsonic:1'),
+      subsonicAccountFingerprint(_alice),
     );
   });
 }

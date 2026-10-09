@@ -26,6 +26,17 @@ class _BrokenStore implements SongOriginLegacyStore {
   }
 }
 
+/// A legacy record that refuses writes while [refuse] is set.
+class _RefusingStore extends InMemorySongOriginLegacyStore {
+  bool refuse = true;
+
+  @override
+  Future<void> write(Map<String, String> settled) async {
+    if (refuse) throw StateError('refused');
+    await super.write(settled);
+  }
+}
+
 void main() {
   group('songOriginMatches', () {
     final FakeSongOrigins origins = FakeSongOrigins(
@@ -155,6 +166,67 @@ void main() {
       await origins.settleLegacy();
 
       expect(origins.legacy('subsonic:1'), 'acct-alice');
+    });
+
+    test(
+        'a saved sign-in that could not be read is left for a start that '
+        'can read it', () async {
+      final InMemorySongOriginLegacyStore store =
+          InMemorySongOriginLegacyStore();
+      // The keyring was locked: Subsonic's saved sign-in couldn't be read,
+      // Plex had none.
+      final SessionSongOrigins locked = SessionSongOrigins(
+        signedIn: (String scheme) => null,
+        restoreFailed: (String scheme) => scheme == 'subsonic:',
+        legacyStore: store,
+      );
+
+      await locked.settleLegacy();
+
+      expect(locked.legacy('subsonic:1'), isNull);
+      expect(songOriginMatches(locked, 'subsonic:1', null), isFalse);
+      expect(locked.legacy('plex:1'), noSongOrigin);
+      expect(store.settled, <String, String>{'plex:': noSongOrigin});
+
+      // The next start reads it.
+      final SessionSongOrigins unlocked = SessionSongOrigins(
+        signedIn: (String scheme) =>
+            scheme == 'subsonic:' ? 'acct-alice' : null,
+        legacyStore: store,
+      );
+      await unlocked.settleLegacy();
+
+      expect(unlocked.legacy('subsonic:1'), 'acct-alice');
+      expect(store.settled['subsonic:'], 'acct-alice');
+    });
+
+    test(
+        'a refused write is tried again when the account changes, before a '
+        'later start could settle from another one', () async {
+      final _RefusingStore store = _RefusingStore();
+      String? signedIn = 'acct-alice';
+      final SessionSongOrigins origins = SessionSongOrigins(
+        signedIn: (String scheme) => signedIn,
+        legacyStore: store,
+      );
+      await origins.settleLegacy();
+      expect(store.settled, isEmpty);
+
+      store.refuse = false;
+      signedIn = null;
+      origins.changed();
+      await pumpEventQueue();
+      signedIn = 'acct-bob';
+      origins.changed();
+      await pumpEventQueue();
+
+      expect(store.settled['subsonic:'], 'acct-alice');
+      final SessionSongOrigins restarted = SessionSongOrigins(
+        signedIn: (String scheme) => 'acct-bob',
+        legacyStore: store,
+      );
+      await restarted.settleLegacy();
+      expect(restarted.legacy('subsonic:1'), 'acct-alice');
     });
 
     test('settling announces it, so what resolves references does again',

@@ -116,15 +116,28 @@ class SessionSongOrigins implements SongOrigins {
   SessionSongOrigins({
     required String? Function(String scheme) signedIn,
     required SongOriginLegacyStore legacyStore,
+    bool Function(String scheme)? restoreFailed,
   })  : _signedIn = signedIn,
-        _legacyStore = legacyStore;
+        _legacyStore = legacyStore,
+        _restoreFailed = restoreFailed ?? _restoredFine;
 
   /// The origin signed in now for a bound scheme, or null.
   final String? Function(String scheme) _signedIn;
   final SongOriginLegacyStore _legacyStore;
 
+  /// Whether a bound scheme's saved sign-in couldn't be read at startup (a
+  /// locked or missing keyring), which says nothing about whether one was
+  /// saved.
+  final bool Function(String scheme) _restoreFailed;
+
+  static bool _restoredFine(String scheme) => false;
+
   Map<String, String> _legacy = const <String, String>{};
   Future<void>? _settling;
+
+  /// What was settled but couldn't be saved yet, and the save trying it.
+  Map<String, String>? _unsaved;
+  Future<void>? _saving;
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
   @override
@@ -153,8 +166,11 @@ class SessionSongOrigins implements SongOrigins {
   /// anyone can sign in to something else: an older reference was made under
   /// the account in use until this version, which is the one restored now. A
   /// later sign-in, to another server or the same one, never claims them.
-  /// A record that can't be read settles nothing this time; one that can't
-  /// be written still holds for this run.
+  /// A scheme whose saved sign-in couldn't be read isn't settled this time:
+  /// its older references match nothing until a start that can read it. A
+  /// record that can't be read settles nothing this time; one that can't be
+  /// written still holds for this run, and is saved again at the next sign-in
+  /// or sign-out, before a later start could settle it from another account.
   Future<void> settleLegacy() => _settling ??= _settle();
 
   Future<void> _settle() async {
@@ -167,22 +183,38 @@ class SessionSongOrigins implements SongOrigins {
     bool decided = false;
     for (final String scheme in boundSongSchemes) {
       if (settled.containsKey(scheme)) continue;
-      settled[scheme] = _signedIn(scheme) ?? noSongOrigin;
+      final String? origin = _signedIn(scheme);
+      if (origin == null && _restoreFailed(scheme)) continue;
+      settled[scheme] = origin ?? noSongOrigin;
       decided = true;
     }
     _legacy = settled;
     changed();
     if (!decided) return;
+    _unsaved = settled;
+    await _save();
+  }
+
+  Future<void> _save() => _saving ??= _saveUnsaved().whenComplete(() {
+        _saving = null;
+      });
+
+  Future<void> _saveUnsaved() async {
+    final Map<String, String>? unsaved = _unsaved;
+    if (unsaved == null) return;
     try {
-      await _legacyStore.write(settled);
+      await _legacyStore.write(unsaved);
+      if (identical(_unsaved, unsaved)) _unsaved = null;
     } catch (_) {
-      // Holds for this run; the next start settles again from what it
-      // restores.
+      // Holds for this run, and is tried again at the next change.
     }
   }
 
-  /// Tells listeners the answers may have changed.
+  /// Tells listeners the answers may have changed. A settlement the disk
+  /// refused is saved again first: a sign-in or sign-out is what would let a
+  /// later start settle it from another account.
   void changed() {
+    if (_unsaved != null) unawaited(_save());
     if (!_changes.isClosed) _changes.add(null);
   }
 

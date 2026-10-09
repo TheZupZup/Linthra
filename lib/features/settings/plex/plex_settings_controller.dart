@@ -117,6 +117,11 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// stored.
   bool _savedSessionUnread = false;
 
+  /// Whether the startup restore couldn't read the saved session, as opposed
+  /// to there being none to read. Unlike [_savedSessionUnread], kept once set.
+  bool get restoreFailed => _restoreFailed;
+  bool _restoreFailed = false;
+
   /// Moves on every connect and disconnect, so a library listing still out
   /// from an earlier connection can tell its answer no longer applies.
   int _connection = 0;
@@ -165,6 +170,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       saved = await ref.read(plexSessionStoreProvider).read();
     } catch (error) {
       _savedSessionUnread = true;
+      _restoreFailed = true;
       // A keyring that is missing, locked or denied must not break startup;
       // stay disconnected but say so (statically, token-free), so a user who
       // *was* connected isn't left wondering where their server went. (A

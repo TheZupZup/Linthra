@@ -1,6 +1,8 @@
 import '../../core/services/song_origins.dart';
 import '../../core/sources/music_provider.dart';
+import '../../core/sources/plex/plex_track_mapper.dart';
 import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
+import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 import '../../data/repositories/playback_session_store_provider.dart';
 import '../../data/repositories/song_origins_provider.dart';
 import '../settings/plex/plex_settings_controller.dart';
@@ -16,6 +18,13 @@ final songOriginsOverride = songOriginsProvider.overrideWith((ref) {
     signedIn: (String scheme) =>
         remoteSongOwnerSignedIn(ref, MusicProviders.forTrackUri(scheme)),
     legacyStore: ref.read(songOriginLegacyStoreProvider),
+    restoreFailed: (String scheme) => switch (scheme) {
+      SubsonicTrackMapper.uriScheme =>
+        ref.read(subsonicSettingsControllerProvider.notifier).restoreFailed,
+      PlexTrackMapper.uriScheme =>
+        ref.read(plexSettingsControllerProvider.notifier).restoreFailed,
+      _ => false,
+    },
   );
   ref.listen<String?>(
     subsonicMusicSourceProvider.select((source) =>
