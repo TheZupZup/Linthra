@@ -23,12 +23,19 @@ class SettingsSectionHeader extends StatelessWidget {
         AppSpacing.xs,
         AppSpacing.xs,
       ),
-      child: Text(
-        title.toUpperCase(),
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.8,
+      // A heading, read as written: the capitals are only a look, and some
+      // screen readers spell a capitalised word out letter by letter (#460).
+      child: Semantics(
+        header: true,
+        label: title,
+        excludeSemantics: true,
+        child: Text(
+          title.toUpperCase(),
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
         ),
       ),
     );
