@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -1763,6 +1764,79 @@ void main() {
       pending.complete(extensions(<String>['formPost']));
       await long;
       expect(writes.last.method, 'POST');
+    });
+
+    test(
+        'behind an address that redirects, a long write still arrives whole '
+        '(a real HTTP client, which follows redirects for GET only)', () async {
+      final HttpServer server =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final List<String> handled = <String>[];
+      server.listen((HttpRequest request) async {
+        final String path = request.uri.path;
+        if (path.startsWith('/old/')) {
+          // The configured address moved, the way an http-to-https or
+          // canonical-host redirect does.
+          request.response
+            ..statusCode = HttpStatus.movedPermanently
+            ..headers.set(
+              HttpHeaders.locationHeader,
+              request.uri.replace(path: path.replaceFirst('/old/', '/new/')),
+            );
+          await request.response.close();
+          return;
+        }
+        final String body = await utf8.decoder.bind(request).join();
+        final Map<String, List<String>> params = <String, List<String>>{
+          ...request.uri.queryParametersAll,
+          ...Uri(query: body).queryParametersAll,
+        };
+        late final Map<String, dynamic> data;
+        if (path.endsWith('/getOpenSubsonicExtensions.view')) {
+          data = <String, dynamic>{
+            'openSubsonicExtensions': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'name': 'formPost',
+                'versions': <int>[1],
+              },
+            ],
+          };
+        } else {
+          handled
+              .add('${request.method} $path ${params['songId']?.length ?? 0}');
+          data = <String, dynamic>{};
+        }
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode(<String, dynamic>{
+            'subsonic-response': <String, dynamic>{'status': 'ok', ...data},
+          }));
+        await request.response.close();
+      });
+      final SubsonicSession session = SubsonicSession(
+        baseUrl: 'http://127.0.0.1:${server.port}/old',
+        username: 'alice',
+        salt: 'salt1',
+        token: 'tok1',
+      );
+      final HttpSubsonicClient client = HttpSubsonicClient();
+
+      await client.setPlaylistSongs(session, 'p-1', manySongs(400));
+      expect(handled, <String>['GET /new/rest/createPlaylist.view 400']);
+
+      // The address it moved to answers directly, so there it is a form post.
+      await client.setPlaylistSongs(
+        SubsonicSession(
+          baseUrl: 'http://127.0.0.1:${server.port}/new',
+          username: 'alice',
+          salt: 'salt1',
+          token: 'tok1',
+        ),
+        'p-1',
+        manySongs(400),
+      );
+      expect(handled.last, 'POST /new/rest/createPlaylist.view 400');
     });
 
     test('an empty playlist stays one GET, with no songs and no lookup',

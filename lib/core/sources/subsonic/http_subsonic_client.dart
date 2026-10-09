@@ -479,6 +479,11 @@ class HttpSubsonicClient implements SubsonicClient {
         onRejectedStatus: (int code) {
           noSuchEndpoint = code == 404;
         },
+        // Asked at the configured address itself, where the form would go. A
+        // POST isn't sent on through a redirect the way a GET is, so an
+        // address that redirects gets no answer here, and its write goes as
+        // a GET that follows the redirect, as it did before form posts.
+        followRedirects: false,
       );
     } on SubsonicException catch (error) {
       switch (error.kind) {
@@ -493,7 +498,7 @@ class HttpSubsonicClient implements SubsonicClient {
           return false;
         // A 404 is one with no such endpoint. Anything else is not an answer:
         // a server error or a rate limit (5xx, 429), a generic Subsonic
-        // error, a page that isn't Subsonic. Some servers answer an endpoint
+        // error, a page that isn't Subsonic, a redirect. Some servers answer an endpoint
         // they don't have with a 500, and a passing failure on one that does
         // take forms must not shut it out for the session.
         default:
@@ -620,15 +625,25 @@ class HttpSubsonicClient implements SubsonicClient {
   ///
   /// [onRejectedStatus] sees a non-2xx status first, so a caller that knows
   /// what a status means for its request can throw something more precise.
+  ///
+  /// [followRedirects] off answers a redirect with its own 3xx, which then
+  /// fails like any other unexpected status.
   Future<SubsonicEnvelope> _get(
     Uri uri, {
     void Function(int statusCode)? onRejectedStatus,
+    bool followRedirects = true,
   }) async {
-    final http.Response response = await _send(
-      () => _client.get(uri, headers: const <String, String>{
-        'Accept': 'application/json',
-      }),
-    );
+    final http.Response response = await _send(() async {
+      if (followRedirects) {
+        return _client.get(uri, headers: const <String, String>{
+          'Accept': 'application/json',
+        });
+      }
+      final http.Request request = http.Request('GET', uri)
+        ..followRedirects = false
+        ..headers['Accept'] = 'application/json';
+      return http.Response.fromStream(await _client.send(request));
+    });
     final int code = response.statusCode;
     if (onRejectedStatus != null && (code < 200 || code >= 300)) {
       onRejectedStatus(code);
