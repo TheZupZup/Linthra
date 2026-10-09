@@ -250,6 +250,22 @@ void main() {
 
     expect(attempts, 2);
     expect(client.refreshCalls, hasLength(1));
+
+    // Fresh tokens turned down too: the next request asks for the password
+    // rather than trading in the next refresh token, and the one after.
+    attempts = 0;
+    await expectLater(
+      c.authorized(c.session!, (AudiobookshelfSession session) async {
+        attempts++;
+        throw AudiobookshelfException.unauthorized();
+      }),
+      throwsA(isA<AudiobookshelfException>().having(
+          (AudiobookshelfException e) => e.message,
+          'message',
+          AudiobookshelfException.sessionExpired().message)),
+    );
+    expect(attempts, 1);
+    expect(client.refreshCalls, hasLength(1));
   });
 
   test('a refused refresh token asks for the password, and only once',

@@ -249,8 +249,9 @@ class AudiobookshelfSettingsController
   /// identity, since a renewal replaces the session object.
   ///
   /// Throws [AudiobookshelfException.sessionExpired] when the tokens can't be
-  /// renewed without the password, and whatever the renewal or the second
-  /// attempt throws otherwise. Never more than one renewal and one retry.
+  /// renewed without the password or the renewed ones are turned down too,
+  /// and whatever the renewal or the second attempt throws otherwise. Never
+  /// more than one renewal and one retry.
   Future<T> authorized<T>(
     AudiobookshelfSession session,
     Future<T> Function(AudiobookshelfSession session) request,
@@ -272,7 +273,19 @@ class AudiobookshelfSettingsController
       }
       final AudiobookshelfSession? renewed = await _renewAfter(first);
       if (renewed == null) throw AudiobookshelfException.sessionExpired();
-      return request(renewed);
+      try {
+        return await request(renewed);
+      } on AudiobookshelfException catch (retryError) {
+        if (retryError.kind != AudiobookshelfErrorKind.unauthorized ||
+            retryError.statusCode != 401) {
+          rethrow;
+        }
+        // Turned down with tokens the server has only just handed out:
+        // renewing again would spend the next refresh token the same way, on
+        // every request. Only a new sign-in gets past this.
+        if (identical(_session, renewed)) _refused = renewed;
+        throw AudiobookshelfException.sessionExpired();
+      }
     }
   }
 
