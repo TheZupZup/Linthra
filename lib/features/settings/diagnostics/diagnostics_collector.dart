@@ -114,6 +114,7 @@ class DiagnosticsCollector {
       localScanImportedTracks: scan?.importedTracks,
       localScanSkippedUnsupported: scan?.skippedUnsupported,
       localScanReadFailures: scan?.readFailures,
+      localScanUnopenableNames: scan?.unopenableNames,
       localScanRecursive: scan?.recursive,
       // Static capability — always reportable, even before the first scan — so a
       // "my format isn't recognized" report shows what Linthra accepts.

@@ -72,6 +72,41 @@ void main() {
       expect(summary, isNot(contains('error=')));
     });
 
+    test('counts names that open nothing only when there are some (#817)', () {
+      const LocalScanReport clean = LocalScanReport(
+        folderSelected: true,
+        isContentUri: false,
+        filesVisited: 3,
+        audioCandidates: 3,
+        skippedUnsupported: 0,
+        readFailures: 0,
+      );
+      expect(
+        LocalScanDiagnostics.describe(clean),
+        isNot(contains('unopenable')),
+      );
+
+      const LocalScanReport odd = LocalScanReport(
+        folderSelected: true,
+        isContentUri: false,
+        filesVisited: 3,
+        audioCandidates: 3,
+        skippedUnsupported: 0,
+        readFailures: 0,
+        unopenableNames: 4,
+      );
+      expect(LocalScanDiagnostics.describe(odd), contains('unopenable=4'));
+      // Merged across folders like every other count.
+      expect(
+        LocalScanReport.merged(
+          const <LocalScanReport>[odd, odd],
+          rootsScanned: 2,
+          rootsUnavailable: 0,
+        ).unopenableNames,
+        8,
+      );
+    });
+
     test('includes folders, imported, and recursive counts', () {
       const report = LocalScanReport(
         folderSelected: true,
