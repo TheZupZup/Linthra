@@ -264,7 +264,112 @@ void main() {
     });
   });
 
+  group('refreshTokens', () {
+    test('trades the refresh token in through a header and reads the new pair',
+        () async {
+      http.Request? captured;
+      final client = _client(MockClient((http.Request request) async {
+        captured = request;
+        // The refresh answer has the login response's shape, including the
+        // old never-expiring token a 2.26+ server still sends.
+        return _json(<String, dynamic>{
+          'user': <String, dynamic>{
+            'id': 'user-1',
+            'username': 'jon',
+            'token': 'old-style',
+            'accessToken': 'tok-new',
+            'refreshToken': 'refresh-new',
+          },
+          'userDefaultLibraryId': 'lib-1',
+        });
+      }));
+
+      final result = await client.refreshTokens(
+        baseUrl: _base,
+        refreshToken: 'refresh-old',
+      );
+
+      expect(result.userId, 'user-1');
+      expect(result.accessToken, 'tok-new');
+      expect(result.refreshToken, 'refresh-new');
+      expect(captured!.method, 'POST');
+      expect(captured!.url.path, '/auth/refresh');
+      expect(captured!.headers['x-refresh-token'], 'refresh-old');
+      // Never in the URL, and no stale bearer token alongside.
+      expect(captured!.url.toString(), isNot(contains('refresh-old')));
+      expect(captured!.headers.containsKey('Authorization'), isFalse);
+    });
+
+    test('a refused refresh token is a 401 that carries no token', () async {
+      final client = _client(MockClient((_) async {
+        return _json(<String, dynamic>{'error': 'Invalid refresh token'},
+            status: 401);
+      }));
+
+      Object? caught;
+      try {
+        await client.refreshTokens(baseUrl: _base, refreshToken: 'refresh-old');
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(
+        caught,
+        isA<AudiobookshelfException>()
+            .having((AudiobookshelfException e) => e.kind, 'kind',
+                AudiobookshelfErrorKind.unauthorized)
+            .having((AudiobookshelfException e) => e.statusCode, 'status', 401),
+      );
+      expect('$caught', isNot(contains('refresh-old')));
+    });
+
+    test('an answer without tokens is an unusable response, not a sign-in',
+        () async {
+      final client = _client(MockClient((_) async {
+        return _json(<String, dynamic>{'user': <String, dynamic>{}});
+      }));
+
+      await expectLater(
+        client.refreshTokens(baseUrl: _base, refreshToken: 'refresh-old'),
+        throwsA(isA<AudiobookshelfException>().having(
+            (AudiobookshelfException e) => e.kind,
+            'kind',
+            AudiobookshelfErrorKind.unexpected)),
+      );
+    });
+
+    test('a rate-limited refresh is transient, not a refusal', () async {
+      final client = _client(MockClient((_) async {
+        return http.Response('Too many requests', 429);
+      }));
+
+      await expectLater(
+        client.refreshTokens(baseUrl: _base, refreshToken: 'refresh-old'),
+        throwsA(isA<AudiobookshelfException>().having(
+            (AudiobookshelfException e) => e.kind,
+            'kind',
+            AudiobookshelfErrorKind.serverError)),
+      );
+    });
+  });
+
   group('fetchLibraries', () {
+    test('a 403 keeps its status, so it is not taken for an expired token',
+        () async {
+      final client = _client(MockClient((_) async {
+        return http.Response('Forbidden', 403);
+      }));
+
+      await expectLater(
+        client.fetchLibraries(_session),
+        throwsA(isA<AudiobookshelfException>()
+            .having((AudiobookshelfException e) => e.kind, 'kind',
+                AudiobookshelfErrorKind.unauthorized)
+            .having(
+                (AudiobookshelfException e) => e.statusCode, 'status', 403)),
+      );
+    });
+
     test('parses the libraries array and sends the bearer token', () async {
       http.Request? captured;
       final client = _client(MockClient((http.Request request) async {
