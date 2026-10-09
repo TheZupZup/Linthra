@@ -12,6 +12,7 @@ import 'in_memory_playlist_store.dart';
 import 'jellyfin_playlist_gateway.dart';
 import 'music_library_repository_provider.dart';
 import 'shared_preferences_playlist_store.dart';
+import 'song_origins_provider.dart';
 import 'subsonic_playlist_gateway.dart';
 import 'synced_playlist_repository.dart';
 
@@ -33,6 +34,7 @@ final playlistRepositoryProvider = Provider<PlaylistRepository>((ref) {
     // against the live catalog (unambiguous ids only).
     catalogForMigration: () =>
         ref.read(musicLibraryRepositoryProvider).getAllTracks(),
+    origins: ref.watch(songOriginsProvider),
   );
   ref.onDisposeAsync(repository.dispose);
   return repository;
@@ -68,6 +70,7 @@ final remotePlaylistSyncOverride =
     ],
     catalogForMigration: () =>
         ref.read(musicLibraryRepositoryProvider).getAllTracks(),
+    origins: ref.watch(songOriginsProvider),
   );
   ref.onDisposeAsync(repository.dispose);
   return repository;

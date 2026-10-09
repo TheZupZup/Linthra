@@ -78,6 +78,7 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
       if (playlist.lastSyncError != null)
         'lastSyncError': playlist.lastSyncError,
       if (playlist.owner != null) 'owner': playlist.owner,
+      if (playlist.entryOrigins.isNotEmpty) 'origins': playlist.entryOrigins,
     };
   }
 
@@ -99,10 +100,20 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
       syncState: PlaylistSyncState.fromName(_string(json['syncState'])),
       lastSyncError: _string(json['lastSyncError']),
       owner: _string(json['owner']),
+      entryOrigins: _origins(json['origins']),
     );
   }
 
   static String? _string(Object? value) => value is String ? value : null;
+
+  static Map<String, String> _origins(Object? value) {
+    if (value is! Map) return const <String, String>{};
+    return <String, String>{
+      for (final MapEntry<Object?, Object?> entry in value.entries)
+        if (entry.key is String && entry.value is String)
+          entry.key as String: entry.value as String,
+    };
+  }
 
   static List<String> _ids(Object? value) {
     if (value is! List) return const <String>[];

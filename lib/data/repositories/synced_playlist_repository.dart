@@ -11,6 +11,7 @@ import '../../core/repositories/playlist_store.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
 import '../../core/repositories/remote_sync_result.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/song_origins.dart';
 import '../../core/services/stability_diagnostics.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../core/sources/music_provider.dart';
@@ -48,13 +49,18 @@ class SyncedPlaylistRepository
     String Function()? idGenerator,
     DateTime Function()? now,
     Future<List<Track>> Function()? catalogForMigration,
+    SongOrigins origins = const UnboundSongOrigins(),
   })  : _store = store,
+        _origins = origins,
         _gateways = gateways,
         _newId = idGenerator ?? _defaultIdGenerator(),
         _now = now ?? DateTime.now,
         _catalogForMigration = catalogForMigration;
 
   final PlaylistStore _store;
+
+  /// Where each remote song a device playlist lists was added (#795).
+  final SongOrigins _origins;
 
   /// The per-provider server seams. Empty for local-only (tests, the data-layer
   /// default); the composition root supplies one per remote provider.
@@ -343,6 +349,44 @@ class SyncedPlaylistRepository
   }
 
   @override
+  List<String> entriesHere(Playlist playlist) => <String>[
+        for (final String uri in playlist.trackIds)
+          // A synced playlist's songs are its account's.
+          if (songOriginMatches(
+            _origins,
+            uri,
+            playlist.isRemote ? playlist.owner : playlist.entryOrigins[uri],
+          ))
+            uri,
+      ];
+
+  /// [p]'s entry origins with [uris], just added, recorded as the origin
+  /// signed in now. Only a device playlist keeps them: a synced one's songs
+  /// are its account's.
+  Map<String, String> _withOrigins(Playlist p, Iterable<String> uris) {
+    if (p.isRemote) return p.entryOrigins;
+    final Map<String, String> origins = <String, String>{...p.entryOrigins};
+    for (final String uri in uris) {
+      final String? origin = songOriginToRecord(_origins, uri);
+      if (origin != null) origins[uri] = origin;
+    }
+    return origins;
+  }
+
+  /// [origins] without the entries [trackIds] no longer lists.
+  static Map<String, String> _keptOrigins(
+    Map<String, String> origins,
+    List<String> trackIds,
+  ) {
+    if (origins.isEmpty) return origins;
+    final Set<String> listed = trackIds.toSet();
+    return <String, String>{
+      for (final MapEntry<String, String> entry in origins.entries)
+        if (listed.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
+  @override
   Future<void> addTrack(String playlistId, String trackUri) =>
       addTracks(playlistId, <String>[trackUri]);
 
@@ -358,7 +402,11 @@ class SyncedPlaylistRepository
         added.add(trackUri);
       }
       if (added.isEmpty) return p;
-      return p.copyWith(trackIds: updated, updatedAt: _now());
+      return p.copyWith(
+        trackIds: updated,
+        updatedAt: _now(),
+        entryOrigins: _withOrigins(p, added),
+      );
     });
     if (added.isEmpty) return;
     await _pushMembership(playlistId, added: added, removed: const <String>[]);
@@ -374,12 +422,14 @@ class SyncedPlaylistRepository
           if (p.trackIds[i] == trackUri) i,
       ];
       if (positions.isEmpty) return p;
+      final List<String> kept = <String>[
+        for (final String uri in p.trackIds)
+          if (uri != trackUri) uri,
+      ];
       return p.copyWith(
-        trackIds: <String>[
-          for (final String uri in p.trackIds)
-            if (uri != trackUri) uri,
-        ],
+        trackIds: kept,
         updatedAt: _now(),
+        entryOrigins: _keptOrigins(p.entryOrigins, kept),
       );
     });
     if (positions.isEmpty) return positions;
@@ -408,7 +458,11 @@ class SyncedPlaylistRepository
         updated.insert(position.clamp(0, updated.length), trackUri);
       }
       restored = true;
-      return p.copyWith(trackIds: updated, updatedAt: _now());
+      return p.copyWith(
+        trackIds: updated,
+        updatedAt: _now(),
+        entryOrigins: _withOrigins(p, <String>[trackUri]),
+      );
     });
     if (!restored) return;
     // Subsonic replaces the whole ordered list, so the server gets the track
@@ -842,13 +896,25 @@ class SyncedPlaylistRepository
   /// [p], a synced playlist that never reached a server, as the device
   /// playlist it becomes once its account is gone: this device holds the
   /// only copy, so there is nothing to drop it in favour of.
-  Playlist _asDevicePlaylist(Playlist p) => p.copyWith(
-        source: PlaylistSource.local,
-        syncState: PlaylistSyncState.localOnly,
-        lastSyncError: () => null,
-        updatedAt: _now(),
-        owner: () => null,
-      );
+  ///
+  /// Its songs keep naming its account's (#795): an account's songs are what
+  /// the origin of a device playlist's entry records for it.
+  Playlist _asDevicePlaylist(Playlist p) {
+    final String? owner = p.owner;
+    return p.copyWith(
+      source: PlaylistSource.local,
+      syncState: PlaylistSyncState.localOnly,
+      lastSyncError: () => null,
+      updatedAt: _now(),
+      owner: () => null,
+      entryOrigins: owner == null
+          ? const <String, String>{}
+          : <String, String>{
+              for (final String uri in p.trackIds)
+                if (_origins.binds(uri)) uri: owner,
+            },
+    );
+  }
 
   int _clearsOf(PlaylistSource source) => _clears[source] ?? 0;
 

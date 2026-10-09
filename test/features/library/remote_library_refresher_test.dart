@@ -101,6 +101,9 @@ class _CountingPlaylists implements PlaylistRepository {
   @override
   Future<void> clearRemote({PlaylistSource? source}) =>
       throw UnimplementedError();
+
+  @override
+  List<String> entriesHere(Playlist playlist) => playlist.trackIds;
 }
 
 void main() {
