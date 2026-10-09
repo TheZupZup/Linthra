@@ -75,6 +75,9 @@ class _SlowDeletes implements RemotePlaylistGateway {
   PlaylistSource get source => PlaylistSource.subsonic;
   @override
   bool get isConnected => true;
+
+  @override
+  String? get accountKey => 'account-a';
   @override
   bool get pushesRename => true;
   @override
@@ -273,6 +276,7 @@ void main() {
             remoteId: 'srv-1',
             trackIds: <String>['file:///a.mp3'],
             syncState: PlaylistSyncState.synced,
+            owner: 'account-a',
           ),
         ],
         gateway: server,

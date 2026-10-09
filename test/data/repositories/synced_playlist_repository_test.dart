@@ -2587,6 +2587,12 @@ class _GatedPlaylistGateway implements RemotePlaylistGateway {
   @override
   bool get isConnected => connected;
 
+  /// The account signed in while [connected].
+  String account = 'account-a';
+
+  @override
+  String? get accountKey => connected ? account : null;
+
   @override
   bool get pushesRename => true;
 

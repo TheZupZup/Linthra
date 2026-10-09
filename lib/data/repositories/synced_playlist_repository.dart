@@ -31,6 +31,13 @@ import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 /// [PlaylistSyncState.syncFailed] with a friendly, secret-free
 /// [Playlist.lastSyncError], so the UI shows an honest status.
 ///
+/// Ownership (#843): a synced playlist's [Playlist.remoteId] means something
+/// only on its own account's server, so each one records the account it
+/// belongs to ([Playlist.owner]) and is only ever pushed to that account. A
+/// refresh by another account drops the previous account's playlists before
+/// importing its own, so a sign-out whose save the disk refused, then a
+/// restart, can't push one account's playlists under the next one's ids.
+///
 /// Security: only non-secret metadata and track ids are stored or sent. Sessions
 /// (with their tokens) live behind the gateways — never logged or persisted here.
 class SyncedPlaylistRepository
@@ -160,6 +167,20 @@ class SyncedPlaylistRepository
     return null;
   }
 
+  /// The gateway [playlist] may be pushed through: its provider's, signed in
+  /// to the account it belongs to. Null otherwise, an unowned playlist from
+  /// before owners were recorded included: nothing of it is pushed until a
+  /// refresh has adopted it.
+  ///
+  /// Asked right before each request: a gateway reads its session when the
+  /// request starts, so nothing can switch accounts in between.
+  RemotePlaylistGateway? _gatewayFor(Playlist playlist) {
+    final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+    final String? account = gateway?.accountKey;
+    if (account == null || account != playlist.owner) return null;
+    return gateway;
+  }
+
   @override
   Stream<List<Playlist>> get playlistsStream async* {
     await _ensureLoaded();
@@ -192,7 +213,8 @@ class SyncedPlaylistRepository
     final DateTime now = _now();
     final RemotePlaylistGateway? gateway =
         source == PlaylistSource.local ? null : _gatewayForSource(source);
-    final bool remote = gateway != null;
+    final String? account = gateway?.accountKey;
+    final bool remote = gateway != null && account != null;
     Playlist playlist = Playlist(
       id: _newId(),
       name: name,
@@ -203,6 +225,7 @@ class SyncedPlaylistRepository
       syncState: remote
           ? PlaylistSyncState.pendingCreate
           : PlaylistSyncState.localOnly,
+      owner: remote ? account : null,
     );
     await _inTurn(() => _write(<Playlist>[..._playlists, playlist]));
     if (remote) {
@@ -247,7 +270,7 @@ class SyncedPlaylistRepository
     // re-adopts the server name). See docs/playlists-and-delete.md.
     final Playlist? playlist = _byId(id);
     if (playlist == null || !playlist.isRemote) return;
-    if (!(_gatewayForSource(playlist.source)?.pushesRename ?? false)) return;
+    if (!(_gatewayFor(playlist)?.pushesRename ?? false)) return;
     await _pushInOrder(id, () => _sendRename(id, name));
   }
 
@@ -257,7 +280,7 @@ class SyncedPlaylistRepository
     if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
       return;
     }
-    final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+    final RemotePlaylistGateway? gateway = _gatewayFor(playlist);
     if (gateway == null || !gateway.pushesRename) return;
     try {
       await gateway.renameRemote(playlist.remoteId!, name);
@@ -290,7 +313,7 @@ class SyncedPlaylistRepository
     // the UI's explicit delete confirmation). A failure can't restore the local
     // copy, so it is intentionally swallowed — the local delete stands.
     if (playlist.isRemote && playlist.remoteId != null) {
-      final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+      final RemotePlaylistGateway? gateway = _gatewayFor(playlist);
       if (gateway != null) {
         final ({PlaylistSource source, String remoteId}) deleted =
             (source: playlist.source, remoteId: playlist.remoteId!);
@@ -422,7 +445,7 @@ class SyncedPlaylistRepository
     if (current == null || !current.isRemote || current.remoteId == null) {
       return;
     }
-    final RemotePlaylistGateway? gateway = _gatewayForSource(current.source);
+    final RemotePlaylistGateway? gateway = _gatewayFor(current);
     if (gateway == null || !gateway.pushesReorder) return;
     await _pushMembership(
       playlistId,
@@ -552,20 +575,26 @@ class SyncedPlaylistRepository
     };
 
     final Map<RemotePlaylistGateway,
-            ({RemotePlaylistListing answer, int fetch})> fetched =
-        <RemotePlaylistGateway, ({RemotePlaylistListing answer, int fetch})>{};
+            ({RemotePlaylistListing answer, int fetch, String account})>
+        fetched = <RemotePlaylistGateway,
+            ({RemotePlaylistListing answer, int fetch, String account})>{};
     int failures = 0;
     for (final RemotePlaylistGateway gateway in connected) {
       // Signed out while an earlier provider answered: don't ask for an
       // account that is gone.
+      final String? account = gateway.accountKey;
       if (!gateway.isConnected ||
+          account == null ||
           _clearsOf(gateway.source) != clears[gateway.source]) {
         continue;
       }
       final int fetch = ++_fetchesSent;
       try {
-        fetched[gateway] =
-            (answer: await gateway.fetchPlaylists(), fetch: fetch);
+        fetched[gateway] = (
+          answer: await gateway.fetchPlaylists(),
+          fetch: fetch,
+          account: account,
+        );
       } on RemoteSyncException {
         // Offline or transient for this provider: keep its synced playlists and
         // move on to the others.
@@ -584,7 +613,8 @@ class SyncedPlaylistRepository
   /// saves the result. A save the disk refuses throws, and the refresh reports
   /// it failed, with the playlists left as they were. Called in turn.
   Future<PlaylistSyncResult> _mergeAnswers(
-    Map<RemotePlaylistGateway, ({RemotePlaylistListing answer, int fetch})>
+    Map<RemotePlaylistGateway,
+            ({RemotePlaylistListing answer, int fetch, String account})>
         fetched,
     Map<PlaylistSource, int> clears,
     Map<String, Playlist> before,
@@ -596,13 +626,15 @@ class SyncedPlaylistRepository
     int total = 0;
     int complete = 0;
     for (final MapEntry<RemotePlaylistGateway,
-        ({RemotePlaylistListing answer, int fetch})> entry in fetched.entries) {
+            ({RemotePlaylistListing answer, int fetch, String account})> entry
+        in fetched.entries) {
       final RemotePlaylistGateway gateway = entry.key;
       // Signed out (or cleared) while the fetch was in flight: the answer is
       // that account's, which is gone. A Subsonic fetch keeps the session it
       // started with, so the gateway can still look connected; the clear count
       // is what says so.
       if (!gateway.isConnected ||
+          gateway.accountKey != entry.value.account ||
           _clearsOf(gateway.source) != clears[gateway.source]) {
         continue;
       }
@@ -618,6 +650,7 @@ class SyncedPlaylistRepository
       next = _mergeRemote(
         next,
         gateway.source,
+        entry.value.account,
         answer,
         before,
         entry.value.fetch,
@@ -665,9 +698,18 @@ class SyncedPlaylistRepository
   /// replaces playlists too, and that is not an edit: whichever of the two
   /// asked the server later has the newer answer, and it wins, whichever
   /// order they land in.
+  ///
+  /// The answer is [account]'s. Another account's synced playlists go first,
+  /// the way its sign-out drops them: one bound to a server playlist is
+  /// dropped, one that never reached a server stays as a device playlist.
+  /// One saved before owners were recorded can't say whose it is: it is
+  /// adopted from the answer like any synced playlist, and so becomes
+  /// [account]'s with the server's own name and songs, or dropped when the
+  /// answer doesn't list it. Nothing of it was ever pushed meanwhile.
   List<Playlist> _mergeRemote(
     List<Playlist> current,
     PlaylistSource source,
+    String account,
     RemotePlaylistListing listing,
     Map<String, Playlist> before,
     int fetch,
@@ -683,12 +725,24 @@ class SyncedPlaylistRepository
     // answer must not bring it back.
     final Set<String> known = <String>{
       for (final Playlist p in before.values)
-        if (p.source == source && p.remoteId != null) p.remoteId!,
+        if (p.source == source &&
+            p.remoteId != null &&
+            (p.owner == null || p.owner == account))
+          p.remoteId!,
     };
     bool changed = false;
     final List<Playlist> next = <Playlist>[];
     for (final Playlist p in current) {
-      if (p.source != source || p.remoteId == null) {
+      if (p.source != source) {
+        next.add(p);
+        continue;
+      }
+      if (p.owner != account && (p.owner != null || p.remoteId == null)) {
+        changed = true;
+        if (p.remoteId == null) next.add(_asDevicePlaylist(p));
+        continue;
+      }
+      if (p.remoteId == null) {
         next.add(p);
         continue;
       }
@@ -719,7 +773,7 @@ class SyncedPlaylistRepository
         changed = true; // Deleted on the server: drop the mirror.
         continue;
       }
-      final Playlist adopted = _adoptServerCopy(p, dto);
+      final Playlist adopted = _adoptServerCopy(p, dto, account);
       if (!identical(adopted, p)) changed = true;
       next.add(adopted);
       merged.add((playlist: adopted, fetch: fetch));
@@ -751,6 +805,7 @@ class SyncedPlaylistRepository
         createdAt: _now(),
         updatedAt: _now(),
         syncState: PlaylistSyncState.synced,
+        owner: account,
       );
       next.add(imported);
       merged.add((playlist: imported, fetch: fetch));
@@ -759,14 +814,19 @@ class SyncedPlaylistRepository
     return changed ? next : current;
   }
 
-  /// [p] with the server's name and membership adopted, or [p] itself when it
-  /// already matches: an unchanged refresh then rewrites nothing, and
-  /// [Playlist.updatedAt] moves only when something did.
-  Playlist _adoptServerCopy(Playlist p, RemotePlaylistData dto) {
+  /// [p] with the server's name and membership adopted, as [account]'s, or
+  /// [p] itself when it already matches: an unchanged refresh then rewrites
+  /// nothing, and [Playlist.updatedAt] moves only when something did.
+  Playlist _adoptServerCopy(
+    Playlist p,
+    RemotePlaylistData dto,
+    String account,
+  ) {
     if (p.name == dto.name &&
         listEquals(p.trackIds, dto.trackUris) &&
         p.syncState == PlaylistSyncState.synced &&
-        p.lastSyncError == null) {
+        p.lastSyncError == null &&
+        p.owner == account) {
       return p;
     }
     return p.copyWith(
@@ -775,8 +835,20 @@ class SyncedPlaylistRepository
       syncState: PlaylistSyncState.synced,
       lastSyncError: () => null,
       updatedAt: _now(),
+      owner: () => account,
     );
   }
+
+  /// [p], a synced playlist that never reached a server, as the device
+  /// playlist it becomes once its account is gone: this device holds the
+  /// only copy, so there is nothing to drop it in favour of.
+  Playlist _asDevicePlaylist(Playlist p) => p.copyWith(
+        source: PlaylistSource.local,
+        syncState: PlaylistSyncState.localOnly,
+        lastSyncError: () => null,
+        updatedAt: _now(),
+        owner: () => null,
+      );
 
   int _clearsOf(PlaylistSource source) => _clears[source] ?? 0;
 
@@ -810,14 +882,7 @@ class SyncedPlaylistRepository
       // Never reached the server (created while it couldn't be reached): this
       // device holds the only copy, so signing out has nothing to drop it in
       // favour of. It stays, as the device playlist it now is.
-      if (p.remoteId == null) {
-        next.add(p.copyWith(
-          source: PlaylistSource.local,
-          syncState: PlaylistSyncState.localOnly,
-          lastSyncError: () => null,
-          updatedAt: _now(),
-        ));
-      }
+      if (p.remoteId == null) next.add(_asDevicePlaylist(p));
     }
     if (changed) await _write(next, keepIfRefused: true);
   }
@@ -1019,6 +1084,10 @@ class SyncedPlaylistRepository
     // an account that is gone: neither its failure nor its server id belongs
     // on the device's copy.
     final int clears = _clearsOf(gateway.source);
+    // Signed in as someone else since it was made here: not theirs to have.
+    // It waits as it is; the next refresh of that account makes it a device
+    // playlist (see [_mergeRemote]).
+    if (gateway.accountKey != playlist.owner) return playlist;
     final String remoteId;
     try {
       remoteId = await gateway.createRemotePlaylist(
@@ -1099,7 +1168,7 @@ class SyncedPlaylistRepository
     if (playlist == null || !playlist.isRemote || playlist.remoteId == null) {
       return;
     }
-    final RemotePlaylistGateway? gateway = _gatewayForSource(playlist.source);
+    final RemotePlaylistGateway? gateway = _gatewayFor(playlist);
     if (gateway == null) return;
     try {
       await gateway.syncMembership(

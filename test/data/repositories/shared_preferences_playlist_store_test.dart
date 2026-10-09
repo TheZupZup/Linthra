@@ -48,6 +48,26 @@ void main() {
       expect(loaded[1].syncState, PlaylistSyncState.synced);
     });
 
+    test('round-trips the account a synced playlist belongs to (#843)',
+        () async {
+      const SharedPreferencesPlaylistStore store =
+          SharedPreferencesPlaylistStore();
+      await store.save(const <Playlist>[
+        Playlist(
+          id: 'p1',
+          name: 'Server Mix',
+          source: PlaylistSource.subsonic,
+          remoteId: 'srv-1',
+          syncState: PlaylistSyncState.synced,
+          owner: 'account-a',
+        ),
+        Playlist(id: 'p2', name: 'On the device'),
+      ]);
+
+      final List<Playlist> loaded = await store.load();
+      expect(loaded.map((Playlist p) => p.owner), <String?>['account-a', null]);
+    });
+
     test('returns empty for no stored value', () async {
       const SharedPreferencesPlaylistStore store =
           SharedPreferencesPlaylistStore();

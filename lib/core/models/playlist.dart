@@ -89,6 +89,7 @@ class Playlist {
     this.updatedAt,
     this.syncState = PlaylistSyncState.localOnly,
     this.lastSyncError,
+    this.owner,
   });
 
   /// Stable Linthra playlist id (an opaque local id, never a server secret).
@@ -119,6 +120,14 @@ class Playlist {
   /// the last sync attempt succeeded (or none has run).
   final String? lastSyncError;
 
+  /// For a synced playlist, the key of the account it belongs to
+  /// (`RemotePlaylistGateway.accountKey`): its [remoteId] means something
+  /// only on that account's server, so it is never pushed to another one.
+  /// Null for a device playlist, and for a synced one saved before owners
+  /// were recorded, which nothing is pushed for until a refresh of the
+  /// signed-in account has adopted it.
+  final String? owner;
+
   int get length => trackIds.length;
 
   bool get isEmpty => trackIds.isEmpty;
@@ -137,6 +146,7 @@ class Playlist {
     DateTime? updatedAt,
     PlaylistSyncState? syncState,
     String? Function()? lastSyncError,
+    String? Function()? owner,
   }) {
     return Playlist(
       id: id ?? this.id,
@@ -150,6 +160,7 @@ class Playlist {
       syncState: syncState ?? this.syncState,
       lastSyncError:
           lastSyncError != null ? lastSyncError() : this.lastSyncError,
+      owner: owner != null ? owner() : this.owner,
     );
   }
 
