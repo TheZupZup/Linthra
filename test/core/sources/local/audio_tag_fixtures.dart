@@ -136,17 +136,8 @@ abstract final class AudioTagFixtures {
     Uint8List? coverImage,
     String coverMimeType = 'image/png',
   }) {
-    final BytesBuilder vorbis = BytesBuilder();
-    const String vendor = 'Linthra test fixture';
-    vorbis.add(_uint32le(vendor.length));
-    vorbis.add(vendor.codeUnits);
-    vorbis.add(_uint32le(comments.length));
-    for (final String comment in comments) {
-      final List<int> bytes = _utf8(comment);
-      vorbis.add(_uint32le(bytes.length));
-      vorbis.add(bytes);
-    }
-    final Uint8List vorbisBlock = vorbis.toBytes();
+    final Uint8List vorbisBlock = _commentBlock(
+        <List<int>>[for (final String comment in comments) _utf8(comment)]);
 
     final BytesBuilder file = BytesBuilder();
     file.add('fLaC'.codeUnits);
@@ -196,6 +187,204 @@ abstract final class AudioTagFixtures {
   /// field name, a value containing its own `=`.
   static Uint8List flacWithRawComments(List<String> comments) =>
       _flacFrom(comments);
+
+  /// A Vorbis comment block, the payload FLAC's VORBIS_COMMENT block and
+  /// Ogg's comment header share: vendor length and vendor, comment count, then
+  /// each comment as a 32-bit little-endian length and its bytes.
+  static Uint8List _commentBlock(List<List<int>> comments) {
+    final BytesBuilder block = BytesBuilder();
+    const String vendor = 'Linthra test fixture';
+    block.add(_uint32le(vendor.length));
+    block.add(vendor.codeUnits);
+    block.add(_uint32le(comments.length));
+    for (final List<int> comment in comments) {
+      block.add(_uint32le(comment.length));
+      block.add(comment);
+    }
+    return block.toBytes();
+  }
+
+  /// The comments an Ogg fixture carries: [comments] as UTF-8, [rawComments]
+  /// as the bytes given (invalid UTF-8, say), and [coverImage] as the base64
+  /// `METADATA_BLOCK_PICTURE` comment taggers embed art in Ogg with.
+  static Uint8List _oggComments(
+    List<String> comments,
+    List<List<int>> rawComments,
+    Uint8List? coverImage,
+    String coverMimeType,
+  ) =>
+      _commentBlock(<List<int>>[
+        for (final String comment in comments) _utf8(comment),
+        ...rawComments,
+        if (coverImage != null)
+          _utf8('METADATA_BLOCK_PICTURE='
+              '${base64.encode(_pictureBlock(coverImage, coverMimeType))}'),
+      ]);
+
+  /// An Ogg Vorbis file: identification, comment and setup headers, then one
+  /// page of "audio" whose granule position, [totalSamples], is how long the
+  /// stream is.
+  ///
+  /// The comment header carries the same comment block a FLAC does (see
+  /// [_oggComments]), behind `\x03vorbis` and before a framing bit.
+  static Uint8List oggVorbis({
+    List<String> comments = const <String>[],
+    List<List<int>> rawComments = const <List<int>>[],
+    int sampleRate = 44100,
+    int totalSamples = 44100 * 3,
+    Uint8List? coverImage,
+    String coverMimeType = 'image/png',
+    bool lastPage = true,
+  }) {
+    final ByteData identification = ByteData(30);
+    identification.setUint8(0, 0x01);
+    for (int i = 0; i < 6; i++) {
+      identification.setUint8(1 + i, 'vorbis'.codeUnitAt(i));
+    }
+    identification.setUint32(7, 0, Endian.little); // version
+    identification.setUint8(11, 2); // channels
+    identification.setUint32(12, sampleRate, Endian.little);
+    identification.setUint32(20, 128000, Endian.little); // nominal bitrate
+    identification.setUint8(28, 0xB8); // block sizes 256 and 2048
+    identification.setUint8(29, 0x01); // framing bit
+    return _oggStream(
+      <Uint8List>[
+        identification.buffer.asUint8List(),
+        Uint8List.fromList(<int>[
+          0x03,
+          ...'vorbis'.codeUnits,
+          ..._oggComments(comments, rawComments, coverImage, coverMimeType),
+          0x01, // framing bit
+        ]),
+        // A stand-in setup header: real ones hold codebooks nothing here
+        // reads, but one has to follow the comments on their page.
+        Uint8List.fromList(
+            <int>[0x05, ...'vorbis'.codeUnits, ...Uint8List(40)]),
+      ],
+      lastGranule: totalSamples,
+      lastPage: lastPage,
+    );
+  }
+
+  /// An Opus file: `OpusHead`, `OpusTags`, then one page of "audio".
+  ///
+  /// Opus counts granules at 48 kHz whatever [inputSampleRate] the source
+  /// had, and the first [preSkip] of them are decoder warm-up, not sound, so
+  /// the last page's granule position is `preSkip + samples`.
+  static Uint8List opus({
+    List<String> comments = const <String>[],
+    List<List<int>> rawComments = const <List<int>>[],
+    int preSkip = 312,
+    int inputSampleRate = 48000,
+    int samples = 48000 * 3,
+    Uint8List? coverImage,
+    String coverMimeType = 'image/png',
+  }) {
+    final ByteData head = ByteData(19);
+    for (int i = 0; i < 8; i++) {
+      head.setUint8(i, 'OpusHead'.codeUnitAt(i));
+    }
+    head.setUint8(8, 1); // version
+    head.setUint8(9, 2); // channels
+    head.setUint16(10, preSkip, Endian.little);
+    head.setUint32(12, inputSampleRate, Endian.little);
+    // Output gain 0, channel mapping family 0: the remaining bytes stay zero.
+    return _oggStream(
+      <Uint8List>[
+        head.buffer.asUint8List(),
+        Uint8List.fromList(<int>[
+          ...'OpusTags'.codeUnits,
+          ..._oggComments(comments, rawComments, coverImage, coverMimeType),
+        ]),
+      ],
+      lastGranule: preSkip + samples,
+    );
+  }
+
+  /// [headers] as an Ogg stream, then one audio page ending it at
+  /// [lastGranule] (left out when [lastPage] is false, the way a copy cut
+  /// short leaves a file).
+  ///
+  /// A page is `OggS`, a version byte, a header-type byte (0x01: continues a
+  /// packet from the page before, 0x02: begins the stream, 0x04: ends it), a
+  /// 64-bit granule position, the stream serial, a page sequence number, a
+  /// CRC over the whole page, then a table of lacing values and the data. A
+  /// packet is laced as 255-byte segments closed by one shorter than 255, and
+  /// a page holds at most 255 segments, so a long packet runs on over several
+  /// pages. The identification header sits alone on the first page; the other
+  /// headers follow back to back, and audio starts on a page of its own.
+  static Uint8List _oggStream(
+    List<Uint8List> headers, {
+    required int lastGranule,
+    bool lastPage = true,
+  }) {
+    const int serial = 0x4C494E54;
+    final BytesBuilder file = BytesBuilder();
+    int sequence = 0;
+    void page(List<int> lacing, List<int> data, int type, int granule) {
+      final Uint8List bytes = Uint8List.fromList(<int>[
+        ...'OggS'.codeUnits,
+        0, // version
+        type,
+        ..._uint64le(granule),
+        ..._uint32le(serial),
+        ..._uint32le(sequence++),
+        0, 0, 0, 0, // CRC, filled in below
+        lacing.length,
+        ...lacing,
+        ...data,
+      ]);
+      bytes.setRange(22, 26, _uint32le(_oggCrc(bytes)));
+      file.add(bytes);
+    }
+
+    page(_lacing(headers.first.length), headers.first, 0x02, 0);
+
+    final List<int> lacing = <int>[
+      for (final Uint8List header in headers.skip(1)) ..._lacing(header.length),
+    ];
+    final List<int> data = <int>[
+      for (final Uint8List header in headers.skip(1)) ...header,
+    ];
+    int segment = 0;
+    int offset = 0;
+    bool continued = false;
+    while (segment < lacing.length) {
+      final int end =
+          segment + 255 < lacing.length ? segment + 255 : lacing.length;
+      final List<int> pageLacing = lacing.sublist(segment, end);
+      final int size = pageLacing.fold(0, (int sum, int value) => sum + value);
+      // A page on which no packet ends has no granule position (-1).
+      final bool packetEnds = pageLacing.any((int value) => value < 255);
+      page(pageLacing, data.sublist(offset, offset + size),
+          continued ? 0x01 : 0x00, packetEnds ? 0 : -1);
+      continued = pageLacing.last == 255;
+      segment = end;
+      offset += size;
+    }
+
+    if (lastPage) page(_lacing(8), Uint8List(8), 0x04, lastGranule);
+    return file.toBytes();
+  }
+
+  /// A packet of [length] bytes as lacing values: 255 per full segment, then
+  /// the remainder, which is 0 when the length is a multiple of 255.
+  static List<int> _lacing(int length) =>
+      <int>[for (int i = 0; i < length ~/ 255; i++) 255, length % 255];
+
+  /// Ogg's page checksum: CRC-32 with polynomial 0x04C11DB7, no reflection,
+  /// zero initial value, over the page with its own CRC field zeroed.
+  static int _oggCrc(List<int> bytes) {
+    int crc = 0;
+    for (final int byte in bytes) {
+      crc ^= byte << 24;
+      for (int bit = 0; bit < 8; bit++) {
+        crc = (crc & 0x80000000) != 0 ? (crc << 1) ^ 0x04C11DB7 : crc << 1;
+        crc &= 0xFFFFFFFF;
+      }
+    }
+    return crc;
+  }
 
   /// A WAV carrying RIFF `INFO` tags.
   ///
@@ -475,6 +664,10 @@ abstract final class AudioTagFixtures {
         (value >> 16) & 0xFF,
         (value >> 8) & 0xFF,
         value & 0xFF,
+      ];
+
+  static List<int> _uint64le(int value) => <int>[
+        for (int shift = 0; shift < 64; shift += 8) (value >> shift) & 0xFF,
       ];
 
   static List<int> _uint32le(int value) => <int>[

@@ -12,6 +12,7 @@ import 'local_audio_metadata.dart';
 import 'local_metadata_reader.dart';
 import 'mp4_box_guard.dart';
 import 'vorbis_comment_fields.dart';
+import 'vorbis_tags_in_the_clear.dart';
 
 /// Reads audio tags — and embedded cover art — from a real file on disk: the
 /// desktop/Linux half of [LocalMetadataReader], where Android's SAF walk reads
@@ -63,7 +64,10 @@ class FilesystemLocalMetadataReader
   /// changes what a file reads as. Folders indexed before then are read in
   /// full once more, so the change reaches files that haven't changed since
   /// (#783).
-  static const int revision = 1;
+  ///
+  /// 2: OGG and Opus files with one tag field the package can't parse keep
+  /// their tags, length and cover, and so do FLACs their cover (#776).
+  static const int revision = 2;
 
   @override
   int get tagRevision => revision;
@@ -163,7 +167,7 @@ class FilesystemLocalMetadataReader
           await _parseStoppably(path, getImage: needsArtwork);
       if (parsed == null) return _failed;
       if (parsed.rejected) {
-        return await _flacInTheClear(file, cachedArtwork) ?? _failed;
+        return await _inTheClear(file, path, stamp, cachedArtwork) ?? _failed;
       }
       final LocalAudioMetadata? parsedTags = parsed.tags;
       // FLAC's comment block is readable in the clear, so prefer the real
@@ -199,8 +203,10 @@ class FilesystemLocalMetadataReader
       // Read, and found nothing: a settled answer, unlike a failed read.
       return (metadata: result.isEmpty ? null : result, failed: false);
     } catch (_) {
-      // Any failure is "no tags", never a failed scan. The path is not logged:
-      // a user's file path is private data (see CONTRIBUTING, Privacy).
+      // Any failure is a failed read, never a failed scan: an I/O error on the
+      // way says nothing about the tags, so nothing read before it is kept.
+      // The path is not logged: a user's file path is private data (see
+      // CONTRIBUTING, Privacy).
       return _failed;
     }
   }
@@ -281,8 +287,9 @@ class FilesystemLocalMetadataReader
         rejected: false,
       );
     } catch (_) {
-      // The parser gave up on what it read, which one field it can't parse
-      // is enough for (see [_flacInTheClear]).
+      // The parser gave up, which one field it can't parse is enough for (see
+      // [_inTheClear]). It wraps an I/O error the same way, so this can be
+      // one too: what is read in the clear after it never reads around one.
       return (tags: null, cover: null, rejected: true);
     }
   }
@@ -339,45 +346,56 @@ class FilesystemLocalMetadataReader
     );
   }
 
-  /// What a FLAC the package gave up on still says in the clear: its
-  /// comments and its length, and its cover only when one is cached already.
-  /// The package fails the whole file over one field it can't parse (a
-  /// TRACKNUMBER of `A1` on a vinyl rip, an empty `TRACKTOTAL=`, a comment
-  /// with no `=`), which left the track named after its file for good, with
-  /// no length. Null when this isn't a FLAC, or its comments can't be read
-  /// either.
-  static Future<LocalMetadataRead?> _flacInTheClear(
+  /// What a FLAC, OGG or Opus file the package gave up on still says in the
+  /// clear (see [VorbisTagsInTheClear]): its comments, its length, and its
+  /// cover, looked for only when none is cached already. The package fails
+  /// the whole file over one field it can't parse (a TRACKNUMBER of `A1` on a
+  /// vinyl rip, an empty `TRACKTOTAL=`, a comment with no `=`), which left the
+  /// track named after its file for good. Null when the file isn't one of
+  /// those, or its comments can't be read either.
+  ///
+  /// An I/O error is thrown, not read around: the package can have given up
+  /// on one, and whatever was read before it would be a partial answer the
+  /// scan keeps until the file changes.
+  Future<LocalMetadataRead?> _inTheClear(
     File file,
+    String path,
+    LocalFileStamp stamp,
     File? cachedArtwork,
   ) async {
-    final Map<String, List<String>>? fields =
-        await VorbisCommentFields.read(file);
-    if (fields == null) return null;
+    final VorbisTagsInTheClear? found =
+        await VorbisTagsInTheClear.read(file, withCover: cachedArtwork == null);
+    if (found == null) return null;
+    final Map<String, List<String>> fields = found.fields;
     final List<String> artists = _nonBlank(fields['ARTIST']);
     final List<String> albumArtists = _nonBlank(fields['ALBUMARTIST']);
-    final LocalAudioMetadata? tags = _metadata(
-      title: _nonBlank(fields['TITLE']).firstOrNull,
-      artist: artists.isEmpty ? null : artists.join(', '),
-      albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
-      album: _nonBlank(fields['ALBUM']).firstOrNull,
-      trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
-      duration: await FlacStreamInfo.duration(file),
-    );
-    if (tags == null || cachedArtwork == null) {
-      return (metadata: tags, failed: false);
+    final LocalAudioMetadata tags = _metadata(
+          title: _nonBlank(fields['TITLE']).firstOrNull,
+          artist: artists.isEmpty ? null : artists.join(', '),
+          albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
+          album: _nonBlank(fields['ALBUM']).firstOrNull,
+          trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
+          duration: found.duration,
+        ) ??
+        LocalAudioMetadata.empty;
+
+    Uri? artworkUri =
+        cachedArtwork == null ? null : Uri.file(cachedArtwork.path);
+    final Uint8List? cover = found.cover;
+    if (cover != null) {
+      artworkUri = await _artworkCache.store(path, stamp, cover);
     }
-    return (
-      metadata: LocalAudioMetadata(
-        title: tags.title,
-        artist: tags.artist,
-        albumArtist: tags.albumArtist,
-        album: tags.album,
-        trackNumber: tags.trackNumber,
-        duration: tags.duration,
-        artworkUri: Uri.file(cachedArtwork.path),
-      ),
-      failed: false,
+
+    final LocalAudioMetadata result = LocalAudioMetadata(
+      title: tags.title,
+      artist: tags.artist,
+      albumArtist: tags.albumArtist,
+      album: tags.album,
+      trackNumber: tags.trackNumber,
+      duration: tags.duration,
+      artworkUri: artworkUri,
     );
+    return (metadata: result.isEmpty ? null : result, failed: false);
   }
 
   /// The number a track field starts with: `3` from `3` or `3/12`, and none
