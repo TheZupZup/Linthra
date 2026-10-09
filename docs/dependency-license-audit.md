@@ -202,6 +202,7 @@ listed for completeness.
 | `drift_dev`     | `^2.18.0`    | simonbinder.eu | MIT       | Drift code generation. |
 | `build_runner`  | `^2.4.13`    | dart.dev  | BSD-3-Clause   | Runs the code generators. |
 | `audio_service_platform_interface` | `^0.1.3` | ryanheise.com | MIT | Test-only: the Android media-session boundary test. Already in the graph under `audio_service`. |
+| `analyzer` | `^7.7.1` | dart.dev | BSD-3-Clause | Test-only: the desktop-neutrality guardrail parses `lib/` with it. Already in the graph under `drift_dev` and `build_runner`. |
 
 ## 5. Native / bundled components
 

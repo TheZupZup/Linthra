@@ -766,6 +766,87 @@ class WindowIdentityTest(CheckoutCase):
             checker.runner_identity_problems(self.root)
 
 
+class CTokensTest(unittest.TestCase):
+    """The tokenizer the runner checks read C and C++ through (#663)."""
+
+    def strings(self, source: str) -> list[str]:
+        return [
+            token.value
+            for token in checker.c_tokens(source)
+            if token.kind == "string"
+        ]
+
+    def test_escapes_decode_to_the_characters_they_stand_for(self) -> None:
+        cases = {
+            r'"a\nb"': "a\nb",
+            r'"\x41\102\u0043\U00000044"': "ABCD",
+            r'"\x{45}\o{106}"': "EF",
+            r'"tab\there"': "tab\there",
+            r'"\"quoted\""': '"quoted"',
+            r'"\q"': "q",
+        }
+        for spelling, value in cases.items():
+            with self.subTest(spelling=spelling):
+                self.assertEqual(self.strings(spelling), [value])
+
+    def test_a_raw_string_keeps_its_body_splices_included(self) -> None:
+        self.assertEqual(
+            self.strings('R"x(a\\\nb "c" /* d)x"'), ["a\\\nb \"c\" /* d"]
+        )
+
+    def test_comments_and_splices_are_gone_before_tokens(self) -> None:
+        tokens = checker.c_tokens(
+            "int a; // gone \\\nstill gone\n/* and\n this */ int b;"
+        )
+        self.assertEqual(
+            [token.text for token in tokens], ["int", "a", ";", "int", "b", ";"]
+        )
+
+    def test_directive_tokens_are_marked_per_directive(self) -> None:
+        tokens = checker.c_tokens('#define A "x" \\\n  "y"\n"z";\n#if 0\n')
+        self.assertEqual(
+            [(token.text, token.directive) for token in tokens],
+            [
+                ("#", 1),
+                ("define", 1),
+                ("A", 1),
+                ('"x" "y"', 1),
+                ('"z"', 0),
+                (";", 0),
+                ("#", 2),
+                ("if", 2),
+                ("0", 2),
+            ],
+        )
+
+    def statement(self, source: str, text: str) -> str:
+        tokens = checker.c_tokens(source)
+        index = next(i for i, token in enumerate(tokens) if token.text == text)
+        first, last = checker._statement_containing(tokens, index)
+        return " ".join(token.text for token in tokens[first : last + 1])
+
+    def test_a_statement_takes_its_else_along(self) -> None:
+        source = (
+            "void f() { int a = 0; if (x) { a = 1; } else if (y) a = 2; "
+            "else { a = 3; } g(a); }"
+        )
+        chain = "if ( x ) { a = 1 ; } else if ( y ) a = 2 ; else { a = 3 ; }"
+        # From the condition, and from an unbraced arm, it is the whole chain.
+        self.assertEqual(self.statement(source, "x"), chain)
+        self.assertEqual(self.statement(source, "2"), chain)
+        # Inside a braced arm, it is the statement in that block.
+        self.assertEqual(self.statement(source, "3"), "a = 3 ;")
+        self.assertEqual(self.statement(source, "g"), "g ( a ) ;")
+
+    def test_a_do_while_is_one_statement(self) -> None:
+        tokens = checker.c_tokens("void f() { do { g(); } while (h(1, 2)); k(); }")
+        start = next(i for i, token in enumerate(tokens) if token.text == "do")
+        first, last = checker._statement_containing(tokens, start)
+        self.assertEqual(tokens[first].text, "do")
+        self.assertEqual(tokens[last].text, ";")
+        self.assertEqual(tokens[last + 1].text, "k")
+
+
 class WindowTitleTest(CheckoutCase):
     """The window's own title, and the reason it is not the header bar's (#458).
 
@@ -993,6 +1074,77 @@ class WindowTitleTest(CheckoutCase):
             )
         )
         self.assertIn("expected 1", problem)
+
+    def test_a_goto_past_the_title_is_caught(self) -> None:
+        # Textually unconditional, at depth zero, after a `;`: every rule the
+        # text scan had passed it, while the path through the goto builds a
+        # window with no title (#663).
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  if (window == nullptr) goto after_title;\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n"
+                    "after_title:\n",
+                )
+            )
+        )
+        self.assertIn("goto after_title jumps past", problem)
+
+    def test_a_goto_to_a_label_before_the_title_is_fine(self) -> None:
+        # Jumping back to before the call still runs it.
+        build_checkout(
+            self.root,
+            my_application=self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "retry:\n"
+                    "  if (window == nullptr) goto retry;\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            ),
+        )
+        self.assertEqual(checker.window_title_problems(self.root), [])
+
+    def test_a_return_before_the_title_is_caught(self) -> None:
+        # Directly in the body, a return ends every path before the call.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  return;\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("never reached", problem)
+
+    def test_a_title_hung_off_an_else_is_caught(self) -> None:
+        # `else call(...);` is at depth zero too, and conditional.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  if (window == nullptr) g_warning(\"no window\");\n"
+                    "  else gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("'else'", problem)
+
+    def test_a_spliced_comment_hides_the_title_call(self) -> None:
+        # A backslash at the end of a `//` comment splices the call into the
+        # comment, so the compiled runner never makes it.
+        problem = self.only_problem(
+            self.runner(
+                replace=(
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                    "  // the title, set first \\\n"
+                    "  gtk_window_set_title(window, kApplicationName);\n",
+                )
+            )
+        )
+        self.assertIn("no title", problem)
 
 
 class DesktopNeutralityTest(CheckoutCase):
@@ -1361,6 +1513,108 @@ class DesktopNeutralityTest(CheckoutCase):
             + 'static const char* kHelp = R"(a " and a /* inside)";\n'
             'static const char* kShell = "KDE";\n',
             encoding="utf-8",
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def write_runner_source(self, extra: str) -> None:
+        build_checkout(self.root)
+        (self.root / "linux" / "runner" / "folder_picker_channel.cc").write_text(
+            FOLDER_PICKER_CHANNEL.format(
+                channel=FOLDER_PICKER_CHANNEL_NAME,
+                method=FOLDER_PICKER_METHOD_NAME,
+            )
+            + extra,
+            encoding="utf-8",
+        )
+
+    def test_a_name_spelled_with_escapes_is_caught(self) -> None:
+        # Every one of these is `KDE` to the compiler (#663).
+        for spelling in (
+            r'"\x4b\x44\x45"',
+            r'"\113\104\105"',
+            r'"\u004bDE"',
+            r'"\U0000004bDE"',
+            r'"K\x{44}E"',
+            r'"\N{LATIN CAPITAL LETTER K}DE"',
+        ):
+            with self.subTest(spelling=spelling):
+                self.write_runner_source(
+                    "static bool IsPlasma(const char* wm) "
+                    f"{{ return g_strcmp0(wm, {spelling}) == 0; }}\n"
+                )
+                problems = checker.desktop_neutrality_problems(self.root)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("'KDE'", problems[0])
+
+    def test_an_escaped_session_variable_is_caught(self) -> None:
+        self.write_runner_source(
+            r'static const char* kVar = "XDG_\x43URRENT_DESKTOP";' "\n"
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("XDG_CURRENT_DESKTOP", problems[0])
+
+    def test_a_literal_spliced_across_lines_is_read_whole(self) -> None:
+        # A backslash-newline inside a literal is removed before the literal
+        # is formed.
+        self.write_runner_source('static const char* kShell = "K\\\nDE";\n')
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def test_an_escaped_quote_does_not_end_the_literal(self) -> None:
+        # `\"` is a quote inside the string, so the name after it is in the
+        # same literal, and a name in a later one is still found.
+        self.write_runner_source(
+            'static const char* kQuoted = "say \\"hi\\" to KDE";\n'
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("KDE", problems[0])
+
+    def test_quoted_words_inside_one_literal_are_not_joined(self) -> None:
+        # The false positive #654 shipped a fix for: one literal holding the
+        # text `"K" "DE"` is not the string `KDE`.
+        self.write_runner_source(
+            'static const char* kHelp = "write \\"K\\" \\"DE\\" for it";\n'
+        )
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_a_file_ending_in_a_block_comment_is_fine(self) -> None:
+        # Another #654 false positive: legal source, nothing after the comment.
+        self.write_runner_source("/* trailing\n   note about KDE */")
+        self.assertEqual(checker.desktop_neutrality_problems(self.root), [])
+
+    def test_the_allowance_does_not_cover_an_else_arm(self) -> None:
+        # Hung off the grandfathered `if`, an `else` decides something for
+        # every *other* window manager, and the `if` line itself is untouched
+        # (#663).
+        build_checkout(
+            self.root,
+            my_application=MY_APPLICATION.format(display_name=DISPLAY_NAME).replace(
+                "    use_header_bar = FALSE;\n  }\n#endif",
+                "    use_header_bar = FALSE;\n  } else {\n"
+                "    gtk_window_set_keep_above(window, TRUE);\n  }\n#endif",
+            ),
+        )
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("excused only in", problems[0])
+        self.assertIn("else", problems[0])
+
+    def test_a_name_in_a_macro_body_is_caught(self) -> None:
+        self.write_runner_source('#define SHELL_NAME "KDE"\n')
+        problems = checker.desktop_neutrality_problems(self.root)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'KDE'", problems[0])
+
+    def test_a_char_literal_and_digit_separators_are_not_strings(self) -> None:
+        self.write_runner_source(
+            "static const int kBig = 1'000'000;\n"
+            "static const char kQuote = '\"';\n"
+            'static const char* kShell = "KDE";\n'
         )
         problems = checker.desktop_neutrality_problems(self.root)
         self.assertEqual(len(problems), 1, problems)
