@@ -33,6 +33,7 @@ class _MutableScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async =>
       filesByFolder[folder] ?? const <String>[];
 }

@@ -48,6 +48,7 @@ class _HeldScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     final Completer<void>? started = _started;
     if (started != null && !started.isCompleted) started.complete();

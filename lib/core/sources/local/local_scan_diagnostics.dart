@@ -57,6 +57,9 @@ abstract final class LocalScanDiagnostics {
       if (report.reusedTracks > 0) 'reused=${report.reusedTracks}',
       'skipped=${report.skippedUnsupported}',
       'readFailures=${report.readFailures}',
+      // Only when some names couldn't be opened, so other reports read as
+      // they always did.
+      if (report.unopenableNames > 0) 'unopenable=${report.unopenableNames}',
       'recursive=${report.recursive ? 'yes' : 'no'}',
       if (report.error != null) 'error=${report.error!.name}',
       // The finer "why" behind an unreadable folder, when the scan could name

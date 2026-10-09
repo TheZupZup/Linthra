@@ -271,9 +271,11 @@ class LocalMusicSource implements MusicSource {
     required bool isContentUri,
   }) async {
     final List<String> unreadable = <String>[];
+    int unopenable = 0;
     final List<String> files = await _scanner.listFiles(
       folder,
       onUnreadableDirectory: unreadable.add,
+      onUnopenableName: (_) => unopenable++,
     );
     final List<Track> tracks = <Track>[];
     final Map<String, LocalFileStamp> stamps = <String, LocalFileStamp>{};
@@ -398,6 +400,7 @@ class LocalMusicSource implements MusicSource {
         // Counted the way the SAF walk counts them, so the Settings card and
         // the diagnostics line say "unreadable" on desktop too.
         readFailures: unreadable.length,
+        unopenableNames: unopenable,
       ),
     );
   }

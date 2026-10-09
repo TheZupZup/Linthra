@@ -46,6 +46,7 @@ class FakeAudioFileScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folderPath, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     requestedFolder = folderPath;
     requestedFolders.add(folderPath);

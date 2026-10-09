@@ -83,6 +83,7 @@ class _FakeFilesystem
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     if (!_connected.contains(folder)) {
       throw FolderScanException(
