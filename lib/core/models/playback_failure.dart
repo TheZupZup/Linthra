@@ -40,6 +40,48 @@ enum PlaybackFailureKind {
   playbackEngineUnavailable,
 }
 
+/// What Linthra found out about a failure, one step finer than its
+/// [PlaybackFailureKind], for the details a listener can open and the report
+/// they can copy from there.
+///
+/// A closed set of constants, like the kind, and for the same reason: the
+/// error it is worked out from is classified, never quoted, so neither can
+/// carry the error's own text (where a URL, a token or a path would be).
+enum PlaybackFailureCause {
+  /// No account is signed in for this track's source.
+  notSignedIn,
+
+  /// The source turned the saved sign-in down.
+  sessionExpired,
+
+  /// The server didn't answer, or stopped answering mid-stream.
+  serverUnreachable,
+
+  /// The connection dropped while the track was playing.
+  connectionDropped,
+
+  /// The server answered with a web page instead of audio.
+  serverReturnedWebPage,
+
+  /// The server's answer wasn't a stream Linthra could use.
+  invalidStream,
+
+  /// The server had no stream for this track when asked.
+  streamUnavailable,
+
+  /// The file isn't where the library has it, or can't be read there.
+  fileUnavailable,
+
+  /// The audio engine couldn't open or decode the audio.
+  audioNotDecoded,
+
+  /// The audio engine itself isn't working on this machine.
+  engineUnavailable,
+
+  /// Playback stopped with an engine error Linthra couldn't place.
+  unrecognized,
+}
+
 /// A recovery the listener can take from a failed track.
 ///
 /// Deliberately small: everything else (open Settings, rescan, sign in) is a
@@ -119,6 +161,7 @@ class PlaybackFailure {
   const PlaybackFailure({
     required this.kind,
     required this.message,
+    this.cause,
     this.canRetry = false,
     this.canTryAnotherSource = false,
     this.canSkip = false,
@@ -130,6 +173,10 @@ class PlaybackFailure {
 
   /// A friendly, secret-free explanation safe to show as-is.
   final String message;
+
+  /// What went wrong, more precisely than [kind], when the controller knows.
+  /// Null when it doesn't, which the details say rather than guess at.
+  final PlaybackFailureCause? cause;
 
   /// Whether trying this same copy again is worth offering: the kind can
   /// plausibly recover ([PlaybackFailureKindRecovery.isWorthRetrying]) *and*
@@ -172,19 +219,21 @@ class PlaybackFailure {
       (other is PlaybackFailure &&
           other.kind == kind &&
           other.message == message &&
+          other.cause == cause &&
           other.canRetry == canRetry &&
           other.canTryAnotherSource == canTryAnotherSource &&
           other.canSkip == canSkip &&
           other.canAutoSkip == canAutoSkip);
 
   @override
-  int get hashCode => Object.hash(
-      kind, message, canRetry, canTryAnotherSource, canSkip, canAutoSkip);
+  int get hashCode => Object.hash(kind, message, cause, canRetry,
+      canTryAnotherSource, canSkip, canAutoSkip);
 
-  /// Safe to log: the kind and the flags, never the message (which is fixed
-  /// text anyway) and never anything derived from the underlying error.
+  /// Safe to log: the kind, the cause and the flags, never the message (which
+  /// is fixed text anyway) and never anything quoted from the underlying error.
   @override
   String toString() => 'PlaybackFailure(${kind.name}, '
+      '${cause == null ? '' : 'cause: ${cause!.name}, '}'
       'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip, '
       'autoSkip: $canAutoSkip)';
 }

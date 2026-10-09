@@ -180,6 +180,7 @@ void main() {
       final PlaybackFailure? failure = controller.state.failure;
       expect(controller.state.status, PlaybackStatus.error);
       expect(failure?.kind, PlaybackFailureKind.temporarySource);
+      expect(failure?.cause, PlaybackFailureCause.serverUnreachable);
       expect(failure?.message, _serverDown.message);
       expect(failure?.canRetry, isTrue);
       // A single-source song has nowhere else to play from.
@@ -210,6 +211,7 @@ void main() {
 
       final PlaybackFailure? failure = controller.state.failure;
       expect(failure?.kind, PlaybackFailureKind.localFileUnavailable);
+      expect(failure?.cause, PlaybackFailureCause.fileUnavailable);
       // A reconnected drive (or a rescan) makes the same copy playable again,
       // so Retry stays on offer; there is no next track, so Skip does not.
       expect(failure?.canRetry, isTrue);
@@ -236,6 +238,7 @@ void main() {
       final PlaybackFailure? failure = controller.state.failure;
       expect(controller.state.status, PlaybackStatus.error);
       expect(failure?.kind, PlaybackFailureKind.unplayableMedia);
+      expect(failure?.cause, PlaybackFailureCause.audioNotDecoded);
       // The same bytes decode the same way next time, so Retry is not offered.
       expect(failure?.canRetry, isFalse);
       expect(failure?.actions, isEmpty);
@@ -258,6 +261,10 @@ void main() {
       expect(
         controller.state.failure?.kind,
         PlaybackFailureKind.sourceSignInRequired,
+      );
+      expect(
+        controller.state.failure?.cause,
+        PlaybackFailureCause.sessionExpired,
       );
       expect(controller.state.failure?.canRetry, isFalse);
     });
@@ -289,6 +296,8 @@ void main() {
 
       final PlaybackFailure? failure = controller.state.failure;
       expect(failure?.kind, PlaybackFailureKind.sourceSignInRequired);
+      // The interruption's own classification, not the resolver's.
+      expect(failure?.cause, PlaybackFailureCause.sessionExpired);
       expect(failure?.canRetry, isFalse);
       expect(failure?.canSkip, isTrue);
       // The classification is what reaches the listener, not the engine's text.
