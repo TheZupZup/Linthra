@@ -49,6 +49,7 @@ class _DeferredScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) {
     _noteArrival(folder);
     return (requests[folder] ??= Completer<List<String>>()).future;

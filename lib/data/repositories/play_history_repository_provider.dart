@@ -7,6 +7,7 @@ import 'default_play_history_repository.dart';
 import 'in_memory_play_history_store.dart';
 import 'music_library_repository_provider.dart';
 import 'shared_preferences_play_history_store.dart';
+import 'song_origins_provider.dart';
 
 /// Durable store of the user's play history. Defaults to in-memory so tests and
 /// dev runs need no plugins; the app overrides it with the `shared_preferences`
@@ -25,6 +26,7 @@ final playHistoryRepositoryProvider = Provider<PlayHistoryRepository>((ref) {
     // (unambiguous ids only); see DefaultPlayHistoryRepository for the rules.
     catalogForMigration: () =>
         ref.read(musicLibraryRepositoryProvider).getAllTracks(),
+    origins: ref.watch(songOriginsProvider),
   );
   ref.onDisposeAsync(repository.dispose);
   return repository;

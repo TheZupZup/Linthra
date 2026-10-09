@@ -137,6 +137,83 @@ void main() {
     });
   });
 
+  group('the cause the details are worded from', () {
+    test('every resolution kind records one, and agrees with its kind', () {
+      const Map<PlaybackResolutionErrorKind, PlaybackFailureCause> expected =
+          <PlaybackResolutionErrorKind, PlaybackFailureCause>{
+        PlaybackResolutionErrorKind.notSignedIn:
+            PlaybackFailureCause.notSignedIn,
+        PlaybackResolutionErrorKind.sessionExpired:
+            PlaybackFailureCause.sessionExpired,
+        PlaybackResolutionErrorKind.serverUnreachable:
+            PlaybackFailureCause.serverUnreachable,
+        PlaybackResolutionErrorKind.invalidStream:
+            PlaybackFailureCause.invalidStream,
+        PlaybackResolutionErrorKind.serverReturnedWebPage:
+            PlaybackFailureCause.serverReturnedWebPage,
+        PlaybackResolutionErrorKind.streamUnavailable:
+            PlaybackFailureCause.streamUnavailable,
+        PlaybackResolutionErrorKind.localFileMissing:
+            PlaybackFailureCause.fileUnavailable,
+        PlaybackResolutionErrorKind.mediaUnsupported:
+            PlaybackFailureCause.audioNotDecoded,
+        PlaybackResolutionErrorKind.playbackEngineUnavailable:
+            PlaybackFailureCause.engineUnavailable,
+      };
+
+      expect(expected.keys, containsAll(PlaybackResolutionErrorKind.values));
+      expected.forEach((
+        PlaybackResolutionErrorKind kind,
+        PlaybackFailureCause cause,
+      ) {
+        expect(playbackFailureCauseForResolution(kind), cause, reason: '$kind');
+      });
+    });
+
+    test('every mid-stream interruption records one too', () {
+      const Map<StreamInterruptionKind, PlaybackFailureCause> expected =
+          <StreamInterruptionKind, PlaybackFailureCause>{
+        StreamInterruptionKind.networkDropped:
+            PlaybackFailureCause.connectionDropped,
+        StreamInterruptionKind.serverUnreachable:
+            PlaybackFailureCause.serverUnreachable,
+        StreamInterruptionKind.unknown: PlaybackFailureCause.unrecognized,
+        StreamInterruptionKind.sessionExpired:
+            PlaybackFailureCause.sessionExpired,
+        StreamInterruptionKind.formatUnsupported:
+            PlaybackFailureCause.audioNotDecoded,
+        StreamInterruptionKind.localFileUnavailable:
+            PlaybackFailureCause.fileUnavailable,
+      };
+
+      expect(expected.keys, containsAll(StreamInterruptionKind.values));
+      expected.forEach((
+        StreamInterruptionKind kind,
+        PlaybackFailureCause cause,
+      ) {
+        expect(playbackFailureCauseForInterruption(kind), cause,
+            reason: '$kind');
+      });
+    });
+
+    test('is part of what makes two failures the same, and safe to log', () {
+      const PlaybackFailure unreachable = PlaybackFailure(
+        kind: PlaybackFailureKind.temporarySource,
+        message: 'm',
+        cause: PlaybackFailureCause.serverUnreachable,
+      );
+      const PlaybackFailure dropped = PlaybackFailure(
+        kind: PlaybackFailureKind.temporarySource,
+        message: 'm',
+        cause: PlaybackFailureCause.connectionDropped,
+      );
+
+      expect(unreachable == dropped, isFalse);
+      expect(unreachable.toString(), contains('cause: serverUnreachable'));
+      expect(unreachable.toString(), isNot(contains('m,')));
+    });
+  });
+
   group('on the playback state', () {
     const PlaybackFailure failure = PlaybackFailure(
       kind: PlaybackFailureKind.temporarySource,

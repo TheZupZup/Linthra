@@ -1572,6 +1572,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         track,
         interruption.message,
         playbackFailureKindForInterruption(interruption.kind),
+        playbackFailureCauseForInterruption(interruption.kind),
       );
     } finally {
       // Unless a load the listener started took over from it meanwhile, and
@@ -1664,6 +1665,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     Track track,
     String message,
     PlaybackFailureKind kind,
+    PlaybackFailureCause cause,
   ) async {
     final Track? current = _queue.current;
     final List<Track> candidates = _candidates.candidatesFor(track);
@@ -1676,7 +1678,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
             : candidates.sublist(playedIndex + 1);
 
     if (remaining.isEmpty) {
-      _giveUp(track, _failureFor(track: track, message: message, kind: kind));
+      _giveUp(
+        track,
+        _failureFor(track: track, message: message, kind: kind, cause: cause),
+      );
       return;
     }
 
@@ -2902,6 +2907,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       kind: sameKind
           ? failures.first.kind
           : PlaybackResolutionErrorKind.streamUnavailable,
+      acrossSources: true,
     );
   }
 
@@ -3423,7 +3429,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// [failure] with its offered recoveries worked out again for the queue as it
   /// is now, since it may have changed while an automatic step was pending.
   PlaybackFailure _refreshedFailure(Track track, PlaybackFailure failure) =>
-      _failureFor(track: track, message: failure.message, kind: failure.kind);
+      _failureFor(
+        track: track,
+        message: failure.message,
+        kind: failure.kind,
+        cause: failure.cause,
+        acrossSources: failure.acrossSources,
+      );
 
   /// Stops automatic recovery outright: a pending step never runs, and one
   /// whose load is still resolving lands paused instead of starting sound.
@@ -3481,6 +3493,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         track: track,
         message: error.message,
         kind: playbackFailureKindForResolution(error.kind),
+        cause: playbackFailureCauseForResolution(error.kind),
+        acrossSources: error.acrossSources,
       );
 
   /// Builds the failure the error UI renders: the classified [kind], its
@@ -3496,6 +3510,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     required Track track,
     required String message,
     required PlaybackFailureKind kind,
+    PlaybackFailureCause? cause,
+    bool acrossSources = false,
   }) {
     final bool hasAttemptsLeft = _recoveryAttemptsLeftFor(track) > 0;
     // An engine that cannot play anything fails every other copy of this song
@@ -3506,6 +3522,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     return PlaybackFailure(
       kind: kind,
       message: message,
+      cause: cause,
+      acrossSources: acrossSources,
       canRetry: kind.isWorthRetrying && (engineFailure || hasAttemptsLeft),
       canTryAnotherSource: !engineFailure &&
           hasAttemptsLeft &&

@@ -15,21 +15,30 @@ const _safFolder = 'content://com.android.externalstorage.documents/tree/x';
 /// so the source can be tested without touching a real file system. Reports
 /// [unreadable] as the subfolders its walk could not list.
 class _FakeScanner implements AudioFileScanner {
-  _FakeScanner(this._files, {this.unreadable = const <String>[]});
+  _FakeScanner(
+    this._files, {
+    this.unreadable = const <String>[],
+    this.unopenable = const <String>[],
+  });
 
   final List<String> _files;
   final List<String> unreadable;
+
+  /// Entries the walk left out because their names open nothing (#817).
+  final List<String> unopenable;
   String? requestedFolder;
 
   @override
   Future<List<String>> listFiles(
     String folderPath, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     requestedFolder = folderPath;
     for (final String directory in unreadable) {
       onUnreadableDirectory?.call(directory);
     }
+    unopenable.forEach(onUnopenableName ?? (_) {});
     return _files;
   }
 }
@@ -487,6 +496,31 @@ void main() {
       expect(scan.report.hadError, isFalse);
     });
 
+    test(
+        'names that open nothing are counted, and the walk is still complete '
+        '(#817)', () async {
+      final source = LocalMusicSource(
+        folderPath: '/music',
+        scanner: _FakeScanner(
+          const <String>['/music/A/one.mp3'],
+          unopenable: const <String>[
+            '/music/05 Holoc\uFFFDne.flac',
+            '/music/Holoc\uFFFDne',
+          ],
+        ),
+      );
+
+      final scan = await source.scanTracks();
+
+      expect(scan.tracks.single.uri, '/music/A/one.mp3');
+      expect(scan.report.unopenableNames, 2);
+      // Not a folder it couldn't read: nothing under such a name was ever
+      // indexed, so there is nothing to keep, and the walk is whole.
+      expect(scan.report.readFailures, 0);
+      expect(scan.unreadableDirectories, isEmpty);
+      expect(scan.isComplete, isTrue);
+    });
+
     test('a filesystem walk that read everything is complete', () async {
       final source = LocalMusicSource(
         folderPath: '/music',
@@ -585,6 +619,18 @@ void main() {
         scanner: _FakeScanner(
           const <String>[],
           unreadable: const <String>['/mnt/nas/Albums'],
+        ),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isFalse);
+    });
+
+    test('names that open nothing are still entries the walk found', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/mnt/nas',
+        scanner: _FakeScanner(
+          const <String>[],
+          unopenable: const <String>['/mnt/nas/Holoc\uFFFDne.flac'],
         ),
       ).scanTracks();
 

@@ -38,6 +38,13 @@ abstract interface class RemoteFavoritesGateway {
   /// repository keeps the optimistic local state and pushes nothing.
   bool get isConnected;
 
+  /// An opaque, non-secret key for the account [isConnected] refers to (its
+  /// server and user), or null when signed out. The same across sign-ins of
+  /// one account, different for another user or another server. The
+  /// repository records it with the hearts and queued writes it keeps for
+  /// this provider, and never sends them to an account with another key.
+  String? get accountKey;
+
   /// The server's current favourite track uris, already namespaced with
   /// [uriScheme] (so they key exactly like the catalog and the UI). Throws a
   /// [RemoteSyncException] on failure.
@@ -104,6 +111,13 @@ abstract interface class RemotePlaylistGateway {
 
   /// Whether a live signed-in session is available to sync with.
   bool get isConnected;
+
+  /// An opaque, non-secret key for the account [isConnected] refers to (its
+  /// server and user), or null when signed out. The same across sign-ins of
+  /// one account, different for another user or another server. A synced
+  /// playlist records the key of the account it belongs to, and is never
+  /// pushed to an account with another one.
+  String? get accountKey;
 
   /// Whether a rename is pushed to the server. False keeps rename local-only.
   bool get pushesRename;

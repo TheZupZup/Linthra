@@ -1,5 +1,6 @@
 import '../../core/models/subsonic_session.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
+import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_client.dart';
 import '../../core/sources/subsonic/subsonic_exception.dart';
 import '../../core/sources/subsonic/subsonic_track_mapper.dart';
@@ -26,6 +27,12 @@ class SubsonicFavoritesGateway implements RemoteFavoritesGateway {
 
   @override
   bool get isConnected => _session() != null;
+
+  @override
+  String? get accountKey {
+    final SubsonicSession? session = _session();
+    return session == null ? null : subsonicAccountFingerprint(session);
+  }
 
   @override
   Future<Set<String>> fetchFavoriteUris() async {

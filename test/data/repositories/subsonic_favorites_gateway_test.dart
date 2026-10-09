@@ -31,6 +31,45 @@ void main() {
       expect(build(session: null).isConnected, isFalse);
     });
 
+    test(
+        'names the account: same for a new sign-in, not for another user or '
+        'server (#843)', () {
+      expect(build(session: null).accountKey, isNull);
+      final String? alice = build(session: _session).accountKey;
+      expect(alice, isNotNull);
+      // A fresh salt and token: the same account.
+      expect(
+        build(
+          session: const SubsonicSession(
+            baseUrl: 'https://music.example.com',
+            username: 'alice',
+            salt: 'salt2',
+            token: 'tok2',
+          ),
+        ).accountKey,
+        alice,
+      );
+      for (final SubsonicSession other in const <SubsonicSession>[
+        SubsonicSession(
+          baseUrl: 'https://music.example.com',
+          username: 'bob',
+          salt: 'salt1',
+          token: 'tok1',
+        ),
+        SubsonicSession(
+          baseUrl: 'https://other.example.com',
+          username: 'alice',
+          salt: 'salt1',
+          token: 'tok1',
+        ),
+      ]) {
+        expect(build(session: other).accountKey, isNot(alice));
+      }
+      // Nothing secret in it.
+      expect(alice, isNot(contains('tok1')));
+      expect(alice, isNot(contains('alice')));
+    });
+
     test('fetchFavoriteUris namespaces the server starred song ids', () async {
       client.starredSongIds = <String>{'mf-1', 'mf-2'};
       final Set<String> uris =

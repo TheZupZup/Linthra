@@ -36,6 +36,7 @@ import '../data/repositories/preferred_source_store_provider.dart';
 import '../data/repositories/remote_catalog_owner_store_provider.dart';
 import '../data/repositories/selected_music_folder_repository_provider.dart';
 import '../data/repositories/share_service_provider.dart';
+import '../data/repositories/song_origins_provider.dart';
 import '../data/repositories/subsonic_auto_sync_store_provider.dart';
 import '../data/repositories/subsonic_session_store_provider.dart';
 import '../data/repositories/subsonic_sync_pending_store_provider.dart';
@@ -49,6 +50,7 @@ import '../features/player/cast/cast_providers.dart';
 import '../features/player/favorites_providers.dart';
 import '../features/player/lyrics_providers.dart';
 import '../features/player/player_providers.dart';
+import '../features/player/song_origins_binding.dart';
 import '../features/settings/jellyfin/jellyfin_availability_controller.dart';
 
 /// Production [ProviderContainer] overrides — the same list `main()` applies
@@ -97,6 +99,8 @@ List<Override> productionApplicationOverrides({
     currentlyPlayingTrackOverride,
     downloadAccountScopeOverride,
     offlineCopyOriginsOverride,
+    songOriginsOverride,
+    sharedPreferencesSongOriginLegacyStoreOverride,
     nowPlayingOverride,
     secureJellyfinSessionStoreOverride,
     jellyfinAvailabilityPollOverride,

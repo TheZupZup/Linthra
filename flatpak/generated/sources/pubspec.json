@@ -72,16 +72,16 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://pub.dev/api/archives/audio_metadata_reader-1.7.1.tar.gz",
-        "sha256": "79b08282447dfc4b7ff955f9c4eff824d7284c7b021ccfe8204550d8801a08a5",
+        "url": "https://pub.dev/api/archives/audio_metadata_reader-1.8.0.tar.gz",
+        "sha256": "5c769c77f19a38c0cf2a4a7e3728ed1cdefb2ce4a016111527b6b986c17663f9",
         "strip-components": 0,
-        "dest": ".pub-cache/hosted/pub.dev/audio_metadata_reader-1.7.1"
+        "dest": ".pub-cache/hosted/pub.dev/audio_metadata_reader-1.8.0"
     },
     {
         "type": "inline",
-        "contents": "79b08282447dfc4b7ff955f9c4eff824d7284c7b021ccfe8204550d8801a08a5",
+        "contents": "5c769c77f19a38c0cf2a4a7e3728ed1cdefb2ce4a016111527b6b986c17663f9",
         "dest": ".pub-cache/hosted-hashes/pub.dev",
-        "dest-filename": "audio_metadata_reader-1.7.1.sha256"
+        "dest-filename": "audio_metadata_reader-1.8.0.sha256"
     },
     {
         "type": "archive",

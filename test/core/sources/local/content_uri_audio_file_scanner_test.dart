@@ -18,6 +18,7 @@ class _RecordingScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     requestedFolder = folder;
     for (final String directory in unreadable) {

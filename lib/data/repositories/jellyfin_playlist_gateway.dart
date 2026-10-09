@@ -1,6 +1,7 @@
 import '../../core/models/jellyfin_session.dart';
 import '../../core/models/playlist.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
+import '../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../core/sources/jellyfin/jellyfin_api.dart';
 import '../../core/sources/jellyfin/jellyfin_client.dart';
 import '../../core/sources/jellyfin/jellyfin_exception.dart';
@@ -30,6 +31,13 @@ class JellyfinPlaylistGateway implements RemotePlaylistGateway {
 
   @override
   bool get isConnected => _client != null && _session?.call() != null;
+
+  @override
+  String? get accountKey {
+    final JellyfinSession? session = _session?.call();
+    if (_client == null || session == null) return null;
+    return jellyfinAccountFingerprint(session);
+  }
 
   // Rename/reorder of a synced Jellyfin playlist are local-only for now.
   @override

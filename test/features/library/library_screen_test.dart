@@ -593,6 +593,7 @@ class _HeldScanner extends FakeAudioFileScanner {
   Future<List<String>> listFiles(
     String folderPath, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     final Completer<void>? gate = _gate;
     if (gate != null) await gate.future;

@@ -7,6 +7,7 @@ import '../../../core/models/playback_state.dart';
 import '../../../core/services/playback_controller.dart';
 import '../../../core/services/playback_source_label.dart';
 import '../player_providers.dart';
+import 'playback_failure_details_sheet.dart';
 
 /// The in-place panel shown when the current track can't play: what went wrong,
 /// in plain words, and the recoveries that are actually available for it.
@@ -35,6 +36,10 @@ class PlaybackErrorNotice extends ConsumerStatefulWidget {
   /// Finds one action button in tests.
   static ValueKey<String> keyForAction(PlaybackRecoveryAction action) =>
       ValueKey<String>('playback-error-action-${action.name}');
+
+  /// Finds the Details button in tests.
+  static const ValueKey<String> detailsKey =
+      ValueKey<String>('playback-error-details');
 
   /// The icon for a failure of [kind], shared by every panel that explains a
   /// failure so the same problem always looks the same.
@@ -102,9 +107,9 @@ class _PlaybackErrorNoticeState extends ConsumerState<PlaybackErrorNotice> {
             if (running != null) ...<Widget>[
               const SizedBox(height: AppSpacing.sm),
               _BusyRow(label: _busyLabelFor(running), color: onError),
-            ] else if (widget.failure.hasActions) ...<Widget>[
+            ] else ...<Widget>[
               const SizedBox(height: AppSpacing.xs),
-              // Wraps rather than scrolls: at a large text scale three buttons
+              // Wraps rather than scrolls: at a large text scale the buttons
               // do not fit one line on a phone, and a recovery the listener
               // cannot see is no recovery at all.
               Wrap(
@@ -120,12 +125,34 @@ class _PlaybackErrorNoticeState extends ConsumerState<PlaybackErrorNotice> {
                       label: Text(_actionLabelFor(action)),
                       style: TextButton.styleFrom(foregroundColor: onError),
                     ),
+                  // Last, after every way to get the music going again, and
+                  // there even when there is none: what went wrong is worth
+                  // knowing either way.
+                  TextButton.icon(
+                    key: PlaybackErrorNotice.detailsKey,
+                    onPressed: _showDetails,
+                    icon: const Icon(Icons.info_outline, size: 18),
+                    label: const Text('Details',
+                        semanticsLabel: 'Details about this problem'),
+                    style: TextButton.styleFrom(foregroundColor: onError),
+                  ),
                 ],
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+
+  /// Opens the details of the failure this panel shows, for the track it
+  /// failed on.
+  void _showDetails() {
+    PlaybackFailureDetailsSheet.show(
+      context,
+      ref,
+      widget.failure,
+      ref.read(playbackControllerProvider).state.currentTrack,
     );
   }
 

@@ -66,3 +66,49 @@ PlaybackFailureKind playbackFailureKindForInterruption(
       return PlaybackFailureKind.temporarySource;
   }
 }
+
+/// The [PlaybackFailureCause] a resolution or load failure of [kind] records.
+PlaybackFailureCause playbackFailureCauseForResolution(
+  PlaybackResolutionErrorKind kind,
+) {
+  switch (kind) {
+    case PlaybackResolutionErrorKind.notSignedIn:
+      return PlaybackFailureCause.notSignedIn;
+    case PlaybackResolutionErrorKind.sessionExpired:
+      return PlaybackFailureCause.sessionExpired;
+    case PlaybackResolutionErrorKind.serverUnreachable:
+      return PlaybackFailureCause.serverUnreachable;
+    case PlaybackResolutionErrorKind.invalidStream:
+      return PlaybackFailureCause.invalidStream;
+    case PlaybackResolutionErrorKind.serverReturnedWebPage:
+      return PlaybackFailureCause.serverReturnedWebPage;
+    case PlaybackResolutionErrorKind.streamUnavailable:
+      return PlaybackFailureCause.streamUnavailable;
+    case PlaybackResolutionErrorKind.localFileMissing:
+      return PlaybackFailureCause.fileUnavailable;
+    case PlaybackResolutionErrorKind.mediaUnsupported:
+      return PlaybackFailureCause.audioNotDecoded;
+    case PlaybackResolutionErrorKind.playbackEngineUnavailable:
+      return PlaybackFailureCause.engineUnavailable;
+  }
+}
+
+/// The [PlaybackFailureCause] a mid-stream interruption of [kind] records.
+PlaybackFailureCause playbackFailureCauseForInterruption(
+  StreamInterruptionKind kind,
+) {
+  switch (kind) {
+    case StreamInterruptionKind.networkDropped:
+      return PlaybackFailureCause.connectionDropped;
+    case StreamInterruptionKind.serverUnreachable:
+      return PlaybackFailureCause.serverUnreachable;
+    case StreamInterruptionKind.sessionExpired:
+      return PlaybackFailureCause.sessionExpired;
+    case StreamInterruptionKind.formatUnsupported:
+      return PlaybackFailureCause.audioNotDecoded;
+    case StreamInterruptionKind.localFileUnavailable:
+      return PlaybackFailureCause.fileUnavailable;
+    case StreamInterruptionKind.unknown:
+      return PlaybackFailureCause.unrecognized;
+  }
+}

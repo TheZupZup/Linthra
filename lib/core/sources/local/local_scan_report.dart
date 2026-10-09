@@ -32,6 +32,7 @@ class LocalScanReport {
     required this.audioCandidates,
     required this.skippedUnsupported,
     required this.readFailures,
+    this.unopenableNames = 0,
     this.foldersVisited = 0,
     this.importedTracks = 0,
     this.reusedTracks = 0,
@@ -63,6 +64,7 @@ class LocalScanReport {
         reusedTracks = 0,
         skippedUnsupported = 0,
         readFailures = 0,
+        unopenableNames = 0,
         recursive = true,
         assert(
           !(isContentUri && isDeviceLibrary),
@@ -102,6 +104,7 @@ class LocalScanReport {
       reusedTracks: sum((LocalScanReport r) => r.reusedTracks),
       skippedUnsupported: sum((LocalScanReport r) => r.skippedUnsupported),
       readFailures: sum((LocalScanReport r) => r.readFailures),
+      unopenableNames: sum((LocalScanReport r) => r.unopenableNames),
       rootsScanned: rootsScanned,
       rootsUnavailable: rootsUnavailable,
       error: error,
@@ -136,6 +139,12 @@ class LocalScanReport {
 
   final int skippedUnsupported;
   final int readFailures;
+
+  /// How many files and folders were left out because their name isn't one
+  /// the platform can open them by (#817): a name that isn't valid UTF-8.
+  /// Never indexed, so never shown as songs that can't play. A count only,
+  /// never which names.
+  final int unopenableNames;
   final bool recursive;
 
   /// How many selected folders this scan covered. One on Android and for a

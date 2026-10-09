@@ -511,6 +511,8 @@ void main() {
 
     test('a queued heart made while disconnected pushes once connected',
         () async {
+      // Signed in before; on this launch the saved sign-in hasn't loaded yet.
+      await build().refreshFromRemote();
       gateway.connected = false;
       final repo = build();
 
@@ -927,6 +929,12 @@ class _FakeFavoritesGateway implements RemoteFavoritesGateway {
 
   @override
   bool get isConnected => connected;
+
+  /// The account signed in while [connected].
+  String account = 'account-a';
+
+  @override
+  String? get accountKey => connected ? account : null;
 
   /// Makes the next fetches throw (after any hold) like an unreachable server.
   bool fetchFails = false;

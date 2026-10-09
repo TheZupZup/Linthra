@@ -31,9 +31,15 @@ abstract interface class AudioFileScanner {
   /// result is then only part of the folder, and the caller has to know which
   /// part is missing: a file under a skipped subfolder was not found, which is
   /// not the same as not being there.
+  ///
+  /// A file or folder whose name the platform can't hand over as a path that
+  /// opens it (a name that isn't valid UTF-8, see [IoAudioFileScanner]) is
+  /// left out of the result, and [onUnopenableName] is called for it, so it is
+  /// never indexed as a song that can't play.
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   });
 }
 
@@ -62,6 +68,7 @@ class IoAudioFileScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     // Walk one directory at a time (rather than `list(recursive: true)`) so a
     // single unreadable *subfolder* — common under scoped storage / on removable
@@ -90,6 +97,10 @@ class IoAudioFileScanner implements AudioFileScanner {
       try {
         await for (final FileSystemEntity entity
             in directory.list(followLinks: false).timeout(_stallLimit)) {
+          if (await _namesNothing(entity)) {
+            onUnopenableName?.call(entity.path);
+            continue;
+          }
           if (entity is File) {
             paths.add(entity.absolute.path);
           } else if (entity is Directory) {
@@ -142,6 +153,31 @@ class IoAudioFileScanner implements AudioFileScanner {
       throw interruptedScanException(folder, interrupted);
     }
     return paths;
+  }
+
+  /// Whether [entity]'s path names nothing on disk, though the listing just
+  /// found it there (#817).
+  ///
+  /// A name that isn't valid UTF-8 (Latin-1 bytes from an old Windows rip
+  /// copied with tar, a share mounted without a UTF-8 charset) reaches Dart
+  /// with U+FFFD in place of each byte it couldn't decode, and that string
+  /// names no file: it can't be stat'ed, read, played or listed. Carrying the
+  /// raw bytes instead would have to reach the catalog, the queue, playlists,
+  /// downloads, the saved session and the audio engine, which all hold paths
+  /// as text. So such an entry is left out and reported rather than indexed
+  /// as a song that can never play, or walked as a folder that can never be
+  /// listed. A name that really contains U+FFFD opens fine and is kept.
+  ///
+  /// A stat that doesn't answer within [_stallLimit] says nothing about the
+  /// name: it throws a [TimeoutException], and the directory counts as not
+  /// answering like a stalled listing, so what was indexed under it is kept.
+  Future<bool> _namesNothing(FileSystemEntity entity) async {
+    if (!entity.path.contains('\uFFFD')) return false;
+    final FileSystemEntityType type = await FileSystemEntity.type(
+      entity.path,
+      followLinks: false,
+    ).timeout(_stallLimit);
+    return type == FileSystemEntityType.notFound;
   }
 
   /// Why [folder] can't be listed now, a folder that doesn't answer within
@@ -236,6 +272,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     final String? path = _resolver.resolveToPath(folder);
     if (path == null) {
@@ -261,6 +298,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
     return _filesystemScanner.listFiles(
       path,
       onUnreadableDirectory: onUnreadableDirectory,
+      onUnopenableName: onUnopenableName,
     );
   }
 }
@@ -288,6 +326,7 @@ class PlatformAudioFileScanner implements AudioFileScanner {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) {
     final FolderLocation location = FolderLocation.parse(folder);
     switch (location.kind) {
@@ -295,11 +334,13 @@ class PlatformAudioFileScanner implements AudioFileScanner {
         return _filesystemScanner.listFiles(
           folder,
           onUnreadableDirectory: onUnreadableDirectory,
+          onUnopenableName: onUnopenableName,
         );
       case FolderLocationKind.contentUri:
         return _contentUriScanner.listFiles(
           folder,
           onUnreadableDirectory: onUnreadableDirectory,
+          onUnopenableName: onUnopenableName,
         );
       case FolderLocationKind.androidMediaStore:
         throw FolderScanException(

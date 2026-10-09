@@ -353,6 +353,22 @@ void main() {
       expect(report, contains('read failures 4'));
     });
 
+    test('names a scan could not open are counted, not named (#817)', () {
+      final String report = AppDiagnostics.report(
+        const AppDiagnosticsData(
+          appVersion: '0.1.0',
+          localFolderSelected: true,
+          localScanFilesVisited: 3,
+          localScanAudioCandidates: 3,
+          localScanSkippedUnsupported: 0,
+          localScanReadFailures: 0,
+          localScanUnopenableNames: 2,
+        ),
+      );
+
+      expect(report, contains('read failures 0, unopenable names 2'));
+    });
+
     test('a completed scan with no error still reports a positive status', () {
       final String report = AppDiagnostics.report(
         const AppDiagnosticsData(

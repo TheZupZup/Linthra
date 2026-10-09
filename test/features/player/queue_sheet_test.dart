@@ -239,6 +239,35 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('its section titles are headings', (tester) async {
+      // A screen reader jumps heading to heading; without the role the
+      // sections were only reachable by walking every row (#460).
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B'), _track('C')]);
+      await controller.skipToNext();
+
+      await _open(tester, controller);
+
+      for (final String title in <String>[
+        'Previously played',
+        'Now playing',
+        'Up next',
+      ]) {
+        final Iterable<SemanticsNode> nodes = find.semantics
+            .byPredicate((SemanticsNode node) => node.label == title)
+            .evaluate();
+        expect(nodes, hasLength(1), reason: title);
+        expect(nodes.single.flagsCollection.isHeader, isTrue, reason: title);
+      }
+      // The rows themselves are not.
+      expect(
+        tester.getSemantics(find.text('Song C')).flagsCollection.isHeader,
+        isFalse,
+      );
+      handle.dispose();
+    });
+
     testWidgets('dragging an upcoming track to the end lands it last',
         (tester) async {
       final controller = FakePlaybackController();

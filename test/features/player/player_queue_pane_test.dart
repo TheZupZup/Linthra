@@ -90,6 +90,7 @@ Future<void> _pumpPlayer(
   required Size size,
   InMemoryPlaylistStore? store,
   bool withShortcuts = false,
+  List<Track> upNext = const <Track>[_next],
 }) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = size;
@@ -102,10 +103,10 @@ Future<void> _pumpPlayer(
       overrides: <Override>[
         playbackControllerProvider.overrideWithValue(
           FakePlaybackController(
-            initial: const PlaybackState(
+            initial: PlaybackState(
               status: PlaybackStatus.playing,
               currentTrack: _track,
-              upNext: <Track>[_next],
+              upNext: upNext,
             ),
           ),
         ),
@@ -360,5 +361,45 @@ void main() {
         _queueButton(tester, 'Queue').focusNode,
       );
     });
+  });
+
+  testWidgets('Tab walks the controls whole, then the queue (#460)',
+      (tester) async {
+    // Several up-next rows, so some of them line up with the transport and
+    // action buttons beside them, which is where reading order weaves.
+    await _pumpPlayer(
+      tester,
+      size: _paneWindow,
+      upNext: <Track>[
+        for (int i = 2; i < 8; i++)
+          Track(id: '$i', title: 'Song $i', uri: '/music/song$i.mp3'),
+      ],
+    );
+    await tester.tap(find.byTooltip('Show queue'));
+    await tester.pumpAndSettle();
+
+    final FocusNode start = _queueButton(tester, 'Hide queue').focusNode!;
+    start.requestFocus();
+    await tester.pump();
+
+    // One full lap of Tab, back to where it started.
+    final List<bool> inQueue = <bool>[];
+    for (int i = 0; i < 200; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      if (FocusManager.instance.primaryFocus == start) break;
+      inQueue.add(_focusedInside<QueueSheet>());
+    }
+
+    expect(FocusManager.instance.primaryFocus, start);
+    expect(inQueue, contains(true));
+    // The queue's stops come as one run, not interleaved with the controls.
+    final int firstInQueue = inQueue.indexOf(true);
+    final int lastInQueue = inQueue.lastIndexOf(true);
+    expect(
+      inQueue.sublist(firstInQueue, lastInQueue + 1),
+      everyElement(isTrue),
+      reason: '$inQueue',
+    );
   });
 }

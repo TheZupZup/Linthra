@@ -329,6 +329,24 @@ void main() {
       expect(s.errorMessage, isNot(contains('http')));
       // Each candidate was tried exactly once — no looping.
       expect(resolver.calls, <String>['jellyfin:j', 'subsonic:s']);
+      // It is every copy's failure, not the displayed track's provider's.
+      expect(s.failure!.acrossSources, isTrue);
+    });
+
+    test("a single copy's failure stays that source's", () async {
+      final resolver = _FakeResolver(resolveFailures: <String>{'jellyfin:j'});
+      final controller = build(
+        player: _FakePlayer(),
+        resolver: resolver,
+        candidates: <String, List<Track>>{
+          'jellyfin:j': <Track>[jelly],
+        },
+      );
+
+      await controller.playTracks(<Track>[jelly]);
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.failure!.acrossSources, isFalse);
     });
   });
 

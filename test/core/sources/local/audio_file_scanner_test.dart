@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
@@ -151,6 +153,15 @@ final class _StalledShare extends IOOverrides {
   }
 }
 
+/// Storage that stops answering the stat of any name holding U+FFFD.
+final class _StalledStat extends IOOverrides {
+  @override
+  Future<FileSystemEntityType> fseGetType(String path, bool followLinks) =>
+      path.contains('\uFFFD')
+          ? Completer<FileSystemEntityType>().future
+          : super.fseGetType(path, followLinks);
+}
+
 /// The real folder, its listing passed through [_swap].
 class _Listing implements Directory {
   _Listing(this._real, this._swap);
@@ -283,6 +294,75 @@ void main() {
       expect(files.any((path) => path.endsWith('top.mp3')), isTrue);
     });
 
+    group('names that are not valid UTF-8 (#817)', () {
+      /// [parent]/[name], with [name] as raw bytes: Latin-1 `è` (0xE8) is
+      /// not valid UTF-8 on its own, the way an old Windows rip names it.
+      Uint8List rawPath(String parent, List<int> name) =>
+          Uint8List.fromList(<int>[...utf8.encode(parent), 0x2F, ...name]);
+
+      // "05 Holocène.flac" and "Holocène" with a Latin-1 è.
+      final List<int> latinFile = <int>[
+        ...ascii.encode('05 Holoc'),
+        0xE8,
+        ...ascii.encode('ne.flac'),
+      ];
+      final List<int> latinFolder = <int>[
+        ...ascii.encode('Holoc'),
+        0xE8,
+        ...ascii.encode('ne'),
+      ];
+
+      test('are left out and reported, never listed as files that can\'t open',
+          () async {
+        File.fromRawPath(rawPath(root.path, latinFile)).writeAsStringSync('x');
+        final Directory latinDir =
+            Directory.fromRawPath(rawPath(root.path, latinFolder))
+              ..createSync();
+        File.fromRawPath(Uint8List.fromList(<int>[
+          ...rawPath(root.path, latinFolder),
+          ...ascii.encode('/inner.flac'),
+        ])).writeAsStringSync('x');
+        File('${root.path}/fine.flac').writeAsStringSync('x');
+        // A name that really holds U+FFFD is valid UTF-8 and opens fine.
+        File('${root.path}/odd \uFFFD name.flac').writeAsStringSync('x');
+        expect(latinDir.existsSync(), isTrue);
+
+        final List<String> unreadable = <String>[];
+        final List<String> unopenable = <String>[];
+        const scanner = IoAudioFileScanner();
+        final List<String> files = await scanner.listFiles(
+          root.path,
+          onUnreadableDirectory: unreadable.add,
+          onUnopenableName: unopenable.add,
+        );
+
+        // Everything listed opens by its path.
+        expect(files.every((String path) => File(path).existsSync()), isTrue);
+        expect(
+          files.map((String path) => path.split('/').last).toSet(),
+          <String>{'fine.flac', 'odd \uFFFD name.flac'},
+        );
+        // The file and the folder are reported, once each. The folder isn't
+        // "unreadable": nothing under it was ever indexed to keep.
+        expect(unopenable, hasLength(2));
+        expect(unreadable, isEmpty);
+      });
+
+      test('a scan with nothing else still completes', () async {
+        File.fromRawPath(rawPath(root.path, latinFile)).writeAsStringSync('x');
+        int unopenable = 0;
+
+        const scanner = IoAudioFileScanner();
+        final List<String> files = await scanner.listFiles(
+          root.path,
+          onUnopenableName: (_) => unopenable++,
+        );
+
+        expect(files, isEmpty);
+        expect(unopenable, 1);
+      });
+    }, skip: Platform.isLinux ? false : 'raw byte names are a Linux case');
+
     test('reports nothing for a walk that read every folder', () async {
       Directory('${root.path}/Album/Disc 2').createSync(recursive: true);
       File('${root.path}/Album/Disc 2/a.flac').writeAsStringSync('x');
@@ -327,6 +407,31 @@ void main() {
     });
 
     group('storage that stops answering (#778)', () {
+      test(
+          'a name holding U+FFFD whose stat never answers is not called '
+          'unopenable: its folder is unreadable for now', () async {
+        Directory('${root.path}/Album').createSync();
+        File('${root.path}/Album/odd \uFFFD name.flac').writeAsStringSync('x');
+        final List<String> unreadable = <String>[];
+        final List<String> unopenable = <String>[];
+        const scanner = IoAudioFileScanner(
+          presence: _Present(),
+          stallLimit: _stall,
+        );
+
+        await IOOverrides.runWithIOOverrides(
+          () => scanner.listFiles(
+            root.path,
+            onUnreadableDirectory: unreadable.add,
+            onUnopenableName: unopenable.add,
+          ),
+          _StalledStat(),
+        );
+
+        expect(unopenable, isEmpty);
+        expect(unreadable, <String>['${root.path}/Album']);
+      });
+
       test('a selected folder whose listing never answers is unavailable',
           () async {
         const scanner = IoAudioFileScanner(

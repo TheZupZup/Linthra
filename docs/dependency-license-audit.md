@@ -135,7 +135,7 @@ published archive (§2).
 | `bonsoir`                | `^5.1.11`    | (Skyost)            | MIT            | mDNS/Bonjour service discovery used by `cast`; Android side is AOSP `NsdManager`, not GMS. Pinned to 5.x for Dart 3.6 (6.x+ needs Dart ≥3.8). See §5 (Casting). |
 | `url_launcher`           | `^6.3.0`     | flutter.dev         | BSD-3-Clause   | Opens the browser for the "Report a bug" → "Open GitHub issue" action (a prefilled, **unsubmitted** issue the user reviews). AOSP `ACTION_VIEW` intent; **no** GMS. See note below and §7 (Reporting a bug). |
 | `permission_handler`     | `^11.3.1`    | baseflow.com        | MIT            | Runtime permission requests. |
-| `audio_metadata_reader`  | `^1.7.1`     | (ClementBeal)       | MIT            | Reads local audio tags on desktop/Linux (ID3, Vorbis comments, MP4 atoms, APEv2, RIFF INFO). Pure Dart, parses tag structures rather than loading whole files. |
+| `audio_metadata_reader`  | `^1.8.0`     | (ClementBeal)       | MIT            | Reads local audio tags on desktop/Linux (ID3, Vorbis comments, MP4 atoms, APEv2, RIFF INFO). Pure Dart, parses tag structures rather than loading whole files. |
 | `audio_session`          | `^0.1.25`    | ryanheise.com       | MIT            | Audio-focus / interruption handling. |
 | `media_kit_libs_linux`   | `^1.2.1`     | media-kit.dev       | MIT            | Linux native registration for media_kit; links the **system/Flatpak libmpv** built in §5. Ships no prebuilt binary. |
 | `dbus`                   | `^0.7.12`    | canonical.com       | **MPL-2.0**    | D-Bus client behind the Linux MPRIS media session, so desktop shells and media keys can control Linthra. Already in the tree transitively (via `bonsoir_linux`); now declared directly. Compatible with AGPL-3.0-or-later under MPL-2.0 §3.3 — see §1 and §3. |
@@ -202,6 +202,7 @@ listed for completeness.
 | `drift_dev`     | `^2.18.0`    | simonbinder.eu | MIT       | Drift code generation. |
 | `build_runner`  | `^2.4.13`    | dart.dev  | BSD-3-Clause   | Runs the code generators. |
 | `audio_service_platform_interface` | `^0.1.3` | ryanheise.com | MIT | Test-only: the Android media-session boundary test. Already in the graph under `audio_service`. |
+| `analyzer` | `^7.7.1` | dart.dev | BSD-3-Clause | Test-only: the desktop-neutrality guardrail parses `lib/` with it. Already in the graph under `drift_dev` and `build_runner`. |
 
 ## 5. Native / bundled components
 

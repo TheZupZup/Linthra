@@ -308,10 +308,15 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
             const SizedBox(width: AppSpacing.xl),
             Expanded(
               flex: 4,
-              child: _paneControls(
-                track: track,
-                queueOpen: queueOpen,
-                canHostQueue: canHostQueue,
+              // Its own traversal group, and so is the queue: Tab walks the
+              // controls whole, then the queue, instead of weaving queue rows
+              // in between the transport buttons beside them (#460).
+              child: FocusTraversalGroup(
+                child: _paneControls(
+                  track: track,
+                  queueOpen: queueOpen,
+                  canHostQueue: canHostQueue,
+                ),
               ),
             ),
             if (queueOpen) ...<Widget>[
@@ -320,11 +325,13 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
               // rows, and rows have a width that reads well. Letting it grow
               // with the window would only pull each title away from its
               // handle, and would take the space from the cover.
-              FocusHandoff(
-                returnFocusTo: () => _queueButtonFocus,
-                child: const SizedBox(
-                  width: _queuePaneWidth,
-                  child: QueueSheet(embedded: true),
+              FocusTraversalGroup(
+                child: FocusHandoff(
+                  returnFocusTo: () => _queueButtonFocus,
+                  child: const SizedBox(
+                    width: _queuePaneWidth,
+                    child: QueueSheet(embedded: true),
+                  ),
                 ),
               ),
             ],

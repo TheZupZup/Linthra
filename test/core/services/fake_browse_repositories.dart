@@ -93,6 +93,9 @@ class FakePlaylistRepository implements PlaylistRepository {
   @override
   Future<void> clearRemote({PlaylistSource? source}) =>
       throw UnimplementedError();
+
+  @override
+  List<String> entriesHere(Playlist playlist) => playlist.trackIds;
 }
 
 /// Minimal local-only [FavoritesRepository] for browse-tree tests: holds a fixed
