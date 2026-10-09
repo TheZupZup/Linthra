@@ -81,13 +81,21 @@ enum PlaybackResolutionErrorKind {
 /// authenticated streaming URL. Construct it only with generic, safe text — the
 /// resolver that throws it supplies wording appropriate to its source.
 class PlaybackResolutionException implements Exception {
-  const PlaybackResolutionException(this.message, {required this.kind});
+  const PlaybackResolutionException(
+    this.message, {
+    required this.kind,
+    this.acrossSources = false,
+  });
 
   /// A user-facing explanation safe to show in the UI.
   final String message;
 
   /// What broadly went wrong, for the UI to branch on.
   final PlaybackResolutionErrorKind kind;
+
+  /// Whether this sums up every copy of a song failing, on more than one
+  /// provider, rather than one source's own failure.
+  final bool acrossSources;
 
   @override
   String toString() => message;

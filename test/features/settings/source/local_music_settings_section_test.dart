@@ -475,6 +475,29 @@ void main() {
       expect(find.textContaining("Android's folder chooser"), findsNothing);
     });
 
+    testWidgets(
+        'files with names Linthra can\'t open are counted and '
+        'explained (#817)', (tester) async {
+      await _pump(
+        tester,
+        initialFolder: '/home/me/Music',
+        report: const LocalScanReport(
+          folderSelected: true,
+          isContentUri: false,
+          filesVisited: 12,
+          audioCandidates: 12,
+          importedTracks: 12,
+          skippedUnsupported: 0,
+          readFailures: 0,
+          unopenableNames: 2,
+        ),
+      );
+
+      expect(find.textContaining('2 with unreadable names'), findsOneWidget);
+      expect(find.textContaining("aren't valid UTF-8"), findsOneWidget);
+      expect(find.textContaining('Renaming them'), findsOneWidget);
+    });
+
     testWidgets('a single imported track is summarized in the singular',
         (tester) async {
       await _pump(

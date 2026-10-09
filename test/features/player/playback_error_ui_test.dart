@@ -141,7 +141,7 @@ void main() {
       expect(find.text('Skip'), findsNothing);
     });
 
-    testWidgets('shows no buttons at all when nothing can be done',
+    testWidgets('shows no recovery, only Details, when nothing can be done',
         (WidgetTester tester) async {
       final FakePlaybackController controller = FakePlaybackController(
         initial: _errorState(const PlaybackFailure(
@@ -155,7 +155,21 @@ void main() {
         find.text("This track's format isn't supported on this device."),
         findsOneWidget,
       );
-      expect(find.byType(TextButton), findsNothing);
+      for (final PlaybackRecoveryAction action
+          in PlaybackRecoveryAction.values) {
+        expect(
+            find.byKey(PlaybackErrorNotice.keyForAction(action)), findsNothing);
+      }
+      expect(
+        find.descendant(
+          of: find.byKey(PlaybackErrorNotice.noticeKey),
+          matching:
+              find.byWidgetPredicate((Widget w) => w is ButtonStyleButton),
+        ),
+        findsOneWidget,
+        reason: 'Details is the only button left',
+      );
+      expect(find.byKey(PlaybackErrorNotice.detailsKey), findsOneWidget);
     });
 
     testWidgets(

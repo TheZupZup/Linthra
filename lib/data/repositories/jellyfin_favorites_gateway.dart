@@ -1,5 +1,6 @@
 import '../../core/models/jellyfin_session.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
+import '../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../core/sources/jellyfin/jellyfin_client.dart';
 import '../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
@@ -26,6 +27,13 @@ class JellyfinFavoritesGateway implements RemoteFavoritesGateway {
 
   @override
   bool get isConnected => _client != null && _session?.call() != null;
+
+  @override
+  String? get accountKey {
+    final JellyfinSession? session = _session?.call();
+    if (_client == null || session == null) return null;
+    return jellyfinAccountFingerprint(session);
+  }
 
   @override
   Future<Set<String>> fetchFavoriteUris() async {

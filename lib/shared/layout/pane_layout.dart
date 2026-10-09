@@ -183,13 +183,23 @@ class SplitPanes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget fixedPane = SizedBox(width: fixedWidth, child: fixed);
+    // Each pane is its own traversal group, so Tab walks one whole before the
+    // other in the order they read. Left to the page's reading order, Tab
+    // weaves between them wherever their rows line up: an album's first
+    // track, then its Play button, then its second track (#460).
+    final Widget fixedPane = SizedBox(
+      width: fixedWidth,
+      child: FocusTraversalGroup(child: fixed),
+    );
+    final Widget flexiblePane = Expanded(
+      child: FocusTraversalGroup(child: flexible),
+    );
     final Widget row = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (fixedFirst) fixedPane else Expanded(child: flexible),
+        if (fixedFirst) fixedPane else flexiblePane,
         const VerticalDivider(width: 1),
-        if (fixedFirst) Expanded(child: flexible) else fixedPane,
+        if (fixedFirst) flexiblePane else fixedPane,
       ],
     );
     if (!maxWidth.isFinite) return row;

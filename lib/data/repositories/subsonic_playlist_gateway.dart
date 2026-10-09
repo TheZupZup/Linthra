@@ -1,6 +1,7 @@
 import '../../core/models/playlist.dart';
 import '../../core/models/subsonic_session.dart';
 import '../../core/repositories/remote_sync_gateway.dart';
+import '../../core/sources/subsonic/subsonic_account_fingerprint.dart';
 import '../../core/sources/subsonic/subsonic_api.dart';
 import '../../core/sources/subsonic/subsonic_client.dart';
 import '../../core/sources/subsonic/subsonic_exception.dart';
@@ -30,6 +31,12 @@ class SubsonicPlaylistGateway implements RemotePlaylistGateway {
 
   @override
   bool get isConnected => _session() != null;
+
+  @override
+  String? get accountKey {
+    final SubsonicSession? session = _session();
+    return session == null ? null : subsonicAccountFingerprint(session);
+  }
 
   // Subsonic's replace form pushes the full ordered list, so rename and reorder
   // both reach the server.

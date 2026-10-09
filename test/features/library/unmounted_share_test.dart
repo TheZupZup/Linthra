@@ -65,6 +65,7 @@ class _Mounts
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     walks.update(folder, (int n) => n + 1, ifAbsent: () => 1);
     return _visible(folder);

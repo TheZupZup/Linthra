@@ -37,6 +37,7 @@ class AppDiagnosticsData {
     this.localScanImportedTracks,
     this.localScanSkippedUnsupported,
     this.localScanReadFailures,
+    this.localScanUnopenableNames,
     this.localScanRecursive,
     this.localSupportedExtensions,
     this.localScanError,
@@ -155,6 +156,10 @@ class AppDiagnosticsData {
   /// How many entries/subfolders the last scan could not read and skipped — the
   /// scoped-storage / removable-storage signal.
   final int? localScanReadFailures;
+
+  /// Files and folders the last scan left out because their names can't be
+  /// opened (not valid UTF-8). A count only.
+  final int? localScanUnopenableNames;
 
   /// Whether the last scan descended into subfolders, when known. Always true in
   /// practice; surfaced so a report can confirm the scan was recursive.
@@ -325,7 +330,8 @@ abstract final class AppDiagnostics {
         'audio $audio, '
         'imported ${data.localScanImportedTracks ?? audio}, '
         'skipped ${data.localScanSkippedUnsupported ?? 0}, '
-        'read failures ${data.localScanReadFailures ?? 0}';
+        'read failures ${data.localScanReadFailures ?? 0}'
+        '${(data.localScanUnopenableNames ?? 0) > 0 ? ', unopenable names ${data.localScanUnopenableNames}' : ''}';
   }
 
   static String? _cacheLine(AppDiagnosticsData data) {

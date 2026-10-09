@@ -42,6 +42,9 @@ class _Server implements RemoteFavoritesGateway {
   bool get isConnected => true;
 
   @override
+  String? get accountKey => 'account-a';
+
+  @override
   Future<Set<String>> fetchFavoriteUris() async {
     final Set<String> answer = <String>{...starred};
     final _Held held = _Held();

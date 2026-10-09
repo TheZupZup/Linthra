@@ -55,11 +55,17 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   /// first tap. Idempotent.
   Future<void> ensureLoaded() => _initialLoad;
 
+  /// Whether the startup restore couldn't read the saved session (a locked,
+  /// missing or refusing keyring), as opposed to there being none to read.
+  bool get restoreFailed => _restoreFailed;
+  bool _restoreFailed = false;
+
   Future<void> _loadPersisted() async {
     final SubsonicSession? saved;
     try {
       saved = await ref.read(subsonicSessionStoreProvider).read();
     } catch (error) {
+      _restoreFailed = true;
       // A keyring that is missing, locked or denied must not break startup or
       // playback: stay disconnected, but say so (statically, credential-free)
       // so a user who *was* signed in isn't left wondering where their server

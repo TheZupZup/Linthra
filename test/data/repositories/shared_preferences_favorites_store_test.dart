@@ -52,6 +52,64 @@ void main() {
       expect(loaded.pendingWrites, isEmpty);
     });
 
+    test('round-trips whose each provider\'s hearts are (#843)', () async {
+      await store.save(const FavoritesData(
+        remoteIds: <String>{'subsonic:1', 'jellyfin:2'},
+        pendingWrites: <String, bool>{'subsonic:1': true},
+        owners: <String, String>{
+          'subsonic:': 'account-a',
+          'jellyfin:': 'account-b',
+        },
+      ));
+
+      final FavoritesData loaded = await store.load();
+      expect(loaded.owners, <String, String>{
+        'subsonic:': 'account-a',
+        'jellyfin:': 'account-b',
+      });
+      expect(loaded.pendingWrites, <String, bool>{'subsonic:1': true});
+    });
+
+    test(
+        'queued writes saved before owners were kept are dropped, the '
+        'hearts stay', () async {
+      // An older Linthra's document: nothing says which account the queued
+      // write was made for, so it must not reach whoever is signed in now.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'favorites_v2': jsonEncode(<String, dynamic>{
+          'local': <String>['file:///a.mp3'],
+          'remote': <String>['subsonic:1'],
+          'pending': <String, bool>{'subsonic:1': true},
+        }),
+      });
+
+      final FavoritesData loaded = await store.load();
+
+      expect(loaded.localIds, <String>{'file:///a.mp3'});
+      expect(loaded.remoteIds, <String>{'subsonic:1'});
+      expect(loaded.pendingWrites, isEmpty);
+      expect(loaded.owners, isEmpty);
+    });
+
+    test('an owner entry of the wrong shape reads as no owner', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'favorites_v2': jsonEncode(<String, dynamic>{
+          'remote': <String>['subsonic:1'],
+          'pending': <String, bool>{'subsonic:1': true},
+          'owners': <String, dynamic>{
+            'subsonic:': 7,
+            'jellyfin:': '',
+            'plex:': 'account-p',
+          },
+        }),
+      });
+
+      final FavoritesData loaded = await store.load();
+
+      expect(loaded.owners, <String, String>{'plex:': 'account-p'});
+      expect(loaded.pendingWrites, <String, bool>{'subsonic:1': true});
+    });
+
     test('returns empty when nothing is stored', () async {
       expect((await store.load()).localIds, isEmpty);
       expect((await store.load()).remoteIds, isEmpty);

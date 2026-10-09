@@ -707,11 +707,9 @@ void main() {
     });
   });
 
-  group('Vorbis merges ARTIST and ALBUMARTIST', () {
-    // The package appends both tags to one list, so the field names are gone by
-    // the time this reader sees them. Taking the first entry makes the answer
-    // depend on the order the tagger wrote them in, which Vorbis does not
-    // constrain. These fix the behaviour to the values, not the order.
+  group('Vorbis ARTIST and ALBUMARTIST', () {
+    // Vorbis puts no order on comments, and taggers differ. These fix the
+    // behaviour to the values, not the order they were written in.
 
     test('a normal album answers exactly, both tags naming the same artist',
         () async {
@@ -744,9 +742,7 @@ void main() {
 
     test('repeated ARTIST fields are a collaboration, not an ambiguity',
         () async {
-      // The spec's way to credit two performers. The merged list looks exactly
-      // like ARTIST + ALBUMARTIST, which is why the field names have to be read
-      // rather than inferred.
+      // The spec's way to credit two performers.
       final String path = write(
         'collab.flac',
         AudioTagFixtures.flac(

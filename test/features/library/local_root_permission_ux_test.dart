@@ -111,6 +111,7 @@ class _FakeFilesystem implements AudioFileScanner, DirectoryReadability {
   Future<List<String>> listFiles(
     String folder, {
     void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
   }) async {
     walked.add(folder);
     _reached.remove(folder)?.complete();

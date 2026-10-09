@@ -165,6 +165,9 @@ class _SpyPlaylistRepository implements PlaylistRepository {
     String? error,
   }) =>
       throw UnimplementedError();
+
+  @override
+  List<String> entriesHere(Playlist playlist) => playlist.trackIds;
 }
 
 /// A session store standing in for a platform keyring that cannot be used:

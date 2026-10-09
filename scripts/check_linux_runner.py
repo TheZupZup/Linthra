@@ -93,6 +93,8 @@ import argparse
 import re
 import shlex
 import sys
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -1129,65 +1131,6 @@ def _blank(source: str, *, comments: bool = True, strings: bool = False) -> str:
     return "".join(out)
 
 
-def _on_preprocessor_directive(code: str, offset: int) -> bool:
-    """Whether `offset` sits inside a preprocessor directive.
-
-    A directive is not one line. `#define SET_TITLE \\` continues onto the next
-    one, so a call written there has no `#` in front of it and reads as an
-    ordinary statement while still expanding nowhere. Walks back over the
-    continuation run and asks whether the line that started it is a directive.
-    """
-    start = code.rfind("\n", 0, offset) + 1
-    while start > 0:
-        previous_start = code.rfind("\n", 0, start - 1) + 1
-        if not code[previous_start : start - 1].rstrip().endswith("\\"):
-            break
-        start = previous_start
-    end = code.find("\n", start)
-    line = code[start:] if end == -1 else code[start:end]
-    return line.lstrip().startswith("#")
-
-
-def _statement_at(code: str, offset: int) -> str:
-    """The whole statement `offset` sits in, from the start of its line.
-
-    An allowance pinned to a condition says nothing about what the branch does,
-    and a branch excused for choosing a title bar style should not be able to
-    grow a `gtk_window_set_keep_above()` without anyone noticing. So the unit is
-    the whole `if`, brace style irrelevant: the statement runs to the first `;`,
-    or through the block when a `{` comes first, which covers both the brace on
-    the condition's line and the brace on the next one.
-
-    Braces and semicolons are read from source with strings *and* comments
-    blanked, because a `"}"` or a `";"` in a literal would otherwise end the
-    statement early and hand back half of it.
-    """
-    start = code.rfind("\n", 0, offset) + 1
-    end = code.find("\n", start)
-    end = len(code) if end == -1 else end
-    if _on_preprocessor_directive(code, offset):
-        # A directive has no statement to find; it ends with its own line, or
-        # with the last of its continuations.
-        while code[start:end].rstrip().endswith("\\"):
-            following = code.find("\n", end + 1)
-            end = len(code) if following == -1 else following
-        return code[start:end]
-
-    blanked = _blank(code, comments=True, strings=True)
-    depth = 0
-    for position in range(start, len(code)):
-        char = blanked[position]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return code[start : position + 1]
-        elif char == ";" and depth == 0:
-            return code[start : position + 1]
-    return code[start:end]
-
-
 def _line_comment_end(source: str, start: int) -> int:
     """The end of the `//` comment starting at `start`, line splices included.
 
@@ -1216,99 +1159,447 @@ def _line_comment_end(source: str, start: int) -> int:
         index = end + 1
 
 
-def _collapse_spaces(text: str) -> str:
-    """`text` with every run of whitespace reduced to one space, and trimmed.
+# A C and C++ token stream, for the two checks below that ask questions about
+# code rather than about text: which string a literal denotes, and which
+# statement a call or a literal belongs to (#663).
+#
+# It follows the translation phases a compiler does, in order, which is the
+# whole point: a line splice is removed before comments are recognised, a
+# comment is gone before tokens are formed, a raw string keeps its body
+# verbatim (splices included), escapes are decoded, and adjacent literals are
+# one string. The hand-rolled text scans this replaces had to learn each of
+# those one review at a time, and each lesson was a spelling that slipped past.
+#
+# It is not a compiler. Macros are not expanded, conditional directives are
+# not evaluated (code under `#if 0` is still read, which errs on the side of
+# reporting), and a statement is found by the shape of `if`/`else`, loops and
+# blocks rather than by a full grammar. Those limits are stated where they
+# matter, in the checks that rely on them.
 
-    Used to compare a recorded allowance against the line it is recorded for,
-    so re-indenting the runner does not trip the guardrail while any change to
-    the tokens on that line does.
+
+@dataclass(frozen=True)
+class CToken:
+    """One token, located in the original source.
+
+    `kind` is "identifier", "number", "string", "char" or "punct". `text` is
+    its spelling after line splicing; for a string literal that includes any
+    prefix and quotes. `value` is a string literal's decoded contents, with
+    adjacent literals already joined into one token. `directive` is 0 for
+    ordinary code and otherwise the 1-based ordinal of the preprocessor
+    directive the token sits in, so tokens of one directive can be told from
+    the next one's.
     """
-    return " ".join(text.split())
+
+    kind: str
+    text: str
+    start: int
+    end: int
+    directive: int = 0
+    value: str | None = None
 
 
-# A string literal's opening, encoding prefix included. C++ allows `u8`, `u`,
-# `U` and `L`, each optionally in front of a raw string's `R`. They matter here
-# because they sit *between* two adjacent literals: without them `u8"K" u8"DE"`
-# looks like two strings with `u8` in the gap rather than the one string `KDE`
-# the compiler builds.
-C_LITERAL_OPENING = re.compile(r'(?:u8|u|U|L)?R?"')
+# Longest first, so `<<=` is never read as `<<` and `=`.
+C_PUNCTUATORS = sorted(
+    (
+        "...",
+        "<<=",
+        ">>=",
+        "->*",
+        "<=>",
+        "::",
+        "->",
+        "++",
+        "--",
+        "<<",
+        ">>",
+        "<=",
+        ">=",
+        "==",
+        "!=",
+        "&&",
+        "||",
+        "+=",
+        "-=",
+        "*=",
+        "/=",
+        "%=",
+        "&=",
+        "|=",
+        "^=",
+        "##",
+        ".*",
+    ),
+    key=len,
+    reverse=True,
+)
+
+C_STRING_PREFIXES = {"u8", "u", "U", "L", "R", "u8R", "uR", "UR", "LR"}
+
+_SIMPLE_ESCAPES = {
+    "n": "\n",
+    "t": "\t",
+    "v": "\v",
+    "b": "\b",
+    "r": "\r",
+    "f": "\f",
+    "a": "\a",
+    "\\": "\\",
+    "?": "?",
+    "'": "'",
+    '"': '"',
+}
 
 
-def _string_literals(code: str) -> list[tuple[int, str]]:
-    """Every C++ string literal in `code`, as `(offset, body)`.
-
-    Raw strings are recognised exactly the way `_blank()` recognises them, and
-    yielded whole. Matching ordinary quotes alone is not enough and the failure
-    is silent: `R"({"desktop":"KDE"})"` splits at the quotes *inside* its body
-    into `({`, `:` and `})`, so the name the neutrality scan exists to find is
-    in none of the pieces while the code around it can still branch on it.
-
-    Literals separated only by whitespace are returned as one, at the offset of
-    the first, because that is what the compiler does with them: `"K" "DE"` is
-    the single string `KDE` by the time anything runs, and returning two bodies
-    would mean the scan looks for a name in neither of the halves it was split
-    into.
-
-    Character literals are stepped over rather than returned, matching the
-    scan's long-standing behaviour: `'x'` cannot hold a desktop name, and
-    C++14's digit separators (`1'000'000`) would otherwise read as literals.
-
-    `code` is expected to have had its comments blanked already, which is also
-    what makes the adjacency test above safe: a comment between two literals is
-    whitespace here, and it is whitespace to the compiler too.
-    """
-    pieces: list[tuple[int, int, str]] = []
+def _spliced(source: str) -> tuple[str, list[int]]:
+    """`source` with every backslash-newline removed (translation phase 2), and
+    for each character left, its offset in `source`, plus one past the end."""
+    chars: list[str] = []
+    origin: list[int] = []
     index = 0
-    length = len(code)
+    length = len(source)
     while index < length:
-        opening = C_LITERAL_OPENING.match(code, index)
-        # A prefix is only a prefix at a token boundary. Without this, the `L`
-        # in an identifier like `kURL` in front of a literal would be read as
-        # one, moving the reported offset back into the identifier.
-        if opening is not None and opening.end() - index > 1:
-            before = code[index - 1] if index else " "
-            if before.isalnum() or before == "_":
-                opening = None
-        if opening is not None:
-            quote = opening.end() - 1
-            if code[quote - 1] == "R":
-                open_paren = code.find("(", quote + 1)
-                if open_paren == -1:
-                    index = quote + 1
-                    continue
-                closing = ")" + code[quote + 1 : open_paren] + '"'
-                found = code.find(closing, open_paren + 1)
-                body_end = length if found == -1 else found
-                end = length if found == -1 else found + len(closing)
-                pieces.append((index, end, code[open_paren + 1 : body_end]))
-            else:
-                close = quote + 1
-                while close < length and code[close] != '"':
-                    close += 2 if code[close] == "\\" else 1
-                # `close` is the closing quote, or the end of the file when
-                # there is none. The body stops there either way; the span runs
-                # past it only when it is really a quote.
-                end = min(close + 1, length)
-                pieces.append((index, end, code[quote + 1 : min(close, length)]))
-            index = end
-        elif code[index] == "'":
-            close = index + 1
-            while close < length and code[close] != "'":
-                close += 2 if code[close] == "\\" else 1
-            index = min(close + 1, length)
-        else:
-            index += 1
+        if source[index] == "\\":
+            if source.startswith("\n", index + 1):
+                index += 2
+                continue
+            if source.startswith("\r\n", index + 1):
+                index += 3
+                continue
+        chars.append(source[index])
+        origin.append(index)
+        index += 1
+    origin.append(length)
+    return "".join(chars), origin
 
-    literals: list[tuple[int, str]] = []
-    previous_end = 0
-    for start, end, body in pieces:
-        if literals and code[previous_end:start].strip() == "":
-            offset, joined = literals[-1]
-            literals[-1] = (offset, joined + body)
+
+def _decoded(body: str) -> str:
+    """The characters an ordinary string literal's `body` stands for.
+
+    Every escape C and C++ have: the simple ones, octal, `\\x` hex of any
+    length, `\\u` and `\\U` universal characters, and C++23's delimited
+    `\\x{...}`, `\\o{...}` and `\\N{name}`. An escape the compiler would warn
+    about stands for its own character, as GCC and Clang read it.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(body)
+
+    def code_point(digits: str, base: int) -> str:
+        try:
+            return chr(min(int(digits, base), 0x10FFFF))
+        except ValueError:
+            return digits
+
+    while index < length:
+        char = body[index]
+        if char != "\\" or index + 1 >= length:
+            out.append(char)
+            index += 1
+            continue
+        escape = body[index + 1]
+        index += 2
+        if escape in _SIMPLE_ESCAPES:
+            out.append(_SIMPLE_ESCAPES[escape])
+        elif escape in "xo" and body.startswith("{", index):
+            close = body.find("}", index)
+            close = length if close == -1 else close
+            out.append(code_point(body[index + 1 : close], 16 if escape == "x" else 8))
+            index = close + 1
+        elif escape == "N" and body.startswith("{", index):
+            close = body.find("}", index)
+            close = length if close == -1 else close
+            try:
+                out.append(unicodedata.lookup(body[index + 1 : close]))
+            except KeyError:
+                out.append(body[index - 2 : close + 1])
+            index = close + 1
+        elif escape in "01234567":
+            end = index - 1
+            while end < length and end < index + 2 and body[end] in "01234567":
+                end += 1
+            out.append(code_point(body[index - 1 : end], 8))
+            index = end
+        elif escape == "x":
+            end = index
+            while end < length and body[end] in "0123456789abcdefABCDEF":
+                end += 1
+            out.append(code_point(body[index:end], 16) if end > index else "x")
+            index = end
+        elif escape in "uU":
+            width = 4 if escape == "u" else 8
+            digits = body[index : index + width]
+            out.append(code_point(digits, 16))
+            index += len(digits)
         else:
-            literals.append((start, body))
-        previous_end = end
-    return literals
+            out.append(escape)
+    return "".join(out)
+
+
+def c_tokens(source: str) -> list[CToken]:
+    """`source` as tokens, adjacent string literals joined.
+
+    Comments are dropped, as the compiler drops them, which is what keeps
+    prose naming a desktop out of every scan built on this and keeps a call
+    described in a comment from counting as one.
+    """
+    text, origin = _spliced(source)
+    length = len(text)
+    tokens: list[CToken] = []
+    index = 0
+    line_start = True
+    directive = 0
+    directives = 0
+
+    def emit(kind: str, start: int, end: int, value: str | None = None) -> None:
+        tokens.append(
+            CToken(kind, text[start:end], origin[start], origin[end], directive, value)
+        )
+
+    def string_at(start: int, quote: int, raw: bool) -> int:
+        if raw:
+            open_paren = text.find("(", quote + 1)
+            if open_paren == -1:
+                emit("string", start, quote + 1, "")
+                return quote + 1
+            closing = ")" + text[quote + 1 : open_paren] + '"'
+            found = text.find(closing, open_paren + 1)
+            body_end = length if found == -1 else found
+            end = length if found == -1 else found + len(closing)
+            # A raw string undoes line splicing inside its body, so its value
+            # comes from the original source rather than the spliced text.
+            value = source[origin[open_paren + 1] : origin[body_end]]
+            emit("string", start, end, value)
+            return end
+        close = quote + 1
+        while close < length and text[close] not in '"\n':
+            close += 2 if text[close] == "\\" else 1
+        close = min(close, length)
+        end = close + 1 if close < length and text[close] == '"' else close
+        emit("string", start, end, _decoded(text[quote + 1 : close]))
+        return end
+
+    def char_at(start: int, quote: int) -> int:
+        close = quote + 1
+        while close < length and text[close] not in "'\n":
+            close += 2 if text[close] == "\\" else 1
+        close = min(close, length)
+        end = close + 1 if close < length and text[close] == "'" else close
+        emit("char", start, end)
+        return end
+
+    while index < length:
+        char = text[index]
+        if char == "\n":
+            line_start = True
+            directive = 0
+            index += 1
+        elif char in " \t\r\f\v":
+            index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = length if newline == -1 else newline
+        elif text.startswith("/*", index):
+            # A block comment spanning lines inside a directive does not end
+            # the directive: the comment is one space by the time directives
+            # are read.
+            close = text.find("*/", index + 2)
+            index = length if close == -1 else close + 2
+        elif char == "#" and line_start:
+            directives += 1
+            directive = directives
+            line_start = False
+            emit("punct", index, index + 1)
+            index += 1
+        else:
+            line_start = False
+            if char.isalpha() or char == "_":
+                end = index + 1
+                while end < length and (text[end].isalnum() or text[end] == "_"):
+                    end += 1
+                word = text[index:end]
+                if word in C_STRING_PREFIXES and text.startswith('"', end):
+                    index = string_at(index, end, raw=word.endswith("R"))
+                elif word in ("u8", "u", "U", "L") and text.startswith("'", end):
+                    index = char_at(index, end)
+                else:
+                    emit("identifier", index, end)
+                    index = end
+            elif char.isdigit() or (
+                char == "." and index + 1 < length and text[index + 1].isdigit()
+            ):
+                # A pp-number, digit separators (`1'000`) and exponents
+                # (`1e+3`) included, so neither is read as anything else.
+                end = index + 1
+                while end < length:
+                    current = text[end]
+                    if current.isalnum() or current in "._":
+                        end += 1
+                    elif current in "+-" and text[end - 1] in "eEpP":
+                        end += 1
+                    elif (
+                        current == "'" and end + 1 < length and text[end + 1].isalnum()
+                    ):
+                        end += 2
+                    else:
+                        break
+                emit("number", index, end)
+                index = end
+            elif char == '"':
+                index = string_at(index, index, raw=False)
+            elif char == "'":
+                index = char_at(index, index)
+            else:
+                for punctuator in C_PUNCTUATORS:
+                    if text.startswith(punctuator, index):
+                        emit("punct", index, index + len(punctuator))
+                        index += len(punctuator)
+                        break
+                else:
+                    emit("punct", index, index + 1)
+                    index += 1
+
+    # Translation phase 6: adjacent string literals are one. Only within the
+    # same stretch of code, or the same directive: a literal at the end of a
+    # `#define` and one on the next line never meet.
+    joined: list[CToken] = []
+    for token in tokens:
+        previous = joined[-1] if joined else None
+        if (
+            token.kind == "string"
+            and previous is not None
+            and previous.kind == "string"
+            and previous.directive == token.directive
+        ):
+            joined[-1] = CToken(
+                "string",
+                previous.text + " " + token.text,
+                previous.start,
+                token.end,
+                token.directive,
+                (previous.value or "") + (token.value or ""),
+            )
+        else:
+            joined.append(token)
+    return joined
+
+
+def _line_of(source: str, offset: int) -> int:
+    return source.count("\n", 0, offset) + 1
+
+
+def _matching(tokens: list[CToken]) -> dict[int, int]:
+    """For every bracket in `tokens`, the index of the one that closes or opens
+    it. An unbalanced bracket is left out."""
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack: list[int] = []
+    matches: dict[int, int] = {}
+    for index, token in enumerate(tokens):
+        if token.kind != "punct":
+            continue
+        if token.text in "([{":
+            stack.append(index)
+        elif token.text in pairs:
+            while stack and tokens[stack[-1]].text != pairs[token.text]:
+                stack.pop()
+            if stack:
+                opened = stack.pop()
+                matches[opened] = index
+                matches[index] = opened
+    return matches
+
+
+def _statement_end(tokens: list[CToken], matches: dict[int, int], start: int) -> int:
+    """The index of the last token of the statement starting at `start`.
+
+    Follows the shapes that decide what a statement covers: a block runs to
+    its brace, `if`/`while`/`for`/`switch` take a condition and a body, `if`
+    takes its `else` along (so an `else` arm is part of the statement its `if`
+    is), `do` runs through its `while (...);`, and anything else runs to the
+    `;` at its own nesting. A `{` that is not an initializer ends a function
+    or type definition.
+    """
+    last = len(tokens) - 1
+    if start > last:
+        return last
+    word = tokens[start].text
+    if word == "{":
+        return matches.get(start, last)
+    if (
+        word in ("if", "while", "for", "switch")
+        and start + 1 <= last
+        and tokens[start + 1].text == "("
+    ):
+        condition_end = matches.get(start + 1, last)
+        end = _statement_end(tokens, matches, condition_end + 1)
+        if word == "if" and end + 1 <= last and tokens[end + 1].text == "else":
+            end = _statement_end(tokens, matches, end + 2)
+        return end
+    if word == "else":
+        return _statement_end(tokens, matches, start + 1)
+    if word == "do":
+        # The body, then `while (...)` and the `;` that ends the statement.
+        index = _statement_end(tokens, matches, start + 1) + 1
+        while index <= last and tokens[index].text != ";":
+            if tokens[index].text == "(":
+                index = matches.get(index, index)
+            index += 1
+        return min(index, last)
+    index = start
+    while index <= last:
+        text = tokens[index].text
+        if tokens[index].kind == "punct":
+            if text == ";":
+                return index
+            if text == "}":
+                return max(index - 1, start)
+            if text in "([":
+                index = matches.get(index, last) + 1
+                continue
+            if text == "{":
+                previous = tokens[index - 1].text if index > start else ""
+                close = matches.get(index, last)
+                if previous in ("=", ",", "(", "return"):
+                    index = close + 1
+                    continue
+                return close
+        index += 1
+    return last
+
+
+def _statement_containing(tokens: list[CToken], index: int) -> tuple[int, int]:
+    """The `[first, last]` token indices of the statement `tokens[index]` is
+    part of, found by walking the statements of the block that holds it."""
+    matches = _matching(tokens)
+    block_start = 0
+    depth = 0
+    for position in range(index - 1, -1, -1):
+        text = tokens[position].text
+        if tokens[position].kind != "punct":
+            continue
+        if text == "}":
+            depth += 1
+        elif text == "{":
+            if depth == 0:
+                block_start = position + 1
+                break
+            depth -= 1
+    position = block_start
+    while position <= index:
+        end = _statement_end(tokens, matches, position)
+        if end >= index:
+            return position, end
+        position = end + 1
+    return index, index
+
+
+def _rendered(tokens: list[CToken], source: str) -> str:
+    """Tokens as source, one space wherever the original had any gap."""
+    parts: list[str] = []
+    for position, token in enumerate(tokens):
+        if position and tokens[position - 1].end < token.start:
+            parts.append(" ")
+        parts.append(source[token.start : token.end])
+    return "".join(parts)
 
 
 def _function_body(code: str, signature: str, where: Path) -> tuple[int, int]:
@@ -1463,48 +1754,34 @@ def window_title_problems(root: Path) -> list[str]:
     branch where it had *no* header bar, so on a header-bar desktop the window
     carried no title at all and everything reading one showed a blank.
 
-    "Unconditional" is checked as what it actually means, in two parts,
-    because either alone has a hole:
+    "Unconditional" is checked on the token stream (`c_tokens()`), so comments,
+    line splices and string contents are the compiler's, not a text scan's:
 
-      * the call is inside `my_application_activate()` and at brace depth zero
-        within it, so it is not in a block; and
-      * the statement before it ends in `;`, `{` or `}`, so it is not the
-        unbraced body of a control statement.
+      * the call is in `my_application_activate()`, directly in its body
+        rather than in a block, and under no preprocessor conditional;
+      * the token before it ends a statement (`;`, `{` or `}`), so it is not
+        the unbraced body of an `if`, an `else` or a label;
+      * no `return` before it sits directly in the body, which would leave it
+        unreachable; and
+      * no `goto` before it jumps to a label after it, past the call.
 
-    The second is what rules out `if (cond) gtk_window_set_title(...);`, which
-    has brace depth zero and would otherwise pass while leaving one activation
-    path with no title. Comparing the call's position with the header-bar
-    decision catches neither, which is why that rule is last and weakest here.
-
-    What this does NOT prove, stated plainly so nobody mistakes it for more
-    than it is. These rules are lexical. They do not expand macros, follow
-    `goto`, or reason about reachability, so a call that is textually
-    unconditional but jumped over (`if (skip) goto after_title;` with the label
-    just past it) satisfies every rule above. Review found that, and it is not
-    fixed here on purpose: each previous round of hardening added another
-    proxy for "this statement is reached", and the honest version of that
-    question needs a parser rather than a seventh proxy. See #663.
-
-    The threat model this is worth having for is an accident: the template's own
-    shape coming back in a merge, a refactor moving the call into the decoration
-    branch, someone deleting it. Against a contributor who is deliberately
-    routing around it, no text scan wins, and pretending otherwise is worse than
-    saying so.
+    What this does NOT prove: macros are not expanded, so a macro that hides a
+    `return` or a `goto` before the call is not seen; a `return` inside a
+    block before it is taken for an early exit on purpose (the runner has one:
+    a second activation presents the window it already has); and calls that
+    never come back (`exit()`, a `longjmp`) are not followed. The threat model
+    is an accident: the template's own shape coming back in a merge, a refactor
+    moving the call into the decoration branch, someone deleting it.
     """
     text = _read(root, MY_APPLICATION)
-    # Strings blanked as well as comments. `_function_body()` documents that it
-    # needs both for its brace counting, and the depth check below needs it for
-    # the same reason: a `"}"` in a string literal would otherwise cancel a real
-    # opening brace and make a conditional call look top-level. Nothing here
-    # reads string contents, so there is no cost.
-    code = _blank(text, comments=True, strings=True)
+    tokens = c_tokens(text)
     problems: list[str] = []
+    call = [WINDOW_TITLE_CALL, "(", "window", ",", APPLICATION_NAME_CONSTANT, ")"]
 
-    pattern = re.compile(
-        rf"\b{re.escape(WINDOW_TITLE_CALL)}\s*\(\s*window\s*,"
-        rf"\s*{re.escape(APPLICATION_NAME_CONSTANT)}\s*\)"
-    )
-    matches = list(pattern.finditer(code))
+    def is_call(tokens: list[CToken], index: int) -> bool:
+        return [token.text for token in tokens[index : index + len(call)]] == call
+
+    matches = [index for index in range(len(tokens)) if is_call(tokens, index)]
     if not matches:
         problems.append(
             f"{MY_APPLICATION}: no "
@@ -1522,14 +1799,11 @@ def window_title_problems(root: Path) -> list[str]:
         )
         return problems
 
-    where = matches[0].start()
-
-    # A match inside a preprocessor directive is text, not a statement:
-    # `#define SET_TITLE gtk_window_set_title(window, kApplicationName)` sits
-    # inside the function, satisfies every rule below, and expands nowhere.
-    # Continuation lines count as part of the directive, or the same `#define`
-    # split across two lines reads as an ordinary call.
-    if _on_preprocessor_directive(code, where):
+    # A call inside a directive is a macro body, not a call:
+    # `#define SET_TITLE gtk_window_set_title(window, kApplicationName)` sits in
+    # the function and expands nowhere. Spliced continuation lines are part of
+    # the directive by construction.
+    if tokens[matches[0]].directive:
         problems.append(
             f"{MY_APPLICATION}: the only "
             f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) is inside "
@@ -1538,10 +1812,30 @@ def window_title_problems(root: Path) -> list[str]:
         )
         return problems
 
-    body_start, body_end = _function_body(
-        code, RUNNER_ACTIVATE_FUNCTION, MY_APPLICATION
-    )
+    # Everything below reads code alone: a directive is not a statement.
+    code = [token for token in tokens if not token.directive]
+    where = next(index for index in range(len(code)) if is_call(code, index))
+    bracket = _matching(code)
     function = RUNNER_ACTIVATE_FUNCTION.split("(")[0].split()[-1]
+    definitions = [
+        index
+        for index in range(len(code) - 1)
+        if code[index].text == function
+        and code[index + 1].text == "("
+        and bracket.get(index + 1, -1) + 1 < len(code)
+        and code[bracket[index + 1] + 1].text == "{"
+    ]
+    if not definitions:
+        raise CheckError(f"{MY_APPLICATION}: could not find {RUNNER_ACTIVATE_FUNCTION}")
+    if len(definitions) > 1:
+        raise CheckError(
+            f"{MY_APPLICATION}: found more than one {RUNNER_ACTIVATE_FUNCTION}, "
+            "expected 1"
+        )
+    body_start = bracket[definitions[0] + 1] + 1
+    body_end = bracket.get(body_start)
+    if body_end is None:
+        raise CheckError(f"{MY_APPLICATION}: {function}() has an unterminated body")
     if not body_start < where < body_end:
         problems.append(
             f"{MY_APPLICATION}: "
@@ -1553,8 +1847,12 @@ def window_title_problems(root: Path) -> list[str]:
     # Brace depth at the call, relative to the function body. Anything above
     # zero means the call sits in a block, so some path through the function
     # reaches the display server without a title.
-    between = code[body_start + 1 : where]
-    depth = between.count("{") - between.count("}")
+    depth = 0
+    for token in code[body_start + 1 : where]:
+        if token.kind == "punct" and token.text == "{":
+            depth += 1
+        elif token.kind == "punct" and token.text == "}":
+            depth -= 1
     if depth != 0:
         problems.append(
             f"{MY_APPLICATION}: "
@@ -1565,15 +1863,21 @@ def window_title_problems(root: Path) -> list[str]:
         return problems
 
     # A call inside `#if 0`, or any build-time conditional, is not in the
-    # compiled runner at all, and dropping preprocessor lines to find the
-    # preceding statement would make it look unconditional. So the directives
-    # are counted before they are dropped.
+    # compiled runner at all. The conditionals open before the call are
+    # counted from the directives between the body's start and the call.
     conditional_depth = 0
-    for line in between.splitlines():
-        directive = line.lstrip()
-        if directive.startswith(("#if", "#ifdef", "#ifndef")):
+    opened: set[int] = set()
+    for token in tokens:
+        if not token.directive or token.directive in opened:
+            continue
+        if not code[body_start].start < token.start < code[where].start:
+            continue
+        if token.text == "#":
+            continue
+        opened.add(token.directive)
+        if token.text in ("if", "ifdef", "ifndef"):
             conditional_depth += 1
-        elif directive.startswith("#endif"):
+        elif token.text == "endif":
             conditional_depth -= 1
     if conditional_depth != 0:
         problems.append(
@@ -1585,29 +1889,66 @@ def window_title_problems(root: Path) -> list[str]:
         )
         return problems
 
-    # Brace depth zero is not enough on its own either: C++ lets a control
-    # statement take a single unbraced statement as its body, so
-    # `if (cond) gtk_window_set_title(...)` sits at depth zero and is still
-    # conditional. A statement that actually runs unconditionally follows the
-    # end of another one, so the last thing before it has to be `;`, `{` or `}`.
-    # Preprocessor lines are dropped for that look-back, now that the block
-    # above has established none of them is still open.
-    preceding = "\n".join(
-        "" if line.lstrip().startswith("#") else line for line in between.splitlines()
-    ).rstrip()
-    if preceding and preceding[-1] not in ";{}":
+    # Brace depth zero is not enough on its own: `if (cond) call(...);` and
+    # `else call(...);` sit at depth zero and are still conditional. A
+    # statement that runs unconditionally follows the end of another one.
+    preceding = code[where - 1]
+    if preceding.text not in (";", "{", "}"):
         problems.append(
             f"{MY_APPLICATION}: "
             f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) does not "
             "start a statement (the code before it ends in "
-            f"{preceding[-1]!r}, not ';', '{{' or '}}'), so it reads as the body "
+            f"{preceding.text!r}, not ';', '{{' or '}}'), so it reads as the body "
             "of a control statement and is conditional; the window has to carry "
             "a title on every path"
         )
         return problems
 
-    decision = code.find(HEADER_BAR_DECISION, body_start, body_end)
-    if decision != -1 and where > decision:
+    # Reached at all: a `return` directly in the body before the call ends
+    # every path first, and a `goto` before it to a label after it jumps past
+    # it on the path it takes.
+    depth = 0
+    for index in range(body_start + 1, where):
+        token = code[index]
+        if token.text == "{":
+            depth += 1
+        elif token.text == "}":
+            depth -= 1
+        elif token.text == "return" and depth == 0:
+            problems.append(
+                f"{MY_APPLICATION}:{_line_of(text, token.start)}: a return "
+                f"directly in {function}() comes before "
+                f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}), so the "
+                "call is never reached"
+            )
+            return problems
+        elif token.text == "goto":
+            label = code[index + 1].text if index + 1 < where else ""
+            targets = [
+                position
+                for position in range(body_start + 1, body_end - 1)
+                if code[position].text == label
+                and code[position + 1].text == ":"
+                and code[position - 1].text in (";", "{", "}", ":")
+            ]
+            if not targets or targets[0] > where:
+                problems.append(
+                    f"{MY_APPLICATION}:{_line_of(text, token.start)}: "
+                    f"goto {label} jumps past "
+                    f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}), so "
+                    "the path that takes it builds a window with no title"
+                )
+                return problems
+
+    decision = next(
+        (
+            index
+            for index in range(body_start + 1, body_end)
+            if code[index].text == HEADER_BAR_DECISION
+        ),
+        None,
+    )
+    if decision is not None and where > decision:
         problems.append(
             f"{MY_APPLICATION}: "
             f"{WINDOW_TITLE_CALL}(window, {APPLICATION_NAME_CONSTANT}) comes "
@@ -1622,23 +1963,23 @@ def desktop_environment_checks(
 ) -> list[tuple[Path, int, str, str, str]]:
     """Desktop-environment detection in the committed Linux sources (#458).
 
-    Returns `(file, line, literal, what, expression)` for every string literal
+    Returns `(file, line, literal, what, statement)` for every string literal
     that names a desktop environment or reads one of the environment variables a
-    session sets. `expression` is the *comment-stripped* statement the literal
-    sits in, braced body included, which is what lets an allowance be tied to
-    one check rather than to a name; taking it from the raw source would let a
-    comment quoting the expected statement satisfy the allowance for an
-    unrelated live check.
+    session sets. `literal` is what the literal *denotes*: escapes decoded,
+    adjacent literals joined, a raw string's body as written, which is what
+    `c_tokens()` hands back. `"\\x4b\\x44\\x45"` is `KDE` here as it is to the
+    compiler.
+
+    `statement` is the statement the literal is part of, rendered from tokens
+    (so no comment can supply it) with an `if` taking its `else` along. That is
+    what an allowance is tied to: one statement, whole, rather than a name.
     Grandfathered entries are filtered out by the caller, so this stays a plain
     scan.
 
-    Comments are blanked first: this script and the runner both name GNOME and
-    KDE Plasma constantly, and prose is exactly the place that *should* name
-    them. It is a runtime branch on a desktop's name that is the problem.
-
-    Literals come from `_string_literals()` rather than a quote-matching regex,
-    so a raw string is read as one token instead of being split at the quotes
-    inside its body.
+    Comments are gone before tokens exist: this script and the runner both name
+    GNOME and KDE Plasma constantly, and prose is exactly the place that
+    *should* name them. It is a runtime branch on a desktop's name that is the
+    problem.
     """
     findings: list[tuple[Path, int, str, str, str]] = []
     linux_dir = root / "linux"
@@ -1651,30 +1992,38 @@ def desktop_environment_checks(
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        code = _blank(source, comments=True)
         relative = path.relative_to(root)
-        for offset, literal in _string_literals(code):
-            line = code.count("\n", 0, offset) + 1
-            # From the *blanked* code rather than the raw source: a comment
-            # carrying the old statement would otherwise satisfy the
-            # allowance's test while the live comparison next to it is
-            # something else entirely.
-            expression = _statement_at(code, offset)
+        tokens = c_tokens(source)
+        code = [token for token in tokens if not token.directive]
+        for token in tokens:
+            if token.kind != "string" or token.value is None:
+                continue
+            literal = token.value
             if literal in DESKTOP_SESSION_ENV_VARS:
-                findings.append(
-                    (
-                        relative,
-                        line,
-                        literal,
-                        "a desktop session environment variable",
-                        expression,
-                    )
-                )
+                what = "a desktop session environment variable"
             elif DESKTOP_NAME_PATTERN.search(literal):
-                findings.append(
-                    (relative, line, literal, "a desktop environment name", expression)
+                what = "a desktop environment name"
+            else:
+                continue
+            if token.directive:
+                statement = _rendered(
+                    [other for other in tokens if other.directive == token.directive],
+                    source,
                 )
+            else:
+                first, last = _statement_containing(code, code.index(token))
+                statement = _rendered(code[first : last + 1], source)
+            findings.append(
+                (relative, _line_of(source, token.start), literal, what, statement)
+            )
     return findings
+
+
+def _same_statement(expected: str, statement: str) -> bool:
+    """Whether two statements are the same tokens, whatever their spacing."""
+    return [(token.kind, token.text) for token in c_tokens(expected)] == [
+        (token.kind, token.text) for token in c_tokens(statement)
+    ]
 
 
 def desktop_neutrality_problems(root: Path) -> list[str]:
@@ -1685,14 +2034,14 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
     rather than a feature: it is the shape that makes one desktop the tested one
     and the other the one that breaks after release.
 
-    What this does NOT prove. The scan reads literal *spellings*, so a name
-    assembled another way is invisible: `"\x4b\x44\x45"` is `KDE` to the
-    compiler and not to this. The allowance compares a statement's text, so an
-    `else` arm hung off the grandfathered `if` is outside what it checks. Both
-    were found in review and are left alone deliberately, for the reason in
-    `window_title_problems()`: decoding escapes and comparing whole `if`/`else`
-    chains is a parser's job, and every round of widening this scanner has been
-    another proxy. See #663.
+    What it reads is what the compiler reads (`c_tokens()`): escapes decoded,
+    adjacent and prefixed literals joined, raw strings whole, splices and
+    comments gone. The allowance is compared token for token against the whole
+    statement, `else` arms included.
+
+    What this does NOT prove. Literals are all it reads, so a name built at run
+    time (from characters, a number, a file) is invisible, and macros are not
+    expanded, so a literal pasted together with `#` or `##` is not either.
 
     Accidents are what it catches, and accidents are what happen: a plain
     `getenv("XDG_CURRENT_DESKTOP")`, a `g_strcmp0(name, "KDE")` copied from a
@@ -1718,11 +2067,11 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
                     "reusing its name"
                 )
                 continue
-            if _collapse_spaces(expected) != _collapse_spaces(expression):
+            if not _same_statement(expected, expression):
                 problems.append(
                     f"{relative}:{line}: {literal!r} is excused only in "
                     f"{expected!r} ({reason}), and here the statement is "
-                    f"{_collapse_spaces(expression)!r}. The allowance is that one "
+                    f"{expression!r}. The allowance is that one "
                     "statement, not the name and not anything containing it: "
                     "flipping the operator, or wrapping the whole comparison "
                     "in a negation, reverses which desktop it picks while "

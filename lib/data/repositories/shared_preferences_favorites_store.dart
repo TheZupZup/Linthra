@@ -25,7 +25,13 @@ import '../../core/sources/music_provider.dart';
 /// Versioning:
 ///  * **v1** (`favorites_v1`) — bare ids: local paths in `local`, bare Jellyfin
 ///    item ids in `remote`.
-///  * **v2** (`favorites_v2`) — provider-namespaced uris in both sets.
+///  * **v2** (`favorites_v2`) — provider-namespaced uris in both sets. Later
+///    v2 documents also carry `owners` (uri scheme → account key, #843): whose
+///    remote hearts and queued writes they are. A v2 document without it was
+///    written before owners were kept, so nothing says which account its
+///    queued writes were made for; they are dropped on load rather than sent
+///    to whoever is signed in. Its hearts stay, belonging to nobody, until a
+///    refresh replaces them with the signed-in account's own.
 ///
 /// A v1 store is migrated to uris on first load (the v1 key is left untouched so
 /// the data is recoverable). The remote set could only ever hold Jellyfin items
@@ -65,6 +71,7 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
       'local': data.localIds.toList(),
       'remote': data.remoteIds.toList(),
       'pending': data.pendingWrites,
+      'owners': data.owners,
     });
     bool written;
     try {
@@ -97,11 +104,27 @@ class SharedPreferencesFavoritesStore implements FavoritesStore {
       return null;
     }
     if (decoded is! Map<String, dynamic>) return null;
+    // Without owners there is no telling whose queued writes these are.
+    final bool ownersKept = decoded.containsKey('owners');
     return FavoritesData(
       localIds: _ids(decoded['local']),
       remoteIds: _ids(decoded['remote']),
-      pendingWrites: _pending(decoded['pending']),
+      pendingWrites:
+          ownersKept ? _pending(decoded['pending']) : <String, bool>{},
+      owners: _owners(decoded['owners']),
     );
+  }
+
+  static Map<String, String> _owners(Object? value) {
+    if (value is! Map) return <String, String>{};
+    return <String, String>{
+      for (final MapEntry<Object?, Object?> entry in value.entries)
+        if (entry.key is String &&
+            (entry.key as String).isNotEmpty &&
+            entry.value is String &&
+            (entry.value as String).isNotEmpty)
+          entry.key as String: entry.value as String,
+    };
   }
 
   static Map<String, bool> _pending(Object? value) {

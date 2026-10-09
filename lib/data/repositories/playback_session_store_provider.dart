@@ -51,18 +51,19 @@ final playbackSessionPersistenceProvider =
     store: ref.watch(playbackSessionStoreProvider),
     controller: ref.read(localPlaybackControllerProvider),
     playbackStates: ref.read(localPlaybackControllerProvider).stateStream,
-    remoteAccountOf: (MusicProvider provider) => _signedInAs(ref, provider),
+    remoteAccountOf: (MusicProvider provider) =>
+        remoteSongOwnerSignedIn(ref, provider),
     queueOwnerOf: (MusicProvider provider) async {
       // Plex's library goes whenever its server does, and the queue's Plex
       // songs with it, so the ones queued are the connected server's.
       if (identical(provider, MusicProviders.plex)) {
-        return _signedInAs(ref, provider);
+        return remoteSongOwnerSignedIn(ref, provider);
       }
       // The queue follows the library (#767): its songs are the account's
       // whose library this is. That is the signed-in account once it has
       // taken the library over, and still the last one after it signed out.
       return await catalogOwners.read(provider.sourceId) ??
-          _signedInAs(ref, provider);
+          remoteSongOwnerSignedIn(ref, provider);
     },
   );
   ref.onDisposeAsync(service.dispose);
@@ -70,8 +71,9 @@ final playbackSessionPersistenceProvider =
 });
 
 /// Who [provider]'s songs would play for now, as the same non-secret keys the
-/// sync stores and smart pre-cache use, or null while it is signed out.
-String? _signedInAs(Ref ref, MusicProvider provider) {
+/// sync stores and smart pre-cache use, or null while it is signed out. Also
+/// what a stored reference to one of its songs records (`SongOrigins`, #795).
+String? remoteSongOwnerSignedIn(Ref ref, MusicProvider provider) {
   if (identical(provider, MusicProviders.jellyfin)) {
     final source = ref.read(jellyfinMusicSourceProvider);
     return source == null ? null : jellyfinAccountFingerprint(source.session);

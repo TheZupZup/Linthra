@@ -457,12 +457,16 @@ class _SectionLabel extends StatelessWidget {
           AppSpacing.lg,
           AppSpacing.xs,
         ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.4,
+        // A heading, so a screen reader can jump section to section (#460).
+        child: Semantics(
+          header: true,
+          child: Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
           ),
         ),
       ),

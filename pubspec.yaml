@@ -147,7 +147,7 @@ dependencies:
   # FilesystemLocalMetadataReader behind the LocalMetadataReader seam; Android
   # keeps reading its tags in the native SAF walk and never loads this. See
   # docs/dependency-license-audit.md §3.
-  audio_metadata_reader: ^1.7.1
+  audio_metadata_reader: ^1.8.0
 
 dependency_overrides:
   # Patched locally so headless Linux smoke tests can set libmpv `ao=alsa`
@@ -178,6 +178,13 @@ dev_dependencies:
   # across the channel the Android plugin actually uses rather than against a
   # Dart stand-in. Nothing in lib/ imports it.
   audio_service_platform_interface: ^0.1.3
+  # Test-only. The Dart language's own front end, already in the graph under
+  # drift_dev and build_runner. The desktop-neutrality guardrail
+  # (test/tooling/desktop_environment_neutrality_test.dart) parses lib/ with
+  # it, so it reads string literals the way the compiler does: escapes,
+  # interpolation, adjacency and comments included (#663). Nothing in lib/
+  # imports it.
+  analyzer: ^7.7.1
 
 flutter:
   uses-material-design: true

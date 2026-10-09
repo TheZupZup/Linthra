@@ -488,6 +488,9 @@ class _ScanSummary extends StatelessWidget {
     if (report.readFailures > 0) {
       parts.add('${report.readFailures} unreadable');
     }
+    if (report.unopenableNames > 0) {
+      parts.add('${report.unopenableNames} with unreadable names');
+    }
     return parts.join(' · ');
   }
 
@@ -506,6 +509,16 @@ class _ScanSummary extends StatelessWidget {
       return '${report.rootsUnavailable} of ${report.rootsScanned} folders '
           "couldn't be read. Their music stays in your library — reconnect the "
           'drive or select the folder again, then rescan.';
+    }
+    // Left out rather than shown as songs that never play (#817). Renaming
+    // them is the fix, and nothing else here would say so.
+    if (report.unopenableNames > 0) {
+      final int count = report.unopenableNames;
+      return '$count ${count == 1 ? 'file or folder has a name' : 'files or folders have names'} '
+          "that aren't valid UTF-8, often from an old Windows copy or a share "
+          "mounted without UTF-8, so Linthra can't open "
+          '${count == 1 ? 'it' : 'them'}. Renaming '
+          '${count == 1 ? 'it' : 'them'} makes the music show up.';
     }
     if (report.importedTracks > 0) return null;
     // A revoked Music and audio permission is recovered in Android's app
