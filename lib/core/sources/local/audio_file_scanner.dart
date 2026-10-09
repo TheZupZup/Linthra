@@ -167,12 +167,16 @@ class IoAudioFileScanner implements AudioFileScanner {
   /// as text. So such an entry is left out and reported rather than indexed
   /// as a song that can never play, or walked as a folder that can never be
   /// listed. A name that really contains U+FFFD opens fine and is kept.
+  ///
+  /// A stat that doesn't answer within [_stallLimit] says nothing about the
+  /// name: it throws a [TimeoutException], and the directory counts as not
+  /// answering like a stalled listing, so what was indexed under it is kept.
   Future<bool> _namesNothing(FileSystemEntity entity) async {
     if (!entity.path.contains('\uFFFD')) return false;
     final FileSystemEntityType type = await FileSystemEntity.type(
       entity.path,
       followLinks: false,
-    ).timeout(_stallLimit, onTimeout: () => FileSystemEntityType.notFound);
+    ).timeout(_stallLimit);
     return type == FileSystemEntityType.notFound;
   }
 

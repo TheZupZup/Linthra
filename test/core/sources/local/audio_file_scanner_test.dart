@@ -153,6 +153,15 @@ final class _StalledShare extends IOOverrides {
   }
 }
 
+/// Storage that stops answering the stat of any name holding U+FFFD.
+final class _StalledStat extends IOOverrides {
+  @override
+  Future<FileSystemEntityType> fseGetType(String path, bool followLinks) =>
+      path.contains('\uFFFD')
+          ? Completer<FileSystemEntityType>().future
+          : super.fseGetType(path, followLinks);
+}
+
 /// The real folder, its listing passed through [_swap].
 class _Listing implements Directory {
   _Listing(this._real, this._swap);
@@ -398,6 +407,31 @@ void main() {
     });
 
     group('storage that stops answering (#778)', () {
+      test(
+          'a name holding U+FFFD whose stat never answers is not called '
+          'unopenable: its folder is unreadable for now', () async {
+        Directory('${root.path}/Album').createSync();
+        File('${root.path}/Album/odd \uFFFD name.flac').writeAsStringSync('x');
+        final List<String> unreadable = <String>[];
+        final List<String> unopenable = <String>[];
+        const scanner = IoAudioFileScanner(
+          presence: _Present(),
+          stallLimit: _stall,
+        );
+
+        await IOOverrides.runWithIOOverrides(
+          () => scanner.listFiles(
+            root.path,
+            onUnreadableDirectory: unreadable.add,
+            onUnopenableName: unopenable.add,
+          ),
+          _StalledStat(),
+        );
+
+        expect(unopenable, isEmpty);
+        expect(unreadable, <String>['${root.path}/Album']);
+      });
+
       test('a selected folder whose listing never answers is unavailable',
           () async {
         const scanner = IoAudioFileScanner(
