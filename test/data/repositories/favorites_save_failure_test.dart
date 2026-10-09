@@ -86,6 +86,9 @@ class _Gateway implements RemoteFavoritesGateway {
   bool get isConnected => true;
 
   @override
+  String? get accountKey => 'account-a';
+
+  @override
   Future<Set<String>> fetchFavoriteUris() async {
     final Set<String> answer = <String>{...serverUris};
     if (!_fetchStarted.isCompleted) _fetchStarted.complete();

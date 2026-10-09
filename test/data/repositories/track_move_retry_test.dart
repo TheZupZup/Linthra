@@ -82,6 +82,9 @@ class _Server implements RemotePlaylistGateway {
   PlaylistSource get source => PlaylistSource.subsonic;
   @override
   bool get isConnected => true;
+
+  @override
+  String? get accountKey => 'account-a';
   @override
   bool get pushesRename => true;
   @override

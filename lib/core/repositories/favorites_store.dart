@@ -13,6 +13,7 @@ class FavoritesData {
     this.localIds = const <String>{},
     this.remoteIds = const <String>{},
     this.pendingWrites = const <String, bool>{},
+    this.owners = const <String, String>{},
   });
 
   static const FavoritesData empty = FavoritesData();
@@ -31,15 +32,25 @@ class FavoritesData {
   /// refresh adopting a starred list that never heard of it.
   final Map<String, bool> pendingWrites;
 
+  /// Whose each provider's [remoteIds] and [pendingWrites] are: uri scheme
+  /// (`subsonic:`) → the account key its gateway reported
+  /// (`RemoteFavoritesGateway.accountKey`). A remote id means something only
+  /// on its own server, so these are never shown to, or pushed to, another
+  /// account. A provider with no entry has no account behind its hearts:
+  /// signed out, never signed in, or recorded before owners were kept.
+  final Map<String, String> owners;
+
   FavoritesData copyWith({
     Set<String>? localIds,
     Set<String>? remoteIds,
     Map<String, bool>? pendingWrites,
+    Map<String, String>? owners,
   }) {
     return FavoritesData(
       localIds: localIds ?? this.localIds,
       remoteIds: remoteIds ?? this.remoteIds,
       pendingWrites: pendingWrites ?? this.pendingWrites,
+      owners: owners ?? this.owners,
     );
   }
 }

@@ -77,6 +77,7 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
       'syncState': playlist.syncState.name,
       if (playlist.lastSyncError != null)
         'lastSyncError': playlist.lastSyncError,
+      if (playlist.owner != null) 'owner': playlist.owner,
     };
   }
 
@@ -97,6 +98,7 @@ class SharedPreferencesPlaylistStore implements PlaylistStore {
       updatedAt: _date(json['updatedAt']),
       syncState: PlaylistSyncState.fromName(_string(json['syncState'])),
       lastSyncError: _string(json['lastSyncError']),
+      owner: _string(json['owner']),
     );
   }
 

@@ -79,6 +79,9 @@ class _Server implements RemotePlaylistGateway {
   bool get isConnected => true;
 
   @override
+  String? get accountKey => 'account-a';
+
+  @override
   bool get pushesRename => true;
 
   @override

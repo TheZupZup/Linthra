@@ -34,6 +34,14 @@ import '../../core/sources/music_provider.dart';
 /// local-track favourites and other providers' hearts alone, as well as any heart
 /// toggled while the refresh was waiting on the server (the answer predates it).
 ///
+/// Ownership (#843): a remote id only means something on its own server and
+/// account, so each provider's hearts and queued writes are saved with the key
+/// of the account they belong to ([FavoritesData.owners]). They are pushed
+/// only to that account. The first time another account is seen signed in for
+/// that provider, they are dropped before anything of the new account's is
+/// kept: a sign-out whose save the disk refused, followed by a restart, can't
+/// hand the old account's hearts to the next one.
+///
 /// Security: only non-secret track/item ids are stored or sent. Sessions (with
 /// their tokens) live behind the gateways and are never logged or persisted
 /// here. Local-track favourites are never sent anywhere.
@@ -68,14 +76,6 @@ class SyncedFavoritesRepository
   /// by uri scheme. A refresh notes the counts before asking the servers and
   /// discards a provider's answer if its count moved meanwhile.
   final Map<String, int> _clears = <String, int>{};
-
-  /// The providers signed out of (their hearts cleared) and not seen signed
-  /// in since, by uri scheme. Their songs stay in the library, so they can
-  /// still be hearted, but such a heart belongs to no account: it is kept as
-  /// it is and never queued for a push, since whoever signs in next (another
-  /// person, another server) did not make it, and that account's own starred
-  /// list replaces the provider's hearts on its first refresh.
-  final Set<String> _signedOut = <String>{};
 
   /// How many times each remote uri has been toggled. A push notes the number
   /// of the toggle it carries, so when it comes back it can tell whether a
@@ -179,13 +179,24 @@ class SyncedFavoritesRepository
         _emit();
         return 0;
       }
-      final Map<String, bool> pending = Map<String, bool>.of(_pendingWrites);
+      FavoritesData data = _data;
+      Map<String, bool> pending = Map<String, bool>.of(_pendingWrites);
+      // Another account's hearts give way before this one's heart joins them.
+      if (gateway != null) {
+        final ({FavoritesData data, Map<String, bool> pending})? claimed =
+            _claimed(gateway);
+        if (claimed != null) (:data, :pending) = claimed;
+      }
       // Pending from this moment until a push of it is confirmed, so a
       // refresh that lands first keeps it rather than adopting an answer that
-      // predates it, and a push that never comes back leaves it to retry.
-      if (gateway != null && _hasAccount(gateway)) pending[key] = favorite;
+      // predates it, and a push that never comes back leaves it to retry. A
+      // heart that belongs to no account (signed out) is kept but never
+      // queued: whoever signs in next did not make it.
+      if (gateway != null && data.owners.containsKey(gateway.uriScheme)) {
+        pending[key] = favorite;
+      }
       await _write(
-        _data.copyWith(remoteIds: _withMember(_data.remoteIds, key, favorite)),
+        data.copyWith(remoteIds: _withMember(data.remoteIds, key, favorite)),
         pending,
       );
       for (final Set<String> toggled in _toggledDuringRefresh) {
@@ -201,7 +212,7 @@ class SyncedFavoritesRepository
     // provider not being connected yet) leaves the write pending, retried on
     // the next refresh: the optimistic local state stands and is never
     // silently lost or reverted. Never throws.
-    if (gateway != null && gateway.isConnected) {
+    if (gateway != null && _pushesTo(gateway)) {
       final int clearsBefore = _clearsOf(gateway.uriScheme);
       bool landed;
       try {
@@ -313,9 +324,9 @@ class SyncedFavoritesRepository
     if (connected.isEmpty) {
       return const FavoritesSyncResult.notConfigured();
     }
-    for (final RemoteFavoritesGateway g in connected) {
-      _signedOut.remove(g.uriScheme);
-    }
+    // Whatever another account left for these providers goes before anything
+    // is pushed or adopted for the ones signed in now.
+    await _inTurn(() => _claim(connected));
 
     // The user keeps hearting (and may sign out) while the requests below are
     // out, so nothing read from [_data] before an await is written back after
@@ -344,6 +355,8 @@ class SyncedFavoritesRepository
           // sign-out may have dropped this write or a toggle replaced it.
           final bool? favorite = _pendingWrites[uri];
           if (favorite == null) continue;
+          // And only ever to the account it was queued for.
+          if (!_pushesTo(gateway)) break;
           // A push like any other: a toggle made while it is out pushes too,
           // and can reach the server first. So it settles against the newest
           // toggle the way a tap's push does, rather than only clearing the
@@ -408,7 +421,7 @@ class SyncedFavoritesRepository
       // Signed out (or cleared) while the fetch was out: the answer is that
       // account's, which is gone. A gateway can still look connected on a
       // session it captured earlier; the clear count is what says so.
-      if (!entry.key.isConnected || _clearsOf(scheme) != clears[scheme]) {
+      if (!_pushesTo(entry.key) || _clearsOf(scheme) != clears[scheme]) {
         continue;
       }
       final Set<String> answer = entry.value.uris;
@@ -460,13 +473,93 @@ class SyncedFavoritesRepository
 
   int _clearsOf(String scheme) => _clears[scheme] ?? 0;
 
-  /// Whether a heart on [gateway]'s songs is someone's to push: an account is
-  /// signed in, or one may still be coming (nothing was signed out since this
-  /// process started, as when a saved sign-in is still loading).
-  bool _hasAccount(RemoteFavoritesGateway gateway) {
-    if (gateway.isConnected) _signedOut.remove(gateway.uriScheme);
-    return gateway.isConnected || !_signedOut.contains(gateway.uriScheme);
+  /// Whether [gateway] is signed in to the account its provider's hearts and
+  /// queued writes belong to, so they may be pushed to it now.
+  ///
+  /// Checked right before each request: a gateway reads its session when
+  /// the request starts, so nothing can switch accounts in between.
+  bool _pushesTo(RemoteFavoritesGateway gateway) {
+    final String? account = gateway.accountKey;
+    return gateway.isConnected &&
+        account != null &&
+        _data.owners[gateway.uriScheme] == account;
   }
+
+  /// Makes [connected]'s providers belong to the accounts signed in now (see
+  /// [_claimed]) and saves that. Called in turn.
+  ///
+  /// It stands even when the disk refuses the save, like a sign-out: the
+  /// other account's hearts are not this one's whatever the disk says. The
+  /// disk still names their owner, so they are dropped again after a
+  /// restart, and the next save that lands writes it.
+  Future<void> _claim(List<RemoteFavoritesGateway> connected) async {
+    FavoritesData data = _data;
+    Map<String, bool> pending = _pendingWrites;
+    bool claimed = false;
+    for (final RemoteFavoritesGateway gateway in connected) {
+      final ({FavoritesData data, Map<String, bool> pending})? next =
+          _claimed(gateway, data: data, pending: pending);
+      if (next == null) continue;
+      (:data, :pending) = next;
+      claimed = true;
+    }
+    if (!claimed) return;
+    final bool heartsChanged = !_sameIds(data.remoteIds, _data.remoteIds);
+    try {
+      await _write(data, pending);
+    } catch (_) {
+      _commit(data, pending);
+    } finally {
+      if (heartsChanged) _emit();
+    }
+  }
+
+  /// [data] and [pending] with [gateway]'s provider made the signed-in
+  /// account's, or null when they already are (or nobody is signed in).
+  ///
+  /// Another account's hearts and queued writes are dropped: a remote id
+  /// names something else, or nothing, on another server or account, and the
+  /// new account's own starred list replaces them on its refresh. Hearts with
+  /// no account behind them (signed out, or kept from before owners were
+  /// recorded) stay until that refresh replaces them; their queued writes
+  /// were never kept. Anything of the old account's still out is dropped
+  /// when it comes back, the way a sign-out drops it.
+  ({FavoritesData data, Map<String, bool> pending})? _claimed(
+    RemoteFavoritesGateway gateway, {
+    FavoritesData? data,
+    Map<String, bool>? pending,
+  }) {
+    final FavoritesData current = data ?? _data;
+    final Map<String, bool> queued = pending ?? _pendingWrites;
+    final String? account = gateway.accountKey;
+    if (!gateway.isConnected || account == null) return null;
+    final String scheme = gateway.uriScheme;
+    final String? owner = current.owners[scheme];
+    if (owner == account) return null;
+    _clears[scheme] = _clearsOf(scheme) + 1;
+    final Map<String, String> owners = <String, String>{
+      ...current.owners,
+      scheme: account,
+    };
+    return (
+      data: current.copyWith(
+        owners: owners,
+        remoteIds: owner == null
+            ? current.remoteIds
+            : <String>{
+                for (final String uri in current.remoteIds)
+                  if (!uri.startsWith(scheme)) uri,
+              },
+      ),
+      pending: <String, bool>{
+        for (final MapEntry<String, bool> entry in queued.entries)
+          if (!entry.key.startsWith(scheme)) entry.key: entry.value,
+      },
+    );
+  }
+
+  static bool _sameIds(Set<String> a, Set<String> b) =>
+      a.length == b.length && a.containsAll(b);
 
   @override
   Future<void> clearRemote({String? providerScheme}) async {
@@ -475,7 +568,6 @@ class SyncedFavoritesRepository
     for (final RemoteFavoritesGateway g in _gateways) {
       if (providerScheme == null || g.uriScheme == providerScheme) {
         _clears[g.uriScheme] = _clearsOf(g.uriScheme) + 1;
-        _signedOut.add(g.uriScheme);
       }
     }
     await _ensureLoaded();
@@ -495,8 +587,17 @@ class SyncedFavoritesRepository
                 if (!uri.startsWith(providerScheme)) uri,
             };
       final bool heartsDropped = next.length != _data.remoteIds.length;
-      if (!heartsDropped && !pendingDropped) return;
-      final FavoritesData cleared = _data.copyWith(remoteIds: next);
+      // No account behind this provider's hearts any more: one made from now
+      // on is nobody's to push.
+      final Map<String, String> owners = <String, String>{
+        for (final MapEntry<String, String> entry in _data.owners.entries)
+          if (providerScheme != null && entry.key != providerScheme)
+            entry.key: entry.value,
+      };
+      final bool ownerDropped = owners.length != _data.owners.length;
+      if (!heartsDropped && !pendingDropped && !ownerDropped) return;
+      final FavoritesData cleared =
+          _data.copyWith(remoteIds: next, owners: owners);
       try {
         await _write(cleared, pending);
       } finally {
