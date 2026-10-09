@@ -76,15 +76,22 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
     }
 
     final int generation = _begin(session);
-    // A different account: nothing of the previous one survives into this
-    // load, not its books, not its library names, not which library was open.
-    state = sameAccount
-        ? state.copyWith(
-            isConnected: true,
-            isLoading: true,
-            isLoadingMore: false,
-          )
-        : const AudiobooksLibraryState(isConnected: true, isLoading: true);
+    if (sameAccount) {
+      // A refresh keeps what is on screen, and the paging position that
+      // describes it, until the new first page is in: a refresh that fails
+      // must leave Load more asking for the page after the last one shown.
+      state = state.copyWith(
+        isConnected: true,
+        isLoading: true,
+        isLoadingMore: false,
+      );
+    } else {
+      // A different account: nothing of the previous one survives into this
+      // load, not its books, not its library names, not which library was
+      // open, not how far through it the list had got.
+      _resetPaging();
+      state = const AudiobooksLibraryState(isConnected: true, isLoading: true);
+    }
 
     final List<AudiobookshelfLibraryDto> libraries;
     try {
@@ -106,6 +113,7 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
           AudiobookLibrarySummary(id: library.id, name: library.name),
     ];
     if (bookLibraries.isEmpty) {
+      _resetPaging();
       state = const AudiobooksLibraryState(
         isConnected: true,
         hasLoaded: true,
@@ -113,14 +121,16 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
       return;
     }
 
-    state = state.copyWith(
+    // The new library list is only shown with the first page it opens on, so
+    // a first page that fails leaves the previous list, books and paging
+    // position on screen together.
+    await _loadFirstPage(
+      generation,
+      session,
+      connection,
       libraries: bookLibraries,
-      selectedLibraryId: _pickLibrary(bookLibraries, session),
-      books: const <AudiobookSummary>[],
-      totalBooks: 0,
-      hasMore: false,
+      libraryId: _pickLibrary(bookLibraries, session),
     );
-    await _loadFirstPage(generation, session, connection);
   }
 
   /// Switches to another library and loads its first page. A no-op for the
@@ -136,6 +146,9 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
       return;
     }
     final int generation = _begin(session);
+    // The previous library's books leave the screen now, and so does the
+    // paging position that described them.
+    _resetPaging();
     state = state.copyWith(
       selectedLibraryId: libraryId,
       hasMore: false,
@@ -146,7 +159,13 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
       // new generation, so its spinner must not be left running here.
       isLoadingMore: false,
     );
-    await _loadFirstPage(generation, session, connection);
+    await _loadFirstPage(
+      generation,
+      session,
+      connection,
+      libraries: state.libraries,
+      libraryId: libraryId,
+    );
   }
 
   /// Appends the next page. A no-op when everything is already loaded or a
@@ -201,16 +220,16 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
   /// Re-fetches the libraries and the current library's first page.
   Future<void> refresh() => load(force: true);
 
+  /// Loads page 0 of [libraryId] and, only once it is in, shows it together
+  /// with [libraries], the selection and the paging position it starts.
+  /// Nothing is committed on failure: the screen keeps whatever it had.
   Future<void> _loadFirstPage(
     int generation,
     AudiobookshelfSession session,
-    AudiobookshelfSettingsController connection,
-  ) async {
-    final String? libraryId = state.selectedLibraryId;
-    if (libraryId == null) {
-      state = state.copyWith(isLoading: false, hasLoaded: true);
-      return;
-    }
+    AudiobookshelfSettingsController connection, {
+    required List<AudiobookLibrarySummary> libraries,
+    required String libraryId,
+  }) async {
     try {
       final AudiobookshelfLibraryItemsPage page =
           await ref.read(audiobookshelfClientProvider).fetchLibraryItems(
@@ -223,6 +242,8 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
       _nextPage = 1;
       _rawRead = page.rawCount;
       state = state.copyWith(
+        libraries: libraries,
+        selectedLibraryId: libraryId,
         books: _toSummaries(page.items),
         totalBooks: page.total,
         hasMore: _hasMore(page),
@@ -262,19 +283,27 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
 
   /// Starts a new generation of requests for [session]: whatever was in
   /// flight for the previous one no longer owns the screen.
+  ///
+  /// The paging position is left alone. It describes the books on screen, so
+  /// it only changes in the same step that replaces them; a request that is
+  /// merely starting must not move it.
   int _begin(AudiobookshelfSession session) {
     _loadedFor = session;
-    _nextPage = 1;
-    _rawRead = 0;
     return ++_generation;
   }
 
   /// Drops everything tied to a session that is gone.
   void _forget() {
     _loadedFor = null;
+    _resetPaging();
+    _generation++;
+  }
+
+  /// The paging position of an empty list. Only called together with a
+  /// state change that empties the books.
+  void _resetPaging() {
     _nextPage = 1;
     _rawRead = 0;
-    _generation++;
   }
 
   void _fail(

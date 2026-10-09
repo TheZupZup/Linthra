@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:linthra/core/models/audiobookshelf_session.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_api.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_client.dart';
@@ -54,6 +56,13 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
   final List<({String libraryId, int limit, int page})> itemRequests =
       <({String libraryId, int limit, int page})>[];
 
+  /// While set, [fetchLibraries] and [fetchLibraryItems] wait for it before
+  /// answering, so a test can keep a request in flight while something else
+  /// happens and then let it land. The answer is worked out when the gate
+  /// opens, the way a slow server would answer from its state at that point.
+  Completer<void>? librariesGate;
+  Completer<void>? itemsGate;
+
   @override
   Future<AudiobookshelfServerStatus> fetchServerStatus(
     String baseUrl,
@@ -90,6 +99,8 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
     AudiobookshelfSession session,
   ) async {
     lastSession = session;
+    final Completer<void>? gate = librariesGate;
+    if (gate != null) await gate.future;
     if (librariesError != null) throw librariesError!;
     return libraries;
   }
@@ -103,6 +114,8 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
   }) async {
     lastSession = session;
     itemRequests.add((libraryId: libraryId, limit: limit, page: page));
+    final Completer<void>? gate = itemsGate;
+    if (gate != null) await gate.future;
     if (libraryItemsError != null) throw libraryItemsError!;
     final List<AudiobookshelfLibraryItemsPage>? canned =
         pagesByLibrary[libraryId];
