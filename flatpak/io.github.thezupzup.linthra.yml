@@ -63,9 +63,11 @@ modules:
       - -Ddemos=false
       - -Dtests=false
     sources:
-      - type: archive
-        url: https://code.videolan.org/videolan/libplacebo/-/archive/v7.360.1/libplacebo-v7.360.1.tar.gz
-        sha256: 14c0a99f4b01557ec9826ce6b1d52f6de21be274ba03fd5aab7307f18766dc39
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+        disable-submodules: true
       - type: archive
         url: https://github.com/pallets/jinja/archive/refs/tags/3.1.6.tar.gz
         sha256: 2074b22a72caa65474902234b320d73463d6d4c223ee49f4b433495758356337
