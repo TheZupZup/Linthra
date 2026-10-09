@@ -737,6 +737,44 @@ void main() {
       expect(reporter.events, <String>['started:a@0/0', 'stopped:a@0/0']);
     });
 
+    test(
+        'a stop queued while the last in-flight report is finishing is still '
+        'sent', () async {
+      // The queue going empty and the drain being marked finished happen a
+      // few microtasks apart. Try dispose at every offset across that
+      // window, so the stop lands inside it whatever the exact count is.
+      for (int offset = 0; offset < 24; offset++) {
+        final StreamController<PlaybackState> playback =
+            StreamController<PlaybackState>.broadcast();
+        final _GatedReporter gated = _GatedReporter();
+        final PlaybackReportingService service = PlaybackReportingService(
+          playbackStates: playback.stream,
+          reporter: gated,
+          now: () => clock,
+        );
+        playback.add(_state(PlaybackStatus.playing, _track('a')));
+        await _settle();
+        expect(gated.startedCalls, <String>['started']);
+
+        final Completer<void> disposed = Completer<void>();
+        void disposeAfter(int hops) => hops == 0
+            ? disposed.complete(service.dispose())
+            : scheduleMicrotask(() => disposeAfter(hops - 1));
+        gated.gate.complete();
+        disposeAfter(offset);
+        await disposed.future;
+        await service.idle;
+        await _settle();
+
+        expect(
+          gated.events,
+          <String>['started:a@0/0', 'stopped:a@0/0'],
+          reason: 'dispose $offset microtasks after the gate opened',
+        );
+        await playback.close();
+      }
+    });
+
     test('a second dispose queues no second stop', () async {
       final service = build();
       final Track a = _track('a');

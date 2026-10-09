@@ -235,7 +235,7 @@ class PlaybackReportingService {
       return;
     }
     _pending.add(() => report(reporter));
-    _draining ??= _drain().whenComplete(() => _draining = null);
+    _draining ??= _drain();
   }
 
   /// Dispatches pending reports strictly in order, one at a time, so a slow
@@ -250,6 +250,9 @@ class PlaybackReportingService {
         // Best-effort by contract; the next report still goes out.
       }
     }
+    // Cleared in the same step that saw the queue empty, so a report queued
+    // from here on always starts a fresh drain instead of joining this one.
+    _draining = null;
   }
 
   /// Completes once every report queued so far has been sent (or failed), a
