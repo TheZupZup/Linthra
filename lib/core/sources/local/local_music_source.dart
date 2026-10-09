@@ -387,7 +387,7 @@ class LocalMusicSource implements MusicSource {
       stamps: stamps,
       unreadableDirectories: List<String>.unmodifiable(unreadable),
       vanished: Set<String>.unmodifiable(vanished),
-      foundNoFiles: files.isEmpty && unreadable.isEmpty,
+      foundNoFiles: files.isEmpty && unreadable.isEmpty && unopenable == 0,
       report: LocalScanReport(
         folderSelected: true,
         isContentUri: isContentUri,

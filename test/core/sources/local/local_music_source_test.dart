@@ -625,6 +625,18 @@ void main() {
       expect(scan.foundNoFiles, isFalse);
     });
 
+    test('names that open nothing are still entries the walk found', () async {
+      final LocalScan scan = await LocalMusicSource(
+        folderPath: '/mnt/nas',
+        scanner: _FakeScanner(
+          const <String>[],
+          unopenable: const <String>['/mnt/nas/Holoc\uFFFDne.flac'],
+        ),
+      ).scanTracks();
+
+      expect(scan.foundNoFiles, isFalse);
+    });
+
     test('a SAF tree read through Android never says so', () async {
       final LocalScan scan = await LocalMusicSource(
         folderPath: _safFolder,
