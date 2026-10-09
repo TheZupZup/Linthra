@@ -41,10 +41,13 @@ class HttpSubsonicClient implements SubsonicClient {
   /// extra request.
   static const int _shortUrlLength = 2000;
 
-  /// Whether each server (by base URL) lists the OpenSubsonic `formPost`
-  /// extension. Asked once per server; a failed lookup isn't kept, so it is
-  /// asked again next time.
-  final Map<String, Future<bool>> _formPostSupport = <String, Future<bool>>{};
+  /// Whether each server lists the OpenSubsonic `formPost` extension, by base
+  /// URL and user: a lookup carries one user's credentials, so its failure
+  /// must not fail another user's write. Only an answer is kept. A lookup
+  /// that failed, or got no answer either way, is asked again by the next
+  /// long write.
+  final Map<(String, String), Future<bool?>> _formPostSupport =
+      <(String, String), Future<bool?>>{};
 
   @override
   Future<SubsonicServerInfo> ping(
@@ -429,44 +432,72 @@ class HttpSubsonicClient implements SubsonicClient {
     });
   }
 
-  Future<bool> _supportsFormPost(SubsonicSession session) {
-    final String server = session.baseUrl;
-    final Future<bool>? known = _formPostSupport[server];
-    if (known != null) return known;
-    final Future<bool> lookup = _lookUpFormPost(session);
-    _formPostSupport[server] = lookup;
-    lookup.then<void>((_) {}, onError: (Object _) {
-      if (identical(_formPostSupport[server], lookup)) {
-        _formPostSupport.remove(server);
+  /// Whether to send [session]'s long playlist writes as form posts. Writes
+  /// that start while a lookup is out wait on that one rather than asking
+  /// again. A server that didn't say either way gets a GET, as it did before
+  /// form posts.
+  Future<bool> _supportsFormPost(SubsonicSession session) async {
+    final (String, String) key = (session.baseUrl, session.username);
+    Future<bool?>? lookup = _formPostSupport[key];
+    if (lookup == null) {
+      final Future<bool?> asked = _lookUpFormPost(session);
+      _formPostSupport[key] = asked;
+      lookup = asked;
+      void forget() {
+        if (identical(_formPostSupport[key], asked)) {
+          _formPostSupport.remove(key);
+        }
       }
-    });
-    return lookup;
+
+      unawaited(asked.then<void>(
+        (bool? answer) {
+          if (answer == null) forget();
+        },
+        onError: (Object _) => forget(),
+      ));
+    }
+    return await lookup ?? false;
   }
 
-  Future<bool> _lookUpFormPost(SubsonicSession session) async {
+  /// Asks [session]'s server whether it takes form posts: `true` or `false`
+  /// when it answered, `null` when it said nothing either way.
+  ///
+  /// Throws, and the write is not sent, only when the server can't be reached
+  /// or turns these credentials down. The write would fail the same way (same
+  /// server, same connection, same credentials), and that is the error worth
+  /// showing. Anything else says nothing about the write.
+  Future<bool?> _lookUpFormPost(SubsonicSession session) async {
+    bool noSuchEndpoint = false;
     final SubsonicEnvelope envelope;
     try {
-      envelope = await _get(SubsonicEndpoints.getOpenSubsonicExtensions(
-        session.baseUrl,
-        username: session.username,
-        credentials: _credentials(session),
-      ));
+      envelope = await _get(
+        SubsonicEndpoints.getOpenSubsonicExtensions(
+          session.baseUrl,
+          username: session.username,
+          credentials: _credentials(session),
+        ),
+        onRejectedStatus: (int code) {
+          noSuchEndpoint = code == 404;
+        },
+      );
     } on SubsonicException catch (error) {
       switch (error.kind) {
-        // The server can't be asked right now, or won't take these
-        // credentials: the write itself would fail the same way, so say that
-        // rather than guess.
         case SubsonicErrorKind.notReachable:
         case SubsonicErrorKind.cleartextBlocked:
         case SubsonicErrorKind.insecureConnection:
         case SubsonicErrorKind.unauthorized:
           rethrow;
-        case SubsonicErrorKind.serverError when error.statusCode != null:
-          rethrow;
-        // An answer: no OpenSubsonic here (an error envelope, a 404, a body
-        // that isn't Subsonic), so no form posts either.
-        default:
+        // A server without OpenSubsonic saying it has no such data
+        // (Subsonic error 70).
+        case SubsonicErrorKind.streamUnavailable:
           return false;
+        // A 404 is one with no such endpoint. Anything else is not an answer:
+        // a server error or a rate limit (5xx, 429), a generic Subsonic
+        // error, a page that isn't Subsonic. Some servers answer an endpoint
+        // they don't have with a 500, and a passing failure on one that does
+        // take forms must not shut it out for the session.
+        default:
+          return noSuchEndpoint ? false : null;
       }
     }
     final Object? extensions = envelope.data['openSubsonicExtensions'];
@@ -498,6 +529,11 @@ class HttpSubsonicClient implements SubsonicClient {
         body: form.body,
       ),
     );
+    // A body over a proxy's size limit: too many songs for one request, not
+    // a wrong address.
+    if (response.statusCode == 413) {
+      throw SubsonicException.playlistTooLong(413);
+    }
     return _readEnvelope(response);
   }
 

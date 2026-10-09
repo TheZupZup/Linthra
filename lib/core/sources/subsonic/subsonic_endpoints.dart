@@ -62,8 +62,10 @@ abstract final class SubsonicEndpoints {
   ///
   /// The body is [request]'s own encoded query, so repeated keys keep their
   /// order and spaces and `+` are encoded the way a form expects. The
-  /// credentials end up in the body, which proxies don't log, instead of the
-  /// URL, which they do.
+  /// credentials end up in the body instead of the URL. Default access logs
+  /// (nginx, Apache) record URLs and not bodies, so that keeps them out of the
+  /// most common logs; it is no guarantee against a server or proxy set up to
+  /// log request bodies.
   static ({Uri target, String body}) asFormPost(Uri request) => (
         target: Uri(
           scheme: request.scheme,
