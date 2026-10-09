@@ -41,7 +41,8 @@ And the derived files, all committed so a reviewer can read them:
 | Flutter SDK | `tag` **and** `commit` | The tag is what flatpak-flutter reads; the commit is what makes the checkout immutable. Both manifests and `.flutter-version` have to agree |
 | Dart packages | pub.dev archive URL + SHA-256 | Taken from `pubspec.lock`, with a matching `hosted-hashes` entry so `pub get --offline` validates the cache |
 | Flutter engine artifacts | `storage.googleapis.com` URL + SHA-256 | The engine hash is part of the URL, and every artifact in a module must carry the same one |
-| Native archives (ffmpeg, libplacebo, jinja, markupsafe, glad, libass, mpv) | archive URL + SHA-256 | Release tags, never branch snapshots |
+| Native archives (ffmpeg, jinja, markupsafe, glad, libass, mpv) | archive URL + SHA-256 | Release tags, never branch snapshots |
+| libplacebo | `tag` **and** `commit`, from the author's GitHub mirror | A git checkout rather than the code.videolan.org tarball, which kept failing CI with an error page (#863). Submodules are off; the ones the build reads are the pinned jinja/markupsafe/glad archives |
 | Plugin downloads (SQLite amalgamation, mimalloc) | URL + SHA-256, pre-fetched into the path the plugin's CMake reads | The committed CMake patch adds the matching `URL_HASH`, so the build cannot accept different bytes even if it did reach the network |
 | The app itself | the repository commit being built | A `type: dir` source, see below |
 | `flatpak-flutter` | `TOOL_COMMIT`, a full commit | The generator decides every hash above, so which generator ran is part of the record |

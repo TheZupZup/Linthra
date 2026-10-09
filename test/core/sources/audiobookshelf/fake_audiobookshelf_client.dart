@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:linthra/core/models/audiobookshelf_session.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_api.dart';
 import 'package:linthra/core/sources/audiobookshelf/audiobookshelf_client.dart';
@@ -54,6 +56,31 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
   final List<({String libraryId, int limit, int page})> itemRequests =
       <({String libraryId, int limit, int page})>[];
 
+  /// While set, [fetchLibraries] and [fetchLibraryItems] wait for it before
+  /// answering, so a test can keep a request in flight while something else
+  /// happens and then let it land. The answer is worked out when the gate
+  /// opens, the way a slow server would answer from its state at that point.
+  Completer<void>? librariesGate;
+  Completer<void>? itemsGate;
+
+  /// When set, a library request whose access token isn't in here is turned
+  /// down with a 401, the way the server answers an expired token. A renewal
+  /// through [refreshTokens] adds the token it hands out.
+  Set<String>? acceptedAccessTokens;
+
+  /// What [refreshTokens] hands out. Each refresh token can be traded in
+  /// once, as on the server: a second try with a spent one gets a 401.
+  AudiobookshelfAuthResult? refreshResult;
+  AudiobookshelfException? refreshError;
+  Completer<void>? refreshGate;
+
+  /// Every refresh token [refreshTokens] was asked to trade in, in order.
+  final List<String> refreshCalls = <String>[];
+  final Set<String> _spentRefreshTokens = <String>{};
+
+  /// Every access token a library request was made with, in order.
+  final List<String> requestTokens = <String>[];
+
   @override
   Future<AudiobookshelfServerStatus> fetchServerStatus(
     String baseUrl,
@@ -86,10 +113,38 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
   }
 
   @override
+  Future<AudiobookshelfAuthResult> refreshTokens({
+    required String baseUrl,
+    required String refreshToken,
+  }) async {
+    refreshCalls.add(refreshToken);
+    final Completer<void>? gate = refreshGate;
+    if (gate != null) await gate.future;
+    if (refreshError != null) throw refreshError!;
+    final AudiobookshelfAuthResult? result = refreshResult;
+    if (result == null || !_spentRefreshTokens.add(refreshToken)) {
+      throw AudiobookshelfException.unauthorized();
+    }
+    acceptedAccessTokens?.add(result.accessToken);
+    return result;
+  }
+
+  void _checkToken(AudiobookshelfSession session) {
+    requestTokens.add(session.accessToken);
+    final Set<String>? accepted = acceptedAccessTokens;
+    if (accepted != null && !accepted.contains(session.accessToken)) {
+      throw AudiobookshelfException.unauthorized();
+    }
+  }
+
+  @override
   Future<List<AudiobookshelfLibraryDto>> fetchLibraries(
     AudiobookshelfSession session,
   ) async {
     lastSession = session;
+    final Completer<void>? gate = librariesGate;
+    if (gate != null) await gate.future;
+    _checkToken(session);
     if (librariesError != null) throw librariesError!;
     return libraries;
   }
@@ -103,6 +158,9 @@ class FakeAudiobookshelfClient implements AudiobookshelfClient {
   }) async {
     lastSession = session;
     itemRequests.add((libraryId: libraryId, limit: limit, page: page));
+    final Completer<void>? gate = itemsGate;
+    if (gate != null) await gate.future;
+    _checkToken(session);
     if (libraryItemsError != null) throw libraryItemsError!;
     final List<AudiobookshelfLibraryItemsPage>? canned =
         pagesByLibrary[libraryId];

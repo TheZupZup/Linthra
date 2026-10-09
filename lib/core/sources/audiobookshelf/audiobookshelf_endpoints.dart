@@ -16,6 +16,7 @@
 abstract final class AudiobookshelfEndpoints {
   static const String _statusPath = '/status';
   static const String _loginPath = '/login';
+  static const String _refreshPath = '/auth/refresh';
   static const String _librariesPath = '/api/libraries';
 
   /// `GET /status` — public, unauthenticated. Confirms the address is a
@@ -29,6 +30,13 @@ abstract final class AudiobookshelfEndpoints {
   /// refresh token in the response body instead of only as an httpOnly
   /// cookie a mobile client can't use).
   static Uri login(String baseUrl) => _join(baseUrl, _loginPath);
+
+  /// `POST /auth/refresh` (Audiobookshelf 2.26 and later): trades the refresh
+  /// token, sent in the `x-refresh-token` header, for a new access token and
+  /// a new refresh token. The old refresh token stops working straight away
+  /// on 2.26 and after a short grace period on later versions, so the new
+  /// pair has to replace it.
+  static Uri refresh(String baseUrl) => _join(baseUrl, _refreshPath);
 
   /// `GET /api/libraries` — the signed-in user's accessible libraries.
   /// Requires the `Authorization: Bearer <accessToken>` header.
