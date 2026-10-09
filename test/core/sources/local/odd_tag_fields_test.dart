@@ -244,6 +244,85 @@ void main() {
     });
   });
 
+  group('an MP3 with an odd track number keeps its other tags', () {
+    for (final String track in <String>['A1', '3 of 12', '1/', '1 / 10']) {
+      test('TRCK "$track"', () async {
+        final String path = write(
+          'odd-track.mp3',
+          AudioTagFixtures.mp3(
+            title: 'Song',
+            artist: 'Someone',
+            albumArtist: 'The Band',
+            album: 'Record',
+            track: track,
+          ),
+        );
+
+        final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+        expect(read.failed, isFalse);
+        expect(read.metadata!.title, 'Song');
+        expect(read.metadata!.artist, 'Someone');
+        expect(read.metadata!.albumArtist, 'The Band');
+        expect(read.metadata!.album, 'Record');
+        expect(read.metadata!.duration, isNotNull);
+        // None of these says which track it is the way `3` or `3/12` does.
+        expect(read.metadata!.trackNumber, isNull);
+      });
+    }
+  });
+
+  group('OGG and Opus keep ARTIST and ALBUMARTIST apart', () {
+    for (final MapEntry<String, Uint8List Function(List<String>)> kind
+        in oggKinds.entries) {
+      test('${kind.key}: a compilation, whichever order it was tagged in',
+          () async {
+        for (final List<String> artists in <List<String>>[
+          <String>['ARTIST=Featured Guest', 'ALBUMARTIST=Various Artists'],
+          <String>['ALBUMARTIST=Various Artists', 'ARTIST=Featured Guest'],
+        ]) {
+          final String path =
+              write(kind.key, kind.value(<String>['TITLE=Song', ...artists]));
+
+          final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+          expect(read.metadata!.artist, 'Featured Guest');
+          expect(read.metadata!.albumArtist, 'Various Artists');
+        }
+      });
+
+      test('${kind.key}: repeated ARTIST fields are one joint credit',
+          () async {
+        final String path = write(
+          kind.key,
+          kind.value(<String>[
+            'TITLE=Under Pressure',
+            'ARTIST=Queen',
+            'ARTIST=David Bowie',
+          ]),
+        );
+
+        final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+        expect(read.metadata!.artist, 'Queen, David Bowie');
+        expect(read.metadata!.albumArtist, isNull);
+      });
+
+      test('${kind.key}: an album artist alone is still the album artist',
+          () async {
+        final String path = write(
+          kind.key,
+          kind.value(<String>['TITLE=Song', 'ALBUMARTIST=The Band']),
+        );
+
+        final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+        expect(read.metadata!.artist, isNull);
+        expect(read.metadata!.albumArtist, 'The Band');
+      });
+    }
+  });
+
   test('a FLAC the tag parser gives up on keeps its embedded cover', () async {
     final String path = write(
       'cover.flac',

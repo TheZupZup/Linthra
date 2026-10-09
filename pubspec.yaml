@@ -147,7 +147,7 @@ dependencies:
   # FilesystemLocalMetadataReader behind the LocalMetadataReader seam; Android
   # keeps reading its tags in the native SAF walk and never loads this. See
   # docs/dependency-license-audit.md §3.
-  audio_metadata_reader: ^1.7.1
+  audio_metadata_reader: ^1.8.0
 
 dependency_overrides:
   # Patched locally so headless Linux smoke tests can set libmpv `ao=alsa`
