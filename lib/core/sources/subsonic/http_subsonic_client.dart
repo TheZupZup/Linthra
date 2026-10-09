@@ -35,6 +35,17 @@ class HttpSubsonicClient implements SubsonicClient {
   static const int _albumPageSize = 500;
   static const int _maxAlbumPages = 200;
 
+  /// The longest playlist-write URL sent as a plain GET without first asking
+  /// whether the server takes form posts. Well under what any common proxy
+  /// accepts (nginx and Apache stop at about 8 KB), so a small edit costs no
+  /// extra request.
+  static const int _shortUrlLength = 2000;
+
+  /// Whether each server (by base URL) lists the OpenSubsonic `formPost`
+  /// extension. Asked once per server; a failed lookup isn't kept, so it is
+  /// asked again next time.
+  final Map<String, Future<bool>> _formPostSupport = <String, Future<bool>>{};
+
   @override
   Future<SubsonicServerInfo> ping(
     String baseUrl, {
@@ -357,7 +368,7 @@ class HttpSubsonicClient implements SubsonicClient {
       name: name,
       songIds: songIds,
     );
-    final SubsonicEnvelope envelope = await _get(uri);
+    final SubsonicEnvelope envelope = await _sendSongList(session, uri);
     // Most servers (Navidrome) return the created playlist with its id.
     final Object? root = envelope.data['playlist'];
     if (root is Map<String, dynamic>) {
@@ -381,13 +392,113 @@ class HttpSubsonicClient implements SubsonicClient {
   ) async {
     // The `createPlaylist`-with-`playlistId` replace form: one idempotent call
     // that sets the exact membership and order, covering add/remove/reorder.
-    await _get(SubsonicEndpoints.createPlaylist(
-      session.baseUrl,
-      username: session.username,
-      credentials: _credentials(session),
-      playlistId: playlistId,
-      songIds: songIds,
-    ));
+    // Never split into several calls: a later one failing would leave the
+    // server playlist cut short, and the next refresh would bring that back.
+    await _sendSongList(
+      session,
+      SubsonicEndpoints.createPlaylist(
+        session.baseUrl,
+        username: session.username,
+        credentials: _credentials(session),
+        playlistId: playlistId,
+        songIds: songIds,
+      ),
+    );
+  }
+
+  /// Sends a playlist write whose query carries a whole song list, one
+  /// `songId` per song, which grows past what a proxy accepts in a URL once a
+  /// playlist has a few hundred songs.
+  ///
+  /// A short one goes as the usual GET. A long one goes as a form POST when
+  /// the server lists `formPost`, and otherwise still as a GET (a server with
+  /// no proxy in front takes it), with a URL that turns out too long reported
+  /// as exactly that rather than as "not a Subsonic server".
+  Future<SubsonicEnvelope> _sendSongList(
+    SubsonicSession session,
+    Uri request,
+  ) async {
+    if (request.toString().length > _shortUrlLength &&
+        await _supportsFormPost(session)) {
+      return _postForm(request);
+    }
+    return _get(request, onRejectedStatus: (int code) {
+      if (code == 414 || code == 431) {
+        throw SubsonicException.playlistTooLong(code);
+      }
+    });
+  }
+
+  Future<bool> _supportsFormPost(SubsonicSession session) {
+    final String server = session.baseUrl;
+    final Future<bool>? known = _formPostSupport[server];
+    if (known != null) return known;
+    final Future<bool> lookup = _lookUpFormPost(session);
+    _formPostSupport[server] = lookup;
+    lookup.then<void>((_) {}, onError: (Object _) {
+      if (identical(_formPostSupport[server], lookup)) {
+        _formPostSupport.remove(server);
+      }
+    });
+    return lookup;
+  }
+
+  Future<bool> _lookUpFormPost(SubsonicSession session) async {
+    final SubsonicEnvelope envelope;
+    try {
+      envelope = await _get(SubsonicEndpoints.getOpenSubsonicExtensions(
+        session.baseUrl,
+        username: session.username,
+        credentials: _credentials(session),
+      ));
+    } on SubsonicException catch (error) {
+      switch (error.kind) {
+        // The server can't be asked right now, or won't take these
+        // credentials: the write itself would fail the same way, so say that
+        // rather than guess.
+        case SubsonicErrorKind.notReachable:
+        case SubsonicErrorKind.cleartextBlocked:
+        case SubsonicErrorKind.insecureConnection:
+        case SubsonicErrorKind.unauthorized:
+          rethrow;
+        case SubsonicErrorKind.serverError when error.statusCode != null:
+          rethrow;
+        // An answer: no OpenSubsonic here (an error envelope, a 404, a body
+        // that isn't Subsonic), so no form posts either.
+        default:
+          return false;
+      }
+    }
+    final Object? extensions = envelope.data['openSubsonicExtensions'];
+    if (extensions is! List) return false;
+    for (final Object? extension in extensions) {
+      if (extension is! Map<String, dynamic>) continue;
+      final Object? versions = extension['versions'];
+      if (extension['name'] == 'formPost' &&
+          versions is List &&
+          versions.contains(1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// [request] as an OpenSubsonic form POST: same endpoint, its parameters
+  /// (credentials included) in the body instead of the URL.
+  Future<SubsonicEnvelope> _postForm(Uri request) async {
+    final ({Uri target, String body}) form =
+        SubsonicEndpoints.asFormPost(request);
+    final http.Response response = await _send(
+      () => _client.post(
+        form.target,
+        headers: const <String, String>{
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: form.body,
+      ),
+    );
+    return _readEnvelope(response);
   }
 
   @override
@@ -470,12 +581,27 @@ class HttpSubsonicClient implements SubsonicClient {
   /// Performs a JSON `GET`, then decodes and validates the `subsonic-response`
   /// envelope — throwing a friendly [SubsonicException] for a transport failure,
   /// a non-2xx status, a non-Subsonic body, or a Subsonic error code.
-  Future<SubsonicEnvelope> _get(Uri uri) async {
+  ///
+  /// [onRejectedStatus] sees a non-2xx status first, so a caller that knows
+  /// what a status means for its request can throw something more precise.
+  Future<SubsonicEnvelope> _get(
+    Uri uri, {
+    void Function(int statusCode)? onRejectedStatus,
+  }) async {
     final http.Response response = await _send(
       () => _client.get(uri, headers: const <String, String>{
         'Accept': 'application/json',
       }),
     );
+    final int code = response.statusCode;
+    if (onRejectedStatus != null && (code < 200 || code >= 300)) {
+      onRejectedStatus(code);
+    }
+    return _readEnvelope(response);
+  }
+
+  /// Checks [response]'s status and decodes its `subsonic-response` envelope.
+  SubsonicEnvelope _readEnvelope(http.Response response) {
     _checkStatus(response);
     final SubsonicEnvelope? envelope =
         SubsonicEnvelope.fromJson(_decodeObject(response));

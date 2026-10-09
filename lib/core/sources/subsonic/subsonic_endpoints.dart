@@ -45,6 +45,36 @@ abstract final class SubsonicEndpoints {
   }) =>
       _build(baseUrl, 'ping', username, credentials);
 
+  /// `GET /rest/getOpenSubsonicExtensions.view`: the OpenSubsonic extensions
+  /// the server supports (`openSubsonicExtensions[].name`). A server without
+  /// OpenSubsonic answers with an error or a 404.
+  static Uri getOpenSubsonicExtensions(
+    String baseUrl, {
+    required String username,
+    required SubsonicCredentials credentials,
+  }) =>
+      _build(baseUrl, 'getOpenSubsonicExtensions', username, credentials);
+
+  /// The OpenSubsonic `formPost` form of [request]: the same endpoint with
+  /// every parameter, credentials included, moved from the query into an
+  /// `application/x-www-form-urlencoded` body. Only for servers that list
+  /// `formPost`, which merge the body into the query.
+  ///
+  /// The body is [request]'s own encoded query, so repeated keys keep their
+  /// order and spaces and `+` are encoded the way a form expects. The
+  /// credentials end up in the body, which proxies don't log, instead of the
+  /// URL, which they do.
+  static ({Uri target, String body}) asFormPost(Uri request) => (
+        target: Uri(
+          scheme: request.scheme,
+          userInfo: request.userInfo,
+          host: request.host,
+          port: request.hasPort ? request.port : null,
+          path: request.path,
+        ),
+        body: request.query,
+      );
+
   /// `GET /rest/getArtists.view` — the ID3 artist index.
   static Uri getArtists(
     String baseUrl, {

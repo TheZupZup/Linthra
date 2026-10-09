@@ -123,6 +123,19 @@ class SubsonicException implements Exception {
         statusCode: statusCode,
       );
 
+  /// A playlist write whose song list made the request too long for the
+  /// server or a proxy in front of it (HTTP 414, or 431). Kept apart from
+  /// [notSubsonic]: the address is right, only this request was too big.
+  factory SubsonicException.playlistTooLong(int statusCode) =>
+      SubsonicException(
+        'This playlist has too many songs to send to your server in one '
+        'request: the server, or a proxy in front of it, turned it down as '
+        "too long (HTTP $statusCode). Raise the proxy's URL length limit, or "
+        'use a server version that supports OpenSubsonic form posts.',
+        kind: SubsonicErrorKind.unsupportedResponse,
+        statusCode: statusCode,
+      );
+
   /// A user-facing explanation safe to show in the UI.
   final String message;
 
