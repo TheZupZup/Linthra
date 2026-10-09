@@ -78,10 +78,10 @@ Linthra is a Flutter (Dart) application targeting Android.
 | Flutter version (pinned in CI) | **Flutter 3.47.5**, `stable` channel — pinned once in [`.flutter-version`](../.flutter-version); every workflow installs that version through `.github/actions/setup-flutter`. The F-Droid recipe's `srclibs`/`sudo`-installed Flutter (or `flutter` build plugin) should target the same version. |
 | Dart SDK constraint | `>=3.6.0 <4.0.0` (`pubspec.yaml`), satisfied by Flutter 3.47.5 (Dart 3.13.4). |
 | Java / JDK | **JDK 17** (Temurin in CI) — pinned once in [`.java-version`](../.java-version); the Gradle wrapper and AGP below are built and tested against it. |
-| Gradle | **8.14.5**, declared in `android/gradle/wrapper/gradle-wrapper.properties` (`gradle-8.14.5-all.zip`). |
-| Android Gradle Plugin | **8.11.1**, declared in `android/settings.gradle`. |
-| Kotlin Gradle plugin | **2.2.21**, declared in `android/settings.gradle`. |
-| Android SDK | `compileSdk`, `minSdk`, `targetSdk`, `versionCode`, and `versionName` all come from Flutter (`flutter.*` in `android/app/build.gradle`); they follow the pinned Flutter version rather than being hard-coded. |
+| Gradle | **9.3.1**, declared in `android/gradle/wrapper/gradle-wrapper.properties` (`gradle-9.3.1-all.zip`). |
+| Android Gradle Plugin | **9.1.1**, declared in `android/settings.gradle`, with the AGP 9 opt-outs `android.newDsl=false` and `android.builtInKotlin=false` in `android/gradle.properties` (the same ones Flutter's own template sets). |
+| Kotlin Gradle plugin | **2.4.21**, declared in `android/settings.gradle`. |
+| Android SDK | `compileSdk` and `targetSdk` are **37** (Android 17), set explicitly in `android/app/build.gradle` because the pinned Flutter still defaults both to 36; the build needs the `platforms;android-37` SDK package. `minSdk`, `versionCode` and `versionName` come from Flutter (`flutter.*`). |
 | Gradle wrapper committed? | **Partly.** `gradle-wrapper.properties` is committed; **`gradle-wrapper.jar` is _not_ committed.** F-Droid's build server can regenerate/restore the wrapper jar, but the recipe must account for this (e.g. `gradle` build type, or a prebuild that runs `flutter build` which provisions the wrapper). Worth re-checking before submission. |
 | Generated files committed? | **Yes for Drift.** `lib/data/database/linthra_database.g.dart` is committed. This means `build_runner` is **not** required during the F-Droid build (see §4). |
 | Native components | `sqlite3_flutter_libs` ships a native SQLite engine built from source, and `third_party/media3_decoder_flac` builds `libflacJNI.so` from the vendored libFLAC source (#674); no prebuilt closed blobs. |
@@ -144,7 +144,7 @@ the schema at the tagged commit (§4).
    are permissive (MIT/BSD-3-Clause). A mechanical **transitive** audit is still
    an open blocker (§6).
 5. **Toolchain pinning.** Reproducibility depends on the F-Droid build using the
-   same Flutter (3.47.5), Dart (3.13.x), JDK (17), and Gradle (8.14.5) versions the
+   same Flutter (3.47.5), Dart (3.13.x), JDK (17), and Gradle (9.3.1) versions the
    project builds with. The CI side of each pin lives in one file
    (`.flutter-version`, `.java-version`, `gradle-wrapper.properties`); keep any
    recipe-side pin in sync with those. A Flutter bump may also require

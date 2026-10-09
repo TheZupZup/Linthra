@@ -61,8 +61,8 @@ pinned and matches CI (`.github/workflows/ci.yml`, `android-debug-apk.yml`).
 | -------- | ------ |
 | **Flutter version required?** | **Flutter 3.47.5**, `stable` channel — pinned in [`.flutter-version`](../.flutter-version), which the CI workflows and `scripts/setup_flutter.sh` both read. |
 | **Dart SDK?** | `>=3.6.0 <4.0.0` (`pubspec.yaml`); satisfied by Flutter 3.47.5 (Dart 3.13.4). |
-| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../.java-version)), Gradle 8.14.5, Android Gradle Plugin 8.11.1, Kotlin 2.2.21. |
-| **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) plus the NDK + CMake are needed to compile the native components (SQLite and the libFLAC fallback decoder, below). `compileSdk`/`minSdk`/`targetSdk` come from Flutter, not hard-coded — Flutter 3.47.5 supplies `compileSdk`/`targetSdk` 36 and `minSdk` 24, so an `android-35`-only SDK no longer configures the build. |
+| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../.java-version)), Gradle 9.3.1, Android Gradle Plugin 9.1.1, Kotlin 2.4.21. |
+| **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-37`, `build-tools;36.0.0`) plus the NDK + CMake are needed to compile the native components (SQLite and the libFLAC fallback decoder, below). `compileSdk`/`targetSdk` are set to 37 (Android 17) in `android/app/build.gradle`, since Flutter 3.47.5 still defaults to 36; `minSdk` 24 comes from Flutter. An SDK without `android-37` no longer configures the build. |
 | **Signing keys required to build?** | **No.** A from-source build needs no signing material; F-Droid signs its own builds. Linthra's release signing is optional and supplied at build time via env vars / `android/key.properties`, falling back to the debug key when absent (see [release-signing.md](./release-signing.md)). No keystore or secret is committed. |
 | **Build commands** | `flutter pub get` then `flutter build apk --release` (or `--debug`; split-per-ABI is fine — appbundle is for Play, not F-Droid). |
 | **Generated files: committed or generated?** | **Committed.** The Drift output `lib/data/database/linthra_database.g.dart` is committed, so **no `build_runner`/codegen prebuild step is required** for the F-Droid build. It must be kept in sync with the schema on the tagged commit (regenerate with the `generate-drift.yml` workflow or `dart run build_runner build`). |
@@ -171,7 +171,7 @@ where applicable. Current assessment:
 
 ### Android permissions
 
-Every permission Linthra ships is justified below. All nine are declared
+Every permission Linthra ships is justified below. All ten are declared
 explicitly in [`android/app/src/main/AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml)
 (each with an inline comment), even where a plugin's manifest would merge the
 same permission in anyway. The set is deliberately minimal: **no location,
@@ -187,11 +187,12 @@ permissions belong to the opt-in **All music on this device** mode.
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | App manifest | The typed foreground-service grant required on Android 14+ (API 34) for a service of type `mediaPlayback`; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | App manifest | Android 13+ (API 33) runtime permission for the media notification and its lock-screen/transport controls to appear; requested once on first launch. Playback still works if denied, just without the notification. |
 | `WAKE_LOCK` | App manifest (also `audio_service` / Media3) | Keep the CPU (and, via the foreground media service, the Wi-Fi radio) awake while audio plays so playback and streaming survive the screen turning off. Held only while the service reports `playing`. |
+| `ACCESS_LOCAL_NETWORK` | App manifest | Android 17 (API 37) runtime permission, in the "Nearby devices" group, without which an app targeting 37 cannot connect to the local network. Linthra asks only when the user tests, signs in to or plays from a server that resolves to a local address (a Jellyfin/Navidrome/Plex box at home, a NAS, a `.local` name), never at launch and never for a server on the internet. Denying it leaves local music and internet servers working. Older Android versions ignore it. See [android-17.md](./android-17.md). |
 | `CHANGE_WIFI_MULTICAST_STATE` | App manifest (merged from `bonsoir_android`) | Receive multicast Wi-Fi packets for mDNS (`_googlecast._tcp`) Chromecast discovery. An **AOSP** permission (Android `NsdManager`) for local-network discovery only — no internet or storage access. Cast uses **no** Google Play Services / Cast SDK. |
 | `READ_MEDIA_AUDIO` | App manifest | Android 13+ "Music and audio" permission for the optional **All music on this device** mode, which reads MediaStore's audio collection. Requested only after the user chooses that mode, never on launch. |
 | `READ_EXTERNAL_STORAGE` (`maxSdkVersion="32"`) | App manifest | Legacy permission for the same opt-in mode on Android 12 and older; Android 13+ never sees it. The OS grant is wider than audio there (all shared storage on Android 9 and older, shared photos/videos/audio on Android 10 to 12); Linthra only queries MediaStore audio with it. |
 
-> **Verification note.** The nine permissions are read directly from the
+> **Verification note.** The ten permissions are read directly from the
 > committed manifest. Plugins (Media3, `audio_service`, `bonsoir`) contribute
 > some of the same permissions at Gradle manifest-merge time; the exact merged
 > set should be re-confirmed against the merged manifest of a release build

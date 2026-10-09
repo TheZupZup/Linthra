@@ -5,14 +5,17 @@ allprojects {
     }
 }
 
-rootProject.buildDir = "../build"
+// Every module builds under the repository's build/ directory, where the
+// Flutter tool looks for the outputs. Set through the lazy layout API, as
+// Flutter's own template does, rather than the deprecated buildDir property.
+rootProject.layout.buildDirectory.value(rootProject.layout.projectDirectory.dir("../build"))
 subprojects {
-    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    project.layout.buildDirectory.value(rootProject.layout.buildDirectory.dir(project.name))
 }
 subprojects {
     project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {
-    delete rootProject.buildDir
+    delete rootProject.layout.buildDirectory
 }

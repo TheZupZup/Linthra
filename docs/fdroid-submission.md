@@ -101,7 +101,7 @@ What makes it a good fit for building from source:
   build time (see [release-signing.md](./release-signing.md)); no keystore or
   secret is committed.
 - The toolchain is pinned: Flutter `3.47.5` (stable), Dart `3.13.x`, JDK 17,
-  Gradle 8.14.5 — CI reads the same `.flutter-version` and `.java-version` files.
+  Gradle 9.3.1 — CI reads the same `.flutter-version` and `.java-version` files.
 - No codegen step: the Drift output
   `lib/data/database/linthra_database.g.dart` is committed, so there's no
   `build_runner` to run.
@@ -169,13 +169,15 @@ non-free hosted service — that would need a fresh `NonFreeNet` look.
 
 ## 5. Permissions
 
-Nine permissions are declared in `AndroidManifest.xml`. The set is deliberately
+Ten permissions are declared in `AndroidManifest.xml`. The set is deliberately
 small: no location, contacts, camera, microphone, or phone permission, and no
 `MANAGE_EXTERNAL_STORAGE` (folder access goes through the Storage Access
 Framework and needs no permission). Each one is explained in
 [fdroid-readiness.md §5 (Android permissions)](./fdroid-readiness.md#android-permissions):
 `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`,
 `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `WAKE_LOCK`,
+`ACCESS_LOCAL_NETWORK` (Android 17's runtime permission for reaching a server
+on the local network, asked only when the user uses one),
 `CHANGE_WIFI_MULTICAST_STATE` (mDNS for Cast discovery, via AOSP `NsdManager`,
 not GMS), and `READ_MEDIA_AUDIO` plus `READ_EXTERNAL_STORAGE`
 (`maxSdkVersion="32"`) for the opt-in **All music on this device** mode (the
