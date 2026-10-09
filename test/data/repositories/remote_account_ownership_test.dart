@@ -148,6 +148,18 @@ class _HeldPlaylists extends _Playlists {
   /// While set, a create waits on it before it reaches the server.
   Completer<void>? holdCreate;
 
+  /// While set, a delete waits on it before it reaches the server.
+  Completer<void>? holdDelete;
+
+  @override
+  Future<void> deleteRemote(String remoteId) async {
+    final _Account account = world.current!;
+    final Completer<void>? held = holdDelete;
+    if (held != null) await held.future;
+    account.writes.add('delete $remoteId');
+    account.playlists.remove(remoteId);
+  }
+
   @override
   Future<String> createRemotePlaylist(
     String name,
@@ -694,6 +706,44 @@ void main() {
       );
       gateway.holdCreate!.complete();
       await create;
+    });
+
+    test(
+        "another account's delete still out does not hide this account's "
+        'playlist with the same server id', () async {
+      world.signedIn = _alice;
+      world[_alice].playlists['srv-x'] = const RemotePlaylistData(
+        remoteId: 'srv-x',
+        name: "Alice's mix",
+        trackUris: <String>['subsonic:1'],
+      );
+      world[_bob].playlists['srv-x'] = const RemotePlaylistData(
+        remoteId: 'srv-x',
+        name: "Bob's mix",
+        trackUris: <String>['subsonic:2'],
+      );
+      final _HeldPlaylists gateway = _HeldPlaylists(world);
+      final SyncedPlaylistRepository repo = SyncedPlaylistRepository(
+        store: disk,
+        gateways: <RemotePlaylistGateway>[gateway],
+      );
+      addTearDown(repo.dispose);
+      await repo.refreshFromRemote();
+      final Playlist alices = (await repo.getAllPlaylists()).single;
+
+      // Alice's delete hangs on her server.
+      gateway.holdDelete = Completer<void>();
+      final Future<void> delete = repo.deletePlaylist(alices.id);
+      await pumpEventQueue();
+      // Bob takes over without a sign-out in between.
+      world.signedIn = _bob;
+      await repo.refreshFromRemote();
+
+      final List<Playlist> playlists = await repo.getAllPlaylists();
+      expect(playlists.map((Playlist p) => p.name), <String>["Bob's mix"]);
+      expect(playlists.single.owner, _bob);
+      gateway.holdDelete!.complete();
+      await delete;
     });
 
     test('a playlist made under one account is not created under the next',

@@ -123,12 +123,14 @@ class SyncedPlaylistRepository
   final List<({PlaylistSource source, int clears, String? account})>
       _createsOut = <({PlaylistSource source, int clears, String? account})>[];
 
-  /// Server playlists deleted here that a refresh answer may still list: `null`
-  /// while the delete is out, then the number of the last fetch sent before it
-  /// settled. Kept while a refresh that may have read the server before it is
-  /// out; see [_mergeRemote] and [_settleDelete].
-  final Map<({PlaylistSource source, String remoteId}), int?> _deletes =
-      <({PlaylistSource source, String remoteId}), int?>{};
+  /// Server playlists deleted here, with the account they were deleted from,
+  /// that a refresh answer for that account may still list: `null` while the
+  /// delete is out, then the number of the last fetch sent before it settled.
+  /// Kept while a refresh that may have read the server before it is out; see
+  /// [_mergeRemote] and [_settleDelete].
+  final Map<({PlaylistSource source, String? account, String remoteId}), int?>
+      _deletes =
+      <({PlaylistSource source, String? account, String remoteId}), int?>{};
 
   static String Function() _defaultIdGenerator() {
     int counter = 0;
@@ -321,8 +323,15 @@ class SyncedPlaylistRepository
     if (playlist.isRemote && playlist.remoteId != null) {
       final RemotePlaylistGateway? gateway = _gatewayFor(playlist);
       if (gateway != null) {
-        final ({PlaylistSource source, String remoteId}) deleted =
-            (source: playlist.source, remoteId: playlist.remoteId!);
+        final ({
+          PlaylistSource source,
+          String? account,
+          String remoteId
+        }) deleted = (
+          source: playlist.source,
+          account: playlist.owner,
+          remoteId: playlist.remoteId!,
+        );
         _deletes[deleted] = null;
         try {
           await gateway.deleteRemote(playlist.remoteId!);
@@ -340,7 +349,8 @@ class SyncedPlaylistRepository
   /// asked the server before this may still have it in its answer; one that
   /// asks after won't, unless the delete failed (then it is back, as a failed
   /// delete always was).
-  void _settleDelete(({PlaylistSource source, String remoteId}) deleted) {
+  void _settleDelete(
+      ({PlaylistSource source, String? account, String remoteId}) deleted) {
     if (_refreshesOut == 0) {
       _deletes.remove(deleted);
     } else {
@@ -853,8 +863,8 @@ class SyncedPlaylistRepository
       if (creating || !known.add(dto.remoteId)) continue;
       // Deleted here, and this answer may have been read before the server
       // delete landed: not new on the server, just not gone from it yet.
-      final ({PlaylistSource source, String remoteId}) key =
-          (source: source, remoteId: dto.remoteId);
+      final ({PlaylistSource source, String? account, String remoteId}) key =
+          (source: source, account: account, remoteId: dto.remoteId);
       if (_deletes.containsKey(key)) {
         final int? settled = _deletes[key];
         if (settled == null || fetch <= settled) continue;
@@ -1199,8 +1209,8 @@ class SyncedPlaylistRepository
     // Deleted here while the server was still making it. That delete had
     // no server id to send, so it goes now: left there, the playlist would
     // come back with the next refresh.
-    final ({PlaylistSource source, String remoteId}) deleted =
-        (source: gateway.source, remoteId: remoteId);
+    final ({PlaylistSource source, String? account, String remoteId}) deleted =
+        (source: gateway.source, account: playlist.owner, remoteId: remoteId);
     _deletes[deleted] = null;
     try {
       await gateway.deleteRemote(remoteId);
