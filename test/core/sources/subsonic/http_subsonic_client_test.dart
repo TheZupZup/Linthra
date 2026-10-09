@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -951,6 +952,952 @@ void main() {
             .having((e) => e.message, 'message', isNot(contains('tok1')))
             .having((e) => e.message, 'message', isNot(contains('salt1')))),
       );
+    });
+  });
+
+  group('large playlist writes (#796)', () {
+    // Navidrome-style ids: about 30 to 40 bytes per song in the URL, so 400
+    // songs is well past the 8 KB nginx and Apache allow by default.
+    List<String> manySongs(int count) => <String>[
+          for (int i = 0; i < count; i++)
+            'b3f6a1c2d4e5f60718293a4b5c6d7e${i.toString().padLeft(4, '0')}',
+        ];
+
+    http.Response extensions(List<String> names) => _ok(<String, dynamic>{
+          'openSubsonic': true,
+          'openSubsonicExtensions': <Map<String, dynamic>>[
+            for (final String name in names)
+              <String, dynamic>{
+                'name': name,
+                'versions': <int>[1],
+              },
+          ],
+        });
+
+    test('a small edit stays one GET, without asking about extensions',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(3));
+
+      expect(requests, hasLength(1));
+      expect(requests.single.method, 'GET');
+      expect(requests.single.url.path, '/rest/createPlaylist.view');
+    });
+
+    test('a big playlist goes as a form POST when the server lists formPost',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return extensions(<String>['songLyrics', 'formPost']);
+        }
+        return _ok(<String, dynamic>{});
+      }));
+      // Duplicates are allowed in a Subsonic playlist and must survive.
+      final List<String> songs = <String>[
+        ...manySongs(400),
+        'b3f6a1c2d4e5f60718293a4b5c6d7e0007',
+      ];
+
+      await client.setPlaylistSongs(_session, 'p-1', songs);
+
+      expect(requests, hasLength(2));
+      final http.Request write = requests.last;
+      expect(write.method, 'POST');
+      expect(write.url.toString(), '$_base/rest/createPlaylist.view');
+      expect(write.headers['Content-Type'],
+          startsWith('application/x-www-form-urlencoded'));
+      // Nothing secret, nothing at all, in the URL a proxy would log.
+      expect(write.url.query, isEmpty);
+      final Map<String, List<String>> form =
+          Uri(query: write.body).queryParametersAll;
+      expect(form['playlistId'], <String>['p-1']);
+      expect(form['songId'], songs);
+      expect(form['u'], <String>['alice']);
+      expect(form['t'], <String>['tok1']);
+      expect(form['s'], <String>['salt1']);
+      expect(form['f'], <String>['json']);
+    });
+
+    test('form values are encoded the way a form expects', () async {
+      http.Request? write;
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return extensions(<String>['formPost']);
+        }
+        write = request;
+        return _ok(<String, dynamic>{});
+      }));
+      final List<String> songs = <String>[
+        'a b+c&d=e',
+        'caf\u00e9/%',
+        ...manySongs(400),
+      ];
+
+      await client.setPlaylistSongs(_session, 'p 1', songs);
+
+      // Read back the way a form parser reads it (`+` is a space there).
+      final Map<String, List<String>> form =
+          Uri(query: write!.body).queryParametersAll;
+      expect(form['playlistId'], <String>['p 1']);
+      expect(form['songId'], songs);
+    });
+
+    test('a new big playlist goes as a form POST too', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return extensions(<String>['formPost']);
+        }
+        return _ok(<String, dynamic>{
+          'playlist': <String, dynamic>{'id': 'p-new'},
+        });
+      }));
+
+      final String id = await client.createPlaylist(
+        _session,
+        name: 'Everything',
+        songIds: manySongs(400),
+      );
+
+      expect(id, 'p-new');
+      expect(requests.last.method, 'POST');
+      expect(
+          Uri(query: requests.last.body).queryParameters['name'], 'Everything');
+    });
+
+    test('formPost is asked about once per server', () async {
+      int lookups = 0;
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          lookups++;
+          return extensions(<String>['formPost']);
+        }
+        return _ok(<String, dynamic>{});
+      }));
+
+      await Future.wait(<Future<void>>[
+        client.setPlaylistSongs(_session, 'p-1', manySongs(400)),
+        client.setPlaylistSongs(_session, 'p-2', manySongs(401)),
+      ]);
+      await client.setPlaylistSongs(_session, 'p-3', manySongs(402));
+
+      expect(lookups, 1);
+    });
+
+    test(
+        'without formPost a big playlist still goes as a GET, which a server '
+        'with no proxy in front takes', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return extensions(<String>['songLyrics']);
+        }
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+
+      expect(requests.last.method, 'GET');
+      expect(requests.last.url.queryParametersAll['songId'], manySongs(400));
+    });
+
+    test('a server without OpenSubsonic is not asked to take a form', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return http.Response('Not Found', 404);
+        }
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+
+      expect(requests.last.method, 'GET');
+    });
+
+    for (final int status in <int>[414, 431]) {
+      test('a proxy turning the URL down ($status) says so, without secrets',
+          () async {
+        final client = _client(MockClient((http.Request request) async {
+          if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+            return _failed(0, 'Unknown method');
+          }
+          return http.Response('<html>Request-URI Too Large</html>', status);
+        }));
+
+        Object? caught;
+        try {
+          await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(
+          caught,
+          isA<SubsonicException>()
+              .having((SubsonicException e) => e.statusCode, 'status', status)
+              .having((SubsonicException e) => e.kind, 'kind',
+                  isNot(SubsonicErrorKind.notSubsonic))
+              .having((SubsonicException e) => e.message, 'message',
+                  contains('too many songs')),
+        );
+        expect('$caught', isNot(contains('tok1')));
+        expect('$caught', isNot(contains('salt1')));
+      });
+    }
+
+    test('a 414 on an ordinary request is unchanged', () async {
+      final client = _client(MockClient((_) async {
+        return http.Response('', 414);
+      }));
+
+      await expectLater(
+        client.verifySession(_session),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.notSubsonic)),
+      );
+    });
+
+    test(
+        'a lookup that cannot reach the server fails the write and is asked '
+        'again next time', () async {
+      bool offline = true;
+      int lookups = 0;
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          lookups++;
+          if (offline) {
+            throw http.ClientException('Connection failed: ${request.url}');
+          }
+          return extensions(<String>['formPost']);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      Object? caught;
+      try {
+        await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      } catch (error) {
+        caught = error;
+      }
+      expect(
+        caught,
+        isA<SubsonicException>().having((SubsonicException e) => e.kind, 'kind',
+            SubsonicErrorKind.notReachable),
+      );
+      expect('$caught', isNot(contains('tok1')));
+      // Nothing was sent: no half-written playlist on the server.
+      expect(writes, isEmpty);
+
+      offline = false;
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      expect(lookups, 2);
+      expect(writes.single.method, 'POST');
+    });
+
+    test('a refused form POST surfaces like any refused write', () async {
+      final client = _client(MockClient((http.Request request) async {
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return extensions(<String>['formPost']);
+        }
+        return _failed(50, 'not authorized');
+      }));
+
+      await expectLater(
+        client.setPlaylistSongs(_session, 'p-1', manySongs(400)),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.unauthorized)),
+      );
+    });
+
+    // What a lookup's outcome means for the write (#850 review). Only a
+    // real answer is remembered; a lookup that said nothing either way sends
+    // the write as a GET, as before form posts, and is asked again.
+    bool isLookup(http.Request request) =>
+        request.url.path.endsWith('/rest/getOpenSubsonicExtensions.view');
+
+    /// [caught] carries none of the session's secrets, nor the server address.
+    void expectNoSecrets(Object? caught) {
+      for (final String secret in <String>['tok1', 'salt1', 'music.example']) {
+        expect('$caught', isNot(contains(secret)));
+        if (caught is SubsonicException) {
+          expect(caught.message, isNot(contains(secret)));
+        }
+      }
+    }
+
+    final Map<String, http.Response Function()> noAnswers =
+        <String, http.Response Function()>{
+      'HTTP 500': () => http.Response('Internal Server Error', 500),
+      'HTTP 502': () => http.Response('<html>Bad Gateway</html>', 502),
+      'HTTP 503': () => http.Response('Service Unavailable', 503),
+      'HTTP 429': () => http.Response('Too Many Requests', 429),
+      'Subsonic error 0': () => _failed(0, 'A generic error'),
+      'an HTML page with status 200': () => http.Response(
+          '<html>Maintenance</html>', 200,
+          headers: const <String, String>{'content-type': 'text/html'}),
+    };
+
+    for (final MapEntry<String, http.Response Function()> outcome
+        in noAnswers.entries) {
+      test(
+          'a lookup answered with ${outcome.key} still sends the write, as a '
+          'GET, and asks again next time', () async {
+        bool answered = false;
+        int lookups = 0;
+        final List<http.Request> writes = <http.Request>[];
+        final client = _client(MockClient((http.Request request) async {
+          if (isLookup(request)) {
+            lookups++;
+            return answered
+                ? extensions(<String>['formPost'])
+                : outcome.value();
+          }
+          writes.add(request);
+          return _ok(<String, dynamic>{});
+        }));
+        final List<String> songs = manySongs(400);
+
+        await client.setPlaylistSongs(_session, 'p-1', songs);
+
+        expect(writes.single.method, 'GET');
+        expect(writes.single.url.queryParametersAll['songId'], songs);
+
+        // A later lookup that does answer is not shut out by the first.
+        answered = true;
+        await client.setPlaylistSongs(_session, 'p-1', songs);
+        expect(lookups, 2);
+        expect(writes.last.method, 'POST');
+      });
+    }
+
+    test(
+        'a lookup server error, then a proxy refusing the long GET, says the '
+        'playlist is too long without secrets', () async {
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) return http.Response('', 500);
+        return http.Response('<html>414 Request-URI Too Large</html>', 414);
+      }));
+
+      Object? caught;
+      try {
+        await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(
+        caught,
+        isA<SubsonicException>()
+            .having((SubsonicException e) => e.statusCode, 'status', 414)
+            .having((SubsonicException e) => e.kind, 'kind',
+                isNot(SubsonicErrorKind.notSubsonic)),
+      );
+      expectNoSecrets(caught);
+    });
+
+    final Map<String, http.Response Function()> noFormPost =
+        <String, http.Response Function()>{
+      'no such endpoint (404)': () => http.Response('Not Found', 404),
+      'Subsonic error 70 (no such data)': () => _failed(70, 'Not found'),
+      'a list without formPost': () => extensions(<String>['songLyrics']),
+      'formPost in a version this client does not speak': () => _ok(
+            <String, dynamic>{
+              'openSubsonicExtensions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'name': 'formPost',
+                  'versions': <int>[2],
+                },
+              ],
+            },
+          ),
+    };
+
+    for (final MapEntry<String, http.Response Function()> answer
+        in noFormPost.entries) {
+      test('${answer.key} is a real no: kept, and writes go as GETs', () async {
+        int lookups = 0;
+        final List<http.Request> writes = <http.Request>[];
+        final client = _client(MockClient((http.Request request) async {
+          if (isLookup(request)) {
+            lookups++;
+            return answer.value();
+          }
+          writes.add(request);
+          return _ok(<String, dynamic>{});
+        }));
+
+        await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        await client.setPlaylistSongs(_session, 'p-2', manySongs(401));
+
+        expect(lookups, 1);
+        expect(
+            writes.map((http.Request w) => w.method), <String>['GET', 'GET']);
+      });
+    }
+
+    test('a yes is kept, even when the lookup would fail later', () async {
+      int lookups = 0;
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) {
+          lookups++;
+          return lookups == 1
+              ? extensions(<String>['formPost'])
+              : http.Response('', 500);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await client.setPlaylistSongs(_session, 'p-2', manySongs(400));
+
+      expect(lookups, 1);
+      expect(
+          writes.map((http.Request w) => w.method), <String>['POST', 'POST']);
+    });
+
+    final Map<String, (Object, SubsonicErrorKind)> refusals =
+        <String, (Object, SubsonicErrorKind)>{
+      'refused credentials (401)': (
+        http.Response('', 401),
+        SubsonicErrorKind.unauthorized,
+      ),
+      'wrong credentials (Subsonic error 40)': (
+        _failed(40, 'Wrong username or password'),
+        SubsonicErrorKind.unauthorized,
+      ),
+      'a failed TLS handshake': (
+        http.ClientException('HandshakeException: CERTIFICATE_VERIFY_FAILED '
+            'https://music.example.com/rest?t=tok1&s=salt1'),
+        SubsonicErrorKind.insecureConnection,
+      ),
+      'an unreachable server': (
+        http.ClientException(
+            'SocketException https://music.example.com/rest?t=tok1&s=salt1'),
+        SubsonicErrorKind.notReachable,
+      ),
+    };
+
+    for (final MapEntry<String, (Object, SubsonicErrorKind)> refusal
+        in refusals.entries) {
+      test(
+          'a lookup failing on ${refusal.key} sends nothing, says so, and is '
+          'asked again next time', () async {
+        bool fixed = false;
+        int lookups = 0;
+        final List<http.Request> writes = <http.Request>[];
+        final client = _client(MockClient((http.Request request) async {
+          if (isLookup(request)) {
+            lookups++;
+            if (fixed) return extensions(<String>['formPost']);
+            final Object outcome = refusal.value.$1;
+            if (outcome is http.Response) return outcome;
+            throw outcome;
+          }
+          writes.add(request);
+          return _ok(<String, dynamic>{});
+        }));
+
+        Object? caught;
+        try {
+          await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        } catch (error) {
+          caught = error;
+        }
+
+        // Same server, same credentials: the write would fail the same way,
+        // and this is the error that says why.
+        expect(
+          caught,
+          isA<SubsonicException>().having(
+              (SubsonicException e) => e.kind, 'kind', refusal.value.$2),
+        );
+        expectNoSecrets(caught);
+        expect(writes, isEmpty);
+
+        fixed = true;
+        await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        expect(lookups, 2);
+        expect(writes.single.method, 'POST');
+      });
+    }
+
+    group('writes waiting on one lookup', () {
+      late Completer<http.Response> pending;
+      late int lookups;
+      late List<http.Request> writes;
+      late HttpSubsonicClient client;
+
+      setUp(() {
+        pending = Completer<http.Response>();
+        lookups = 0;
+        writes = <http.Request>[];
+        client = _client(MockClient((http.Request request) async {
+          if (isLookup(request)) {
+            lookups++;
+            return lookups == 1
+                ? pending.future
+                : extensions(<String>['formPost']);
+          }
+          writes.add(request);
+          return _ok(<String, dynamic>{});
+        }));
+      });
+
+      test('share it, and all go as form posts once it says yes', () async {
+        final Future<void> first =
+            client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        final Future<void> second =
+            client.setPlaylistSongs(_session, 'p-2', manySongs(401));
+        await pumpEventQueue();
+        expect(lookups, 1);
+        expect(writes, isEmpty);
+
+        pending.complete(extensions(<String>['formPost']));
+        await Future.wait(<Future<void>>[first, second]);
+
+        expect(lookups, 1);
+        expect(
+            writes.map((http.Request w) => w.method), <String>['POST', 'POST']);
+      });
+
+      test('all go as GETs when it says nothing, and the next write asks again',
+          () async {
+        final Future<void> first =
+            client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        final Future<void> second =
+            client.setPlaylistSongs(_session, 'p-2', manySongs(401));
+        await pumpEventQueue();
+
+        pending.complete(http.Response('', 503));
+        await Future.wait(<Future<void>>[first, second]);
+        expect(
+            writes.map((http.Request w) => w.method), <String>['GET', 'GET']);
+
+        await client.setPlaylistSongs(_session, 'p-3', manySongs(402));
+        expect(lookups, 2);
+        expect(writes.last.method, 'POST');
+      });
+
+      test('none is sent when it cannot reach the server', () async {
+        final Future<void> first =
+            client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+        final Future<void> second =
+            client.setPlaylistSongs(_session, 'p-2', manySongs(401));
+        await pumpEventQueue();
+
+        pending.completeError(http.ClientException('Connection reset'));
+        for (final Future<void> write in <Future<void>>[first, second]) {
+          await expectLater(
+            write,
+            throwsA(isA<SubsonicException>().having(
+                (SubsonicException e) => e.kind,
+                'kind',
+                SubsonicErrorKind.notReachable)),
+          );
+        }
+        expect(writes, isEmpty);
+      });
+    });
+
+    test(
+        "one user's lookup failing on their credentials does not fail "
+        "another user's write", () async {
+      const SubsonicSession bob = SubsonicSession(
+        baseUrl: _base,
+        username: 'bob',
+        salt: 'salt2',
+        token: 'tok2',
+      );
+      final Completer<http.Response> aliceLookup = Completer<http.Response>();
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        final String? user = request.url.queryParameters['u'];
+        if (isLookup(request)) {
+          return user == 'alice'
+              ? aliceLookup.future
+              : extensions(<String>['formPost']);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      // Alice's session was signed out on the server meanwhile.
+      final Future<void> alice =
+          client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await pumpEventQueue();
+      final Future<void> bobs =
+          client.setPlaylistSongs(bob, 'p-2', manySongs(400));
+      await pumpEventQueue();
+      aliceLookup.complete(http.Response('', 401));
+
+      await expectLater(alice, throwsA(isA<SubsonicException>()));
+      await bobs;
+      expect(writes.single.method, 'POST');
+      expect(
+        Uri(query: writes.single.body).queryParameters['u'],
+        'bob',
+      );
+    });
+
+    test(
+        "a lookup with credentials since replaced does not fail the new "
+        "session's write", () async {
+      // The same user signed in again, with new credentials, while a long
+      // write from the old session was still asking.
+      const SubsonicSession renewed = SubsonicSession(
+        baseUrl: _base,
+        username: 'alice',
+        salt: 'salt9',
+        token: 'tok9',
+      );
+      final Completer<http.Response> oldLookup = Completer<http.Response>();
+      int lookups = 0;
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) {
+          lookups++;
+          return request.url.queryParameters['t'] == 'tok1'
+              ? oldLookup.future
+              : extensions(<String>['formPost']);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      final Future<void> old =
+          client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await pumpEventQueue();
+      final Future<void> current =
+          client.setPlaylistSongs(renewed, 'p-2', manySongs(400));
+      await pumpEventQueue();
+      oldLookup.complete(http.Response('', 401));
+
+      await expectLater(old, throwsA(isA<SubsonicException>()));
+      await current;
+      expect(writes.single.method, 'POST');
+      expect(Uri(query: writes.single.body).queryParameters['t'], 'tok9');
+
+      // The answer is the server's, so the new session's next write reuses
+      // it.
+      await client.setPlaylistSongs(renewed, 'p-3', manySongs(400));
+      expect(lookups, 2);
+      expect(writes.last.method, 'POST');
+    });
+
+    test('two servers keep their own answers', () async {
+      const SubsonicSession other = SubsonicSession(
+        baseUrl: 'https://other.example.org',
+        username: 'alice',
+        salt: 'salt1',
+        token: 'tok1',
+      );
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) {
+          return request.url.host == 'music.example.com'
+              ? extensions(<String>['formPost'])
+              : http.Response('Not Found', 404);
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      // The same song ids on both servers.
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await client.setPlaylistSongs(other, 'p-1', manySongs(400));
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+
+      expect(
+        writes.map((http.Request w) => '${w.method} ${w.url.host}'),
+        <String>[
+          'POST music.example.com',
+          'GET other.example.org',
+          'POST music.example.com',
+        ],
+      );
+    });
+
+    final Map<String, http.Response Function()> failedWrites =
+        <String, http.Response Function()>{
+      'HTTP 500': () => http.Response('', 500),
+      'HTTP 502 from a proxy': () =>
+          http.Response('<html>Bad Gateway</html>', 502),
+      'a Subsonic error': () => _failed(10, 'Required parameter is missing'),
+      'an HTML page': () => http.Response('<html>Login</html>', 200),
+    };
+
+    for (final bool formPost in <bool>[true, false]) {
+      for (final MapEntry<String, http.Response Function()> failure
+          in failedWrites.entries) {
+        test(
+            'a ${formPost ? 'form POST' : 'long GET'} write failing with '
+            '${failure.key} throws, once, without secrets', () async {
+          final List<http.Request> writes = <http.Request>[];
+          final client = _client(MockClient((http.Request request) async {
+            if (isLookup(request)) {
+              return formPost
+                  ? extensions(<String>['formPost'])
+                  : extensions(<String>[]);
+            }
+            writes.add(request);
+            return failure.value();
+          }));
+
+          Object? caught;
+          try {
+            await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+          } catch (error) {
+            caught = error;
+          }
+
+          // The server may or may not have applied it; either way this is
+          // not a success, and it is not sent again behind the user's back.
+          expect(caught, isA<SubsonicException>());
+          expectNoSecrets(caught);
+          expect(writes, hasLength(1));
+          expect(writes.single.method, formPost ? 'POST' : 'GET');
+        });
+      }
+    }
+
+    test(
+        'a proxy refusing a form POST as too large (413) says so, without '
+        'secrets', () async {
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) return extensions(<String>['formPost']);
+        return http.Response('<html>413 Request Entity Too Large</html>', 413);
+      }));
+
+      Object? caught;
+      try {
+        await client.setPlaylistSongs(_session, 'p-1', manySongs(4000));
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(
+        caught,
+        isA<SubsonicException>()
+            .having((SubsonicException e) => e.statusCode, 'status', 413)
+            .having((SubsonicException e) => e.kind, 'kind',
+                isNot(SubsonicErrorKind.notSubsonic))
+            .having((SubsonicException e) => e.message, 'message',
+                contains('too large')),
+      );
+      expectNoSecrets(caught);
+    });
+
+    for (final String base in <String>[
+      'https://box.example.com:8443/navidrome',
+      'http://[fd00::1]:4533',
+    ]) {
+      test('the form goes to the same endpoint under $base', () async {
+        final SubsonicSession session = SubsonicSession(
+          baseUrl: base,
+          username: 'alice',
+          salt: 'salt1',
+          token: 'tok1',
+        );
+        http.Request? write;
+        final client = _client(MockClient((http.Request request) async {
+          if (isLookup(request)) return extensions(<String>['formPost']);
+          write = request;
+          return _ok(<String, dynamic>{});
+        }));
+
+        await client.setPlaylistSongs(session, 'p-1', manySongs(400));
+
+        expect(write!.method, 'POST');
+        expect(write!.url.toString(), '$base/rest/createPlaylist.view');
+        expect(write!.url.hasQuery, isFalse);
+      });
+    }
+
+    test(
+        'thousands of songs, duplicates and odd characters arrive whole and '
+        'in order', () async {
+      http.Request? write;
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) return extensions(<String>['formPost']);
+        write = request;
+        return _ok(<String, dynamic>{
+          'playlist': <String, dynamic>{'id': 'p-new'},
+        });
+      }));
+      final List<String> songs = <String>[
+        'a b+c&d=e',
+        'café/%25%',
+        '\u{1F3B5}#?;',
+        'same',
+        'same',
+        ...manySongs(3000),
+        'a b+c&d=e',
+      ];
+      const String name = 'Rock & Roll = 100% \u{1F3B8} +live?';
+
+      await client.createPlaylist(_session, name: name, songIds: songs);
+
+      final Map<String, List<String>> form =
+          Uri(query: write!.body).queryParametersAll;
+      expect(form['songId'], songs);
+      expect(form['name'], <String>[name]);
+    });
+
+    test('a malformed extension list is a no, not a crash', () async {
+      int lookups = 0;
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) {
+          lookups++;
+          return _ok(<String, dynamic>{
+            'openSubsonicExtensions': <Object?>[
+              null,
+              3,
+              'formPost',
+              <String, dynamic>{'name': 'formPost'},
+              <String, dynamic>{'name': 'formPost', 'versions': '1'},
+              <String, dynamic>{
+                'name': 'formPost',
+                'versions': <String>['1'],
+              },
+            ],
+          });
+        }
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await client.setPlaylistSongs(_session, 'p-2', manySongs(400));
+
+      expect(lookups, 1);
+      expect(writes.map((http.Request w) => w.method), <String>['GET', 'GET']);
+    });
+
+    test('a small edit does not wait on a lookup that is still out', () async {
+      final Completer<http.Response> pending = Completer<http.Response>();
+      final List<http.Request> writes = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        if (isLookup(request)) return pending.future;
+        writes.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      final Future<void> long =
+          client.setPlaylistSongs(_session, 'p-1', manySongs(400));
+      await pumpEventQueue();
+      await client.setPlaylistSongs(_session, 'p-2', manySongs(3));
+
+      expect(writes.single.method, 'GET');
+      expect(writes.single.url.queryParameters['playlistId'], 'p-2');
+
+      pending.complete(extensions(<String>['formPost']));
+      await long;
+      expect(writes.last.method, 'POST');
+    });
+
+    test(
+        'behind an address that redirects, a long write still arrives whole '
+        '(a real HTTP client, which follows redirects for GET only)', () async {
+      final HttpServer server =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final List<String> handled = <String>[];
+      server.listen((HttpRequest request) async {
+        final String path = request.uri.path;
+        if (path.startsWith('/old/')) {
+          // The configured address moved, the way an http-to-https or
+          // canonical-host redirect does.
+          request.response
+            ..statusCode = HttpStatus.movedPermanently
+            ..headers.set(
+              HttpHeaders.locationHeader,
+              request.uri.replace(path: path.replaceFirst('/old/', '/new/')),
+            );
+          await request.response.close();
+          return;
+        }
+        final String body = await utf8.decoder.bind(request).join();
+        final Map<String, List<String>> params = <String, List<String>>{
+          ...request.uri.queryParametersAll,
+          ...Uri(query: body).queryParametersAll,
+        };
+        late final Map<String, dynamic> data;
+        if (path.endsWith('/getOpenSubsonicExtensions.view')) {
+          data = <String, dynamic>{
+            'openSubsonicExtensions': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'name': 'formPost',
+                'versions': <int>[1],
+              },
+            ],
+          };
+        } else {
+          handled
+              .add('${request.method} $path ${params['songId']?.length ?? 0}');
+          data = <String, dynamic>{};
+        }
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode(<String, dynamic>{
+            'subsonic-response': <String, dynamic>{'status': 'ok', ...data},
+          }));
+        await request.response.close();
+      });
+      final SubsonicSession session = SubsonicSession(
+        baseUrl: 'http://127.0.0.1:${server.port}/old',
+        username: 'alice',
+        salt: 'salt1',
+        token: 'tok1',
+      );
+      final HttpSubsonicClient client = HttpSubsonicClient();
+
+      await client.setPlaylistSongs(session, 'p-1', manySongs(400));
+      expect(handled, <String>['GET /new/rest/createPlaylist.view 400']);
+
+      // The address it moved to answers directly, so there it is a form post.
+      await client.setPlaylistSongs(
+        SubsonicSession(
+          baseUrl: 'http://127.0.0.1:${server.port}/new',
+          username: 'alice',
+          salt: 'salt1',
+          token: 'tok1',
+        ),
+        'p-1',
+        manySongs(400),
+      );
+      expect(handled.last, 'POST /new/rest/createPlaylist.view 400');
+    });
+
+    test('an empty playlist stays one GET, with no songs and no lookup',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return _ok(<String, dynamic>{});
+      }));
+
+      await client.setPlaylistSongs(_session, 'p-1', const <String>[]);
+
+      expect(requests, hasLength(1));
+      expect(requests.single.method, 'GET');
+      expect(requests.single.url.queryParameters['playlistId'], 'p-1');
+      expect(requests.single.url.queryParametersAll['songId'], isNull);
     });
   });
 }
