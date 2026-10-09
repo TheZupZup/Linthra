@@ -57,6 +57,11 @@ class AudiobookshelfSettingsController
   /// being tried again. It is used anyway, since the tokens it replaced may
   /// already be dead on the server, and the next request retries the save.
   AudiobookshelfSession? _unsaved;
+
+  /// What the card says while [_unsaved] is waiting to be saved: kept on
+  /// every connected state until the save lands, so the request that
+  /// triggered the renewal doesn't wipe the warning out by succeeding.
+  String? _unsavedWarning;
   bool _retryingSave = false;
 
   /// The live signed-in session, or `null` when not connected. Callers must not
@@ -188,6 +193,7 @@ class AudiobookshelfSettingsController
         }
         _session = newSession;
         _unsaved = null;
+        _unsavedWarning = null;
         _refused = null;
         return true;
       });
@@ -332,18 +338,19 @@ class AudiobookshelfSettingsController
       try {
         await ref.read(audiobookshelfSessionStoreProvider).write(renewed);
         _unsaved = null;
+        _unsavedWarning = null;
       } catch (error) {
         // The renewal already happened on the server, and the tokens on disk
         // may stop working any moment, so the new ones are used anyway. The
         // save is tried again with the next request; until it lands, a
         // restart may need a fresh sign-in, and the card says so.
         _unsaved = renewed;
+        _unsavedWarning = "Couldn't save your renewed Audiobookshelf sign-in "
+            'on this device, so you may have to sign in again after '
+            'restarting Linthra. ${_storageRemedy(error)}';
         state = _connectedState(
           renewed,
           isLoadingLibraries: state.isLoadingLibraries,
-          errorMessage: "Couldn't save your renewed Audiobookshelf sign-in "
-              'on this device, so you may have to sign in again after '
-              'restarting Linthra. ${_storageRemedy(error)}',
         );
       }
       _session = renewed;
@@ -363,7 +370,18 @@ class AudiobookshelfSettingsController
       }
       try {
         await ref.read(audiobookshelfSessionStoreProvider).write(unsaved);
-        if (identical(_unsaved, unsaved)) _unsaved = null;
+        if (identical(_unsaved, unsaved)) {
+          final String? warning = _unsavedWarning;
+          _unsaved = null;
+          _unsavedWarning = null;
+          // Saved now, so the restart warning no longer holds.
+          if (warning != null && state.errorMessage == warning) {
+            state = _connectedState(
+              unsaved,
+              isLoadingLibraries: state.isLoadingLibraries,
+            );
+          }
+        }
       } catch (_) {
         // Still refused. The session in memory keeps working, and the next
         // request tries again.
@@ -440,7 +458,7 @@ class AudiobookshelfSettingsController
       libraries: libraries ?? state.libraries,
       isLoadingLibraries: isLoadingLibraries,
       statusMessage: _connectedMessage(session.userName),
-      errorMessage: errorMessage,
+      errorMessage: errorMessage ?? _unsavedWarning,
       errorKind: errorKind,
     );
   }
@@ -461,6 +479,7 @@ class AudiobookshelfSettingsController
         }
         _session = null;
         _unsaved = null;
+        _unsavedWarning = null;
         _refused = null;
         _forgetTestedStatus();
         state = const AudiobookshelfSettingsState(

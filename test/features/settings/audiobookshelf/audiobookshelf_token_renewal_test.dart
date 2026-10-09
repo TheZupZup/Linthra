@@ -266,8 +266,9 @@ void main() {
     expect(state.errorKind, AudiobookshelfErrorKind.unauthorized);
     expect(
         state.errorMessage, AudiobookshelfException.sessionExpired().message);
-    // Still connected: the card offers signing in again, the saved session
-    // is left as it was.
+    // Still connected, so the card has no password field: the message says
+    // to sign out first. The saved session is left as it was.
+    expect(state.errorMessage, contains('Sign out in Settings, then sign in'));
     expect(state.phase, AudiobookshelfConnectionPhase.connected);
     expect(keyring.saved, _expired);
 
@@ -376,6 +377,35 @@ void main() {
       expect(keyring.saved!.accessToken, 'tok-2');
       expect(keyring.saved!.refreshToken, 'refresh-2');
       expect(client.refreshCalls, <String>['refresh-1']);
+    });
+
+    test(
+        'the warning outlives the library refresh that renewed, until the '
+        'pair is saved', () async {
+      final FakeAudiobookshelfClient client = _server();
+      final _Keyring keyring = _Keyring(_expired)..refuseWrites = true;
+      final (ProviderContainer container, AudiobookshelfSettingsController c) =
+          await _start(client, keyring);
+
+      // The refresh is what hits the expiry, renews, and then succeeds.
+      await c.refreshLibraries();
+      AudiobookshelfSettingsState state =
+          container.read(audiobookshelfSettingsControllerProvider);
+      expect(state.libraries.single.id, 'lib-books');
+      expect(state.errorMessage, contains('sign in again after restarting'));
+
+      // Another refresh that works, with the pair still unsaved.
+      await c.refreshLibraries();
+      await pumpEventQueue();
+      state = container.read(audiobookshelfSettingsControllerProvider);
+      expect(state.errorMessage, contains('sign in again after restarting'));
+
+      keyring.refuseWrites = false;
+      await c.refreshLibraries();
+      await pumpEventQueue();
+      expect(keyring.saved!.accessToken, 'tok-2');
+      state = container.read(audiobookshelfSettingsControllerProvider);
+      expect(state.errorMessage, isNull);
     });
 
     test(

@@ -67,11 +67,13 @@ class AudiobookshelfException implements Exception {
 
   /// The server turned the saved sign-in down and it can't be renewed
   /// without the password: the refresh token was refused too, or the server
-  /// never gave one (Audiobookshelf before 2.26).
+  /// never gave one (Audiobookshelf before 2.26). The settings card stays
+  /// connected then, with no password field, so the way back is spelled out:
+  /// sign out (which only forgets the saved sign-in), then sign in.
   factory AudiobookshelfException.sessionExpired() =>
       const AudiobookshelfException(
-        'Your Audiobookshelf sign-in is no longer valid. Sign in again to '
-        'keep browsing.',
+        'Your Audiobookshelf sign-in is no longer valid. Sign out in '
+        'Settings, then sign in again to keep browsing.',
         kind: AudiobookshelfErrorKind.unauthorized,
         statusCode: 401,
       );
