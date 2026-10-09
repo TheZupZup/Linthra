@@ -32,11 +32,18 @@ class LocalNetworkGrants extends Notifier<int> {
 final localNetworkGrantsProvider =
     NotifierProvider<LocalNetworkGrants, int>(LocalNetworkGrants.new);
 
+/// Whether a VPN tunnel is up, which [LocalNetworkAccess] reads before it
+/// refuses a local address. A provider so tests don't depend on the machine's
+/// own interfaces.
+final localNetworkVpnProbeProvider =
+    Provider<Future<bool> Function()>((ref) => vpnInterfaceUp);
+
 /// The one gate every server connection goes through. See [LocalNetworkAccess]
 /// for when it asks and when it only reports.
 final localNetworkAccessProvider = Provider<LocalNetworkAccess>((ref) {
   final LocalNetworkAccess access = LocalNetworkAccess(
     permission: ref.watch(localNetworkPermissionProvider),
+    isVpnUp: ref.watch(localNetworkVpnProbeProvider),
     isAppVisible: () => ref.read(appVisibilityProvider),
     onGranted: () => ref.read(localNetworkGrantsProvider.notifier).granted(),
   );

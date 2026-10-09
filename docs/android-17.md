@@ -77,6 +77,11 @@ for the permission:
   are refused at once instead of timing out, and the error says what to do. The
   Jellyfin library is held back the way it is when the server is unreachable,
   and comes back as soon as access is granted.
+- **Not behind a VPN.** Android only guards Wi-Fi and Ethernet. With a VPN up,
+  a private address may go through the tunnel (Tailscale's 100.64.0.0/10, a
+  home LAN reached over WireGuard) and need no permission, so Linthra doesn't
+  refuse it. A user action can still ask, since the VPN may leave the LAN
+  outside the tunnel.
 - **Settings > Connections** shows a "Local network access" card while a
   configured server is local and the permission is missing. It offers Allow,
   or Android settings once Android has stopped showing the dialog.
@@ -102,7 +107,8 @@ starts. Three paths could start audio from the background without that:
 - **Hold expiry.** If focus hadn't come back after five minutes, the hold
   ended, but a later regain still resumed. That resume would start audio with
   no foreground service, so the resume now ends with the hold (Google's
-  guidance), and the user presses Play.
+  guidance), and the user presses Play. A regain that already came back and is
+  still loading or rebuffering when the five minutes run out keeps its resume.
 - **Jellyfin remote control.** A Play or skip from another device while
   Linthra is paused in the background is ignored. A remote can still pause,
   stop, seek and drive playback that's already running, and can start it while
@@ -147,6 +153,8 @@ adb logcat | grep AudioHardening
 Then check:
 
 - Play from a LAN server, lock the phone, and keep listening for 10+ minutes.
+- With Tailscale (or another VPN) up and local network access denied, stream
+  from a server on its 100.x address.
 - During playback, take a call, end it, and confirm playback resumes.
 - Pause from the notification, then resume from a Bluetooth headset.
 - From Android Auto, start playback from a cold start.
@@ -163,6 +171,9 @@ access and streaming from a LAN server works as before.
   local to Android but not to Linthra's address check, so Linthra won't ask
   for it and the connection fails as unreachable. Granting access in Android
   settings fixes it.
+- A VPN is spotted by its interface name (`tun`, `wg`, `ipsec`, `ppp`). With
+  one up and local network access off, a LAN server reached outside the tunnel
+  is tried and times out instead of failing fast.
 - When Android Auto or a headset starts Linthra with no activity, the
   permission can't be read. Requests to a local server are then tried as
   before and time out if access is off, until the app is opened once.

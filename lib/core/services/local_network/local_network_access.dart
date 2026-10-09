@@ -34,6 +34,11 @@ enum LocalNetworkPrompt {
 ///    a background job, and never while the app is off screen. Android itself
 ///    stops showing the dialog after repeated refusals; past that point the
 ///    user is pointed at the app's settings instead.
+///  * Behind a VPN nothing is refused here. Android only guards Wi-Fi and
+///    Ethernet, and a private address may be reached through the tunnel
+///    (a Tailscale address in the carrier-grade NAT range, a home LAN over
+///    WireGuard), where it needs no permission. A prompt can still follow the
+///    user's action, since the VPN may leave the LAN outside the tunnel.
 ///
 /// The host is resolved through the system resolver, which the permission
 /// leaves alone, and the answer is kept briefly so a sync doesn't look the
@@ -42,12 +47,14 @@ class LocalNetworkAccess {
   LocalNetworkAccess({
     required LocalNetworkPermission permission,
     HostLookup? lookup,
+    Future<bool> Function()? isVpnUp,
     bool Function()? isAppVisible,
     void Function()? onGranted,
     DateTime Function()? now,
     this.hostTtl = const Duration(minutes: 2),
   })  : _permission = permission,
         _lookup = lookup,
+        _isVpnUp = isVpnUp ?? vpnInterfaceUp,
         _isAppVisible = isAppVisible ?? _alwaysVisible,
         _onGranted = onGranted,
         _now = now ?? DateTime.now;
@@ -56,6 +63,7 @@ class LocalNetworkAccess {
 
   final LocalNetworkPermission _permission;
   final HostLookup? _lookup;
+  final Future<bool> Function() _isVpnUp;
   final bool Function() _isAppVisible;
   final void Function()? _onGranted;
   final DateTime Function() _now;
@@ -146,7 +154,18 @@ class LocalNetworkAccess {
       current = await request();
       if (current.allowsLocalNetwork) return null;
     }
+    // Refusing here is only right when the connection would go out over
+    // Wi-Fi or Ethernet. Through a VPN it may well work, so let it try.
+    if (await _vpnUp()) return null;
     return current;
+  }
+
+  Future<bool> _vpnUp() async {
+    try {
+      return await _isVpnUp();
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _mayPrompt(LocalNetworkPrompt prompt) {

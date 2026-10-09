@@ -62,10 +62,12 @@ LocalNetworkAccess accessWith(
   bool Function()? visible,
   void Function()? onGranted,
   DateTime Function()? now,
+  bool vpn = false,
 }) =>
     LocalNetworkAccess(
       permission: permission,
       lookup: fakeLookup,
+      isVpnUp: () async => vpn,
       isAppVisible: visible,
       onGranted: onGranted,
       now: now,
@@ -295,6 +297,7 @@ void main() {
       final LocalNetworkAccess access = LocalNetworkAccess(
         permission: _ThrowingPermission(),
         lookup: fakeLookup,
+        isVpnUp: () async => false,
       );
       expect(
           await access.blockerFor(lanServer,
@@ -314,6 +317,67 @@ void main() {
       now = now.add(const Duration(minutes: 3));
       await access.blockerFor(lanByName);
       expect(lookups, hasLength(2));
+    });
+  });
+
+  // Android guards Wi-Fi and Ethernet only. A tailnet address (100.64/10) or
+  // a home LAN reached over WireGuard goes through the VPN and needs no
+  // permission, so refusing it here would break a connection that works.
+  group('behind a VPN', () {
+    final Uri tailnetServer = Uri.parse('http://100.101.102.103:4533');
+
+    test('a private address is let through, not refused', () async {
+      for (final LocalNetworkPermissionStatus status
+          in <LocalNetworkPermissionStatus>[
+        LocalNetworkPermissionStatus.notRequested,
+        LocalNetworkPermissionStatus.denied,
+        LocalNetworkPermissionStatus.permanentlyDenied,
+      ]) {
+        final FakeLocalNetworkPermission permission =
+            FakeLocalNetworkPermission(status);
+        final _RecordingClient inner = _RecordingClient();
+        final http.Client client =
+            LocalNetworkGuardedClient(inner, accessWith(permission, vpn: true));
+        await client.get(tailnetServer.resolve('/rest/ping'));
+        await client.get(lanServer.resolve('/System/Info/Public'));
+        expect(inner.sent, hasLength(2), reason: status.name);
+        expect(permission.requests, 0, reason: status.name);
+      }
+    });
+
+    test('a user action may still ask, and a refusal does not block', () async {
+      // The VPN may leave the LAN outside the tunnel, where the permission
+      // is needed, so the dialog still has its place.
+      final FakeLocalNetworkPermission permission = FakeLocalNetworkPermission(
+          LocalNetworkPermissionStatus.notRequested,
+          answers: <LocalNetworkPermissionStatus>[
+            LocalNetworkPermissionStatus.denied,
+          ]);
+      final LocalNetworkAccess access = accessWith(permission, vpn: true);
+      expect(
+        await access.blockerFor(tailnetServer,
+            prompt: LocalNetworkPrompt.userAction),
+        isNull,
+      );
+      expect(permission.requests, 1);
+    });
+
+    test('without one, the same address is refused as before', () async {
+      final LocalNetworkAccess access = accessWith(
+          FakeLocalNetworkPermission(LocalNetworkPermissionStatus.denied));
+      expect(await access.blockerFor(tailnetServer),
+          LocalNetworkPermissionStatus.denied);
+    });
+
+    test('a probe that fails counts as no VPN', () async {
+      final LocalNetworkAccess access = LocalNetworkAccess(
+        permission:
+            FakeLocalNetworkPermission(LocalNetworkPermissionStatus.denied),
+        lookup: fakeLookup,
+        isVpnUp: () async => throw const SocketException('no interfaces'),
+      );
+      expect(await access.blockerFor(lanServer),
+          LocalNetworkPermissionStatus.denied);
     });
   });
 
