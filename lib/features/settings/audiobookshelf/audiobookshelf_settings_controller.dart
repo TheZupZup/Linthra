@@ -30,6 +30,11 @@ class AudiobookshelfSettingsController
   AudiobookshelfSession? _session;
   late final Future<void> _initialLoad;
 
+  /// Counts the sign-ins [_session] has belonged to: the saved one restored,
+  /// each new sign-in, each sign-out. Renewing the tokens keeps the count, as
+  /// it is still the same sign-in.
+  int _signIns = 0;
+
   /// The address a [testConnection] last succeeded for, with the status it
   /// returned. A sign-in for that same address reuses it instead of asking the
   /// server for `/status` a second time; any other address re-confirms.
@@ -67,6 +72,11 @@ class AudiobookshelfSettingsController
   /// The live signed-in session, or `null` when not connected. Callers must not
   /// log it.
   AudiobookshelfSession? get session => _session;
+
+  /// Which sign-in [session] belongs to. What was loaded under one sign-in
+  /// survives a token renewal, but not a sign-out and a new sign-in, even to
+  /// the same account.
+  int get currentSignIn => _signIns;
 
   @override
   AudiobookshelfSettingsState build() {
@@ -108,6 +118,7 @@ class AudiobookshelfSettingsController
       return;
     }
     _session = saved;
+    _signIns++;
     state = AudiobookshelfSettingsState(
       phase: AudiobookshelfConnectionPhase.connected,
       baseUrl: saved.baseUrl,
@@ -192,6 +203,7 @@ class AudiobookshelfSettingsController
           return false;
         }
         _session = newSession;
+        _signIns++;
         _unsaved = null;
         _unsavedWarning = null;
         _refused = null;
@@ -405,6 +417,7 @@ class AudiobookshelfSettingsController
   Future<void> refreshLibraries() async {
     final AudiobookshelfSession? current = _session;
     if (current == null) return;
+    final int signIn = _signIns;
     // A new attempt drops the previous listing's error, so a retry that works
     // doesn't leave the old failure sitting under a fresh list.
     state = _connectedState(current, isLoadingLibraries: true);
@@ -413,10 +426,10 @@ class AudiobookshelfSettingsController
         current,
         ref.read(audiobookshelfClientProvider).fetchLibraries,
       );
-      // A sign-out (or another sign-in) that landed while this was in flight
-      // owns the state now; don't paint a stale account's libraries over it.
-      // A renewal of the same account's tokens is not that.
-      if (!current.isSameAccountAs(_session)) return;
+      // A sign-out (or another sign-in, even to the same account) that landed
+      // while this was in flight owns the state now; don't paint a stale
+      // listing over it. A renewal of the tokens is not that.
+      if (signIn != _signIns) return;
       state = _connectedState(
         current,
         libraries: <AudiobookshelfLibrarySummary>[
@@ -429,7 +442,7 @@ class AudiobookshelfSettingsController
         ],
       );
     } on AudiobookshelfException catch (error) {
-      if (!current.isSameAccountAs(_session)) return;
+      if (signIn != _signIns) return;
       // The listing failed, the session didn't: stay connected and say what
       // went wrong.
       state = _connectedState(
@@ -458,9 +471,19 @@ class AudiobookshelfSettingsController
       libraries: libraries ?? state.libraries,
       isLoadingLibraries: isLoadingLibraries,
       statusMessage: _connectedMessage(session.userName),
-      errorMessage: errorMessage ?? _unsavedWarning,
+      errorMessage: _withUnsavedWarning(errorMessage),
       errorKind: errorKind,
     );
+  }
+
+  /// [message] followed by the unsaved-renewal warning while there is one, so
+  /// a request failing in the meantime doesn't hide that a restart may need a
+  /// fresh sign-in.
+  String? _withUnsavedWarning(String? message) {
+    final String? warning = _unsavedWarning;
+    if (message == null) return warning;
+    if (warning == null) return message;
+    return '$message\n\n$warning';
   }
 
   /// Clears the saved session and resets to the disconnected state.
@@ -478,6 +501,7 @@ class AudiobookshelfSettingsController
           return;
         }
         _session = null;
+        _signIns++;
         _unsaved = null;
         _unsavedWarning = null;
         _refused = null;

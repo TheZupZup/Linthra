@@ -408,6 +408,30 @@ void main() {
       expect(state.errorMessage, isNull);
     });
 
+    test('a refresh that fails meanwhile shows its error beside the warning',
+        () async {
+      final FakeAudiobookshelfClient client = _server();
+      final _Keyring keyring = _Keyring(_expired)..refuseWrites = true;
+      final (ProviderContainer container, AudiobookshelfSettingsController c) =
+          await _start(client, keyring);
+      await c.refreshLibraries();
+
+      // The pair is still unsaved when the next refresh can't get through.
+      client.librariesError = AudiobookshelfException.notReachable();
+      await c.refreshLibraries();
+      await pumpEventQueue();
+
+      final AudiobookshelfSettingsState state =
+          container.read(audiobookshelfSettingsControllerProvider);
+      expect(
+        state.errorMessage,
+        contains(AudiobookshelfException.notReachable().message),
+      );
+      expect(state.errorMessage, contains('sign in again after restarting'));
+      expect(state.errorKind, AudiobookshelfErrorKind.notReachable);
+      _expectNoSecret(state.errorMessage!);
+    });
+
     test(
         'a restart before it is saved asks for the password rather than '
         'failing quietly', () async {
@@ -533,6 +557,55 @@ void main() {
     _expectNoSecret('${c.session}');
   });
 
+  test(
+      "a listing from before a sign-out doesn't land on the next sign-in, "
+      'even to the same account', () async {
+    final FakeAudiobookshelfClient client = FakeAudiobookshelfClient(
+      libraries: <AudiobookshelfLibraryDto>[_bookLibrary],
+      serverStatus: const AudiobookshelfServerStatus(
+        serverVersion: '2.31.0',
+        isInitialized: true,
+      ),
+      authResult: const AudiobookshelfAuthResult(
+        userId: 'user-1',
+        accessToken: 'tok-3',
+        refreshToken: 'refresh-3',
+        userName: 'alice',
+      ),
+    );
+    final (ProviderContainer container, AudiobookshelfSettingsController c) =
+        await _start(client, _Keyring(_expired));
+
+    // A listing for the first sign-in is still out when the user signs out
+    // and back in.
+    final Completer<void> slow = Completer<void>();
+    client.librariesGate = slow;
+    final Future<void> stale = c.refreshLibraries();
+    await pumpEventQueue();
+    await c.clear();
+    client.librariesGate = null;
+    expect(
+      await c.signIn(
+        url: 'https://audiobooks.example.com',
+        username: 'alice',
+        password: 'hunter2',
+      ),
+      isTrue,
+    );
+    await pumpEventQueue();
+
+    // Then the old one fails.
+    client.librariesError = AudiobookshelfException.notReachable();
+    slow.complete();
+    await stale;
+
+    final AudiobookshelfSettingsState state =
+        container.read(audiobookshelfSettingsControllerProvider);
+    expect(state.phase, AudiobookshelfConnectionPhase.connected);
+    expect(state.errorMessage, isNull);
+    expect(state.libraries.single.id, 'lib-books');
+  });
+
   group('the audiobook browser', () {
     test('keeps loading across a renewal', () async {
       final FakeAudiobookshelfClient client = _server();
@@ -616,6 +689,64 @@ void main() {
       expect(state.errorKind, AudiobookshelfErrorKind.unauthorized);
       expect(state.books, hasLength(AudiobooksLibraryController.pageSize));
       expect(state.isLoadingMore, isFalse);
+    });
+
+    test(
+        'signing out and back in to the same account loads the books again, '
+        'even with the browser closed in between', () async {
+      // Renewed tokens keep what was loaded. A new sign-in doesn't: it is
+      // how a user picks up a library the server changed for them.
+      final FakeAudiobookshelfClient client = FakeAudiobookshelfClient(
+        libraries: <AudiobookshelfLibraryDto>[_bookLibrary],
+        serverStatus: const AudiobookshelfServerStatus(
+          serverVersion: '2.31.0',
+          isInitialized: true,
+        ),
+        authResult: const AudiobookshelfAuthResult(
+          userId: 'user-1',
+          accessToken: 'tok-3',
+          refreshToken: 'refresh-3',
+          userName: 'alice',
+          defaultLibraryId: 'lib-books',
+        ),
+      );
+      client.itemsByLibrary['lib-books'] = <AudiobookshelfLibraryItemDto>[
+        const AudiobookshelfLibraryItemDto(id: 'item-a', title: 'Book A'),
+      ];
+      final (ProviderContainer container, AudiobookshelfSettingsController c) =
+          await _start(client, _Keyring(_expired));
+      final AudiobooksLibraryController browser =
+          container.read(audiobooksLibraryControllerProvider.notifier);
+      await browser.load();
+      expect(
+        container.read(audiobooksLibraryControllerProvider).books,
+        hasLength(1),
+      );
+
+      await c.clear();
+      client.itemsByLibrary['lib-books'] = <AudiobookshelfLibraryItemDto>[
+        const AudiobookshelfLibraryItemDto(id: 'item-a', title: 'Book A'),
+        const AudiobookshelfLibraryItemDto(id: 'item-b', title: 'Book B'),
+      ];
+      expect(
+        await c.signIn(
+          url: 'https://audiobooks.example.com',
+          username: 'alice',
+          password: 'hunter2',
+        ),
+        isTrue,
+      );
+      expect(c.session!.isSameAccountAs(_expired), isTrue);
+
+      await browser.load();
+
+      final AudiobooksLibraryState state =
+          container.read(audiobooksLibraryControllerProvider);
+      expect(state.books.map((AudiobookSummary book) => book.title), <String>[
+        'Book A',
+        'Book B',
+      ]);
+      expect(client.requestTokens.last, 'tok-3');
     });
   });
 }
