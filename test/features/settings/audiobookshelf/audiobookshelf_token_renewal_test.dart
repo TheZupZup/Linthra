@@ -432,6 +432,34 @@ void main() {
       _expectNoSecret(state.errorMessage!);
     });
 
+    test('once the pair is saved, only the warning leaves that error',
+        () async {
+      final FakeAudiobookshelfClient client = _server();
+      final _Keyring keyring = _Keyring(_expired)..refuseWrites = true;
+      final (ProviderContainer container, AudiobookshelfSettingsController c) =
+          await _start(client, keyring);
+      await c.refreshLibraries();
+      client.librariesError = AudiobookshelfException.notReachable();
+      await c.refreshLibraries();
+      await pumpEventQueue();
+
+      // The keyring is back, and a request from the audiobook browser is what
+      // gets the pair saved.
+      keyring.refuseWrites = false;
+      client.librariesError = null;
+      await _listLibraries(c, client);
+      await pumpEventQueue();
+
+      expect(keyring.saved!.accessToken, 'tok-2');
+      final AudiobookshelfSettingsState state =
+          container.read(audiobookshelfSettingsControllerProvider);
+      expect(
+        state.errorMessage,
+        AudiobookshelfException.notReachable().message,
+      );
+      expect(state.errorKind, AudiobookshelfErrorKind.notReachable);
+    });
+
     test(
         'a restart before it is saved asks for the password rather than '
         'failing quietly', () async {

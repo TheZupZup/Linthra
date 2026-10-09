@@ -386,11 +386,17 @@ class AudiobookshelfSettingsController
           final String? warning = _unsavedWarning;
           _unsaved = null;
           _unsavedWarning = null;
-          // Saved now, so the restart warning no longer holds.
-          if (warning != null && state.errorMessage == warning) {
+          // Saved now, so the restart warning no longer holds. Whatever error
+          // it was shown beside still does.
+          final String? shown = state.errorMessage;
+          if (warning != null && shown != null && shown.endsWith(warning)) {
+            final String rest =
+                shown.substring(0, shown.length - warning.length).trimRight();
             state = _connectedState(
               unsaved,
               isLoadingLibraries: state.isLoadingLibraries,
+              errorMessage: rest.isEmpty ? null : rest,
+              errorKind: rest.isEmpty ? null : state.errorKind,
             );
           }
         }
