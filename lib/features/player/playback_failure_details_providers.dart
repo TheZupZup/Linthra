@@ -22,10 +22,13 @@ typedef PlaybackFailureDetailsBuilder = PlaybackFailureDetails Function(
 /// The details of a failure, from what the app knows when they are opened:
 /// the track's source, what the last check of that source found, and, for an
 /// audio engine that won't start, which part of the Linux runtime is at fault.
+/// A failure of every copy across providers names no source: the track shown
+/// is only one of them.
 final playbackFailureDetailsBuilderProvider =
     Provider<PlaybackFailureDetailsBuilder>((ref) {
   return (PlaybackFailure failure, Track? track) {
-    final String? sourceId = track == null ? null : _sourceIdOf(track.uri);
+    final String? sourceId =
+        track == null || failure.acrossSources ? null : _sourceIdOf(track.uri);
     return PlaybackFailureDetails(
       failure: failure,
       sourceId: sourceId,

@@ -162,6 +162,7 @@ class PlaybackFailure {
     required this.kind,
     required this.message,
     this.cause,
+    this.acrossSources = false,
     this.canRetry = false,
     this.canTryAnotherSource = false,
     this.canSkip = false,
@@ -177,6 +178,10 @@ class PlaybackFailure {
   /// What went wrong, more precisely than [kind], when the controller knows.
   /// Null when it doesn't, which the details say rather than guess at.
   final PlaybackFailureCause? cause;
+
+  /// Whether every copy of the song failed, on more than one provider, so the
+  /// failure isn't one source's to explain.
+  final bool acrossSources;
 
   /// Whether trying this same copy again is worth offering: the kind can
   /// plausibly recover ([PlaybackFailureKindRecovery.isWorthRetrying]) *and*
@@ -220,13 +225,14 @@ class PlaybackFailure {
           other.kind == kind &&
           other.message == message &&
           other.cause == cause &&
+          other.acrossSources == acrossSources &&
           other.canRetry == canRetry &&
           other.canTryAnotherSource == canTryAnotherSource &&
           other.canSkip == canSkip &&
           other.canAutoSkip == canAutoSkip);
 
   @override
-  int get hashCode => Object.hash(kind, message, cause, canRetry,
+  int get hashCode => Object.hash(kind, message, cause, acrossSources, canRetry,
       canTryAnotherSource, canSkip, canAutoSkip);
 
   /// Safe to log: the kind, the cause and the flags, never the message (which
@@ -234,6 +240,7 @@ class PlaybackFailure {
   @override
   String toString() => 'PlaybackFailure(${kind.name}, '
       '${cause == null ? '' : 'cause: ${cause!.name}, '}'
+      '${acrossSources ? 'across sources, ' : ''}'
       'retry: $canRetry, anotherSource: $canTryAnotherSource, skip: $canSkip, '
       'autoSkip: $canAutoSkip)';
 }

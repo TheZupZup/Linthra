@@ -177,6 +177,26 @@ void main() {
     }
   });
 
+  testWidgets(
+      'a failure of every copy across providers is not pinned on the shown '
+      "track's source", (WidgetTester tester) async {
+    await _pumpPlayer(
+      tester,
+      FakePlaybackController(
+        initial: _errorState(const PlaybackFailure(
+          kind: PlaybackFailureKind.temporarySource,
+          message: "Couldn't play this track from any available source.",
+          cause: PlaybackFailureCause.serverUnreachable,
+          acrossSources: true,
+        )),
+      ),
+    );
+    await _openDetails(tester);
+
+    expect(find.text("Linthra couldn't reach the server."), findsOneWidget);
+    expect(find.textContaining('Jellyfin'), findsNothing);
+  });
+
   testWidgets('Copy diagnostics copies the safe report, and says so',
       (WidgetTester tester) async {
     final List<String> copied = await _captureClipboard(tester);

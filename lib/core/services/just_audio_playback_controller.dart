@@ -2907,6 +2907,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       kind: sameKind
           ? failures.first.kind
           : PlaybackResolutionErrorKind.streamUnavailable,
+      acrossSources: true,
     );
   }
 
@@ -3433,6 +3434,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         message: failure.message,
         kind: failure.kind,
         cause: failure.cause,
+        acrossSources: failure.acrossSources,
       );
 
   /// Stops automatic recovery outright: a pending step never runs, and one
@@ -3492,6 +3494,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         message: error.message,
         kind: playbackFailureKindForResolution(error.kind),
         cause: playbackFailureCauseForResolution(error.kind),
+        acrossSources: error.acrossSources,
       );
 
   /// Builds the failure the error UI renders: the classified [kind], its
@@ -3508,6 +3511,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     required String message,
     required PlaybackFailureKind kind,
     PlaybackFailureCause? cause,
+    bool acrossSources = false,
   }) {
     final bool hasAttemptsLeft = _recoveryAttemptsLeftFor(track) > 0;
     // An engine that cannot play anything fails every other copy of this song
@@ -3519,6 +3523,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       kind: kind,
       message: message,
       cause: cause,
+      acrossSources: acrossSources,
       canRetry: kind.isWorthRetrying && (engineFailure || hasAttemptsLeft),
       canTryAnotherSource: !engineFailure &&
           hasAttemptsLeft &&
