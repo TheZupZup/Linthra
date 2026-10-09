@@ -93,6 +93,21 @@ jobs:
       - name: Check libflacJNI.so (reproducible, hardened)
         run: scripts/check_flac_jni_elf.sh build/app/outputs/flutter-apk/app-debug.apk
 
+      # Linthra targets Android 17 (API 37). The release App Bundle is what
+      # Google Play reads, so build one (unsigned: no secrets on a PR) and read
+      # the SDK levels back out of it and the debug APK with the SDK's own
+      # aapt2, rather than trusting build.gradle. minSdk is checked too, so the
+      # move to 37 can never quietly drop older phones. Local twin:
+      # `python3 scripts/check_android_target_sdk.py --target 37 --min 24 <apk/aab>`.
+      - name: Build release App Bundle
+        run: flutter build appbundle --release
+
+      - name: Check the SDK levels in the built APK and App Bundle
+        run: |
+          python3 scripts/check_android_target_sdk.py --target 37 --min 24 \
+            build/app/outputs/flutter-apk/app-debug.apk \
+            build/app/outputs/bundle/release/app-release.aab
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:

@@ -511,6 +511,22 @@ jobs:
 
           echo "Verified: all APK versions match the tag-derived version."
 
+      # Google Play acts on the targetSdkVersion inside the uploaded bundle, so
+      # read it back from every built artifact, the AAB included, with the
+      # SDK's aapt2. The expected level is the one the built tree declares; a
+      # tag from before the level was set explicitly (it inherited Flutter's
+      # default) has nothing to compare against and is reported, not failed.
+      - name: Verify the built artifacts' target SDK
+        run: |
+          set -euo pipefail
+          target="$(sed -n 's/^[[:space:]]*targetSdk = \([0-9][0-9]*\)$/\1/p' android/app/build.gradle | head -n1)"
+          if [ -z "$target" ]; then
+            echo "::warning::android/app/build.gradle sets no explicit targetSdk (an older tag); not checking the artifacts' target SDK."
+            exit 0
+          fi
+          python3 .release-tooling/scripts/check_android_target_sdk.py \
+            --target "$target" dist/*.apk dist/*.aab
+
       # Casting is withheld from shipped builds while a reported security issue
       # is resolved (see lib/core/services/cast/cast_containment.dart). The
       # source tripwire and the containment tests both run against the tree; this
