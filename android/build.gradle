@@ -12,6 +12,24 @@ rootProject.layout.buildDirectory.value(rootProject.layout.projectDirectory.dir(
 subprojects {
     project.layout.buildDirectory.value(rootProject.layout.buildDirectory.dir(project.name))
 }
+// AGP 9 checks every library module's compileSdk against what its AndroidX
+// dependencies need, not just the app's. A Flutter plugin that pins an older
+// compileSdk (bonsoir_android 5.x compiles against 33, while the AndroidX
+// libraries the Flutter embedding brings need 34+) then fails that check.
+// Raise any such module to the app's compileSdk, as AGP recommends. compileSdk
+// only decides which APIs a module compiles against: nothing about runtime
+// behaviour, targetSdk or minSdk changes. finalizeDsl is AGP's hook for
+// adjusting a module's settings after its own build script has run.
+subprojects { sub ->
+    sub.plugins.withId("com.android.library") {
+        sub.androidComponents.finalizeDsl { extension ->
+            def appCompileSdk = rootProject.project(":app").android.compileSdk
+            if (extension.compileSdk == null || extension.compileSdk < appCompileSdk) {
+                extension.compileSdk = appCompileSdk
+            }
+        }
+    }
+}
 subprojects {
     project.evaluationDependsOn(":app")
 }

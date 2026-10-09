@@ -58,6 +58,15 @@ void main() {
           contains(RegExp(r'^android\.builtInKotlin=false$', multiLine: true)));
     });
 
+    test('plugins pinned to an older compileSdk are raised to the app\'s', () {
+      // AGP 9 checks each library module against what its AndroidX
+      // dependencies need; bonsoir_android 5.x still compiles against 33.
+      final String root = _read('android/build.gradle');
+      expect(root, contains('sub.plugins.withId("com.android.library")'));
+      expect(root, contains('androidComponents.finalizeDsl'));
+      expect(root, contains('rootProject.project(":app").android.compileSdk'));
+    });
+
     test('the Kotlin options use compilerOptions, not kotlinOptions', () {
       // Kotlin Gradle plugin 2.3+ rejects kotlinOptions.
       expect(appGradle, isNot(contains(RegExp(r'kotlinOptions\s*\{'))));
