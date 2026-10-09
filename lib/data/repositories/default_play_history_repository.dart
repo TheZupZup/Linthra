@@ -6,6 +6,7 @@ import '../../core/repositories/local_store_write_exception.dart';
 import '../../core/repositories/play_history_repository.dart';
 import '../../core/repositories/play_history_store.dart';
 import '../../core/repositories/track_identity_reassignable.dart';
+import '../../core/services/song_origins.dart';
 import '../../core/services/stability_diagnostics.dart';
 
 /// The app's [PlayHistoryRepository]: an in-memory mirror persisted through a
@@ -23,18 +24,36 @@ import '../../core/services/stability_diagnostics.dart';
 /// the catalog exposes under more than one provider is left untouched rather
 /// than mis-attributed.
 ///
+/// A play of a Subsonic or Plex song also records where it was made
+/// ([SongOrigins], #795), since the same id names another song on another
+/// server: `subsonic:48211` played on two servers counts as two songs. The
+/// history this exposes ([current], [historyStream]) is the one for the
+/// servers signed in now, keyed by plain uri; another server's plays are kept
+/// and come back with it.
+///
 /// Privacy: the stored key is the non-secret [Track.uri] — the same identity the
 /// catalog DB and "recently added" store already persist — never a token or an
-/// authenticated stream URL, and nothing is sent off the device.
+/// authenticated stream URL, and nothing is sent off the device. The origin
+/// recorded beside it is a one-way account fingerprint or a Plex server's
+/// public machine identifier.
 class DefaultPlayHistoryRepository
     implements PlayHistoryRepository, TrackIdentityReassignable {
   DefaultPlayHistoryRepository({
     required PlayHistoryStore store,
     DateTime Function()? now,
     Future<List<Track>> Function()? catalogForMigration,
+    SongOrigins origins = const UnboundSongOrigins(),
   })  : _store = store,
         _now = now ?? DateTime.now,
-        _catalogForMigration = catalogForMigration;
+        _catalogForMigration = catalogForMigration,
+        _origins = origins {
+    _originChanges = origins.changes.listen((_) {
+      if (_loaded) _publish();
+    });
+  }
+
+  final SongOrigins _origins;
+  late final StreamSubscription<void> _originChanges;
 
   final PlayHistoryStore _store;
   final DateTime Function() _now;
@@ -47,7 +66,11 @@ class DefaultPlayHistoryRepository
   final StreamController<PlayHistory> _changes =
       StreamController<PlayHistory>.broadcast();
 
+  /// Everything recorded, keyed by [songHistoryKey].
   PlayHistory _history = PlayHistory.empty;
+
+  /// [_history] as the servers signed in now see it (see [_viewOf]).
+  PlayHistory _view = PlayHistory.empty;
   bool _loaded = false;
 
   /// Guards the one-time legacy-key migration so it runs at most once, after the
@@ -61,32 +84,71 @@ class DefaultPlayHistoryRepository
   Future<void> _ensureLoaded() async {
     if (!_loaded) {
       _history = await _store.load();
+      _view = _viewOf(_history, _origins);
       _loaded = true;
     }
     await _maybeMigrateLegacyKeysOnce();
   }
 
   @override
-  PlayHistory get current => _history;
+  PlayHistory get current => _view;
 
   @override
   Stream<PlayHistory> get historyStream async* {
     await _ensureLoaded();
-    yield _history;
+    yield _view;
     yield* _changes.stream;
+  }
+
+  /// Works out [_view] again and emits it.
+  void _publish() {
+    _view = _viewOf(_history, _origins);
+    if (!_changes.isClosed) _changes.add(_view);
+  }
+
+  /// [history] keyed by plain uri, holding only the plays of songs the
+  /// library means now: every play of a song whose provider records no
+  /// origin, and for the others the plays made on the origin signed in now
+  /// (an older play, recorded without one, counts for the origin its kind
+  /// was settled to). Two keys that land on one uri add up.
+  static PlayHistory _viewOf(PlayHistory history, SongOrigins origins) {
+    final Map<String, TrackPlayStats> stats = <String, TrackPlayStats>{};
+    for (final MapEntry<String, TrackPlayStats> entry
+        in history.stats.entries) {
+      final ({String uri, String? origin}) key = splitSongHistoryKey(entry.key);
+      if (!songOriginMatches(origins, key.uri, key.origin)) continue;
+      final TrackPlayStats? earlier = stats[key.uri];
+      stats[key.uri] = earlier == null
+          ? entry.value
+          : TrackPlayStats(
+              playCount: earlier.playCount + entry.value.playCount,
+              lastPlayedAt:
+                  earlier.lastPlayedAt.isAfter(entry.value.lastPlayedAt)
+                      ? earlier.lastPlayedAt
+                      : entry.value.lastPlayedAt,
+            );
+    }
+    return PlayHistory(stats: stats);
   }
 
   @override
   Future<void> recordCompletion(Track track) {
     // Capture the provider-namespaced uri (the stable, collision-free identity)
-    // and chain onto the write queue.
+    // and where the song was played, then chain onto the write queue.
     final String trackUri = track.uri;
+    final String? origin = songOriginToRecord(_origins, trackUri);
+    // Finished while its server was signed out: no stored reference could
+    // say which server's song it was, so it isn't counted for any.
+    if (origin == noSongOrigin) return _writes;
+    final String key = songHistoryKey(trackUri, origin);
     _writes = _writes.then((_) async {
       try {
         await _ensureLoaded();
-        _history = _history.recordPlay(trackUri, _now());
+        _history = _history.recordPlay(key, _now());
+        // Current at once, kept in memory even if the save below is refused.
+        _view = _viewOf(_history, _origins);
         await _store.save(_history);
-        if (!_changes.isClosed) _changes.add(_history);
+        if (!_changes.isClosed) _changes.add(_view);
       } on LocalStoreWriteException catch (error) {
         // Playback completion is a background side effect, so it must not throw
         // into the player. Keep the in-memory count for the next retry, but make
@@ -125,7 +187,7 @@ class DefaultPlayHistoryRepository
         if (identical(remapped, _history)) return true;
         await _store.save(remapped);
         _history = remapped;
-        if (!_changes.isClosed) _changes.add(_history);
+        _publish();
         return true;
       } on LocalStoreWriteException catch (error) {
         StabilityDiagnostics.localStoreWriteFailure(error.area.name);
@@ -196,10 +258,13 @@ class DefaultPlayHistoryRepository
     }
     if (!identical(migrated, _history)) {
       _history = migrated;
-      if (!_changes.isClosed) _changes.add(_history);
+      _publish();
       await _store.save(_history);
     }
   }
 
-  Future<void> dispose() => _changes.close();
+  Future<void> dispose() async {
+    await _originChanges.cancel();
+    await _changes.close();
+  }
 }

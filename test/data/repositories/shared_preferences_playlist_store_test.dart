@@ -68,6 +68,32 @@ void main() {
       expect(loaded.map((Playlist p) => p.owner), <String?>['account-a', null]);
     });
 
+    test(
+        'round-trips where a device playlist\'s remote songs were added '
+        '(#795)', () async {
+      const SharedPreferencesPlaylistStore store =
+          SharedPreferencesPlaylistStore();
+      await store.save(const <Playlist>[
+        Playlist(
+          id: 'p1',
+          name: 'Mix',
+          trackIds: <String>['subsonic:1', 'plex:2', 'jellyfin:3'],
+          entryOrigins: <String, String>{
+            'subsonic:1': 'account-a',
+            'plex:2': '',
+          },
+        ),
+        Playlist(id: 'p2', name: 'Older', trackIds: <String>['subsonic:1']),
+      ]);
+
+      final List<Playlist> loaded = await store.load();
+      expect(loaded.first.entryOrigins, <String, String>{
+        'subsonic:1': 'account-a',
+        'plex:2': '',
+      });
+      expect(loaded.last.entryOrigins, isEmpty);
+    });
+
     test('returns empty for no stored value', () async {
       const SharedPreferencesPlaylistStore store =
           SharedPreferencesPlaylistStore();

@@ -931,8 +931,9 @@ class MediaBrowserTree {
     final Map<String, Track> byUri = <String, Track>{
       for (final Track track in await _allTracks()) track.uri: track,
     };
+    // Only the entries made on the servers signed in now (#795).
     return <Track>[
-      for (final String uri in playlist.trackIds)
+      for (final String uri in playlists.entriesHere(playlist))
         if (byUri[uri] != null) byUri[uri]!,
     ];
   }

@@ -46,6 +46,11 @@ abstract interface class PlaylistRepository {
   /// order. Entries are provider-namespaced [Track.uri]s.
   Future<void> addTracks(String playlistId, List<String> trackUris);
 
+  /// [playlist]'s entries that name a song of the servers signed in now, in
+  /// order (#795). A Subsonic or Plex entry made on another server, or
+  /// account, is left out: the same id names another song here, or none.
+  List<String> entriesHere(Playlist playlist);
+
   /// Removes the entry for [trackUri] (a provider-namespaced [Track.uri]), and
   /// every other copy of it a synced playlist may hold. Returns the positions
   /// they held, ascending, for [restoreTrack]; empty when it wasn't there.

@@ -90,6 +90,7 @@ class Playlist {
     this.syncState = PlaylistSyncState.localOnly,
     this.lastSyncError,
     this.owner,
+    this.entryOrigins = const <String, String>{},
   });
 
   /// Stable Linthra playlist id (an opaque local id, never a server secret).
@@ -128,6 +129,13 @@ class Playlist {
   /// signed-in account has adopted it.
   final String? owner;
 
+  /// For a device playlist, where each of its remote songs was added
+  /// (`SongOrigins`, #795): uri → the account or server it names a song on.
+  /// A Subsonic or Plex id means another song, or none, elsewhere, so such an
+  /// entry only stands for the library's song while that origin is signed in.
+  /// An entry missing here was added before origins were recorded.
+  final Map<String, String> entryOrigins;
+
   int get length => trackIds.length;
 
   bool get isEmpty => trackIds.isEmpty;
@@ -147,6 +155,7 @@ class Playlist {
     PlaylistSyncState? syncState,
     String? Function()? lastSyncError,
     String? Function()? owner,
+    Map<String, String>? entryOrigins,
   }) {
     return Playlist(
       id: id ?? this.id,
@@ -161,6 +170,7 @@ class Playlist {
       lastSyncError:
           lastSyncError != null ? lastSyncError() : this.lastSyncError,
       owner: owner != null ? owner() : this.owner,
+      entryOrigins: entryOrigins ?? this.entryOrigins,
     );
   }
 

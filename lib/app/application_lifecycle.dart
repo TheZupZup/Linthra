@@ -13,6 +13,7 @@ import '../core/services/desktop_window_lifecycle_service.dart';
 import '../core/services/media_session_binding.dart';
 import '../core/services/playback_session_persistence.dart';
 import '../core/services/playback_volume_persistence.dart';
+import '../core/services/song_origins.dart';
 import '../core/sources/plex/plex_artwork.dart';
 import '../core/sources/subsonic/subsonic_artwork.dart';
 import '../data/repositories/download_repository_provider.dart';
@@ -22,6 +23,7 @@ import '../data/repositories/playback_preferences_provider.dart';
 import '../data/repositories/playback_session_store_provider.dart';
 import '../data/repositories/playlist_repository_provider.dart';
 import '../data/repositories/remote_cache_index_provider.dart';
+import '../data/repositories/song_origins_provider.dart';
 import '../features/library/local_library_watch_service.dart';
 import '../features/library/local_root_availability_controller.dart';
 import '../features/player/media_artwork_providers.dart';
@@ -396,6 +398,12 @@ Future<ApplicationHandle> bootstrapApplication(
         // Ignore: the user can still connect in Settings.
       }
     }
+
+    // Whose the remote songs that playlists and play history saved before
+    // they recorded it are (#795): the accounts just restored, settled once,
+    // before anyone can sign in to anything else.
+    final SongOrigins songOrigins = container.read(songOriginsProvider);
+    if (songOrigins is SessionSongOrigins) await songOrigins.settleLegacy();
 
     // Teach the shared artwork seam how to turn a credential-free cover
     // reference (subsonic-cover:<id> or plex-thumb:<path>) into an

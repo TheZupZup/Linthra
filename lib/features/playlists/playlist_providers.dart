@@ -5,6 +5,7 @@ import '../../core/models/playlist.dart';
 import '../../core/models/track.dart';
 import '../../data/repositories/music_library_repository_provider.dart';
 import '../../data/repositories/playlist_repository_provider.dart';
+import '../../data/repositories/song_origins_provider.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 import 'widgets/create_playlist_dialog.dart';
@@ -80,22 +81,25 @@ final playlistTracksProvider =
   if (playlist == null || playlist.trackIds.isEmpty) {
     return PlaylistTracks.empty;
   }
+  // Signing in somewhere else changes which entries name a song here.
+  ref.watch(songOriginChangesProvider);
+  final List<String> here =
+      ref.watch(playlistRepositoryProvider).entriesHere(playlist);
   final List<Track> all =
       await ref.watch(musicLibraryRepositoryProvider).getAllTracks();
   // Resolve by the provider-namespaced uri, so a `jellyfin:101` entry can never
-  // resolve to a `subsonic:101` catalog track that merely shares the bare id.
+  // resolve to a `subsonic:101` catalog track that merely shares the bare id,
+  // and only the entries made on the servers signed in now (#795), so one
+  // made on another server never stands for this server's song with its id.
   final Map<String, Track> byUri = <String, Track>{
     for (final Track track in all) track.uri: track,
   };
-  final List<Track> resolved = <Track>[];
-  int missing = 0;
-  for (final String trackUri in playlist.trackIds) {
-    final Track? track = byUri[trackUri];
-    if (track != null) {
-      resolved.add(track);
-    } else {
-      missing++;
-    }
-  }
-  return PlaylistTracks(tracks: resolved, missingCount: missing);
+  final List<Track> resolved = <Track>[
+    for (final String trackUri in here)
+      if (byUri[trackUri] != null) byUri[trackUri]!,
+  ];
+  return PlaylistTracks(
+    tracks: resolved,
+    missingCount: playlist.trackIds.length - resolved.length,
+  );
 });

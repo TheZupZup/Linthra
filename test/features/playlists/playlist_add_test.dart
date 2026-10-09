@@ -31,6 +31,9 @@ class _RecordingRepository implements PlaylistRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName} is not used here');
+
+  @override
+  List<String> entriesHere(Playlist playlist) => playlist.trackIds;
 }
 
 void main() {
