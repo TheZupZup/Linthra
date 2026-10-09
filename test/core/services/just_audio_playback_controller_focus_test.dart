@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 
 /// A fake engine that records the volume/play/pause traffic the controller's
@@ -529,8 +530,76 @@ void main() {
       await _settle();
 
       expect(p.playCalls, 1, reason: 'the regain still resumes playback');
+      // The engine sounds again; from then on playing keeps the service up.
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
       expect(controller.state.interruptedByTransientFocus, isFalse,
           reason: 'focus is back: playing keeps the service up on its own');
+    });
+
+    // Android 17 refuses audio focus to a backgrounded app with no foreground
+    // service, and silences its audio. The regain's resume asks for focus, so
+    // the session must not report paused (which takes the media service out of
+    // the foreground) between the regain and the engine sounding again.
+    test('the regain keeps the service held until the engine plays again',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      expect(controller.state.status, PlaybackStatus.paused);
+      expect(controller.state.interruptedByTransientFocus, isTrue);
+
+      final List<PlaybackState> seen = <PlaybackState>[];
+      final StreamSubscription<PlaybackState> sub =
+          controller.stateStream.listen(seen.add);
+      addTearDown(sub.cancel);
+
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      expect(p.playCalls, 1);
+      expect(controller.state.interruptedByTransientFocus, isTrue,
+          reason: 'the engine has not sounded yet, so the hold must stand');
+
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      await _settle();
+
+      expect(
+        seen.where((PlaybackState s) =>
+            s.status == PlaybackStatus.paused &&
+            !s.interruptedByTransientFocus),
+        isEmpty,
+        reason: 'a paused, unheld state demotes the media service right as '
+            'the resume asks for audio focus',
+      );
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.interruptedByTransientFocus, isFalse,
+          reason: 'once playing, nothing is left for the hold to bridge');
+    });
+
+    test('a pause after the regain drops a hold still waiting on the engine',
+        () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce();
+      controller.handleEngineState(PlayerState(false, ProcessingState.ready));
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      expect(controller.state.interruptedByTransientFocus, isTrue);
+
+      // The user gives up on it and pauses: nothing is left to bridge.
+      await controller.pause();
+      await _settle();
+      expect(controller.state.interruptedByTransientFocus, isFalse);
     });
 
     test('the hold reaches listeners on the state stream', () async {
@@ -547,6 +616,8 @@ void main() {
       controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
       await _pastDebounce();
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
       await _settle();
 
       expect(held, contains(true),
@@ -659,11 +730,17 @@ void main() {
       expect(controller.state.interruptedByTransientFocus, isFalse,
           reason: 'the hold must expire on its own, not linger indefinitely');
 
-      // Recovery is given up only as a battery tradeoff: if the isolate is still
-      // alive when focus does come back, playback still resumes.
+      // The resume goes with the hold. With the media service out of the
+      // foreground, a resume on a late regain would start audio from the
+      // background, which Android 17 silences (and earlier versions can refuse
+      // the service's return to the foreground for). The listener presses
+      // Play instead.
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
       await _settle();
-      expect(p.playCalls, 1);
+      expect(p.playCalls, 0);
+      expect(controller.state.playWhenReady, isFalse,
+          reason: 'nothing loading or retrying may start sound on its own '
+              'once the hold is gone');
     });
 
     test('a repeated voice-session loss keeps the hold through to the regain',
@@ -685,6 +762,7 @@ void main() {
 
       controller.onAudioInterruption(_end(AudioInterruptionType.pause));
       await _settle();
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
       expect(p.playCalls, 1);
       expect(controller.state.interruptedByTransientFocus, isFalse);
