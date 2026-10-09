@@ -89,8 +89,15 @@ class PlaybackReportingService {
   Duration _furthest = Duration.zero;
 
   /// Pending reporter calls, dispatched strictly in order, one at a time.
+  /// Each was built when its event happened, against the reporter as it
+  /// stood then ([ServerPlaybackReporter.capture]), so it doesn't depend on
+  /// the live sessions still being readable when its turn comes.
   final List<Future<void> Function()> _pending = <Future<void> Function()>[];
-  bool _draining = false;
+
+  /// The dispatch running now, until the queue is empty.
+  Future<void>? _draining;
+
+  Future<void>? _disposal;
 
   void _onState(PlaybackState state) {
     final Track? track = state.currentTrack;
@@ -105,7 +112,8 @@ class PlaybackReportingService {
       // session is always closed.
       if (previous != null && _isActive) {
         final Track? next = track;
-        _enqueue(() => _reporter.onTrackChanged(previous, next));
+        _enqueue((ServerPlaybackReporter reporter) =>
+            reporter.onTrackChanged(previous, next));
       }
       _track = track;
       _phase = _ReportedPhase.none;
@@ -126,7 +134,8 @@ class PlaybackReportingService {
       final Duration end = _furthest;
       final Duration length = _lastDuration;
       _phase = _ReportedPhase.stopped;
-      _enqueue(() => _reporter.onPlaybackStopped(current, end, length));
+      _enqueue((ServerPlaybackReporter reporter) =>
+          reporter.onPlaybackStopped(current, end, length));
       _lastPosition = Duration.zero;
       _furthest = Duration.zero;
     }
@@ -151,28 +160,28 @@ class PlaybackReportingService {
             // place it was put back at before it played, is not this one's.
             _furthest = position;
             _lastProgressAt = _now();
-            _enqueue(
-                () => _reporter.onPlaybackStarted(current, position, duration));
+            _enqueue((ServerPlaybackReporter reporter) =>
+                reporter.onPlaybackStarted(current, position, duration));
           case _ReportedPhase.paused:
             _phase = _ReportedPhase.playing;
             _lastProgressAt = _now();
-            _enqueue(
-                () => _reporter.onPlaybackResumed(current, position, duration));
+            _enqueue((ServerPlaybackReporter reporter) =>
+                reporter.onPlaybackResumed(current, position, duration));
           case _ReportedPhase.playing:
             final DateTime now = _now();
             final DateTime? last = _lastProgressAt;
             if (last == null || now.difference(last) >= progressInterval) {
               _lastProgressAt = now;
-              _enqueue(() =>
-                  _reporter.onPlaybackProgress(current, position, duration));
+              _enqueue((ServerPlaybackReporter reporter) =>
+                  reporter.onPlaybackProgress(current, position, duration));
             }
         }
       case PlaybackStatus.paused:
         if (_phase == _ReportedPhase.playing) {
           final Duration position = state.position;
           _phase = _ReportedPhase.paused;
-          _enqueue(
-              () => _reporter.onPlaybackPaused(current, position, duration));
+          _enqueue((ServerPlaybackReporter reporter) =>
+              reporter.onPlaybackPaused(current, position, duration));
         }
       case PlaybackStatus.idle:
       case PlaybackStatus.completed:
@@ -183,8 +192,8 @@ class PlaybackReportingService {
           final Duration position = _lastPosition;
           final Duration lastDuration = _lastDuration;
           _phase = _ReportedPhase.stopped;
-          _enqueue(() =>
-              _reporter.onPlaybackStopped(current, position, lastDuration));
+          _enqueue((ServerPlaybackReporter reporter) =>
+              reporter.onPlaybackStopped(current, position, lastDuration));
         }
       case PlaybackStatus.loading:
       case PlaybackStatus.buffering:
@@ -214,41 +223,60 @@ class PlaybackReportingService {
     return _furthest >= length - (quarter < tolerance ? quarter : tolerance);
   }
 
-  void _enqueue(Future<void> Function() report) {
-    _pending.add(report);
-    unawaited(_drain());
+  void _enqueue(
+    Future<void> Function(ServerPlaybackReporter reporter) report,
+  ) {
+    final ServerPlaybackReporter reporter;
+    try {
+      reporter = _reporter.capture();
+    } catch (_) {
+      // Nothing left to report through (the app is already gone).
+      // Best-effort by contract.
+      return;
+    }
+    _pending.add(() => report(reporter));
+    _draining ??= _drain().whenComplete(() => _draining = null);
   }
 
   /// Dispatches pending reports strictly in order, one at a time, so a slow
   /// network call can never deliver a pause after a later progress. Failures
   /// are swallowed: reporting must never disturb playback or later reports.
   Future<void> _drain() async {
-    if (_draining) return;
-    _draining = true;
-    try {
-      while (_pending.isNotEmpty) {
-        final Future<void> Function() report = _pending.removeAt(0);
-        try {
-          await report();
-        } catch (_) {
-          // Best-effort by contract; the next report still goes out.
-        }
+    while (_pending.isNotEmpty) {
+      final Future<void> Function() report = _pending.removeAt(0);
+      try {
+        await report();
+      } catch (_) {
+        // Best-effort by contract; the next report still goes out.
       }
-    } finally {
-      _draining = false;
     }
   }
 
+  /// Completes once every report queued so far has been sent (or failed), a
+  /// stop queued by [dispose] included. Never fails, but takes as long as the
+  /// server does to answer: a caller that can't wait for that, like shutdown,
+  /// bounds it.
+  Future<void> get idle => _draining ?? Future<void>.value();
+
   /// Stops listening. If a session was open, a final best-effort stop is
-  /// reported so the server doesn't keep showing a phantom player.
-  Future<void> dispose() async {
+  /// queued, behind whatever is already on its way, so the server doesn't
+  /// keep showing a phantom player.
+  ///
+  /// Returns once the stop is queued, without waiting for the network (see
+  /// [idle]). The stop is built now, while the session it belongs to can
+  /// still be read, so it still goes out if the app is torn down before its
+  /// turn. Calling it again does nothing more.
+  Future<void> dispose() => _disposal ??= _dispose();
+
+  Future<void> _dispose() async {
     await _subscription.cancel();
     final Track? track = _track;
     if (track != null && _isActive) {
       final Duration position = _lastPosition;
       final Duration duration = _lastDuration;
       _phase = _ReportedPhase.stopped;
-      _enqueue(() => _reporter.onPlaybackStopped(track, position, duration));
+      _enqueue((ServerPlaybackReporter reporter) =>
+          reporter.onPlaybackStopped(track, position, duration));
     }
   }
 }

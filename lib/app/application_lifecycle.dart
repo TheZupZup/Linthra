@@ -11,6 +11,7 @@ import '../core/services/artwork_disk_cache.dart';
 import '../core/services/artwork_server.dart';
 import '../core/services/desktop_window_lifecycle_service.dart';
 import '../core/services/media_session_binding.dart';
+import '../core/services/playback_reporting_service.dart';
 import '../core/services/playback_session_persistence.dart';
 import '../core/services/playback_volume_persistence.dart';
 import '../core/sources/plex/plex_artwork.dart';
@@ -71,6 +72,7 @@ class ApplicationHandle {
     required this.container,
     ProviderSubscription<AsyncValue<bool>>? normalizeVolumeSubscription,
     ArtworkDiskCache? artworkDiskCache,
+    this.closingReportDeadline = defaultClosingReportDeadline,
   }) : _asyncDisposals = container.read(asyncDisposalRegistryProvider) {
     if (normalizeVolumeSubscription != null) {
       ownSubscription(normalizeVolumeSubscription);
@@ -81,6 +83,15 @@ class ApplicationHandle {
   }
 
   final ProviderContainer container;
+
+  /// How long [shutdown] waits, once everything else is closed, for the
+  /// reports still queued for the servers (the closing stop above all) to go
+  /// out. A server that never answers costs this much, never more.
+  final Duration closingReportDeadline;
+
+  /// Long enough for a server on a working connection to take a report or
+  /// two, well inside the five seconds a window close waits for shutdown.
+  static const Duration defaultClosingReportDeadline = Duration(seconds: 2);
 
   /// The container's collector of asynchronous provider teardown. Captured at
   /// construction because it cannot be read back once the container is gone.
@@ -151,9 +162,15 @@ class ApplicationHandle {
     // can still be read. Left to the stop below or to the container's
     // teardown, the report goes out after that account is gone, or not at
     // all, and the server goes on showing Linthra as playing after it quit.
+    // The stop is built now and only queued: it waits behind a report the
+    // server is still answering, and the speakers must not wait with it.
+    Future<void> reportsSent = Future<void>.value();
     await _guard(() async {
       if (!container.exists(playbackReportingServiceProvider)) return;
-      await container.read(playbackReportingServiceProvider).dispose();
+      final PlaybackReportingService reporting =
+          container.read(playbackReportingServiceProvider);
+      await reporting.dispose();
+      reportsSent = reporting.idle;
     });
 
     // Silence the speakers next, before anything it depends on goes away.
@@ -188,6 +205,12 @@ class ApplicationHandle {
     // `ProviderContainer.dispose()` only *starts* asynchronous teardown; this
     // is where "the database is closed" becomes true rather than pending.
     await _asyncDisposals.settle();
+
+    // Last, give the queued reports a moment to reach their servers. They
+    // need nothing torn down above, and the process may end as soon as this
+    // returns. Bounded: shutdown never waits on a server that doesn't
+    // answer.
+    await _guard(() => reportsSent.timeout(closingReportDeadline));
   }
 
   Future<void> _guard(FutureOr<void> Function() step) async {
@@ -212,8 +235,13 @@ Future<ApplicationHandle> bootstrapApplication(
   bool installPersistentArtworkCache = true,
   Directory? artworkCacheDirectory,
   MediaSessionBinding mediaSessionBinding = const PlatformMediaSessionBinding(),
+  Duration closingReportDeadline =
+      ApplicationHandle.defaultClosingReportDeadline,
 }) async {
-  final ApplicationHandle handle = ApplicationHandle(container: container);
+  final ApplicationHandle handle = ApplicationHandle(
+    container: container,
+    closingReportDeadline: closingReportDeadline,
+  );
   try {
     // The desktop window lifecycle (#401): what a window close does, and the
     // explicit quit. Started before the media session so MPRIS can offer the

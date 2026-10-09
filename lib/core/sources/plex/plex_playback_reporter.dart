@@ -37,8 +37,9 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
   PlexPlaybackReporter({
     required PlexSession? Function() session,
     required PlexClient Function() client,
-  })  : _session = session,
-        _client = client;
+  }) : this._(session, client, _PlexPlay());
+
+  PlexPlaybackReporter._(this._session, this._client, this._play);
 
   /// Supplies the live signed-in session, or `null` when not connected.
   final PlexSession? Function() _session;
@@ -46,25 +47,18 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
   /// Supplies the live client (whose identity headers name this install).
   final PlexClient Function() _client;
 
-  /// The last position/duration actually reported for the current track, so
-  /// [onTrackChanged] can close the outgoing track's session at an honest
-  /// position (that event carries no position of its own).
-  String? _lastReportedUri;
-  Duration _lastReportedPosition = Duration.zero;
-  Duration? _lastReportedDuration;
-
-  /// The play reported last, and the server and Home profile connected when it
-  /// started ([plexSessionFingerprint]), or null when none was. Connecting to
-  /// another server leaves the song playing, and a ratingKey only means
-  /// something on the server that issued it: the rest of that play is not
-  /// reported to the new server, where the same number names another item.
-  /// Nor to another Home profile of the same server, whose token would put it
-  /// in that person's history.
-  String? _playUri;
-  String? _playSession;
-
   @override
   bool handles(Track track) => track.uri.startsWith(PlexTrackMapper.uriScheme);
+
+  /// The play in progress, shared with every [capture] of this reporter.
+  final _PlexPlay _play;
+
+  @override
+  ServerPlaybackReporter capture() {
+    final PlexSession? session = _session();
+    final PlexClient client = _client();
+    return PlexPlaybackReporter._(() => session, () => client, _play);
+  }
 
   @override
   Future<void> onPlaybackStarted(
@@ -114,12 +108,14 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     // next (another Plex track, another provider's, or nothing). The incoming
     // track announces itself via onPlaybackStarted once it actually plays.
     if (previousTrack == null || !handles(previousTrack)) return;
-    final bool remembered = previousTrack.uri == _lastReportedUri;
+    final bool remembered = previousTrack.uri == _play.lastReportedUri;
     await _report(
       previousTrack,
       PlexTimelineState.stopped,
-      remembered ? _lastReportedPosition : Duration.zero,
-      remembered ? (_lastReportedDuration ?? Duration.zero) : Duration.zero,
+      remembered ? _play.lastReportedPosition : Duration.zero,
+      remembered
+          ? (_play.lastReportedDuration ?? Duration.zero)
+          : Duration.zero,
     );
   }
 
@@ -145,20 +141,20 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     // none, so a server connected during it isn't told about it either.
     final String? owner =
         session == null ? null : plexSessionFingerprint(session);
-    if (starts || track.uri != _playUri) {
-      _playUri = track.uri;
-      _playSession = owner;
-    } else if (owner != _playSession) {
+    if (starts || track.uri != _play.playUri) {
+      _play.playUri = track.uri;
+      _play.playSession = owner;
+    } else if (owner != _play.playSession) {
       return;
     }
     if (session == null) return;
 
     if (state == PlexTimelineState.stopped) {
-      if (track.uri == _lastReportedUri) _lastReportedUri = null;
+      if (track.uri == _play.lastReportedUri) _play.lastReportedUri = null;
     } else {
-      _lastReportedUri = track.uri;
-      _lastReportedPosition = position;
-      _lastReportedDuration = duration > Duration.zero ? duration : null;
+      _play.lastReportedUri = track.uri;
+      _play.lastReportedPosition = position;
+      _play.lastReportedDuration = duration > Duration.zero ? duration : null;
     }
 
     try {
@@ -183,4 +179,26 @@ class PlexPlaybackReporter implements ServerPlaybackReporter {
     if (!kDebugMode) return;
     developer.log(message, name: 'linthra.plex');
   }
+}
+
+/// What [PlexPlaybackReporter] remembers about the play in progress, shared
+/// with every [PlexPlaybackReporter.capture] of it.
+class _PlexPlay {
+  /// The last position/duration actually reported for the current track, so
+  /// [PlexPlaybackReporter.onTrackChanged] can close the outgoing track's
+  /// session at an honest position (that event carries no position of its
+  /// own).
+  String? lastReportedUri;
+  Duration lastReportedPosition = Duration.zero;
+  Duration? lastReportedDuration;
+
+  /// The play reported last, and the server and Home profile connected when
+  /// it started ([plexSessionFingerprint]), or null when none was.
+  /// Connecting to another server leaves the song playing, and a ratingKey
+  /// only means something on the server that issued it: the rest of that
+  /// play is not reported to the new server, where the same number names
+  /// another item. Nor to another Home profile of the same server, whose
+  /// token would put it in that person's history.
+  String? playUri;
+  String? playSession;
 }

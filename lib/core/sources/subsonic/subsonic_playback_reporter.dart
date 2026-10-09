@@ -48,8 +48,9 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   SubsonicPlaybackReporter({
     required SubsonicSession? Function() session,
     required SubsonicClient Function() client,
-  })  : _session = session,
-        _client = client;
+  }) : this._(session, client, _SubsonicPlay());
+
+  SubsonicPlaybackReporter._(this._session, this._client, this._play);
 
   /// Supplies the live signed-in session, or `null` when not connected.
   final SubsonicSession? Function() _session;
@@ -61,23 +62,19 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   /// than half (the long-track half of the half-or-four-minutes rule).
   static const Duration submissionFloor = Duration(minutes: 4);
 
-  /// The track currently announced as now playing, with the last position and
-  /// duration observed for it — what a settle (stop or track change) judges
-  /// the play by. One play submits at most once: settling clears it.
-  String? _nowPlayingUri;
-  Duration _lastPosition = Duration.zero;
-  Duration _lastDuration = Duration.zero;
-
-  /// The account signed in when the current play started, or null when nobody
-  /// was. Signing out never stops playback, so a song can play on while the
-  /// listener signs in as someone else. The rest of that play still belongs
-  /// to the account it started under: the new one must not count it, nor list
-  /// it as playing. A play that started while signed out is nobody's.
-  String? _playUser;
-
   @override
   bool handles(Track track) =>
       track.uri.startsWith(SubsonicTrackMapper.uriScheme);
+
+  /// The play in progress, shared with every [capture] of this reporter.
+  final _SubsonicPlay _play;
+
+  @override
+  ServerPlaybackReporter capture() {
+    final SubsonicSession? session = _session();
+    final SubsonicClient client = _client();
+    return SubsonicPlaybackReporter._(() => session, () => client, _play);
+  }
 
   @override
   Future<void> onPlaybackStarted(
@@ -142,8 +139,8 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
     // onPlaybackStarted once it actually plays. This event carries no
     // position, so the settle uses the last one observed.
     if (previousTrack == null || !handles(previousTrack)) return;
-    if (previousTrack.uri != _nowPlayingUri) return;
-    await _settle(previousTrack, _lastPosition, _lastDuration);
+    if (previousTrack.uri != _play.nowPlayingUri) return;
+    await _settle(previousTrack, _play.lastPosition, _play.lastDuration);
   }
 
   /// Closes the play of [track]: submits a scrobble when enough of it ran to
@@ -156,8 +153,8 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   ) async {
     final String songId = _songId(track);
     if (songId.isEmpty) return;
-    if (track.uri != _nowPlayingUri) return;
-    _nowPlayingUri = null;
+    if (track.uri != _play.nowPlayingUri) return;
+    _play.nowPlayingUri = null;
     if (!playedEnoughToSubmit(position, duration)) return;
     await _scrobble(songId, submission: true);
   }
@@ -181,17 +178,17 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
   }
 
   void _remember(Track track, Duration position, Duration duration) {
-    if (track.uri != _nowPlayingUri) {
+    if (track.uri != _play.nowPlayingUri) {
       // A fresh play: drop the previous play's leftovers so they can never
       // bleed into this track's settle judgement, and bind it to the account
       // signed in now.
-      _nowPlayingUri = track.uri;
-      _lastPosition = Duration.zero;
-      _lastDuration = Duration.zero;
-      _playUser = _session()?.username;
+      _play.nowPlayingUri = track.uri;
+      _play.lastPosition = Duration.zero;
+      _play.lastDuration = Duration.zero;
+      _play.playUser = _session()?.username;
     }
-    if (position > Duration.zero) _lastPosition = position;
-    if (duration > Duration.zero) _lastDuration = duration;
+    if (position > Duration.zero) _play.lastPosition = position;
+    if (duration > Duration.zero) _play.lastDuration = duration;
   }
 
   /// Sends one scrobble call, best-effort. Signed out is a silent no-op; a
@@ -202,7 +199,7 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
     if (session == null) return;
     // The play belongs to the account it started under, which keeps
     // scrobbling it through another address too.
-    if (session.username != _playUser) return;
+    if (session.username != _play.playUser) return;
     final String what = submission ? 'scrobble' : 'now-playing';
     try {
       await _client().scrobble(session, songId, submission: submission);
@@ -219,4 +216,23 @@ class SubsonicPlaybackReporter implements ServerPlaybackReporter {
     if (!kDebugMode) return;
     developer.log(message, name: 'linthra.subsonic');
   }
+}
+
+/// What [SubsonicPlaybackReporter] remembers about the play in progress,
+/// shared with every [SubsonicPlaybackReporter.capture] of it.
+class _SubsonicPlay {
+  /// The track currently announced as now playing, with the last position
+  /// and duration observed for it — what a settle (stop or track change)
+  /// judges the play by. One play submits at most once: settling clears it.
+  String? nowPlayingUri;
+  Duration lastPosition = Duration.zero;
+  Duration lastDuration = Duration.zero;
+
+  /// The account signed in when the current play started, or null when
+  /// nobody was. Signing out never stops playback, so a song can play on
+  /// while the listener signs in as someone else. The rest of that play
+  /// still belongs to the account it started under: the new one must not
+  /// count it, nor list it as playing. A play that started while signed out
+  /// is nobody's.
+  String? playUser;
 }

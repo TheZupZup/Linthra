@@ -52,6 +52,36 @@ void main() {
           client: () => client,
         );
 
+    test('a capture keeps its session and client, and shares the play (#838)',
+        () async {
+      bool torndown = false;
+      final reporter = SubsonicPlaybackReporter(
+        session: () => torndown ? throw StateError('disposed') : session,
+        client: () => torndown ? throw StateError('disposed') : client,
+      );
+      final Track song = _subsonicTrack('42');
+
+      await reporter
+          .capture()
+          .onPlaybackStarted(song, Duration.zero, _duration);
+      // The closing stop is built while the app is still up, and sent after
+      // it has been torn down.
+      final stop = reporter.capture();
+      torndown = true;
+      await stop.onPlaybackStopped(song, _playedEnough, _duration);
+
+      expect(client.scrobbles, <({String songId, bool submission})>[
+        (songId: '42', submission: false),
+        (songId: '42', submission: true),
+      ]);
+      expect(client.lastScrobbleSession, _session);
+
+      // One play, one submission, whichever capture settles it.
+      torndown = false;
+      await reporter.capture().onTrackChanged(song, null);
+      expect(client.scrobbles, hasLength(2));
+    });
+
     test('handles only subsonic: tracks', () {
       final reporter = build();
       expect(reporter.handles(_subsonicTrack('42')), isTrue);
