@@ -135,7 +135,8 @@ class SessionSongOrigins implements SongOrigins {
   Map<String, String> _legacy = const <String, String>{};
   Future<void>? _settling;
 
-  /// What was settled but couldn't be saved yet, and the save trying it.
+  /// What was settled but couldn't be saved yet, and the last save queued
+  /// for it.
   Map<String, String>? _unsaved;
   Future<void>? _saving;
   final StreamController<void> _changes = StreamController<void>.broadcast();
@@ -195,9 +196,10 @@ class SessionSongOrigins implements SongOrigins {
     await _save();
   }
 
-  Future<void> _save() => _saving ??= _saveUnsaved().whenComplete(() {
-        _saving = null;
-      });
+  /// Tries the unsaved settlement once more, after any try still out: a
+  /// change while one is out must not ride on it, since it may be refused.
+  Future<void> _save() =>
+      _saving = (_saving ?? Future<void>.value()).then((_) => _saveUnsaved());
 
   Future<void> _saveUnsaved() async {
     final Map<String, String>? unsaved = _unsaved;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/repositories/song_origin_legacy_store.dart';
 import 'package:linthra/core/services/song_origins.dart';
@@ -33,6 +35,26 @@ class _RefusingStore extends InMemorySongOriginLegacyStore {
   @override
   Future<void> write(Map<String, String> settled) async {
     if (refuse) throw StateError('refused');
+    await super.write(settled);
+  }
+}
+
+/// A legacy record that refuses its first [refusals] writes, each one
+/// waiting on [hold] when it is set.
+class _ScriptedStore extends InMemorySongOriginLegacyStore {
+  _ScriptedStore(this.refusals);
+
+  int refusals;
+  Completer<void>? hold;
+
+  @override
+  Future<void> write(Map<String, String> settled) async {
+    final Completer<void>? held = hold;
+    if (held != null) await held.future;
+    if (refusals > 0) {
+      refusals--;
+      throw StateError('refused');
+    }
     await super.write(settled);
   }
 }
@@ -227,6 +249,31 @@ void main() {
       );
       await restarted.settleLegacy();
       expect(restarted.legacy('subsonic:1'), 'acct-alice');
+    });
+
+    test(
+        'a change while a retried save is still out tries again after it, '
+        'when that one is refused too', () async {
+      final _ScriptedStore store = _ScriptedStore(2);
+      String? signedIn = 'acct-alice';
+      final SessionSongOrigins origins = SessionSongOrigins(
+        signedIn: (String scheme) => signedIn,
+        legacyStore: store,
+      );
+      await origins.settleLegacy(); // refused
+      expect(store.settled, isEmpty);
+
+      store.hold = Completer<void>();
+      signedIn = null;
+      origins.changed(); // a retry goes out and waits
+      await pumpEventQueue();
+      signedIn = 'acct-bob';
+      origins.changed(); // while it is still out
+      store.hold!.complete(); // that retry is refused too
+      store.hold = null;
+      await pumpEventQueue();
+
+      expect(store.settled['subsonic:'], 'acct-alice');
     });
 
     test('settling announces it, so what resolves references does again',
