@@ -335,7 +335,7 @@ class FilesystemLocalMetadataReader
   ) {
     if (fields == null) return metadata;
     final List<String> artists = _nonBlank(fields['ARTIST']);
-    final List<String> albumArtists = _nonBlank(fields['ALBUMARTIST']);
+    final List<String> albumArtists = _albumArtists(fields);
     return LocalAudioMetadata(
       title: metadata.title,
       artist: artists.isEmpty ? null : artists.join(', '),
@@ -346,6 +346,15 @@ class FilesystemLocalMetadataReader
       duration: metadata.duration,
       artworkUri: metadata.artworkUri,
     );
+  }
+
+  /// A Vorbis comment's album artists, under either spelling taggers use:
+  /// ALBUMARTIST, or ALBUM_ARTIST when that one isn't there.
+  static List<String> _albumArtists(Map<String, List<String>> fields) {
+    final List<String> albumArtists = _nonBlank(fields['ALBUMARTIST']);
+    return albumArtists.isNotEmpty
+        ? albumArtists
+        : _nonBlank(fields['ALBUM_ARTIST']);
   }
 
   /// What a FLAC, OGG or Opus file the package gave up on still says in the
@@ -370,7 +379,7 @@ class FilesystemLocalMetadataReader
     if (found == null) return null;
     final Map<String, List<String>> fields = found.fields;
     final List<String> artists = _nonBlank(fields['ARTIST']);
-    final List<String> albumArtists = _nonBlank(fields['ALBUMARTIST']);
+    final List<String> albumArtists = _albumArtists(fields);
     final LocalAudioMetadata tags = _metadata(
           title: _nonBlank(fields['TITLE']).firstOrNull,
           artist: artists.isEmpty ? null : artists.join(', '),

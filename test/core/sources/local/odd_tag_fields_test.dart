@@ -116,6 +116,25 @@ void main() {
         expect(read.metadata!.duration, const Duration(seconds: 3));
       });
 
+      test('${kind.key}: an album artist spelled ALBUM_ARTIST is kept',
+          () async {
+        final String path = write(
+          kind.key,
+          kind.value(<String>[
+            'TITLE=Guest Spot',
+            'ARTIST=Featured Guest',
+            'ALBUM_ARTIST=Various Artists',
+            'TRACKNUMBER=A1',
+          ]),
+        );
+
+        final LocalMetadataRead read = await reader.readWithOutcome(path);
+
+        expect(read.failed, isFalse);
+        expect(read.metadata!.artist, 'Featured Guest');
+        expect(read.metadata!.albumArtist, 'Various Artists');
+      });
+
       test('${kind.key}: an empty TRACKTOTAL keeps a 3/12 track number',
           () async {
         final String path = write(
