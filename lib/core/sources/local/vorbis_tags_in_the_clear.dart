@@ -56,15 +56,17 @@ final class VorbisTagsInTheClear {
 
   /// Walks a FLAC's metadata blocks from just after its magic: STREAMINFO
   /// (always first) for the length, VORBIS_COMMENT for the fields, and, when
-  /// [withCover], every PICTURE. Everything else is seeked past, and without
-  /// a cover to find the walk stops at the comments.
+  /// [withCover], the PICTUREs until the front cover. Only the best picture
+  /// so far is kept, never every one: a file can carry many large ones.
+  /// Everything else is seeked past, and without a cover to find the walk
+  /// stops at the comments.
   static Future<VorbisTagsInTheClear?> _flac(
     RandomAccessFile handle,
     bool withCover,
   ) async {
     Duration? duration;
     Map<String, List<String>>? fields;
-    final List<_Picture> pictures = <_Picture>[];
+    _Picture? cover;
     while (true) {
       final Uint8List header = await handle.read(4);
       if (header.length < 4) break; // truncated
@@ -79,15 +81,20 @@ final class VorbisTagsInTheClear {
         fields ??= await VorbisCommentFields.readBlock(handle, length);
         if (fields == null) return null;
         if (!withCover) break;
-      } else if (type == _pictureBlock && withCover) {
+      } else if (type == _pictureBlock &&
+          withCover &&
+          cover?.type != _Picture._frontCover) {
         final _Picture? picture = _Picture.parse(await handle.read(length));
-        if (picture != null) pictures.add(picture);
+        if (picture != null &&
+            (cover == null || picture.type == _Picture._frontCover)) {
+          cover = picture;
+        }
       }
       if (isLast) break;
       await handle.setPosition(next);
     }
     if (fields == null) return null;
-    return VorbisTagsInTheClear._(fields, duration, _Picture.cover(pictures));
+    return VorbisTagsInTheClear._(fields, duration, cover?.data);
   }
 
   /// Reads an Ogg Vorbis or Opus stream's identification and comment headers,

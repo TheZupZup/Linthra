@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -208,6 +209,43 @@ void main() {
     });
   });
 
+  group('VorbisCommentFields.parseBlock', () {
+    /// A comment block with an empty vendor and [comments], each written as
+    /// its length and bytes.
+    Uint8List block(List<String> comments) {
+      final BytesBuilder out = BytesBuilder()
+        ..add(_uint32le(0))
+        ..add(_uint32le(comments.length));
+      for (final String comment in comments) {
+        final List<int> bytes = utf8.encode(comment);
+        out
+          ..add(_uint32le(bytes.length))
+          ..add(bytes);
+      }
+      return out.toBytes();
+    }
+
+    test('reads a block with a few thousand comments', () {
+      final Map<String, List<String>>? fields = VorbisCommentFields.parseBlock(
+        block(<String>[for (int i = 0; i < 5000; i++) 'LYRICS=line $i']),
+      );
+      expect(fields!['LYRICS'], hasLength(5000));
+    });
+
+    test(
+        'a block declaring millions of tiny comments is corrupt, not walked '
+        'one by one', () {
+      // Two million empty comments fit in 8 MiB, well inside what an Ogg
+      // comment packet may hold.
+      const int count = 2000000;
+      final BytesBuilder out = BytesBuilder()
+        ..add(_uint32le(0))
+        ..add(_uint32le(count))
+        ..add(Uint8List(count * 4));
+      expect(VorbisCommentFields.parseBlock(out.toBytes()), isNull);
+    });
+  });
+
   group('FlacStreamInfo.duration', () {
     /// The STREAMINFO block of [flac]: the 34 bytes after `fLaC` and the
     /// block's own 4-byte header.
@@ -239,3 +277,10 @@ void main() {
     });
   });
 }
+
+List<int> _uint32le(int value) => <int>[
+      value & 0xFF,
+      (value >> 8) & 0xFF,
+      (value >> 16) & 0xFF,
+      (value >> 24) & 0xFF,
+    ];

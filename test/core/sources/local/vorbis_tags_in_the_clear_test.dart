@@ -62,6 +62,78 @@ void main() {
     );
   });
 
+  /// A FLAC whose comments say `TITLE=X`, followed by one PICTURE block per
+  /// entry of [pictures] (its picture type and image bytes).
+  Uint8List flacWithPictures(List<(int, List<int>)> pictures) {
+    final BytesBuilder out = BytesBuilder()..add('fLaC'.codeUnits);
+    void block(int type, List<int> body, {bool last = false}) {
+      out
+        ..addByte((last ? 0x80 : 0) | type)
+        ..add(<int>[
+          (body.length >> 16) & 0xFF,
+          (body.length >> 8) & 0xFF,
+          body.length & 0xFF,
+        ])
+        ..add(body);
+    }
+
+    List<int> uint32be(int value) => <int>[
+          (value >> 24) & 0xFF,
+          (value >> 16) & 0xFF,
+          (value >> 8) & 0xFF,
+          value & 0xFF,
+        ];
+
+    block(0, Uint8List(34));
+    block(4, <int>[0, 0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0, ...'TITLE=X'.codeUnits]);
+    for (int i = 0; i < pictures.length; i++) {
+      final (int type, List<int> image) = pictures[i];
+      block(
+        6,
+        <int>[
+          ...uint32be(type),
+          ...uint32be(0), // MIME type
+          ...uint32be(0), // description
+          ...Uint8List(16), // dimensions
+          ...uint32be(image.length),
+          ...image,
+        ],
+        last: i == pictures.length - 1,
+      );
+    }
+    return out.toBytes();
+  }
+
+  test("a FLAC's front cover wins over pictures before and after it", () async {
+    final VorbisTagsInTheClear? found = await VorbisTagsInTheClear.read(
+      write(
+        'covers.flac',
+        flacWithPictures(<(int, List<int>)>[
+          (4, <int>[4, 4]), // back cover
+          (3, <int>[3, 3]), // front cover
+          (8, <int>[8, 8]), // artist
+        ]),
+      ),
+      withCover: true,
+    );
+    expect(found!.cover, <int>[3, 3]);
+  });
+
+  test('without a front cover, the first picture is the cover', () async {
+    final VorbisTagsInTheClear? found = await VorbisTagsInTheClear.read(
+      write(
+        'no_front.flac',
+        flacWithPictures(<(int, List<int>)>[
+          (4, <int>[4, 4]),
+          (8, <int>[8, 8]),
+        ]),
+      ),
+      withCover: true,
+    );
+    expect(found!.fields['TITLE'], <String>['X']);
+    expect(found.cover, <int>[4, 4]);
+  });
+
   test('the cover is only looked for when asked for', () async {
     for (final (String name, Uint8List bytes) in <(String, Uint8List)>[
       ('song.flac', AudioTagFixtures.flac(title: 'X', coverImage: cover)),

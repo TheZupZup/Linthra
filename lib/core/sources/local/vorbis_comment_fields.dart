@@ -34,6 +34,12 @@ class VorbisCommentFields {
   /// seeked past; its neighbours are kept.
   static const int _maxCommentBytes = 1 << 20; // 1 MiB
 
+  /// A sanity bound on how many comments a block may declare. Real files
+  /// carry tens, a heavily tagged one a few hundred; a block declaring more
+  /// than this is corrupt, and walking millions of tiny entries one by one
+  /// would stall the scan (and the UI, for a block parsed in memory).
+  static const int _maxComments = 1 << 16;
+
   /// Comments keyed by upper-cased field name, or null when [file] is not a
   /// FLAC whose comment block could be read.
   ///
@@ -104,7 +110,7 @@ class VorbisCommentFields {
     await handle.setPosition(await handle.position() + vendorLength);
 
     final int? count = await readUint32le();
-    if (count == null) return null;
+    if (count == null || count > _maxComments) return null;
 
     final Map<String, List<String>> fields = <String, List<String>>{};
     for (int i = 0; i < count; i++) {
@@ -189,7 +195,7 @@ class VorbisCommentFields {
     offset += vendorLength;
 
     final int? count = readUint32le();
-    if (count == null) return null;
+    if (count == null || count > _maxComments) return null;
 
     final Map<String, List<String>> fields = <String, List<String>>{};
     for (int i = 0; i < count; i++) {
