@@ -215,7 +215,7 @@ class _VariantTile extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final Color borderColor =
         selected ? theme.colorScheme.primary : theme.colorScheme.outline;
-    return SizedBox(
+    final Widget tile = SizedBox(
       width: _tileWidth,
       child: InkWell(
         onTap: onTap,
@@ -290,6 +290,14 @@ class _VariantTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+    // The border and the check badge are the only signs of which icon is in
+    // use, so the tile states it too, as one button (#460).
+    return Semantics(
+      container: true,
+      button: true,
+      selected: selected,
+      child: tile,
     );
   }
 }
