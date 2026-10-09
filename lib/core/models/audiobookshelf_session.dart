@@ -49,6 +49,14 @@ class AudiobookshelfSession {
   /// diagnostics only.
   final String? serverVersion;
 
+  /// Whether [other] is signed in to the same account on the same server.
+  ///
+  /// Renewing the tokens replaces a session with one that carries new tokens
+  /// but is still this account: what was loaded for one still belongs to the
+  /// other. A different user, or the same user id on another server, is not.
+  bool isSameAccountAs(AudiobookshelfSession? other) =>
+      other != null && other.baseUrl == baseUrl && other.userId == userId;
+
   AudiobookshelfSession copyWith({
     String? baseUrl,
     String? userId,
