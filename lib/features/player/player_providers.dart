@@ -59,6 +59,7 @@ import '../../data/repositories/remote_cache_index_provider.dart';
 import '../settings/jellyfin/jellyfin_availability_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/jellyfin/jellyfin_settings_providers.dart';
+import '../settings/local_network/local_network_providers.dart';
 import '../settings/plex/plex_settings_controller.dart';
 import '../settings/plex/plex_settings_providers.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
@@ -110,6 +111,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
   PlayableUriResolver reachabilityAware(
     PlayableUriResolver inner,
     String? Function() providerKey, {
+    required String? Function() serverUrl,
     void Function(ReachabilityStatus status)? onReachabilityObserved,
   }) {
     return ReachabilityAwarePlayableUriResolver(
@@ -118,6 +120,11 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
       reachability: ref.read(providerReachabilityProvider),
       connectivity: ref.read(connectivityServiceProvider),
       onReachabilityObserved: onReachabilityObserved,
+      localNetwork: ref.read(localNetworkAccessProvider),
+      serverUri: () {
+        final String? url = serverUrl();
+        return url == null ? null : Uri.tryParse(url);
+      },
     );
   }
 
@@ -125,6 +132,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
     reachabilityAware(
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
       () => _jellyfinSignInKey(ref),
+      serverUrl: () => ref.read(jellyfinMusicSourceProvider)?.session.baseUrl,
       // Let the library learn from what the player just found out: the first
       // track that can't reach the server flips Jellyfin to unreachable (and the
       // first that succeeds flips it back) without waiting for the background
@@ -138,6 +146,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
     reachabilityAware(
       SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
       () => _subsonicAccountKey(ref),
+      serverUrl: () => ref.read(subsonicMusicSourceProvider)?.session.baseUrl,
     ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
@@ -145,6 +154,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
     reachabilityAware(
       PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
       () => _plexAccountKey(ref),
+      serverUrl: () => ref.read(plexMusicSourceProvider)?.session.baseUrl,
     ),
     LocalPlayableUriResolver(presence: ref.read(localFilePresenceProvider)),
   ]);

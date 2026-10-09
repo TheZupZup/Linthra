@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../audiobookshelf/audiobookshelf_provider_card.dart';
+import '../local_network/local_network_access_card.dart';
 import '../source/provider_summary_cards.dart';
 import 'settings_detail_scaffold.dart';
 
@@ -20,6 +21,9 @@ class ConnectionsSettingsScreen extends StatelessWidget {
     return const SettingsDetailScaffold(
       title: 'Connections',
       children: <Widget>[
+        // Empty unless Android 17's local network access is missing for a
+        // server the user set up on their own network.
+        LocalNetworkAccessCard(),
         _SectionHeading('Music'),
         JellyfinProviderCard(),
         SizedBox(height: AppSpacing.md),

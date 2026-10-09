@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/audiobookshelf_session.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
+import '../../../core/services/local_network/local_network_access.dart';
 import '../../../core/sources/audiobookshelf/audiobookshelf_api.dart';
 import '../../../core/sources/audiobookshelf/audiobookshelf_exception.dart';
 import '../../../data/repositories/audiobookshelf_session_store_provider.dart';
+import '../local_network/local_network_providers.dart';
 import 'audiobookshelf_settings_providers.dart';
 import 'audiobookshelf_settings_state.dart';
 
@@ -141,6 +143,7 @@ class AudiobookshelfSettingsController
       username: state.username,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final AudiobookshelfServerStatus status =
           await ref.read(audiobookshelfAuthenticatorProvider).testConnection(
                 url,
@@ -178,6 +181,7 @@ class AudiobookshelfSettingsController
       username: username,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final AudiobookshelfSession newSession =
           await ref.read(audiobookshelfAuthenticatorProvider).signIn(
                 rawUrl: url,
@@ -237,7 +241,10 @@ class AudiobookshelfSettingsController
   static AudiobookshelfException _typed(Object error) =>
       error is AudiobookshelfException
           ? error
-          : AudiobookshelfException.unsupportedResponse();
+          : error is LocalNetworkBlockedException
+              ? AudiobookshelfException(error.message,
+                  kind: AudiobookshelfErrorKind.notReachable)
+              : AudiobookshelfException.unsupportedResponse();
 
   /// Runs [request] for [session], renewing the tokens once when the server
   /// says the access token has expired (a 401), then running [request] once

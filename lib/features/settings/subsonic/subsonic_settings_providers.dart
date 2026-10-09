@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sources/subsonic/http_subsonic_client.dart';
 import '../../../core/sources/subsonic/subsonic_authenticator.dart';
 import '../../../core/sources/subsonic/subsonic_client.dart';
+import '../local_network/local_network_providers.dart';
 
 /// The HTTP seam for all Subsonic networking.
 ///
@@ -12,7 +13,7 @@ import '../../../core/sources/subsonic/subsonic_client.dart';
 /// concrete client — `main` needs no override because the default is already the
 /// real one.
 final subsonicClientProvider = Provider<SubsonicClient>((ref) {
-  return HttpSubsonicClient();
+  return HttpSubsonicClient(httpClient: guardedServerHttpClient(ref));
 });
 
 /// Coordinates URL validation + the token+salt auth on top of

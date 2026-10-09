@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sources/jellyfin/http_jellyfin_client.dart';
 import '../../../core/sources/jellyfin/jellyfin_authenticator.dart';
 import '../../../core/sources/jellyfin/jellyfin_client.dart';
+import '../local_network/local_network_providers.dart';
 
 /// The HTTP seam for all Jellyfin networking.
 ///
@@ -12,7 +13,7 @@ import '../../../core/sources/jellyfin/jellyfin_client.dart';
 /// concrete client — `main` needs no override because the default is already
 /// the real one.
 final jellyfinClientProvider = Provider<JellyfinClient>((ref) {
-  return HttpJellyfinClient();
+  return HttpJellyfinClient(httpClient: guardedServerHttpClient(ref));
 });
 
 /// Coordinates URL validation + authentication on top of [jellyfinClientProvider].

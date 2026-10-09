@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sources/audiobookshelf/audiobookshelf_authenticator.dart';
 import '../../../core/sources/audiobookshelf/audiobookshelf_client.dart';
 import '../../../core/sources/audiobookshelf/http_audiobookshelf_client.dart';
+import '../local_network/local_network_providers.dart';
 
 /// The HTTP seam for all Audiobookshelf networking.
 ///
@@ -12,7 +13,7 @@ import '../../../core/sources/audiobookshelf/http_audiobookshelf_client.dart';
 /// the concrete client — `main` needs no override because the default is
 /// already the real one.
 final audiobookshelfClientProvider = Provider<AudiobookshelfClient>((ref) {
-  return HttpAudiobookshelfClient();
+  return HttpAudiobookshelfClient(httpClient: guardedServerHttpClient(ref));
 });
 
 /// Coordinates URL validation + sign-in on top of [audiobookshelfClientProvider].
