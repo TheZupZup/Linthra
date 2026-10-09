@@ -440,7 +440,9 @@ void main() {
       // The first screen shows the cover fetched longest ago, still fresh:
       // the image reads the file only once this has returned it.
       final File handedOut = cache.cachedFile(covers.first)!;
-      for (int i = 0; i < 100 && _coverBytes(dir) > 4000; i++) {
+      // The trim goes on past the cap to leave room, so wait for where it
+      // stops rather than for the moment it crosses 4000.
+      for (int i = 0; i < 100 && _coverBytes(dir) > 3000; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
 
