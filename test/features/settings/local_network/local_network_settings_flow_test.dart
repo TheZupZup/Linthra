@@ -51,6 +51,7 @@ const String _lanUrl = 'http://192.168.1.20:8096';
           .overrideWithValue(InMemoryJellyfinSessionStore()),
       jellyfinClientProvider.overrideWithValue(FakeJellyfinClient()),
       localNetworkPermissionProvider.overrideWithValue(permission),
+      localNetworkVpnProbeProvider.overrideWithValue(() async => false),
     ],
   );
   addTearDown(container.dispose);
@@ -185,6 +186,8 @@ void main() {
               .overrideWithValue(InMemoryJellyfinSessionStore()),
           jellyfinClientProvider.overrideWithValue(FakeJellyfinClient()),
           localNetworkPermissionProvider.overrideWithValue(permission),
+          localNetworkVpnProbeProvider.overrideWithValue(() async => false),
+          localNetworkVpnProbeProvider.overrideWithValue(() async => false),
         ],
       );
       addTearDown(container.dispose);

@@ -1060,6 +1060,15 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (held) {
       _focusHoldExpiry = Timer(focusHoldTimeout, () {
         _focusHoldExpiry = null;
+        if (!_resumeAfterTransientLoss) {
+          // Focus already came back and its resume is under way, still
+          // loading or rebuffering: that resume was asked for while the
+          // service was held, and a busy engine on its way to sound keeps the
+          // session playing by itself. Only the hold goes.
+          StabilityDiagnostics.audioFocus('hold:expired-after-regain');
+          _setForegroundHeldForFocus(false);
+          return;
+        }
         // The resume goes with the hold. Once the media service has left the
         // foreground, a resume on a later regain would start audio from the
         // background with no foreground service: Android 12 and later can

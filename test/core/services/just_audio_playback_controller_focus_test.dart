@@ -743,6 +743,50 @@ void main() {
               'once the hold is gone');
     });
 
+    // The bound is for a regain that never comes. Once focus is back and the
+    // resume is on its way, the timer running out mid-buffer must not cancel
+    // it: the engine would sound with the session reporting paused, outside
+    // the foreground, which Android 17 silences.
+    test('the hold expiring after a regain leaves its resume alone', () async {
+      final p = _RecordingPlayer();
+      final controller = JustAudioPlaybackController(player: p);
+      addTearDown(controller.dispose);
+      controller.focusPauseDebounce = _testDebounce;
+      controller.focusHoldTimeout = const Duration(milliseconds: 300);
+      await controller.play();
+      await _settle();
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+
+      // The call comes in while the stream is rebuffering.
+      controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+      controller.onAudioInterruption(_begin(AudioInterruptionType.pause));
+      await _pastDebounce();
+      controller
+          .handleEngineState(PlayerState(false, ProcessingState.buffering));
+      expect(controller.state.interruptedByTransientFocus, isTrue);
+
+      // Focus comes back just before the bound, and the buffer is still
+      // filling when the bound runs out.
+      final int playsBefore = p.playCalls;
+      controller.onAudioInterruption(_end(AudioInterruptionType.pause));
+      await _settle();
+      expect(p.playCalls, playsBefore + 1);
+      controller
+          .handleEngineState(PlayerState(true, ProcessingState.buffering));
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(controller.state.playWhenReady, isTrue,
+          reason:
+              'the regain asked for sound; the bound must not take it back');
+      expect(controller.state.status, PlaybackStatus.buffering);
+
+      controller.handleEngineState(PlayerState(true, ProcessingState.ready));
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.interruptedByTransientFocus, isFalse);
+    });
+
     test('a repeated voice-session loss keeps the hold through to the regain',
         () async {
       final p = _RecordingPlayer();

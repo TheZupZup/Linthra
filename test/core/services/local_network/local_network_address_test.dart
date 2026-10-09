@@ -123,4 +123,50 @@ void main() {
       expect(await classifyHost('', lookup: never), HostLocality.unknown);
     });
   });
+
+  group('vpnInterfaceUp', () {
+    test('knows Android\'s VPN tunnels, not its other interfaces', () {
+      for (final String name in <String>[
+        'tun0',
+        'tun1',
+        'wg0',
+        'ipsec1',
+        'ppp0'
+      ]) {
+        expect(isVpnInterfaceName(name), isTrue, reason: name);
+      }
+      for (final String name in <String>[
+        'wlan0',
+        'eth0',
+        'rmnet_data0',
+        'ccmni0',
+        'v4-wlan0',
+        'lo',
+      ]) {
+        expect(isVpnInterfaceName(name), isFalse, reason: name);
+      }
+    });
+
+    test('is true while a tunnel is listed', () async {
+      expect(await vpnInterfaceUp(list: () async => <String>['wlan0', 'tun0']),
+          isTrue);
+      expect(
+          await vpnInterfaceUp(list: () async => <String>['wlan0']), isFalse);
+    });
+
+    test('a listing that fails or hangs counts as no VPN', () async {
+      expect(
+        await vpnInterfaceUp(
+            list: () async => throw const SocketException('denied')),
+        isFalse,
+      );
+      expect(
+        await vpnInterfaceUp(
+          list: () => Completer<List<String>>().future,
+          timeout: const Duration(milliseconds: 20),
+        ),
+        isFalse,
+      );
+    });
+  });
 }

@@ -490,7 +490,10 @@ void main() {
         providerKey: () => 'jellyfin',
         reachability: reachability,
         onReachabilityObserved: observed.add,
-        localNetwork: LocalNetworkAccess(permission: permission),
+        localNetwork: LocalNetworkAccess(
+          permission: permission,
+          isVpnUp: () async => false,
+        ),
         serverUri: () => Uri.parse('http://192.168.1.20:8096'),
       );
 
@@ -518,7 +521,10 @@ void main() {
         inner: inner,
         providerKey: () => 'jellyfin',
         reachability: CachingProviderReachability(),
-        localNetwork: LocalNetworkAccess(permission: permission),
+        localNetwork: LocalNetworkAccess(
+          permission: permission,
+          isVpnUp: () async => false,
+        ),
         serverUri: () => Uri.parse('http://192.168.1.20:8096'),
       );
 
@@ -538,7 +544,10 @@ void main() {
         inner: inner,
         providerKey: () => 'jellyfin',
         reachability: CachingProviderReachability(),
-        localNetwork: LocalNetworkAccess(permission: permission),
+        localNetwork: LocalNetworkAccess(
+          permission: permission,
+          isVpnUp: () async => false,
+        ),
         serverUri: () => Uri.parse('https://203.0.113.7'),
       );
       await resolver.resolve(_track);

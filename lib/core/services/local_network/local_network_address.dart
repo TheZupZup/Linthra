@@ -42,6 +42,44 @@ bool isLocalNetworkAddress(InternetAddress address) {
   return false;
 }
 
+/// Lists the names of the device's network interfaces. Swappable so tests
+/// never depend on the machine they run on.
+typedef InterfaceNameLister = Future<List<String>> Function();
+
+Future<List<String>> _systemInterfaceNames() async => <String>[
+      for (final NetworkInterface interface
+          in await NetworkInterface.list(includeLinkLocal: true))
+        interface.name,
+    ];
+
+/// Whether [name] is a VPN tunnel: Android's VpnService (`tun`), WireGuard's
+/// kernel driver (`wg`), the platform IKEv2 VPN (`ipsec`) and the legacy
+/// PPTP/L2TP ones (`ppp`). Android's 464XLAT interface (`v4-wlan0`) is not a
+/// VPN and doesn't match.
+bool isVpnInterfaceName(String name) {
+  final String lower = name.toLowerCase();
+  return lower.startsWith('tun') ||
+      lower.startsWith('wg') ||
+      lower.startsWith('ipsec') ||
+      lower.startsWith('ppp');
+}
+
+/// Whether a VPN tunnel is up on the device. Android's local network
+/// permission covers Wi-Fi and Ethernet, not a VPN, so behind one a private
+/// address may not be on the local network at all. Never throws: anything
+/// that can't be read counts as no VPN.
+Future<bool> vpnInterfaceUp({
+  InterfaceNameLister list = _systemInterfaceNames,
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  try {
+    final List<String> names = await list().timeout(timeout);
+    return names.any(isVpnInterfaceName);
+  } catch (_) {
+    return false;
+  }
+}
+
 bool _isLocalIPv4(List<int> b) {
   final int a = b[0];
   if (a == 10) return true;
