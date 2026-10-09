@@ -165,9 +165,15 @@ class _HeldPlaylists extends _Playlists {
     String name,
     List<String> trackUris,
   ) async {
+    // A request keeps the session it started with.
+    final _Account account = world.current!;
     final Completer<void>? held = holdCreate;
     if (held != null) await held.future;
-    return super.createRemotePlaylist(name, trackUris);
+    final String id = 'srv-${++_created}';
+    account.writes.add('create $id');
+    account.playlists[id] =
+        RemotePlaylistData(remoteId: id, name: name, trackUris: trackUris);
+    return id;
   }
 
   @override
@@ -744,6 +750,42 @@ void main() {
       expect(playlists.single.owner, _bob);
       gateway.holdDelete!.complete();
       await delete;
+    });
+
+    test(
+        "a create that lands after another account took over doesn't bind "
+        'the device copy to a server playlist', () async {
+      world.signedIn = _alice;
+      final _HeldPlaylists gateway = _HeldPlaylists(world)
+        ..holdCreate = Completer<void>();
+      final SyncedPlaylistRepository repo = SyncedPlaylistRepository(
+        store: disk,
+        gateways: <RemotePlaylistGateway>[gateway],
+      );
+      addTearDown(repo.dispose);
+
+      final Future<Object?> create = repo.createPlaylist(
+        "Alice's new mix",
+        source: PlaylistSource.subsonic,
+      );
+      await pumpEventQueue();
+      // Bob takes over and refreshes: Alice's unsent playlist stays here as
+      // a device playlist.
+      world.signedIn = _bob;
+      await repo.refreshFromRemote();
+      expect(
+        (await repo.getAllPlaylists()).single.source,
+        PlaylistSource.local,
+      );
+
+      // Alice's server answers only now.
+      gateway.holdCreate!.complete();
+      await create;
+
+      final Playlist kept = (await repo.getAllPlaylists()).single;
+      expect(kept.source, PlaylistSource.local);
+      expect(kept.remoteId, isNull);
+      expect(world[_bob].writes, isEmpty);
     });
 
     test('a playlist made under one account is not created under the next',

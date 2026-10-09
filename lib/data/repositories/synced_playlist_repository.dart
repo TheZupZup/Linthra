@@ -1182,7 +1182,7 @@ class SyncedPlaylistRepository
     } on RemoteSyncException catch (error) {
       return await _record(
             playlist.id,
-            (Playlist p) => _clearsOf(gateway.source) != clears
+            (Playlist p) => !_stillCreating(p, playlist, gateway, clears)
                 ? p
                 : p.copyWith(
                     syncState: PlaylistSyncState.syncFailed,
@@ -1193,9 +1193,13 @@ class SyncedPlaylistRepository
     }
     // In turn, so a delete or a sign-out made while the server was making it
     // has settled by the time this reads the playlist.
+    //
+    // Another account may also have taken over meanwhile, and its refresh
+    // made this a device playlist: the server id is the previous account's,
+    // and only its own copy may carry it.
     final Playlist? bound = await _record(
       playlist.id,
-      (Playlist p) => _clearsOf(gateway.source) != clears
+      (Playlist p) => !_stillCreating(p, playlist, gateway, clears)
           ? p
           : p.copyWith(
               remoteId: () => remoteId,
@@ -1203,7 +1207,11 @@ class SyncedPlaylistRepository
               lastSyncError: () => null,
             ),
     );
-    if (bound != null || _clearsOf(gateway.source) != clears) {
+    // Gone here, but only this account's server copy can be deleted through
+    // the gateway now. Another account's stays there, as a sign-out leaves it.
+    if (bound != null ||
+        _clearsOf(gateway.source) != clears ||
+        gateway.accountKey != playlist.owner) {
       return bound ?? playlist;
     }
     // Deleted here while the server was still making it. That delete had
@@ -1221,6 +1229,19 @@ class SyncedPlaylistRepository
     }
     return playlist;
   }
+
+  /// Whether [p] is still the synced playlist [sent] was when its create
+  /// went to [gateway]: nobody signed out since ([clears]), and no other
+  /// account's refresh made it a device playlist.
+  bool _stillCreating(
+    Playlist p,
+    Playlist sent,
+    RemotePlaylistGateway gateway,
+    int clears,
+  ) =>
+      _clearsOf(gateway.source) == clears &&
+      p.source == sent.source &&
+      p.owner == sent.owner;
 
   /// Queues a membership push for a synced playlist behind any push for it
   /// still out (see [_pushInOrder]). A local-only playlist is left alone.
