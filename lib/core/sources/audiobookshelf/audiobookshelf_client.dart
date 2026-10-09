@@ -27,6 +27,16 @@ abstract interface class AudiobookshelfClient {
     required String password,
   });
 
+  /// Trades [refreshToken] for a new access token and a new refresh token.
+  ///
+  /// Throws [AudiobookshelfErrorKind.unauthorized] when the server turns the
+  /// refresh token down (expired, already rotated, or the session was
+  /// revoked); only a sign-in with the password gets a new one then.
+  Future<AudiobookshelfAuthResult> refreshTokens({
+    required String baseUrl,
+    required String refreshToken,
+  });
+
   /// Lists the signed-in user's accessible libraries.
   Future<List<AudiobookshelfLibraryDto>> fetchLibraries(
     AudiobookshelfSession session,

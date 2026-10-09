@@ -22,6 +22,13 @@ class RoutingServerPlaybackReporter implements ServerPlaybackReporter {
   @override
   bool handles(Track track) => true;
 
+  @override
+  ServerPlaybackReporter capture() =>
+      RoutingServerPlaybackReporter(<ServerPlaybackReporter>[
+        for (final ServerPlaybackReporter reporter in _reporters)
+          reporter.capture(),
+      ]);
+
   ServerPlaybackReporter? _reporterFor(Track? track) {
     if (track == null) return null;
     for (final ServerPlaybackReporter reporter in _reporters) {

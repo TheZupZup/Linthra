@@ -15,6 +15,9 @@ class _SchemeReporter implements ServerPlaybackReporter {
   bool handles(Track track) => track.uri.startsWith(scheme);
 
   @override
+  ServerPlaybackReporter capture() => this;
+
+  @override
   Future<void> onPlaybackStarted(
       Track track, Duration position, Duration duration) async {
     events.add('started:${track.id}');

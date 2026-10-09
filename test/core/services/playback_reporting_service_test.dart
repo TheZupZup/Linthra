@@ -23,6 +23,9 @@ class _RecordingReporter implements ServerPlaybackReporter {
   bool handles(Track track) => true;
 
   @override
+  ServerPlaybackReporter capture() => this;
+
+  @override
   Future<void> onPlaybackStarted(
       Track track, Duration position, Duration duration) async {
     events.add(_line('started', track, position, duration));
@@ -97,6 +100,41 @@ class _GatedReporter extends _RecordingReporter {
     startedCalls.add('paused');
     await gate.future;
     await super.onPlaybackPaused(track, position, duration);
+  }
+}
+
+/// A reporter whose live input (standing in for the signed-in account) can
+/// change between a report being queued and being sent, and whose first
+/// pause blocks on [gate], so a test can prove each report goes out with the
+/// input it was queued under (#838).
+class _AccountReporter extends _RecordingReporter {
+  _AccountReporter(this.account, this._log, this.gate);
+
+  /// What the live session would read right now.
+  String Function() account;
+  final List<String> _log;
+  final Completer<void> gate;
+
+  /// Each call, with the account it went out to.
+  List<String> get sent => _log;
+
+  @override
+  ServerPlaybackReporter capture() {
+    final String captured = account();
+    return _AccountReporter(() => captured, _log, gate);
+  }
+
+  @override
+  Future<void> onPlaybackPaused(
+      Track track, Duration position, Duration duration) async {
+    _log.add('paused:${account()}');
+    await gate.future;
+  }
+
+  @override
+  Future<void> onPlaybackStopped(
+      Track track, Duration position, Duration duration) async {
+    _log.add('stopped:${account()}');
   }
 }
 
@@ -646,6 +684,129 @@ void main() {
       await _settle();
 
       expect(reporter.events.last, 'stopped:a@15000/0');
+    });
+
+    test(
+        'a report waiting its turn goes out to the account it was queued '
+        'for, even once that account can no longer be read', () async {
+      String live = 'alice';
+      final _AccountReporter accounts = _AccountReporter(
+        () => live == 'gone' ? throw StateError('container disposed') : live,
+        <String>[],
+        Completer<void>(),
+      );
+      reporter = accounts;
+      final service = build();
+      final Track a = _track('a');
+
+      states.add(_state(PlaybackStatus.playing, a));
+      states.add(_state(PlaybackStatus.paused, a,
+          position: const Duration(seconds: 4)));
+      await _settle();
+      expect(accounts.sent, <String>['paused:alice']);
+
+      // The listener quits while the server is still answering the pause:
+      // the stop is queued behind it, then everything it read goes away.
+      await service.dispose();
+      live = 'gone';
+      accounts.gate.complete();
+      await service.idle;
+
+      expect(accounts.sent, <String>['paused:alice', 'stopped:alice']);
+    });
+
+    test('dispose does not wait on the network, idle does', () async {
+      final _GatedReporter gated = _GatedReporter();
+      reporter = gated;
+      final service = build();
+      final Track a = _track('a');
+      states.add(_state(PlaybackStatus.playing, a));
+      await _settle();
+      expect(gated.startedCalls, <String>['started']);
+
+      bool idle = false;
+      await service.dispose();
+      unawaited(service.idle.then((_) => idle = true));
+      await _settle();
+      expect(idle, isFalse);
+
+      gated.gate.complete();
+      await _settle();
+      await _settle();
+      expect(idle, isTrue);
+      expect(reporter.events, <String>['started:a@0/0', 'stopped:a@0/0']);
+    });
+
+    test(
+        'a stop queued while the last in-flight report is finishing is still '
+        'sent', () async {
+      // The queue going empty and the drain being marked finished happen a
+      // few microtasks apart. Try dispose at every offset across that
+      // window, so the stop lands inside it whatever the exact count is.
+      for (int offset = 0; offset < 24; offset++) {
+        final StreamController<PlaybackState> playback =
+            StreamController<PlaybackState>.broadcast();
+        final _GatedReporter gated = _GatedReporter();
+        final PlaybackReportingService service = PlaybackReportingService(
+          playbackStates: playback.stream,
+          reporter: gated,
+          now: () => clock,
+        );
+        playback.add(_state(PlaybackStatus.playing, _track('a')));
+        await _settle();
+        expect(gated.startedCalls, <String>['started']);
+
+        final Completer<void> disposed = Completer<void>();
+        void disposeAfter(int hops) => hops == 0
+            ? disposed.complete(service.dispose())
+            : scheduleMicrotask(() => disposeAfter(hops - 1));
+        gated.gate.complete();
+        disposeAfter(offset);
+        await disposed.future;
+        await service.idle;
+        await _settle();
+
+        expect(
+          gated.events,
+          <String>['started:a@0/0', 'stopped:a@0/0'],
+          reason: 'dispose $offset microtasks after the gate opened',
+        );
+        await playback.close();
+      }
+    });
+
+    test('a second dispose queues no second stop', () async {
+      final service = build();
+      final Track a = _track('a');
+      states.add(_state(PlaybackStatus.playing, a));
+      await _settle();
+
+      await service.dispose();
+      await service.dispose();
+      await service.idle;
+
+      expect(
+        reporter.events.where((String e) => e.startsWith('stopped')),
+        hasLength(1),
+      );
+    });
+
+    test('a reporter that can no longer be read drops the report quietly',
+        () async {
+      final _AccountReporter accounts = _AccountReporter(
+        () => throw StateError('container disposed'),
+        <String>[],
+        Completer<void>(),
+      );
+      reporter = accounts;
+      final service = build();
+
+      states.add(_state(PlaybackStatus.playing, _track('a')));
+      await _settle();
+      await service.dispose();
+      await service.idle;
+
+      expect(accounts.sent, isEmpty);
     });
 
     test('dispose with nothing playing reports nothing', () async {
