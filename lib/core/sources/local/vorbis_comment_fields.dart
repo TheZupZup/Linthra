@@ -4,13 +4,12 @@ import 'dart:typed_data';
 
 /// Reads Vorbis comments out of a FLAC file *with their field names intact*.
 ///
-/// `audio_metadata_reader` folds `ARTIST` and `ALBUMARTIST` into one list
-/// (`vorbis_comment.dart`: `case 'ARTIST' || "ALBUMARTIST"`), which loses the
-/// only thing that tells a compilation's performer from its album name. No
-/// heuristic recovers it: `[Alice, Bob]` is two `ARTIST` values on a
+/// Before 1.8.0, `audio_metadata_reader` folded `ARTIST` and `ALBUMARTIST`
+/// into one list, which lost the only thing that tells a compilation's
+/// performer from its album name: `[Alice, Bob]` is two `ARTIST` values on a
 /// collaboration, `[Guest, Various Artists]` is `ARTIST` plus `ALBUMARTIST`,
-/// and from the merged list those are the same shape. So this reads the block
-/// directly rather than guessing.
+/// and from the merged list those are the same shape. This read is how FLAC
+/// kept them apart, and it is where FLAC's artists still come from.
 ///
 /// FLAC only, deliberately. Its metadata blocks sit in the clear right after
 /// the magic, so this is a short, well-specified read. OGG and Opus carry the
@@ -46,8 +45,8 @@ class VorbisCommentFields {
   /// block, rather than reading a fixed prefix. FLAC puts no ordering
   /// requirement on metadata blocks, and a file with embedded cover art carries
   /// a PICTURE block that is routinely megabytes; reading a fixed prefix would
-  /// silently miss the comments on exactly those files and fall back to the
-  /// package's merged list. Only the comment block is ever read into memory,
+  /// silently miss the comments on exactly those files. Only the comment
+  /// block is ever read into memory,
   /// never the art and never the audio.
   static Future<Map<String, List<String>>?> read(File file) async {
     final RandomAccessFile handle = await file.open();
