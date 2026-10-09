@@ -55,9 +55,23 @@ class AudiobookshelfException implements Exception {
         kind: AudiobookshelfErrorKind.notReachable,
       );
 
-  factory AudiobookshelfException.unauthorized() =>
-      const AudiobookshelfException(
+  /// [statusCode] is 401 (not signed in, or the access token has expired)
+  /// or 403 (signed in, but not allowed to do this). Only a 401 is worth
+  /// renewing the tokens for.
+  factory AudiobookshelfException.unauthorized({int statusCode = 401}) =>
+      AudiobookshelfException(
         'Your username or password was not accepted by the server.',
+        kind: AudiobookshelfErrorKind.unauthorized,
+        statusCode: statusCode,
+      );
+
+  /// The server turned the saved sign-in down and it can't be renewed
+  /// without the password: the refresh token was refused too, or the server
+  /// never gave one (Audiobookshelf before 2.26).
+  factory AudiobookshelfException.sessionExpired() =>
+      const AudiobookshelfException(
+        'Your Audiobookshelf sign-in is no longer valid. Sign in again to '
+        'keep browsing.',
         kind: AudiobookshelfErrorKind.unauthorized,
         statusCode: 401,
       );

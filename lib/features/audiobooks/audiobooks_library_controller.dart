@@ -41,9 +41,10 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
   /// doesn't belong to (or leave a spinner running on one).
   int _generation = 0;
 
-  /// The session the loaded state belongs to. A session that isn't this exact
-  /// one means a different sign-in owns the screen now, and none of the books
-  /// or library names on it may be shown to it.
+  /// The session the loaded state belongs to. A session for another account
+  /// means a different sign-in owns the screen now, and none of the books or
+  /// library names on it may be shown to it. Renewed tokens for the same
+  /// account are not that.
   AudiobookshelfSession? _loadedFor;
 
   @override
@@ -67,7 +68,7 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
       state = const AudiobooksLibraryState();
       return;
     }
-    final bool sameAccount = identical(session, _loadedFor);
+    final bool sameAccount = session.isSameAccountAs(_loadedFor);
     if (sameAccount &&
         state.hasLoaded &&
         !force &&
@@ -95,8 +96,10 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
 
     final List<AudiobookshelfLibraryDto> libraries;
     try {
-      libraries =
-          await ref.read(audiobookshelfClientProvider).fetchLibraries(session);
+      libraries = await connection.authorized(
+        session,
+        ref.read(audiobookshelfClientProvider).fetchLibraries,
+      );
     } on AudiobookshelfException catch (error) {
       _fail(generation, session, connection, error);
       return;
@@ -189,13 +192,16 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
     final int nextPage = _nextPage;
     state = state.copyWith(isLoadingMore: true);
     try {
-      final AudiobookshelfLibraryItemsPage page =
-          await ref.read(audiobookshelfClientProvider).fetchLibraryItems(
-                session,
-                libraryId: libraryId,
-                limit: pageSize,
-                page: nextPage,
-              );
+      final AudiobookshelfLibraryItemsPage page = await connection.authorized(
+        session,
+        (AudiobookshelfSession current) =>
+            ref.read(audiobookshelfClientProvider).fetchLibraryItems(
+                  current,
+                  libraryId: libraryId,
+                  limit: pageSize,
+                  page: nextPage,
+                ),
+      );
       if (_isStale(generation, session, connection)) return;
       _nextPage = nextPage + 1;
       _rawRead += page.rawCount;
@@ -231,13 +237,16 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
     required String libraryId,
   }) async {
     try {
-      final AudiobookshelfLibraryItemsPage page =
-          await ref.read(audiobookshelfClientProvider).fetchLibraryItems(
-                session,
-                libraryId: libraryId,
-                limit: pageSize,
-                page: 0,
-              );
+      final AudiobookshelfLibraryItemsPage page = await connection.authorized(
+        session,
+        (AudiobookshelfSession current) =>
+            ref.read(audiobookshelfClientProvider).fetchLibraryItems(
+                  current,
+                  libraryId: libraryId,
+                  limit: pageSize,
+                  page: 0,
+                ),
+      );
       if (_isStale(generation, session, connection)) return;
       _nextPage = 1;
       _rawRead = page.rawCount;
@@ -325,13 +334,14 @@ class AudiobooksLibraryController extends Notifier<AudiobooksLibraryState> {
   /// Whether a response still belongs on screen: a newer generation (a
   /// refresh, another library, another account) or a sign-out that landed
   /// while it was in flight means it doesn't, so it is dropped rather than
-  /// painted over whatever owns the screen now.
+  /// painted over whatever owns the screen now. Tokens renewed for the same
+  /// account while it was out don't make it stale.
   bool _isStale(
     int generation,
     AudiobookshelfSession session,
     AudiobookshelfSettingsController connection,
   ) =>
-      generation != _generation || !identical(connection.session, session);
+      generation != _generation || !session.isSameAccountAs(connection.session);
 
   List<AudiobookSummary> _toSummaries(
     List<AudiobookshelfLibraryItemDto> items,
