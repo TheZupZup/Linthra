@@ -203,10 +203,10 @@ modules:
   # renders video — mpv 0.41's GPU-rendering path is not optional. Vulkan is
   # required: libplacebo's own meson.build errors out at configure time if
   # compiled without Vulkan support. jinja/markupsafe/glad are libplacebo git
-  # submodules the plain source archive does not include (they show up as
-  # empty directories); libplacebo's meson.build imports them directly off
-  # disk (no PyPI/pip, no network) so they're declared here as ordinary pinned
-  # sources extracted into the same paths the submodules would occupy.
+  # submodules the checkout below leaves out (submodules are off, so they show
+  # up as empty directories); libplacebo's meson.build imports them directly
+  # off disk (no PyPI/pip, no network) so they're declared here as ordinary
+  # pinned sources extracted into the same paths the submodules would occupy.
   - name: libplacebo
     buildsystem: meson
     config-opts:
@@ -228,9 +228,18 @@ modules:
       - -Ddemos=false
       - -Dtests=false
     sources:
-      - type: archive
-        url: https://code.videolan.org/videolan/libplacebo/-/archive/v7.360.1/libplacebo-v7.360.1.tar.gz
-        sha256: 14c0a99f4b01557ec9826ce6b1d52f6de21be274ba03fd5aab7307f18766dc39
+      # The author's GitHub mirror, checked out by commit. The archive endpoint
+      # on code.videolan.org keeps answering CI with a ~4 KB error page instead
+      # of the tarball (#863). The tag has to resolve to the commit, or the
+      # fetch fails.
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+        # Same tree the release tarball had: the submodules this build reads
+        # are the pinned archives below, and the others (Vulkan-Headers,
+        # fast_float, the demos' nuklear) were never in the tarball either.
+        disable-submodules: true
       - type: archive
         url: https://github.com/pallets/jinja/archive/refs/tags/3.1.6.tar.gz
         sha256: 2074b22a72caa65474902234b320d73463d6d4c223ee49f4b433495758356337
