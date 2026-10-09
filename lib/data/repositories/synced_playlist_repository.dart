@@ -94,11 +94,11 @@ class SyncedPlaylistRepository
   /// provider's answer if its count moved meanwhile (see [refreshFromRemote]).
   final Map<PlaylistSource, int> _clears = <PlaylistSource, int>{};
 
-  /// The refresh currently fetching, and the clear counts of the providers it
-  /// is asking, so an overlapping caller can join it.
+  /// The refresh currently fetching, and the clear count and account of each
+  /// provider it is asking, so an overlapping caller can join it.
   Future<PlaylistSyncResult>? _refreshInFlight;
-  Map<PlaylistSource, int> _refreshInFlightClears =
-      const <PlaylistSource, int>{};
+  Map<PlaylistSource, ({int clears, String? account})> _refreshInFlightAsks =
+      const <PlaylistSource, ({int clears, String? account})>{};
 
   /// Numbers each provider fetch in the order it was sent, so a later request
   /// (a newer answer) can be told from an earlier one.
@@ -579,14 +579,21 @@ class SyncedPlaylistRepository
       for (final RemotePlaylistGateway g in connected)
         g.source: _clearsOf(g.source),
     };
+    // An account can take over without a sign-out in between, so the clear
+    // counts alone don't say it's the same sign-in.
+    final Map<PlaylistSource, ({int clears, String? account})> asks =
+        <PlaylistSource, ({int clears, String? account})>{
+      for (final RemotePlaylistGateway g in connected)
+        g.source: (clears: clears[g.source]!, account: g.accountKey),
+    };
     final Future<PlaylistSyncResult>? inFlight = _refreshInFlight;
-    if (inFlight != null && mapEquals(clears, _refreshInFlightClears)) {
+    if (inFlight != null && mapEquals(asks, _refreshInFlightAsks)) {
       return inFlight;
     }
     final Future<PlaylistSyncResult> refresh =
         _fetchAndMerge(connected, clears);
     _refreshInFlight = refresh;
-    _refreshInFlightClears = clears;
+    _refreshInFlightAsks = asks;
     try {
       return await refresh;
     } finally {

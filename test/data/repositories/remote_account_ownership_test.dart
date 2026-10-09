@@ -138,6 +138,24 @@ class _Playlists implements RemotePlaylistGateway {
   }
 }
 
+/// Playlists whose fetch answers for the account signed in when it was sent
+/// (a Subsonic request keeps the session it started with), held on [hold].
+class _HeldPlaylists extends _Playlists {
+  _HeldPlaylists(super.world);
+
+  Completer<void>? hold;
+
+  @override
+  Future<RemotePlaylistListing> fetchPlaylists() async {
+    final _Account? asked = world.current;
+    final Completer<void>? held = hold;
+    if (held != null) await held.future;
+    return RemotePlaylistListing(<RemotePlaylistData>[
+      ...?asked?.playlists.values,
+    ]);
+  }
+}
+
 /// A favourites disk that can refuse writes and outlives a "restart" (a new
 /// repository over the same store).
 class _FavoritesDisk implements FavoritesStore {
@@ -590,6 +608,44 @@ void main() {
       expect(world[_bob].writes, <String>[
         'songs srv-a [subsonic:40, subsonic:41]',
       ]);
+    });
+
+    test(
+        'a refresh asked for another account does not join the previous '
+        "account's refresh still out", () async {
+      world.signedIn = _alice;
+      world[_alice].playlists['srv-a'] = const RemotePlaylistData(
+        remoteId: 'srv-a',
+        name: "Alice's mix",
+        trackUris: <String>['subsonic:1'],
+      );
+      world[_bob].playlists['srv-b'] = const RemotePlaylistData(
+        remoteId: 'srv-b',
+        name: "Bob's mix",
+        trackUris: <String>['subsonic:2'],
+      );
+      final _HeldPlaylists gateway = _HeldPlaylists(world)
+        ..hold = Completer<void>();
+      final SyncedPlaylistRepository repo = SyncedPlaylistRepository(
+        store: disk,
+        gateways: <RemotePlaylistGateway>[gateway],
+      );
+      addTearDown(repo.dispose);
+
+      final Future<Object?> alices = repo.refreshFromRemote();
+      await pumpEventQueue();
+      // Another account takes over without a sign-out in between.
+      final Completer<void> aliceAnswer = gateway.hold!;
+      gateway.hold = null;
+      world.signedIn = _bob;
+      final Future<Object?> bobs = repo.refreshFromRemote();
+      aliceAnswer.complete();
+      await alices;
+      await bobs;
+
+      final List<Playlist> playlists = await repo.getAllPlaylists();
+      expect(playlists.map((Playlist p) => p.remoteId), <String?>['srv-b']);
+      expect(playlists.single.owner, _bob);
     });
 
     test('a playlist made under one account is not created under the next',
