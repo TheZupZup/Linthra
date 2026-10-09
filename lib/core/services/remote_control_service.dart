@@ -24,15 +24,28 @@ import 'remote_control_receiver.dart';
 /// it is called (the queue moves, a pause holds a load, a seek aims it), and
 /// what its future waits for is the next track loading. The exception is a
 /// Stop, which the commands after it wait for (see [_drain]).
+///
+/// A command that would start sound from a stop (Play, or a skip while paused)
+/// only goes through when [mayStartPlayback] says so. On Android that means
+/// the app is on screen: Android only lets a backgrounded app start audio from
+/// a foreground service the user started (a tap, a notification, a headset
+/// button), and a command from a Jellyfin remote on another device is none of
+/// those. Earlier versions can refuse the media service's return to the
+/// foreground for such a start; Android 17 also silences its audio for apps
+/// targeting API 37. Commands on playback that is already running, a pause, a
+/// stop and a seek are never held back.
 class RemoteControlService {
   RemoteControlService({
     required RemoteControlReceiver receiver,
     required PlaybackController controller,
-  }) : _controller = controller {
+    bool Function()? mayStartPlayback,
+  })  : _controller = controller,
+        _mayStartPlayback = mayStartPlayback {
     _subscription = receiver.commands.listen(_enqueue);
   }
 
   final PlaybackController _controller;
+  final bool Function()? _mayStartPlayback;
   late final StreamSubscription<RemoteCommand> _subscription;
 
   final List<RemoteCommand> _pending = <RemoteCommand>[];
@@ -84,9 +97,23 @@ class RemoteControlService {
     }
   }
 
+  /// Whether a command that would start sound from a stop may do so now.
+  /// Playback already under way is never a "start".
+  bool _mayStart() {
+    if (_controller.state.isPlayingOrStalled) return true;
+    final bool Function()? mayStart = _mayStartPlayback;
+    if (mayStart == null) return true;
+    try {
+      return mayStart();
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _apply(RemoteCommand command) async {
     switch (command) {
       case RemotePlay():
+        if (!_mayStart()) return;
         await _controller.play();
       case RemotePause():
         await _controller.pause();
@@ -100,14 +127,18 @@ class RemoteControlService {
         final PlaybackState state = _controller.state;
         if (state.isPlayingOrStalled) {
           await _controller.pause();
-        } else {
+        } else if (_mayStart()) {
           await _controller.play();
         }
       case RemoteStop():
         await _controller.stop();
       case RemoteNext():
+        // A skip while paused starts the next track (see the controller), so
+        // it is a start like Play.
+        if (!_mayStart()) return;
         await _controller.skipToNext();
       case RemotePrevious():
+        if (!_mayStart()) return;
         await _controller.skipToPrevious();
       case RemoteSeek(:final position):
         await _controller.seek(position);

@@ -824,7 +824,8 @@ void main() {
           _bumpAgp(settingsGradle, _bumpPatch(_agpPin(settingsGradle)));
       for (final String tampered in <String>[
         // A reworded comment.
-        bumped.replaceFirst('// Stay on AGP 8.x', '// Anything goes now'),
+        bumped.replaceFirst(
+            '// The two versions on the next lines', '// Anything goes now'),
         // A deleted comment line.
         bumped.replaceFirst(RegExp(r'^\s*//.*\n', multiLine: true), ''),
         // An extra plugin.
@@ -863,7 +864,7 @@ void main() {
     });
 
     test('a downgrade is refused by the guard as well as by the checker', () {
-      final String older = _bumpAgp(settingsGradle, '8.0.0');
+      final String older = _bumpAgp(settingsGradle, '9.0.0');
       final _Run r = _runDiffGuard(diffGuard, 'agp', older, settingsGradle);
       expect(r.exitCode, 0, reason: 'sanity: forwards is fine');
 
@@ -874,7 +875,7 @@ void main() {
 
     test('crossing a major is refused by the guard', () {
       for (final MapEntry<String, String> pair in <String, String>{
-        'agp': _bumpAgp(settingsGradle, '9.0.0'),
+        'agp': _bumpAgp(settingsGradle, '10.0.0'),
         'kotlin': _bumpKotlin(settingsGradle, '3.0.0'),
       }.entries) {
         final _Run r =
@@ -883,7 +884,7 @@ void main() {
         expect(r.stderr, contains('major'));
       }
       final _Run gradle = _runDiffGuard(diffGuard, 'gradle', wrapperProperties,
-          _bumpGradle(wrapperProperties, '9.0.0'));
+          _bumpGradle(wrapperProperties, '10.0.0'));
       expect(gradle.exitCode, 2, reason: gradle.describe());
     });
 
@@ -992,10 +993,10 @@ void main() {
 
     test('a downgrade, a major and a malformed version are all refused', () {
       const Map<String, String> refusals = <String, String>{
-        '8.0.0': 'downgrade',
-        '9.0.0': 'major',
-        '8.99': 'MAJOR.MINOR.PATCH',
-        '8.99.0-rc1': 'MAJOR.MINOR.PATCH',
+        '9.0.0': 'downgrade',
+        '10.0.0': 'major',
+        '9.99': 'MAJOR.MINOR.PATCH',
+        '9.99.0-rc1': 'MAJOR.MINOR.PATCH',
       };
       refusals.forEach((String version, String expected) {
         final _Sandbox sandbox = _Sandbox(root);

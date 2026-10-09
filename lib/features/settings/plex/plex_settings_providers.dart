@@ -10,6 +10,7 @@ import '../../../core/sources/plex/plex_authenticator.dart';
 import '../../../core/sources/plex/plex_client.dart';
 import '../../../core/sources/plex/plex_pin_auth.dart';
 import '../../../core/sources/plex/plex_tv_client.dart';
+import '../local_network/local_network_providers.dart';
 
 /// A fallback `X-Plex-Client-Identifier`, generated once per app launch.
 ///
@@ -95,7 +96,10 @@ String _platformName() {
 /// wires the concrete client — `main` needs no override because the default is
 /// already the real one.
 final plexClientProvider = Provider<PlexClient>((ref) {
-  return HttpPlexClient(identity: ref.watch(plexClientIdentityProvider));
+  return HttpPlexClient(
+    identity: ref.watch(plexClientIdentityProvider),
+    httpClient: guardedServerHttpClient(ref),
+  );
 });
 
 /// Coordinates URL validation + the manual token verify on top of

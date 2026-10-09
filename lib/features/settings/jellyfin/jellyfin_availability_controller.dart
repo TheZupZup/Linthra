@@ -11,6 +11,7 @@ import '../../../core/sources/jellyfin/jellyfin_exception.dart';
 import '../../../core/sources/source_availability.dart';
 import '../../../data/repositories/download_repository_provider.dart';
 import '../../../data/repositories/host_platform_provider.dart';
+import '../local_network/local_network_providers.dart';
 import 'jellyfin_settings_controller.dart';
 import 'jellyfin_settings_providers.dart';
 
@@ -116,6 +117,11 @@ class JellyfinAvailabilityController extends Notifier<SourceAvailabilityState> {
     );
     _syncPoll(visible: ref.read(appVisibilityProvider));
     _followNetwork();
+    // Local network access just turned on (Android 17): a LAN server the probe
+    // could not reach a moment ago may answer now.
+    ref.listen<int>(localNetworkGrantsProvider, (int? previous, int next) {
+      if (!_disposed) unawaited(refresh());
+    });
     // Probe off the build so the notifier never writes state while building.
     // Until it lands the state is `checking`, which hides nothing (see
     // [SourceAvailability.hidesTracks]) — a library must not blink out while we

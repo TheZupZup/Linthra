@@ -18,24 +18,28 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    // Stay on AGP 8.x for now. Linthra's F-Droid per-ABI versionCode logic
-    // currently relies on the legacy applicationVariants hook in
-    // app/build.gradle, and AGP 9 removes normal access to that legacy variant
-    // API. Android's guidance is to move such logic to the supported
-    // androidComponents Variant API (onVariants), noting that not every old API
-    // has a direct replacement — so crossing to AGP 9 means deliberately
-    // migrating that hook and then verifying the F-Droid versionCode behaviour,
-    // not just moving the version below. Within 8.x the plugin supports the
-    // compileSdk this app targets and stays compatible with the external Kotlin
-    // Gradle plugin below.
+    // AGP 9.1.1 is the first release that supports compileSdk/targetSdk 37
+    // (Android 17), which Linthra targets. Two documented AGP 9 opt-outs in
+    // android/gradle.properties keep this build on the same footing Flutter's
+    // own app template uses: android.newDsl=false keeps the legacy variant API
+    // that both the Flutter Gradle plugin and the F-Droid per-ABI versionCode
+    // hook in app/build.gradle still use, and android.builtInKotlin=false keeps
+    // the Kotlin Gradle plugin below applied to the app and to plugins that
+    // still apply kotlin-android themselves. Google removes both opt-outs in
+    // AGP 10, so moving past AGP 9 means migrating that hook to
+    // androidComponents.onVariants (and verifying the F-Droid versionCodes)
+    // once Flutter's own plugin no longer needs the legacy API.
+    //
+    // The Kotlin Gradle plugin is on the 2.4.20+ line because that is the line
+    // Kotlin documents as supporting AGP 9.1 together with Gradle 9.3.
     //
     // The two versions on the next lines are updated automatically, one at a
     // time and only within their current major, by
     // .github/workflows/android-toolchain-updates.yml. Keep explanatory prose
     // above this point and out of those lines — the updater is guarded to
     // rewrite the version string and nothing else, comments included.
-    id "com.android.application" version "8.11.1" apply false
-    id "org.jetbrains.kotlin.android" version "2.2.21" apply false
+    id "com.android.application" version "9.1.1" apply false
+    id "org.jetbrains.kotlin.android" version "2.4.21" apply false
 }
 
 include ":app"

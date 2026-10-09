@@ -167,6 +167,13 @@ jobs:
       - name: Test the release artifact verifier
         run: python3 test/tooling/verify_release_containment_test.py
 
+      # The Android builds read targetSdk/minSdk back out of the built APK and
+      # App Bundle with scripts/check_android_target_sdk.py. Its tests drive it
+      # with a stub aapt2, so they need no Android SDK. Local twin:
+      # `python3 test/tooling/check_android_target_sdk_test.py`.
+      - name: Test the target SDK artifact check
+        run: python3 test/tooling/check_android_target_sdk_test.py
+
       # Its Flatpak twin (#618): the Linux release bundle's name, and what the
       # bundle has to contain before it is attached to a Release. The full
       # Flatpak build only runs on packaging changes, but these rules are read

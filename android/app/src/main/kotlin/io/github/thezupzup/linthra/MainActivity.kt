@@ -67,6 +67,13 @@ class MainActivity : AudioServiceActivity() {
         AndroidMediaLibraryChannel(this)
     }
 
+    // Android 17's local network permission (ACCESS_LOCAL_NETWORK), asked only
+    // when the user reaches for a server on their own network. Bound to this
+    // activity because the system dialog needs one.
+    private val localNetworkPermissionChannel by lazy {
+        LocalNetworkPermissionChannel(this)
+    }
+
     override fun onResume() {
         super.onResume()
         displayRefreshRate.onResume()
@@ -151,6 +158,9 @@ class MainActivity : AudioServiceActivity() {
         // Android's explicit Music and audio permission + MediaStore library.
         androidMediaLibraryChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
 
+        // Android 17 local network permission: status, request, app settings.
+        localNetworkPermissionChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
+
         // Android metering-aware network state: one-shot current value plus a
         // change stream. Separate from SAF/share/icon channels so the data guard
         // stays small and auditable.
@@ -189,6 +199,9 @@ class MainActivity : AudioServiceActivity() {
         grantResults: IntArray,
     ) {
         if (androidMediaLibraryChannel.onRequestPermissionsResult(requestCode, grantResults)) {
+            return
+        }
+        if (localNetworkPermissionChannel.onRequestPermissionsResult(requestCode)) {
             return
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

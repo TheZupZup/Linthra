@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/subsonic_session.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
+import '../../../core/services/local_network/local_network_access.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/subsonic/subsonic_account_fingerprint.dart';
@@ -18,6 +19,7 @@ import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
 import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/source_preference_controller.dart';
+import '../local_network/local_network_providers.dart';
 import 'subsonic_settings_providers.dart';
 import 'subsonic_settings_state.dart';
 import 'subsonic_sync_controller.dart';
@@ -113,6 +115,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       username: username,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final SubsonicServerInfo info =
           await ref.read(subsonicAuthenticatorProvider).testConnection(
                 rawUrl: url,
@@ -152,6 +155,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       username: username,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final SubsonicSession newSession =
           await ref.read(subsonicAuthenticatorProvider).signIn(
                 rawUrl: url,
@@ -216,7 +220,10 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   /// or the card would stay busy until a restart.
   static SubsonicException _typed(Object error) => error is SubsonicException
       ? error
-      : SubsonicException.unsupportedResponse();
+      : error is LocalNetworkBlockedException
+          ? SubsonicException(error.message,
+              kind: SubsonicErrorKind.notReachable)
+          : SubsonicException.unsupportedResponse();
 
   /// Clears the saved session and resets to the disconnected state, also
   /// resetting the now-stale "Synced N tracks" status so it can't linger into a

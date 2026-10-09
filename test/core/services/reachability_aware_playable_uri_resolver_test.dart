@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
+import 'package:linthra/core/services/local_network/local_network_access.dart';
+import 'package:linthra/core/services/local_network/local_network_permission.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/provider_reachability.dart';
 import 'package:linthra/core/services/reachability.dart';
@@ -469,4 +471,99 @@ void main() {
       });
     });
   });
+
+  // Android 17: a LAN server can't be reached without ACCESS_LOCAL_NETWORK. A
+  // track from it must fail fast with the reason (not a 20 s connect timeout),
+  // and must not mark the server down: it isn't, and hiding its library would
+  // take away the very tracks the user taps to be asked again.
+  group('a LAN server behind Android 17\'s local network permission', () {
+    test('fails fast with the reason and leaves reachability alone', () async {
+      final _FakeInner inner = _FakeInner();
+      final CachingProviderReachability reachability =
+          CachingProviderReachability();
+      final List<ReachabilityStatus> observed = <ReachabilityStatus>[];
+      final _ScriptedPermission permission =
+          _ScriptedPermission(LocalNetworkPermissionStatus.denied);
+      final ReachabilityAwarePlayableUriResolver resolver =
+          ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        onReachabilityObserved: observed.add,
+        localNetwork: LocalNetworkAccess(permission: permission),
+        serverUri: () => Uri.parse('http://192.168.1.20:8096'),
+      );
+
+      await expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>()
+            .having((PlaybackResolutionException e) => e.kind, 'kind',
+                PlaybackResolutionErrorKind.serverUnreachable)
+            .having((PlaybackResolutionException e) => e.message, 'message',
+                contains('local network'))),
+      );
+      expect(inner.calls, 0, reason: 'no doomed connection attempt');
+      expect(reachability.statusOf('jellyfin'), isNull);
+      expect(observed, isEmpty);
+    });
+
+    test('asks once while on screen, and plays once granted', () async {
+      final _FakeInner inner = _FakeInner();
+      final _ScriptedPermission permission = _ScriptedPermission(
+        LocalNetworkPermissionStatus.notRequested,
+        answer: LocalNetworkPermissionStatus.granted,
+      );
+      final ReachabilityAwarePlayableUriResolver resolver =
+          ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        localNetwork: LocalNetworkAccess(permission: permission),
+        serverUri: () => Uri.parse('http://192.168.1.20:8096'),
+      );
+
+      final ResolvedPlayable played = await resolver.resolve(_track);
+      expect(played.uri.toString(), 'https://stream/t1');
+      expect(permission.requests, 1);
+      await resolver.resolve(_track);
+      expect(permission.requests, 1);
+    });
+
+    test('an internet server is untouched by it', () async {
+      final _FakeInner inner = _FakeInner();
+      final _ScriptedPermission permission =
+          _ScriptedPermission(LocalNetworkPermissionStatus.permanentlyDenied);
+      final ReachabilityAwarePlayableUriResolver resolver =
+          ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        localNetwork: LocalNetworkAccess(permission: permission),
+        serverUri: () => Uri.parse('https://203.0.113.7'),
+      );
+      await resolver.resolve(_track);
+      expect(inner.calls, 1);
+    });
+  });
+}
+
+class _ScriptedPermission implements LocalNetworkPermission {
+  _ScriptedPermission(this.current, {this.answer});
+
+  LocalNetworkPermissionStatus current;
+  final LocalNetworkPermissionStatus? answer;
+  int requests = 0;
+
+  @override
+  Future<LocalNetworkPermissionStatus> status() async => current;
+
+  @override
+  Future<LocalNetworkPermissionStatus> request() async {
+    requests++;
+    current = answer ?? current;
+    return current;
+  }
+
+  @override
+  Future<void> openAppSettings() async {}
 }

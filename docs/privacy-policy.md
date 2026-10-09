@@ -133,6 +133,10 @@ Linthra requests a minimal set of Android permissions, each tied to a feature:
   background and show media controls in the notification and on the lock screen.
 - **Notifications** (Android 13+) — to show the media-playback notification and
   its controls. If you deny it, playback still works without the notification.
+- **Local network access** (Android 17+, shown under "Nearby devices"): to
+  reach a music server you set up on your own network. Linthra asks only when
+  you connect to or play from such a server, and uses it for nothing else.
+  Denying it leaves your local music and servers on the internet working.
 - **Local-network multicast** — to discover Cast/Chromecast devices on your
   local network when you choose to cast.
 

@@ -53,6 +53,19 @@
          location, server address, or credential and requires no runtime prompt. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- ACCESS_LOCAL_NETWORK: Android 17 (API 37) blocks connections to the
+         local network (a Jellyfin, Navidrome or Plex server at 192.168.x.x, a
+         NAS, a .local name) for apps targeting 37 until the user grants this
+         runtime permission, part of the "Nearby devices" group. Linthra asks
+         only when the user reaches for a server on their own network (testing
+         or signing in to one, or playing from one while the app is open), and
+         only for a server that actually resolves to a local address; a server
+         on the internet never triggers it. Without it, local music and remote
+         servers on the internet keep working. Older Android versions do not
+         know the permission and ignore this line. See LocalNetworkPermission
+         and docs/android-17.md. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
     <!-- CHANGE_WIFI_MULTICAST_STATE: lets the app receive multicast Wi-Fi
          packets so mDNS (`_googlecast._tcp`) discovery can find Chromecast
          devices on the local network. Required by the `bonsoir` discovery
@@ -75,7 +88,7 @@
 
          enableOnBackInvokedCallback="false": Back keeps reaching the app as
          onBackPressed on Android 16 and later, where predictive back is
-         otherwise on for apps targeting API 36 (flutter.targetSdkVersion).
+         otherwise on for apps targeting API 36 or higher (Linthra targets 37).
          With it on, Android only hands Flutter a Back while the framework
          says it handles one, which it never says for the frame's own Back
          handling (a Folders level, another tab back to Library): those Backs

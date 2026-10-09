@@ -442,14 +442,14 @@ class ContentGuard(unittest.TestCase):
             )
         )
         after = self.bump(SETTINGS_GRADLE, "agp", newer).replace(
-            "// Stay on AGP 8.x", "// Whatever"
+            "// The two versions on the next lines", "// Whatever"
         )
         with self.assertRaises(pins.CheckError) as caught:
             guard.check_content("agp", SETTINGS_GRADLE, after, "fixture")
         self.assertIn("more than", str(caught.exception))
 
     def test_a_downgrade_and_a_major_are_both_rejected(self):
-        for target, expected in (("8.0.0", "downgrade"), ("9.0.0", "major")):
+        for target, expected in (("9.0.0", "downgrade"), ("10.0.0", "major")):
             with self.subTest(target=target):
                 after = self.bump(SETTINGS_GRADLE, "agp", target)
                 with self.assertRaises(pins.CheckError) as caught:
@@ -501,9 +501,9 @@ class Writer(unittest.TestCase):
     def test_it_refuses_a_rerun_a_downgrade_a_major_and_a_prerelease(self):
         for version, expected in (
             (pins.find_pin(SETTINGS_GRADLE, "agp"), "already pinned"),
-            ("8.0.0", "downgrade"),
-            ("9.0.0", "major"),
-            ("8.99.0-rc1", "MAJOR.MINOR.PATCH"),
+            ("9.0.0", "downgrade"),
+            ("10.0.0", "major"),
+            ("9.99.0-rc1", "MAJOR.MINOR.PATCH"),
         ):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
                 root = self.sandbox(tmp)

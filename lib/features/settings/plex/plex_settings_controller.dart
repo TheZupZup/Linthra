@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/external_link_launcher_provider.dart';
 import '../../../core/models/plex_session.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
+import '../../../core/services/local_network/local_network_access.dart';
+import '../../../core/services/local_network/local_network_permission.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/music_provider.dart';
 import '../../../core/sources/plex/plex_api.dart';
@@ -16,6 +18,7 @@ import '../../../data/repositories/plex_session_store_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../library/source_preference_controller.dart';
 import '../../player/queue_account_switch.dart';
+import '../local_network/local_network_providers.dart';
 import 'plex_settings_providers.dart';
 import 'plex_settings_state.dart';
 import 'plex_sync_controller.dart';
@@ -239,6 +242,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       baseUrl: url,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final PlexServerIdentity identity =
           await ref.read(plexAuthenticatorProvider).testConnection(
                 rawUrl: url,
@@ -276,6 +280,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     );
     final PlexSession newSession;
     try {
+      await requireLocalNetworkFor(ref, url);
       newSession = await ref.read(plexAuthenticatorProvider).signIn(
             rawUrl: url,
             token: token,
@@ -290,8 +295,11 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// [error] as the [PlexException] it reports. Anything else (a response
   /// that broke parsing, say) still has to end a test or connect, or the
   /// card would stay busy until a restart.
-  static PlexException _typed(Object error) =>
-      error is PlexException ? error : PlexException.unsupportedResponse();
+  static PlexException _typed(Object error) => error is PlexException
+      ? error
+      : error is LocalNetworkBlockedException
+          ? PlexException(error.message, kind: PlexErrorKind.notReachable)
+          : PlexException.unsupportedResponse();
 
   /// Starts the "Connect with Plex" browser sign-in: mints a plex.tv PIN,
   /// opens the hosted approval page in the browser, polls until the user
@@ -562,6 +570,12 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
       errorMessage: null,
       errorKind: null,
     );
+    // The user picked this server, so this is the moment to ask for local
+    // network access if any of its addresses is on their network. A refusal
+    // doesn't end the attempt: the remote and relay addresses can still work.
+    final LocalNetworkPermissionStatus? lanBlocker =
+        await _askLocalNetworkFor(server);
+    if (_linkAttempt != attempt) return false;
     final PlexSession newSession;
     try {
       newSession = await ref.read(plexPinAuthProvider).connectToServer(
@@ -570,7 +584,12 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
           );
     } catch (error) {
       if (_linkAttempt != attempt) return false;
-      final PlexException failure = _typed(error);
+      final PlexException typed = _typed(error);
+      final PlexException failure =
+          lanBlocker != null && typed.kind == PlexErrorKind.notReachable
+              ? PlexException(LocalNetworkAccess.messageFor(lanBlocker),
+                  kind: PlexErrorKind.notReachable)
+              : typed;
       // Back to the picker: with several servers another can be tried, and
       // with one the retry (tap it again) or Cancel is right there.
       state = state.copyWith(
@@ -583,6 +602,24 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
     if (_linkAttempt != attempt) return false;
     return _completeConnect(newSession);
+  }
+
+  /// Asks for local network access when one of [server]'s addresses is on
+  /// the local network, and returns what still blocks those addresses, if
+  /// anything. Never throws.
+  Future<LocalNetworkPermissionStatus?> _askLocalNetworkFor(
+    PlexResource server,
+  ) async {
+    for (final PlexResourceConnection connection in server.connections) {
+      if (connection.relay) continue;
+      final Uri? uri = serverUriForLocalNetworkCheck(connection.uri);
+      if (uri == null) continue;
+      final LocalNetworkPermissionStatus? blocker = await ref
+          .read(localNetworkAccessProvider)
+          .blockerFor(uri, prompt: LocalNetworkPrompt.userAction);
+      if (blocker != null) return blocker;
+    }
+    return null;
   }
 
   /// The shared tail of every successful verify — manual form and sign-in

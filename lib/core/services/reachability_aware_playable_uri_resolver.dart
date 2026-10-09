@@ -1,5 +1,7 @@
 import '../models/track.dart';
 import 'connectivity_service.dart';
+import 'local_network/local_network_access.dart';
+import 'local_network/local_network_permission.dart';
 import 'playable_uri_resolver.dart';
 import 'provider_reachability.dart';
 import 'reachability.dart';
@@ -44,11 +46,15 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     required ProviderReachability reachability,
     ConnectivityService? connectivity,
     void Function(ReachabilityStatus status)? onReachabilityObserved,
+    LocalNetworkAccess? localNetwork,
+    Uri? Function()? serverUri,
   })  : _inner = inner,
         _providerKey = providerKey,
         _reachability = reachability,
         _connectivity = connectivity,
-        _onReachabilityObserved = onReachabilityObserved;
+        _onReachabilityObserved = onReachabilityObserved,
+        _localNetwork = localNetwork,
+        _serverUri = serverUri;
 
   final PlayableUriResolver _inner;
 
@@ -75,6 +81,12 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   /// fast-fail (step 2), which teaches nothing new. Failures are swallowed: an
   /// observer must never be able to break playback.
   final void Function(ReachabilityStatus status)? _onReachabilityObserved;
+
+  /// Android 17's local network gate, and the signed-in server's address to
+  /// check against it. Both optional: without them nothing is checked, which
+  /// is every host where the permission doesn't exist.
+  final LocalNetworkAccess? _localNetwork;
+  final Uri? Function()? _serverUri;
 
   /// Numbers each attempt as it starts.
   int _attempts = 0;
@@ -122,6 +134,20 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
         _observeFor(key, ReachabilityStatus.networkUnavailable);
       }
       throw _failFast(ReachabilityStatus.networkUnavailable);
+    }
+
+    // 1b. The server is on the local network and Android 17's local network
+    //     permission is off: the connection can only fail (a TCP connect just
+    //     times out), so say why now. Asks once per session while the app is
+    //     on screen, since playing from that server is the user's own doing.
+    //     The server isn't down, so nothing is remembered or reported to the
+    //     library: its tracks stay where the user can tap them again.
+    final LocalNetworkPermissionStatus? blocker = await _localNetworkBlocker();
+    if (blocker != null) {
+      throw PlaybackResolutionException(
+        LocalNetworkAccess.messageFor(blocker),
+        kind: PlaybackResolutionErrorKind.serverUnreachable,
+      );
     }
 
     // 2. We have a network, but saw this server fail to respond very recently —
@@ -172,6 +198,22 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     if (newest != null && newest > attempt) return false;
     _newestSettled[key] = attempt;
     return true;
+  }
+
+  /// What keeps this provider's server off the local network, if anything.
+  /// Defensive like [_isOffline]: a failure to tell means "nothing blocks".
+  Future<LocalNetworkPermissionStatus?> _localNetworkBlocker() async {
+    final LocalNetworkAccess? access = _localNetwork;
+    final Uri? server = _serverUri?.call();
+    if (access == null || server == null) return null;
+    try {
+      return await access.blockerFor(
+        server,
+        prompt: LocalNetworkPrompt.oncePerSession,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Whether the device currently has no usable network. Defensive: any failure

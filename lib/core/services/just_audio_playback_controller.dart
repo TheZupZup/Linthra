@@ -900,12 +900,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
           _armTransientResume(false);
           StabilityDiagnostics.audioFocus('regain:churn-absorbed');
         } else if (_resumeAfterTransientLoss) {
-          _armTransientResume(false);
+          // The resume is consumed here, but the foreground hold is not: it
+          // stays until the engine reports playing again (see [_emit]). Lifted
+          // first, the session would report paused for the moment between
+          // now and the resume, and audio_service would take the media
+          // service out of the foreground just as the resume asks Android for
+          // audio focus from the background. Android 17 refuses that focus
+          // request (and silences the audio) without a foreground service.
+          _resumeAfterTransientLoss = false;
           if (_automaticRecoveryUnderway) {
             // The engine still holds the source that failed (or the track
             // before it). The waiting or loading step starts its own track
             // once it lands, now that it may; playing the engine here would
-            // sound the old source until the step replaced it.
+            // sound the old source until the step replaced it. Its own
+            // reconnecting/loading state keeps the session playing meanwhile.
+            _setForegroundHeldForFocus(false);
             StabilityDiagnostics.audioFocus('regain:recovery-starts');
           } else {
             StabilityDiagnostics.audioFocus('regain:resumed');
@@ -1051,14 +1060,30 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (held) {
       _focusHoldExpiry = Timer(focusHoldTimeout, () {
         _focusHoldExpiry = null;
-        // The resume arming deliberately survives: if the isolate is still
-        // alive when focus finally returns, playback still recovers. Only the
-        // battery cost of the hold is given up.
+        // The resume goes with the hold. Once the media service has left the
+        // foreground, a resume on a later regain would start audio from the
+        // background with no foreground service: Android 12 and later can
+        // refuse to bring the service back, and Android 17 refuses the focus
+        // request and silences the audio. Past this point the listener
+        // presses Play, which Android allows from a notification, a headset
+        // or the app. Like a permanent loss, nothing else may start sound on
+        // its own either: not a track still loading, and not an automatic
+        // retry, which only held back while the resume was armed.
         StabilityDiagnostics.audioFocus('hold:expired');
-        _setForegroundHeldForFocus(false);
+        _armTransientResume(false);
+        _setPlayWhenLoaded(false);
+        _haltAutomaticRecovery(settle: true);
       });
     }
     _emit(_state);
+  }
+
+  /// Drops the foreground hold without emitting, for [_emit] to stamp onto the
+  /// state it is about to publish.
+  void _releaseFocusHoldQuietly() {
+    _foregroundHeldForFocus = false;
+    _focusHoldExpiry?.cancel();
+    _focusHoldExpiry = null;
   }
 
   /// Clears an active duck and pushes the normal (un-attenuated) volume back to
@@ -1775,6 +1800,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   void _emit(PlaybackState next, {bool force = false}) {
+    // A hold whose resume has been consumed (a focus regain) ends once the
+    // engine is playing again: from here the playing status itself keeps the
+    // media service in the foreground, so nothing is left for it to bridge.
+    if (_foregroundHeldForFocus &&
+        !_resumeAfterTransientLoss &&
+        next.status == PlaybackStatus.playing) {
+      _releaseFocusHoldQuietly();
+    }
     // Stamp the foreground focus hold on from one place, so no emit path can
     // publish a state that disagrees with the current hold.
     final PlaybackState stamped = _withCurrentRecoveries(next)
@@ -3467,8 +3500,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _cancelBufferingWatchdog();
     // An error has nothing to resume. A transient focus loss (a call) that is
     // still held would otherwise have the focus regain call play() on whatever
-    // source the engine last had, underneath the error.
-    if (_resumeAfterTransientLoss) _armTransientResume(false);
+    // source the engine last had, underneath the error. A hold still bridging
+    // a regain's resume goes too: that resume ended in this error.
+    if (_resumeAfterTransientLoss || _foregroundHeldForFocus) {
+      _armTransientResume(false);
+    }
     // Keep where the track stopped: Retry and Play resume from there, as the
     // failure panel promises, rather than from the top of a half-heard song.
     final bool sameTrack = _state.currentTrack?.uri == track.uri;

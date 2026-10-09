@@ -6,6 +6,7 @@ import '../../../core/app_info.dart';
 import '../../../core/models/jellyfin_session.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/repositories/secure_storage_exception.dart';
+import '../../../core/services/local_network/local_network_access.dart';
 import '../../../core/services/remote_cache/remote_cache_key.dart';
 import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
 import '../../../core/sources/jellyfin/jellyfin_api.dart';
@@ -21,6 +22,7 @@ import '../../../data/repositories/jellyfin_session_store_provider.dart';
 import '../../../data/repositories/playlist_repository_provider.dart';
 import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../library/source_preference_controller.dart';
+import '../local_network/local_network_providers.dart';
 import 'jellyfin_settings_providers.dart';
 import 'jellyfin_settings_state.dart';
 import 'jellyfin_sync_controller.dart';
@@ -115,6 +117,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       productName: state.productName,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final JellyfinServerInfo info =
           await ref.read(jellyfinAuthenticatorProvider).testConnection(url);
       state = JellyfinSettingsState(
@@ -159,6 +162,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
       productName: state.productName,
     );
     try {
+      await requireLocalNetworkFor(ref, url);
       final JellyfinSession newSession =
           await ref.read(jellyfinAuthenticatorProvider).signIn(
                 rawUrl: url,
@@ -222,7 +226,10 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   /// or the card would stay busy until a restart.
   static JellyfinException _typed(Object error) => error is JellyfinException
       ? error
-      : JellyfinException.unsupportedResponse();
+      : error is LocalNetworkBlockedException
+          ? JellyfinException(error.message,
+              kind: JellyfinErrorKind.notReachable)
+          : JellyfinException.unsupportedResponse();
 
   /// Clears the saved session and resets to the disconnected state.
   ///

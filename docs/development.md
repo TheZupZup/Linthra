@@ -23,9 +23,9 @@ of repeating the values, so a bump is a one-line edit:
 | ---- | -------------- | --------------- |
 | Flutter SDK | Flutter 3.47.5 (`stable`) | [`.flutter-version`](../.flutter-version) |
 | JDK | JDK 17 (Temurin in CI) | [`.java-version`](../.java-version) |
-| Gradle | Gradle 8.14.5 | [`android/gradle/wrapper/gradle-wrapper.properties`](../android/gradle/wrapper/gradle-wrapper.properties) |
-| Android Gradle Plugin | AGP 8.11.1 | [`android/settings.gradle`](../android/settings.gradle) |
-| Kotlin Gradle plugin | Kotlin 2.2.21 | [`android/settings.gradle`](../android/settings.gradle) |
+| Gradle | Gradle 9.3.1 | [`android/gradle/wrapper/gradle-wrapper.properties`](../android/gradle/wrapper/gradle-wrapper.properties) |
+| Android Gradle Plugin | AGP 9.1.1 | [`android/settings.gradle`](../android/settings.gradle) |
+| Kotlin Gradle plugin | Kotlin 2.4.21 | [`android/settings.gradle`](../android/settings.gradle) |
 
 `scripts/setup_flutter.sh` and the shared `.github/actions/setup-flutter` action
 both install the Flutter version from `.flutter-version`; every workflow that
@@ -191,7 +191,7 @@ do not.
 You need a working Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set) and a
 JDK that matches the bundled Gradle wrapper — use the pinned **JDK 17** from
 [`.java-version`](../.java-version), the same one CI installs for the Gradle
-8.14.5 / Android Gradle Plugin 8.11.1 the project pins. Run `flutter doctor` to
+9.3.1 / Android Gradle Plugin 9.1.1 the project pins. Run `flutter doctor` to
 confirm your toolchain.
 
 ```bash
@@ -374,6 +374,9 @@ manifest declares:
   a *runtime* permission requested once on first launch.
 - **`INTERNET`** / **`ACCESS_NETWORK_STATE`**: to reach a self-hosted server,
   and to tell metered from unmetered connections for downloads.
+- **`ACCESS_LOCAL_NETWORK`**: Android 17's runtime permission for reaching a
+  server on the local network; asked only when the user tests, signs in to or
+  plays from one (see [android-17.md](android-17.md)).
 - **`CHANGE_WIFI_MULTICAST_STATE`**: mDNS discovery of Cast devices on the LAN.
 - **`READ_MEDIA_AUDIO`** / **`READ_EXTERNAL_STORAGE`** (`maxSdkVersion="32"`):
   only for the opt-in **All music on this device** mode, requested when the
