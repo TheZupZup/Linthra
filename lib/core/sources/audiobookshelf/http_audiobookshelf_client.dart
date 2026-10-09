@@ -79,6 +79,34 @@ class HttpAudiobookshelfClient implements AudiobookshelfClient {
   }
 
   @override
+  Future<AudiobookshelfAuthResult> refreshTokens({
+    required String baseUrl,
+    required String refreshToken,
+  }) async {
+    final Uri uri = AudiobookshelfEndpoints.refresh(baseUrl);
+    final http.Response response = await _send(
+      () => _client.post(
+        uri,
+        headers: <String, String>{
+          'Accept': 'application/json',
+          // The header (rather than the cookie a browser would send) is also
+          // what makes the server return the new refresh token in the body.
+          // Never in the URL, where a proxy log would keep it.
+          'x-refresh-token': refreshToken,
+        },
+      ),
+    );
+    _checkStatus(response);
+    // The answer has the login response's shape.
+    final AudiobookshelfAuthResult? result =
+        AudiobookshelfAuthResult.fromJson(_decodeObject(response));
+    if (result == null) {
+      throw AudiobookshelfException.unsupportedResponse();
+    }
+    return result;
+  }
+
+  @override
   Future<List<AudiobookshelfLibraryDto>> fetchLibraries(
     AudiobookshelfSession session,
   ) async {
@@ -161,7 +189,7 @@ class HttpAudiobookshelfClient implements AudiobookshelfClient {
       return;
     }
     if (code == 401 || code == 403) {
-      throw AudiobookshelfException.unauthorized();
+      throw AudiobookshelfException.unauthorized(statusCode: code);
     }
     if (code >= 500) {
       throw AudiobookshelfException.serverError(code);

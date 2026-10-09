@@ -125,6 +125,17 @@ class LoopbackEngine extends Fake implements AudioPlayer {
   @override
   Future<void> dispose() async {}
 
+  /// Plays on from [from] for [length], with libmpv's position ticks.
+  Duration playOn(Duration from, Duration length) {
+    const Duration tick = Duration(milliseconds: 250);
+    Duration position = from;
+    while (position < from + length) {
+      position += tick;
+      _positions.add(position);
+    }
+    return position;
+  }
+
   /// Ends the current track naturally, as the engine does at the last sample.
   void completeTrack() =>
       _states.add(PlayerState(false, ProcessingState.completed));
@@ -702,6 +713,46 @@ void main() {
       // The sweep below is only worth anything if something was recorded: a
       // failed stream leaves breadcrumbs, and none of them may carry the URL.
       expect(SafeEventLog.instance.lines, isNotEmpty);
+      expectCredentialsContained(controller);
+    });
+
+    test(
+        'a drop after the reconnected stream has played on a while gets its '
+        'own reconnect (#831)', () async {
+      final FakeJellyfinServer server = await jellyfinServer();
+      final LoopbackEngine engine = newEngine();
+      final LinuxPlaybackController controller = controllerFor(
+        engine,
+        router(jellyfin: jellyfinSource(server)),
+      );
+
+      await controller.playTrack(jellyfinTrack('101'));
+      Duration at = engine.playOn(Duration.zero, const Duration(seconds: 20));
+      engine.failMidStream();
+      await waitFor(
+        () =>
+            server.streamProbes.length == 2 &&
+            controller.state.status == PlaybackStatus.playing,
+        describe: 'the first drop to reconnect',
+      );
+
+      // The reconnected stream holds for a minute before an unrelated drop.
+      at = engine.playOn(at, const Duration(minutes: 1));
+      engine.failMidStream();
+      await waitFor(
+        () =>
+            server.streamProbes.length == 3 &&
+            controller.state.status == PlaybackStatus.playing,
+        describe: 'the independent drop to reconnect quickly too',
+      );
+
+      // And that reconnect is spent: dropping again at once gives up.
+      engine.failMidStream();
+      await waitFor(
+        () => controller.state.status == PlaybackStatus.error,
+        describe: 'a drop straight after the reconnect to give up',
+      );
+      expect(server.streamProbes, hasLength(3));
       expectCredentialsContained(controller);
     });
 
