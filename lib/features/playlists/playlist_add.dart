@@ -54,7 +54,7 @@ class PlaylistAddPlan {
       addable: addable,
       newTracks: List<Track>.unmodifiable(<Track>[
         for (final Track track in addable)
-          if (!existing.contains(track.uri)) track,
+          if (existing.add(track.uri)) track,
       ]),
     );
   }
