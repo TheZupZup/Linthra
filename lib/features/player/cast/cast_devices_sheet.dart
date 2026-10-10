@@ -283,7 +283,10 @@ class _DeviceTileState extends ConsumerState<_DeviceTile> {
               'name next time. Do this if you replaced it.',
             ),
             actions: [
+              // Cancel takes the keyboard: Enter on a dialog that just opened
+              // should never be the one keystroke that drops the pin.
               TextButton(
+                autofocus: true,
                 onPressed: () => Navigator.of(context).pop(false),
                 child: const Text('Cancel'),
               ),
