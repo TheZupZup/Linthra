@@ -38,6 +38,15 @@ class _RecordingRepository implements PlaylistRepository {
 
 void main() {
   group('PlaylistAddPlan', () {
+    test('duplicate songs should count only once', () {
+      final PlaylistAddPlan plan = PlaylistAddPlan.of(
+        playlist: _playlist(),
+        tracks: <Track>[_local('a'), _local('a')],
+      );
+
+      expect(plan.newTracks, hasLength(1));
+    });
+
     test('a local playlist takes tracks from every source', () {
       final PlaylistAddPlan plan = PlaylistAddPlan.of(
         playlist: _playlist(),
