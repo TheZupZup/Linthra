@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/cast_state.dart';
@@ -382,6 +383,33 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
+      expect(pins.pins[_device.id], 'sha256aabb');
+    });
+
+    testWidgets('the forget dialog opens on Cancel, so Enter keeps the pin',
+        (tester) async {
+      // Enter is the keystroke most likely to land on a dialog that just
+      // opened. Here it must be the safe answer, never the one that drops a
+      // pin the user cannot see (#860).
+      final InMemoryCastReceiverPinStore pins =
+          await pinned() as InMemoryCastReceiverPinStore;
+      await _pumpSheet(tester, FakeCastService(initial: refused()), pins: pins);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forget this device'));
+      await tester.pumpAndSettle();
+
+      expect(
+        Focus.of(tester.element(find.text('Cancel'))).hasPrimaryFocus,
+        isTrue,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Forget this device?'), findsNothing);
       expect(pins.pins[_device.id], 'sha256aabb');
     });
 

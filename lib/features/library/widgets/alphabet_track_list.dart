@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../../../core/models/track.dart';
+import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/focus/list_keyboard_navigation.dart';
 import 'track_tile.dart';
 
@@ -208,12 +209,13 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   Widget build(BuildContext context) {
     final showRail = _letters.length >= 2;
     // Home and End jump to the ends of the library the way they do in any
-    // desktop list; the arrow keys already walk it row by row. The A–Z rail
-    // beside it is the pointer's version of the same idea (#390).
-    return ListKeyboardNavigation(
-      child: Stack(
-        children: [
-          ListView.builder(
+    // desktop list; the arrow keys already walk it row by row (#390). It wraps
+    // the list alone: the rail's letters are focus stops too, and inside the
+    // same region End would take the rail's last letter for the bottom row.
+    return Stack(
+      children: [
+        ListKeyboardNavigation(
+          child: ListView.builder(
             key: const Key('library_track_list'),
             controller: _controller,
             // Reserve room for the rail so rows never render beneath it.
@@ -255,29 +257,29 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
               );
             },
           ),
-          if (showRail)
-            Positioned(
-              top: 0,
-              bottom: 0,
-              right: 0,
-              width: _railWidth,
-              child: _AlphabetIndex(
-                letters: _letters,
-                activeLetter: _activeLetter,
-                onSelected: _jumpToLetter,
-                onScrubChanged: (scrubbing) =>
-                    setState(() => _scrubbing = scrubbing),
-              ),
+        ),
+        if (showRail)
+          Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: _railWidth,
+            child: _AlphabetIndex(
+              letters: _letters,
+              activeLetter: _activeLetter,
+              onSelected: _jumpToLetter,
+              onScrubChanged: (scrubbing) =>
+                  setState(() => _scrubbing = scrubbing),
             ),
-          if (showRail && _scrubbing && _activeLetter != null)
-            Positioned(
-              right: _railWidth + AppSpacing.sm,
-              top: 0,
-              bottom: 0,
-              child: Center(child: _ScrubBubble(letter: _activeLetter!)),
-            ),
-        ],
-      ),
+          ),
+        if (showRail && _scrubbing && _activeLetter != null)
+          Positioned(
+            right: _railWidth + AppSpacing.sm,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _ScrubBubble(letter: _activeLetter!)),
+          ),
+      ],
     );
   }
 }
@@ -356,6 +358,11 @@ class _ScrubBubble extends StatelessWidget {
 /// renders only the letters present and maps a tap or vertical drag to the
 /// nearest letter, jumping the list to that section. The active letter is
 /// drawn in the accent colour; the rest stay subtle.
+///
+/// The pointer works on the rail as a whole, so a drag can sweep across the
+/// letters. The keyboard and screen readers get each letter as its own button
+/// (see [_IndexLetter]), since a single scrubber surface is nothing they can
+/// act on.
 class _AlphabetIndex extends StatelessWidget {
   const _AlphabetIndex({
     required this.letters,
@@ -377,7 +384,6 @@ class _AlphabetIndex extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Fill the available height so a tap/drag maps linearly across the
@@ -387,6 +393,9 @@ class _AlphabetIndex extends StatelessWidget {
         return GestureDetector(
           key: const Key('library_alphabet_index'),
           behavior: HitTestBehavior.opaque,
+          // The letters carry their own tap actions for assistive tech. The
+          // drag's scroll actions would only be a second, vaguer way in.
+          excludeFromSemantics: true,
           onTapDown: (d) => _handle(d.localPosition, height),
           onVerticalDragStart: (d) {
             onScrubChanged(true);
@@ -397,27 +406,85 @@ class _AlphabetIndex extends StatelessWidget {
           onVerticalDragCancel: () => onScrubChanged(false),
           child: SizedBox(
             height: height > 0 ? height : null,
-            child: Column(
-              mainAxisSize: height > 0 ? MainAxisSize.max : MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                for (final letter in letters)
-                  Text(
-                    letter,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: letter == activeLetter
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurface.withValues(alpha: 0.45),
-                      fontWeight: letter == activeLetter
-                          ? FontWeight.bold
-                          : FontWeight.w600,
+            // Tab walks the letters top to bottom, then leaves the rail.
+            child: FocusTraversalGroup(
+              child: Column(
+                mainAxisSize: height > 0 ? MainAxisSize.max : MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final letter in letters)
+                    _IndexLetter(
+                      key: ValueKey<String>(letter),
+                      letter: letter,
+                      active: letter == activeLetter,
+                      onPressed: () => onSelected(letter),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// One letter of the rail, as a button the keyboard can reach and a screen
+/// reader can press.
+///
+/// It handles no pointer input of its own: a tap or drag on the rail goes to
+/// the rail, which is what lets a finger scrub across the letters. Enter and
+/// Space arrive as [ActivateIntent] from the app's default shortcuts.
+class _IndexLetter extends StatelessWidget {
+  const _IndexLetter({
+    required this.letter,
+    required this.active,
+    required this.onPressed,
+    super.key,
+  });
+
+  final String letter;
+  final bool active;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      container: true,
+      button: true,
+      selected: active,
+      label: letter == '#'
+          ? 'Jump to songs starting with a number or symbol'
+          : 'Jump to $letter',
+      onTap: onPressed,
+      child: FocusRing(
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: FocusableActionDetector(
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                onPressed();
+                return null;
+              },
+            ),
+          },
+          child: ExcludeSemantics(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              child: Text(
+                letter,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: active
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                  fontWeight: active ? FontWeight.bold : FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
