@@ -200,7 +200,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final int currentIndex = widget.navigationShell.currentIndex;
     final NavigatorState? activeBranch =
         widget.branchNavigatorKeys[currentIndex].currentState;
-    if (activeBranch?.canPop() ?? false) return false;
+    // A tab can keep pages in a navigator of its own inside the branch's
+    // (Settings does, so a wide window can show them beside the categories,
+    // #753). Whatever the router can pop, it pops itself.
+    if ((activeBranch?.canPop() ?? false) ||
+        (GoRouter.maybeOf(context)?.canPop() ?? false)) {
+      return false;
+    }
     // The tab's first page can still hold Back for itself: the Library's
     // selection mode ends on Back. The router never asks it, because all it
     // pops is the root navigator, whose page is this frame, and the app

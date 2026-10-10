@@ -22,6 +22,7 @@ import '../features/settings/hub/connections_settings_screen.dart';
 import '../features/settings/hub/diagnostics_support_screen.dart';
 import '../features/settings/hub/music_and_playback_screen.dart';
 import '../features/settings/hub/offline_downloads_screen.dart';
+import '../features/settings/settings_panes.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/home_shell.dart';
 import '../features/smart_mixes/smart_mix_detail_screen.dart';
@@ -52,6 +53,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     GlobalKey<NavigatorState>(debugLabel: 'downloadsBranch'),
     GlobalKey<NavigatorState>(debugLabel: 'settingsBranch'),
   ];
+  // The Settings pages' own navigator, inside the Settings tab's, so a wide
+  // window can show them beside the categories (#753).
+  final GlobalKey<NavigatorState> settingsPagesNavigatorKey =
+      GlobalKey<NavigatorState>(debugLabel: 'settingsPages');
   final bool onboardingCompleted = ref.read(onboardingControllerProvider);
 
   return GoRouter(
@@ -154,52 +159,63 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             navigatorKey: branchNavigatorKeys[4],
             routes: [
-              GoRoute(
-                path: AppRoutes.settings,
-                builder: (context, state) => const SettingsScreen(),
+              ShellRoute(
+                navigatorKey: settingsPagesNavigatorKey,
+                builder: (context, state, child) => SettingsPanes(
+                  navigatorKey: settingsPagesNavigatorKey,
+                  child: child,
+                ),
                 routes: [
                   GoRoute(
-                    path: 'connections',
-                    builder: (context, state) =>
-                        const ConnectionsSettingsScreen(),
-                  ),
-                  GoRoute(
-                    path: 'audiobooks',
-                    builder: (context, state) => const AudiobooksScreen(),
-                  ),
-                  GoRoute(
-                    path: 'playback',
-                    builder: (context, state) => const MusicAndPlaybackScreen(),
-                  ),
-                  GoRoute(
-                    path: 'cache',
-                    builder: (context, state) => const CacheAndDataScreen(),
-                  ),
-                  GoRoute(
-                    path: 'downloads',
-                    builder: (context, state) => const OfflineDownloadsScreen(),
-                  ),
-                  GoRoute(
-                    path: 'appearance',
-                    builder: (context, state) =>
-                        const AppearanceSettingsScreen(),
-                  ),
-                  GoRoute(
-                    path: 'diagnostics',
-                    builder: (context, state) =>
-                        const DiagnosticsSupportScreen(),
-                  ),
-                  GoRoute(
-                    path: 'about',
-                    builder: (context, state) => const AboutScreen(),
-                  ),
-                  GoRoute(
-                    path: 'support',
-                    builder: (context, state) => const SupportScreen(),
-                  ),
-                  GoRoute(
-                    path: 'report-bug',
-                    builder: (context, state) => const BugReportScreen(),
+                    path: AppRoutes.settings,
+                    builder: (context, state) => const SettingsScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'connections',
+                        builder: (context, state) =>
+                            const ConnectionsSettingsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'audiobooks',
+                        builder: (context, state) => const AudiobooksScreen(),
+                      ),
+                      GoRoute(
+                        path: 'playback',
+                        builder: (context, state) =>
+                            const MusicAndPlaybackScreen(),
+                      ),
+                      GoRoute(
+                        path: 'cache',
+                        builder: (context, state) => const CacheAndDataScreen(),
+                      ),
+                      GoRoute(
+                        path: 'downloads',
+                        builder: (context, state) =>
+                            const OfflineDownloadsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'appearance',
+                        builder: (context, state) =>
+                            const AppearanceSettingsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'diagnostics',
+                        builder: (context, state) =>
+                            const DiagnosticsSupportScreen(),
+                      ),
+                      GoRoute(
+                        path: 'about',
+                        builder: (context, state) => const AboutScreen(),
+                      ),
+                      GoRoute(
+                        path: 'support',
+                        builder: (context, state) => const SupportScreen(),
+                      ),
+                      GoRoute(
+                        path: 'report-bug',
+                        builder: (context, state) => const BugReportScreen(),
+                      ),
+                    ],
                   ),
                 ],
               ),
