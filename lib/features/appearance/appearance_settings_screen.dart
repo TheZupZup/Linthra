@@ -5,6 +5,7 @@ import '../../app/colors.dart';
 import '../../app/dimens.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/launcher_icon_service_provider.dart';
+import '../settings/settings_panes.dart';
 import '../support/support_actions_provider.dart';
 import 'app_icon_controller.dart';
 import 'app_icon_variant.dart';
@@ -34,7 +35,10 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     final bool launcherSwitchSupported =
         ref.watch(launcherIconServiceProvider).isSupported;
     return Scaffold(
-      appBar: AppBar(title: const Text('App icon & branding')),
+      appBar: AppBar(
+        title: const Text('App icon & branding'),
+        automaticallyImplyLeading: !SettingsPanesScope.isSidebarPage(context),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: <Widget>[

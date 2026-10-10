@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
 import '../../../shared/layout/adaptive_layout.dart';
+import '../settings_panes.dart';
 
 /// The shared frame for a Settings category page (the screen a hub row opens).
 ///
@@ -25,7 +26,10 @@ class SettingsDetailScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        automaticallyImplyLeading: !SettingsPanesScope.isSidebarPage(context),
+      ),
       // Same cap as the hub, so a category page doesn't jump to a different
       // column width when it opens on a desktop window.
       body: AdaptiveContentWidth(
