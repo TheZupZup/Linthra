@@ -72,8 +72,10 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   LinthraAudioHandler(
     this._controller,
     this._tree, {
+    FavoritesRepository? favorites,
     MediaArtworkSource? artwork,
-  }) : _artwork = artwork {
+  })  : _favorites = favorites,
+        _artwork = artwork {
     _subscription = _controller.stateStream.listen(_broadcast);
     // Refresh the now-playing item the instant the current track's cover finishes
     // warming, so a card published without art picks it up at once instead of
@@ -87,6 +89,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 
   final PlaybackController _controller;
   final MediaBrowserTree _tree;
+  final FavoritesRepository? _favorites;
   late final StreamSubscription<PlaybackState> _subscription;
   StreamSubscription<Uri>? _coverReadySub;
 
@@ -211,6 +214,32 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
     if (_detached) return;
     await _controller.stop();
     await super.stop();
+  }
+
+  @override
+  Future<dynamic> customAction(String name,
+      [Map<String, dynamic>? extras]) async {
+    switch (name) {
+      case 'shuffle':
+        await setShuffleMode(
+          playbackState.value.shuffleMode == audio.AudioServiceShuffleMode.none
+              ? audio.AudioServiceShuffleMode.all
+              : audio.AudioServiceShuffleMode.none,
+        );
+        break;
+
+      case 'favorite':
+        final Track? track = _controller.state.currentTrack;
+        if (track != null && _favorites != null) {
+          await _favorites.setFavorite(
+            track,
+            !_favorites.isFavorite(track.uri),
+          );
+        }
+        break;
+    }
+
+    return super.customAction(name, extras);
   }
 
   /// Advances one track, on behalf of whoever pressed Next: Android Auto's
@@ -879,8 +908,17 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       _isSessionPlaying(state)
           ? audio.MediaControl.pause
           : audio.MediaControl.play,
-      audio.MediaControl.stop,
       if (state.hasNext) audio.MediaControl.skipToNext,
+      audio.MediaControl.custom(
+        androidIcon: 'drawable/ic_shuffle',
+        label: 'Shuffle',
+        name: 'shuffle',
+      ),
+      audio.MediaControl.custom(
+        androidIcon: 'drawable/ic_favorite',
+        label: 'Favorite',
+        name: 'favorite',
+      )
     ];
   }
 
