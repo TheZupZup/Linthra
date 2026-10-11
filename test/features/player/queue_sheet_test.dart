@@ -346,6 +346,27 @@ void main() {
       expect(find.textContaining('Saved 3 songs to'), findsOneWidget);
     });
 
+    testWidgets('save queue as playlist counts duplicate tracks only once',
+        (tester) async {
+      final store = InMemoryPlaylistStore();
+      final controller = FakePlaybackController();
+      await controller.playTracks([_track('A'), _track('B'), _track('A')]);
+
+      await _open(tester, controller, store: store);
+      await tester.tap(find.byTooltip('Save queue as playlist'));
+      await tester.pumpAndSettle();
+
+      // The shared create-playlist dialog: enter a name, then Create.
+      await tester.enterText(find.byType(TextField).first, 'My Queue');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      final List<Playlist> saved = await store.load();
+      expect(saved.single.trackIds, <String>['/A.mp3', '/B.mp3']);
+      expect(find.textContaining('Saved 2 songs to'), findsOneWidget);
+    });
+
     testWidgets('never renders a track uri / authenticated source string',
         (tester) async {
       final controller = FakePlaybackController();

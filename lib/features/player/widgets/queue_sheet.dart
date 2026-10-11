@@ -401,7 +401,17 @@ class QueueSheet extends ConsumerWidget {
       if (state.currentTrack != null) state.currentTrack!,
       ...state.upNext,
     ];
+
     if (tracks.isEmpty) return;
+
+    final List<Track> uniqueTracks = <Track>[];
+    final Set<String> seen = <String>{};
+
+    for (final Track track in tracks) {
+      if (seen.add(track.uri)) {
+        uniqueTracks.add(track);
+      }
+    }
 
     final PlaylistEdit? edit = await showCreatePlaylistDialog(context);
     if (edit == null) return;
@@ -420,7 +430,7 @@ class QueueSheet extends ConsumerWidget {
       () async {
         await repository.addTracks(
           created.id,
-          <String>[for (final Track track in tracks) track.uri],
+          <String>[for (final Track track in uniqueTracks) track.uri],
         );
         return true;
       },
@@ -431,9 +441,9 @@ class QueueSheet extends ConsumerWidget {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          tracks.length == 1
+          uniqueTracks.length == 1
               ? 'Saved 1 song to “${edit.name}”.'
-              : 'Saved ${tracks.length} songs to “${edit.name}”.',
+              : 'Saved ${uniqueTracks.length} songs to “${edit.name}”.',
         ),
       ),
     );
