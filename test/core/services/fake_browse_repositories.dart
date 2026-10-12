@@ -116,6 +116,9 @@ class FakeFavoritesRepository implements FavoritesRepository {
   bool isFavorite(String trackId) => _ids.contains(trackId);
 
   @override
+  Future<void> ensureLoaded() async {}
+
+  @override
   Future<void> setFavorite(Track track, bool favorite) async {
     if (favorite) {
       _ids.add(track.id);

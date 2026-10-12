@@ -254,6 +254,9 @@ class _RecordingFavoritesRepository implements FavoritesRepository {
   bool isFavorite(String trackUri) => _ids.contains(trackUri);
 
   @override
+  Future<void> ensureLoaded() async {}
+
+  @override
   Future<void> setFavorite(Track track, bool favorite) async {
     writes.add(_FavoriteWrite(track, favorite));
     if (favorite) {

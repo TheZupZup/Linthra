@@ -219,6 +219,8 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   @override
   Future<dynamic> customAction(String name,
       [Map<String, dynamic>? extras]) async {
+    if (_detached) return;
+
     switch (name) {
       case 'shuffle':
         await setShuffleMode(
@@ -231,6 +233,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       case 'favorite':
         final Track? track = _controller.state.currentTrack;
         if (track != null && _favorites != null) {
+          await _favorites.ensureLoaded();
           await _favorites.setFavorite(
             track,
             !_favorites.isFavorite(track.uri),
@@ -908,6 +911,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
       _isSessionPlaying(state)
           ? audio.MediaControl.pause
           : audio.MediaControl.play,
+      audio.MediaControl.stop,
       if (state.hasNext) audio.MediaControl.skipToNext,
       audio.MediaControl.custom(
         androidIcon: 'drawable/ic_shuffle',
@@ -1101,6 +1105,7 @@ Future<LinthraAudioHandler?> _attachMediaSession(
           favorites: favorites,
           downloads: downloads,
         ),
+        favorites: favorites,
         artwork: artwork,
       ),
       config: const audio.AudioServiceConfig(

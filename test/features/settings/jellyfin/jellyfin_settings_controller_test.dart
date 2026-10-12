@@ -79,6 +79,9 @@ class _SpyFavoritesRepository implements FavoritesRepository {
   bool isFavorite(String trackId) => false;
 
   @override
+  Future<void> ensureLoaded() async {}
+
+  @override
   Future<void> setFavorite(Track track, bool favorite) async {}
 
   @override
