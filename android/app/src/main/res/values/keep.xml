@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <item name="ic_shuffle" type="drawable" tools:keep="true" />
-    <item name="ic_favorite" type="drawable" tools:keep="true" />
-</resources>
