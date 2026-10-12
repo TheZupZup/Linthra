@@ -20,6 +20,8 @@ abstract interface class FavoritesRepository {
   /// the UI should bind to. Keyed by the provider-namespaced uri.
   bool isFavorite(String trackUri);
 
+  Future<void> ensureLoaded();
+
   /// Marks (or unmarks) [track] as a favourite. Updates immediately and, for a
   /// Jellyfin track while signed in, pushes the change to the server. Never
   /// throws: a failed server push keeps the local intent and reconciles on the

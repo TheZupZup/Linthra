@@ -157,6 +157,9 @@ class SyncedFavoritesRepository
   }
 
   @override
+  Future<void> ensureLoaded() => _ensureLoaded();
+
+  @override
   bool isFavorite(String trackUri) =>
       _data.localIds.contains(trackUri) || _data.remoteIds.contains(trackUri);
 

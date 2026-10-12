@@ -26,6 +26,9 @@ class _CountingFavorites implements FavoritesRepository {
   bool isFavorite(String trackUri) => false;
 
   @override
+  Future<void> ensureLoaded() async {}
+
+  @override
   Future<void> setFavorite(Track track, bool favorite) async {}
 
   @override
