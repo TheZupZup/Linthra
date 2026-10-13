@@ -401,6 +401,13 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             Log.e(TAG, "default PlaybackException: " + error.getMessage());
             sendError(String.valueOf(error.errorCode), error.getMessage(), mapOf("index", currentIndex));
         }
+
+        if (seekResult != null) {
+            seekResult.error("PLAYER_ERROR", error.getMessage(), null);
+            seekResult = null;
+            seekPos = null;
+        }
+
         errorCount++;
         if (player.hasNextMediaItem() && currentIndex != null && errorCount <= 5) {
             int nextIndex = currentIndex + 1;
