@@ -143,6 +143,29 @@ void main() {
       expect(find.byType(ArtistDetailScreen), findsOneWidget);
     });
 
+    testWidgets('artist navigation igniores accents', (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(
+            id: '1',
+            title: 'Alpha',
+            uri: 'jellyfin:1',
+            artistName: 'Beyonce',
+            albumArtistName: 'BEYONCÉ',
+            albumName: 'Lemonade',
+          ),
+        ],
+      );
+
+      await _openAlbum(tester, 'Lemonade');
+
+      await tester.tap(find.text('BEYONCÉ'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ArtistDetailScreen), findsOneWidget);
+    });
+
     testWidgets('Play queues the album tracks in order', (tester) async {
       final FakePlaybackController controller = await _pump(tester);
       await _openAlbum(tester, 'Discovery');

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
 import '../../app/routes.dart';
 import '../../core/catalog/library_grouping.dart';
+import '../../core/catalog/text_folding.dart';
 import '../../core/models/album.dart';
 import '../../core/models/track.dart';
 import '../../data/repositories/download_repository_provider.dart';
@@ -431,8 +432,8 @@ class _AlbumTitleBlock extends ConsumerWidget {
     final String? artist = album.artistName;
     final String? artistId = ref
         .watch(libraryArtistsProvider)
-        .where((candidate) =>
-            candidate.name.toLowerCase() == artist?.toLowerCase())
+        .where(
+            (candidate) => foldText(candidate.name) == foldText(artist ?? ''))
         .firstOrNull
         ?.id;
     return Column(
