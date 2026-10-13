@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:go_router/go_router.dart';
 import '../../app/dimens.dart';
+import '../../app/routes.dart';
 import '../../core/catalog/library_grouping.dart';
 import '../../core/models/album.dart';
 import '../../core/models/track.dart';
@@ -416,17 +418,23 @@ class _AlbumHeader extends StatelessWidget {
 
 /// Title, artist and song count. Identical in both header layouts, so the only
 /// thing [_AlbumHeader.stacked] changes is where the cover sits.
-class _AlbumTitleBlock extends StatelessWidget {
+class _AlbumTitleBlock extends ConsumerWidget {
   const _AlbumTitleBlock({required this.album, required this.count});
 
   final Album album;
   final String count;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     final Color onSurface = theme.colorScheme.onSurface;
     final String? artist = album.artistName;
+    final String? artistId = ref
+        .watch(libraryArtistsProvider)
+        .where((candidate) =>
+            candidate.name.toLowerCase() == artist?.toLowerCase())
+        .firstOrNull
+        ?.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -440,12 +448,17 @@ class _AlbumTitleBlock extends StatelessWidget {
         ),
         if (artist != null && artist.isNotEmpty) ...<Widget>[
           const SizedBox(height: AppSpacing.xs),
-          Text(
-            artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: onSurface.withValues(alpha: 0.7),
+          InkWell(
+            onTap: artistId == null
+                ? null
+                : () => context.push(AppRoutes.artistDetailPath(artistId)),
+            child: Text(
+              artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: onSurface.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ],

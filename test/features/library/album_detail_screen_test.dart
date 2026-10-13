@@ -109,6 +109,40 @@ void main() {
       expect(find.text('Gamma'), findsNothing);
     });
 
+    testWidgets('tapping the artist name opens the artist detail screen',
+        (tester) async {
+      await _pump(tester);
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.tap(find.text('Daft Punk').first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ArtistDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('artist navigation ignores capitalization', (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(
+            id: '1',
+            title: 'Alpha',
+            uri: 'jellyfin:1',
+            artistName: 'Daft Punk',
+            albumArtistName: 'DAFT PUNK',
+            albumName: 'Discovery',
+          ),
+        ],
+      );
+
+      await _openAlbum(tester, 'Discovery');
+
+      await tester.tap(find.text('DAFT PUNK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ArtistDetailScreen), findsOneWidget);
+    });
+
     testWidgets('Play queues the album tracks in order', (tester) async {
       final FakePlaybackController controller = await _pump(tester);
       await _openAlbum(tester, 'Discovery');
