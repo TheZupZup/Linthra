@@ -277,6 +277,31 @@ class TrackTile extends ConsumerWidget {
       child: row,
     );
 
+    if (Theme.of(context).platform == TargetPlatform.android &&
+        !selectionActive) {
+      return Dismissible(
+        key: ValueKey<String>('swipe-to-queue-${track.uri}'),
+        direction: DismissDirection.startToEnd,
+        background: const Padding(
+          padding: EdgeInsets.only(left: 20),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Icon(Icons.add_to_queue),
+          ),
+        ),
+        confirmDismiss: (_) async {
+          await _runTrackAction(
+            context,
+            ref,
+            track,
+            _TrackAction.addToQueue,
+          );
+          return false;
+        },
+        child: menu,
+      );
+    }
+
     return PlaylistTrackDraggable(
       tracks: () => dragPayloadFor(
         track: track,

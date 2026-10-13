@@ -158,6 +158,76 @@ void main() {
       expect(find.text('Add to queue'), findsOneWidget);
     });
 
+    testWidgets('swiping right on Android adds a song to the queue',
+        (tester) async {
+      const List<Track> tracks = <Track>[
+        Track(id: '1', title: 'Song One', uri: 'jellyfin:1'),
+        Track(id: '2', title: 'Song Two', uri: 'jellyfin:2'),
+      ];
+
+      final FakePlaybackController controller = FakePlaybackController();
+      await controller.playTracks(<Track>[tracks.first]);
+
+      await _pump(
+        tester,
+        tracks,
+        controller: controller,
+        platform: TargetPlatform.android,
+      );
+
+      await tester.drag(find.text('Song Two'), const Offset(500, 0));
+      await tester.pumpAndSettle();
+
+      expect(controller.addToQueueCalls, <Track>[tracks.last]);
+      expect(controller.state.currentTrack, tracks.first);
+      expect(find.text('Song Two'), findsOneWidget);
+    });
+
+    testWidgets('swiping left on Android does not add to queue',
+        (tester) async {
+      const List<Track> tracks = <Track>[
+        Track(id: '1', title: 'Song One', uri: 'jellyfin:1'),
+      ];
+
+      final FakePlaybackController controller = FakePlaybackController();
+
+      await _pump(
+        tester,
+        tracks,
+        controller: controller,
+        platform: TargetPlatform.android,
+      );
+
+      await tester.drag(find.text('Song One'), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+
+      expect(controller.addToQueueCalls, isEmpty);
+      expect(find.text('Song One'), findsOneWidget);
+    });
+
+    testWidgets('swipe to queue is disabled on Linux', (tester) async {
+      const List<Track> tracks = <Track>[
+        Track(id: '1', title: 'Song One', uri: 'jellyfin:1'),
+      ];
+
+      final FakePlaybackController controller = FakePlaybackController();
+
+      await _pump(
+        tester,
+        tracks,
+        controller: controller,
+        platform: TargetPlatform.linux,
+      );
+
+      expect(find.byType(Dismissible), findsNothing);
+
+      await tester.drag(find.text('Song One'), const Offset(500, 0));
+      await tester.pumpAndSettle();
+
+      expect(controller.addToQueueCalls, isEmpty);
+      expect(find.text('Song One'), findsOneWidget);
+    });
+
     testWidgets(
         'overflow menu offers Add to favorites with an outline heart when not '
         'favorited', (tester) async {
@@ -265,6 +335,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(toggled?.id, '1');
     });
+
+    testWidgets('Android selection mode disables swipe to queue',
+        (tester) async {
+      Track? toggled;
+
+      await _pumpSelectable(
+        tester,
+        selectionActive: true,
+        platform: TargetPlatform.android,
+        onSelectToggle: (track) => toggled = track,
+      );
+
+      expect(find.byType(Dismissible), findsNothing);
+
+      await tester.drag(find.text('Song One'), const Offset(500, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Song One'), findsOneWidget);
+      expect(toggled, isNull);
+
+      await tester.tap(find.text('Song One'));
+      await tester.pumpAndSettle();
+
+      expect(toggled?.id, '1');
+    });
   });
 }
 
@@ -272,6 +367,7 @@ Future<void> _pumpSelectable(
   WidgetTester tester, {
   required bool selectionActive,
   bool selected = false,
+  TargetPlatform? platform,
   void Function(Track track)? onSelectStart,
   void Function(Track track)? onSelectToggle,
 }) async {
@@ -285,6 +381,7 @@ Future<void> _pumpSelectable(
             .overrideWithValue(FakeRemoteTrackDownloader()),
       ],
       child: MaterialApp(
+        theme: platform == null ? null : ThemeData(platform: platform),
         home: Scaffold(
           body: TrackTile(
             tracks: tracks,
