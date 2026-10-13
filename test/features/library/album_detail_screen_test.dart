@@ -166,6 +166,38 @@ void main() {
       expect(find.byType(ArtistDetailScreen), findsOneWidget);
     });
 
+    testWidgets('artist navigation selects the correct Unknown Artist',
+        (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(
+            id: '1',
+            title: 'Uncredited Song',
+            uri: 'jellyfin:1',
+            albumName: 'Uncredited Album',
+            albumArtistName: 'Unknown Artist',
+          ),
+          Track(
+            id: '2',
+            title: 'Literal Artist Song',
+            uri: 'jellyfin:2',
+            artistName: 'Unknown Artist',
+            albumName: 'Literal Album',
+          ),
+        ],
+      );
+
+      await _openAlbum(tester, 'Uncredited Album');
+
+      await tester.tap(find.text('Unknown Artist').first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ArtistDetailScreen), findsOneWidget);
+      expect(find.text('Uncredited Song'), findsOneWidget);
+      expect(find.text('Literal Artist Song'), findsNothing);
+    });
+
     testWidgets('Play queues the album tracks in order', (tester) async {
       final FakePlaybackController controller = await _pump(tester);
       await _openAlbum(tester, 'Discovery');

@@ -205,6 +205,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
           SliverToBoxAdapter(
             child: _AlbumHeader(
               album: album,
+              tracks: tracks,
               trackCount: tracks.length,
               onAction: (CollectionAction action) =>
                   _runAlbumAction(action, tracks),
@@ -232,6 +233,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
       fixed: SingleChildScrollView(
         child: _AlbumHeader(
           album: album,
+          tracks: tracks,
           trackCount: tracks.length,
           stacked: true,
           onAction: (CollectionAction action) =>
@@ -338,12 +340,14 @@ class _AlbumHeader extends StatelessWidget {
   const _AlbumHeader({
     required this.album,
     required this.trackCount,
+    required this.tracks,
     required this.onAction,
     this.stacked = false,
   });
 
   final Album album;
   final int trackCount;
+  final List<Track> tracks;
 
   /// Runs the chosen action against the album. One callback for all four, so
   /// the buttons and the menu cannot drift apart into different commands.
@@ -368,7 +372,7 @@ class _AlbumHeader extends StatelessWidget {
               child: AlbumArtwork(artworkUri: album.artworkUri),
             ),
             const SizedBox(height: AppSpacing.md),
-            _AlbumTitleBlock(album: album, count: count),
+            _AlbumTitleBlock(album: album, tracks: tracks, count: count),
           ] else
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,7 +382,9 @@ class _AlbumHeader extends StatelessWidget {
                   child: AlbumArtwork(artworkUri: album.artworkUri),
                 ),
                 const SizedBox(width: AppSpacing.md),
-                Expanded(child: _AlbumTitleBlock(album: album, count: count)),
+                Expanded(
+                    child: _AlbumTitleBlock(
+                        album: album, tracks: tracks, count: count)),
               ],
             ),
           const SizedBox(height: AppSpacing.md),
@@ -420,9 +426,11 @@ class _AlbumHeader extends StatelessWidget {
 /// Title, artist and song count. Identical in both header layouts, so the only
 /// thing [_AlbumHeader.stacked] changes is where the cover sits.
 class _AlbumTitleBlock extends ConsumerWidget {
-  const _AlbumTitleBlock({required this.album, required this.count});
+  const _AlbumTitleBlock(
+      {required this.album, required this.tracks, required this.count});
 
   final Album album;
+  final List<Track> tracks;
   final String count;
 
   @override
@@ -430,12 +438,22 @@ class _AlbumTitleBlock extends ConsumerWidget {
     final ThemeData theme = Theme.of(context);
     final Color onSurface = theme.colorScheme.onSurface;
     final String? artist = album.artistName;
-    final String? artistId = ref
+    final matchingArtists = ref
         .watch(libraryArtistsProvider)
         .where(
-            (candidate) => foldText(candidate.name) == foldText(artist ?? ''))
-        .firstOrNull
-        ?.id;
+          (candidate) => foldText(candidate.name) == foldText(artist ?? ''),
+        )
+        .toList();
+
+    final Set<String> trackArtistIds = tracks.map(artistIdForTrack).toSet();
+
+    final matchingTrackArtist = matchingArtists
+        .where((candidate) => trackArtistIds.contains(candidate.id))
+        .firstOrNull;
+
+    final String? artistId = matchingTrackArtist?.id ??
+        (matchingArtists.length == 1 ? matchingArtists.first.id : null);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
