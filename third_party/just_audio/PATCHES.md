@@ -6,8 +6,8 @@ actually decode, and both of those caused #674: on an Android 7 device with no
 FLAC decoder, a FLAC track "played" in complete silence, with the session
 reporting PLAYING, the position advancing and no error anywhere. Everything
 here is upstream source except the hunks in [`upstream.patch`](upstream.patch):
-three in `android/.../AudioPlayer.java`, plus a tooling-only exclusion in
-`analysis_options.yaml`.
+four changes in `android/.../AudioPlayer.java`, plus a tooling-only exclusion
+in `analysis_options.yaml`.
 
 ## Provenance
 
@@ -38,7 +38,7 @@ implementation are untouched. Linux keeps using `just_audio_media_kit`.
 
 ## The patch
 
-Three changes to `android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java`.
+Four changes to `android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java`.
 
 **1. Extension renderers after the platform ones.** The player is built with a
 `DefaultRenderersFactory` in `EXTENSION_RENDERER_MODE_ON` instead of the
@@ -85,7 +85,17 @@ codec name, or `libflac` for the fallback), so an `adb logcat` from a field
 report shows which path actually played. Decoder names only; nothing about the
 media or its location.
 
-**4. `analysis_options.yaml` excludes `build/**` and `android/**`.** This is
+**4. An error releases a pending seek.** Upstream answers `seek()` only from
+the READY that follows it, and a source that fails never gets there, so a seek
+in flight when playback failed never returned. `sendError`, which every
+failure goes through (ExoPlayer's own and the unsupported-audio one above), now
+ends a pending seek the way a newer seek already does (`abortSeek`): with
+success. The failure itself reaches the app on the event stream, as before;
+rejecting `seek()` as well would deliver it a second time, as an unhandled
+error wherever a seek is not awaited (the progress bar and the lyrics view fire
+theirs and move on).
+
+**5. `analysis_options.yaml` excludes `build/**` and `android/**`.** This is
 exactly the rewrite Flutter 3.47's `flutter pub get` applies to a plugin package
 on its own. It is recorded here so the provenance check stays stable when the
 analysis step has run `pub get` in this directory. It changes what the analyzer
@@ -108,7 +118,7 @@ every PR.
 1. Download the new archive and verify its `sha256` against pub.dev.
 2. Replace every file listed in `upstream.sha256` with the new upstream copy and
    regenerate that manifest from the pristine tree.
-3. Re-apply the three hunks and regenerate `upstream.patch`.
+3. Re-apply the Java changes above and regenerate `upstream.patch`.
 4. **If the Media3 version in `android/build.gradle` changed**, update
    `third_party/media3_decoder_flac` to the same Media3 release. A decoder
    module from another release is unsupported.

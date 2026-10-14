@@ -401,13 +401,6 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             Log.e(TAG, "default PlaybackException: " + error.getMessage());
             sendError(String.valueOf(error.errorCode), error.getMessage(), mapOf("index", currentIndex));
         }
-
-        if (seekResult != null) {
-            seekResult.error("PLAYER_ERROR", error.getMessage(), null);
-            seekResult = null;
-            seekPos = null;
-        }
-
         errorCount++;
         if (player.hasNextMediaItem() && currentIndex != null && errorCount <= 5) {
             int nextIndex = currentIndex + 1;
@@ -1028,6 +1021,13 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         }
 
         eventChannel.error(errorCode, errorMsg, details);
+        // Linthra patch: a failed source never reaches the READY that answers
+        // a pending seek, so seek() would never return. Release it the way a
+        // newer seek does (abortSeek), with success: the failure has just gone
+        // out on the event stream, and rejecting seek() as well would report it
+        // twice, the second time as an unhandled error wherever the seek isn't
+        // awaited.
+        abortSeek();
     }
 
     private String getLowerCaseExtension(Uri uri) {
