@@ -26,6 +26,7 @@ abstract final class SubsonicEndpoints {
   static const String userParam = 'u';
   static const String tokenParam = 't';
   static const String saltParam = 's';
+  static const String passwordParam = 'p';
   static const String versionParam = 'v';
   static const String clientParam = 'c';
   static const String formatParam = 'f';
@@ -330,14 +331,23 @@ abstract final class SubsonicEndpoints {
     SubsonicCredentials credentials, {
     Map<String, String> extra = const <String, String>{},
   }) {
+    final Map<String, String> query = <String, String>{
+      userParam: username,
+      versionParam: apiVersion,
+      clientParam: AppInfo.name,
+      formatParam: 'json',
+    };
+
+    if (credentials.isLegacy) {
+      query[passwordParam] = credentials.password!;
+    } else {
+      query[tokenParam] = credentials.token!;
+      query[saltParam] = credentials.salt!;
+    }
+
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, String>{
-        userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
-        versionParam: apiVersion,
-        clientParam: AppInfo.name,
-        formatParam: 'json',
+        ...query,
         ...extra,
       },
     );
@@ -355,14 +365,23 @@ abstract final class SubsonicEndpoints {
     SubsonicCredentials credentials, {
     Map<String, dynamic> extra = const <String, dynamic>{},
   }) {
+    final Map<String, dynamic> query = <String, dynamic>{
+      userParam: username,
+      versionParam: apiVersion,
+      clientParam: AppInfo.name,
+      formatParam: 'json',
+    };
+
+    if (credentials.isLegacy) {
+      query[passwordParam] = credentials.password!;
+    } else {
+      query[tokenParam] = credentials.token!;
+      query[saltParam] = credentials.salt!;
+    }
+
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, dynamic>{
-        userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
-        versionParam: apiVersion,
-        clientParam: AppInfo.name,
-        formatParam: 'json',
+        ...query,
         ...extra,
       },
     );

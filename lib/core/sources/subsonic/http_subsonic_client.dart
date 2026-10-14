@@ -444,8 +444,11 @@ class HttpSubsonicClient implements SubsonicClient {
     final (String, String) server = (session.baseUrl, session.username);
     final bool? known = _formPostAnswers[server];
     if (known != null) return known;
+
+    // Use token for standard sessions or password for legacy sessions
+    final String credentialKey = session.token ?? session.password ?? '';
     final (String, String, String) asker =
-        (session.baseUrl, session.username, session.token);
+        (session.baseUrl, session.username, credentialKey);
     final Future<bool?> lookup =
         _formPostLookups[asker] ??= _lookUpFormPost(session).whenComplete(() {
       // A block, not an arrow: the removed value is this very future, and
@@ -584,9 +587,15 @@ class HttpSubsonicClient implements SubsonicClient {
     return ids;
   }
 
-  SubsonicCredentials _credentials(SubsonicSession session) =>
-      SubsonicCredentials(salt: session.salt, token: session.token);
-
+  SubsonicCredentials _credentials(SubsonicSession session) {
+    if (session.isLegacy) {
+      return SubsonicCredentials.legacy(session.password!);
+    }
+    return SubsonicCredentials(
+      salt: session.salt,
+      token: session.token,
+    );
+  }
   /// GETs a lyrics endpoint and runs [parse] on a successful envelope.
   ///
   /// Lyrics are best-effort: only a transport failure (from [_send]) propagates

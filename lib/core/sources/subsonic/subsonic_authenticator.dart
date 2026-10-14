@@ -39,12 +39,14 @@ class SubsonicAuthenticator {
     required String rawUrl,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
-    final SubsonicCredentials credentials =
-        SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    final SubsonicCredentials credentials = useLegacy
+        ? SubsonicCredentials.legacy(password)
+        : SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
     return _client.ping(
       baseUrl,
       username: trimmedUsername,
@@ -60,12 +62,14 @@ class SubsonicAuthenticator {
     required String rawUrl,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
-    final SubsonicCredentials credentials =
-        SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    final SubsonicCredentials credentials = useLegacy
+        ? SubsonicCredentials.legacy(password)
+        : SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
 
     final SubsonicServerInfo info = await _client.ping(
       baseUrl,
@@ -78,6 +82,8 @@ class SubsonicAuthenticator {
       username: trimmedUsername,
       salt: credentials.salt,
       token: credentials.token,
+      password: useLegacy ? password : null,
+      isLegacy: useLegacy,
       serverType: info.type,
       serverVersion: info.serverVersion,
       apiVersion: info.apiVersion,

@@ -33,6 +33,7 @@ class SubsonicSettingsState {
     this.phase = SubsonicConnectionPhase.disconnected,
     this.baseUrl,
     this.username,
+    this.isLegacy = false,
     this.serverType,
     this.serverVersion,
     this.apiVersion,
@@ -48,6 +49,9 @@ class SubsonicSettingsState {
 
   /// Connected (or last-entered) username, for prefill/display. Not secret.
   final String? username;
+
+  /// Whether legacy plaintext authentication (Nextcloud Music) is enabled.
+  final bool isLegacy;
 
   /// Server product (e.g. `navidrome`) from a test or the saved session.
   final String? serverType;

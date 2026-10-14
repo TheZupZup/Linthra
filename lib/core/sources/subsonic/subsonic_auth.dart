@@ -11,29 +11,43 @@ import 'package:crypto/crypto.dart';
 /// never needs to be stored. Linthra computes one pair at sign-in and keeps
 /// only it — see [SubsonicSession].
 class SubsonicCredentials {
-  const SubsonicCredentials({required this.salt, required this.token});
+  const SubsonicCredentials({required this.salt, required this.token, this.password, this.isLegacy = false,});
 
+  /// Factory constructor for legacy/plaintext servers (like Nextcloud Music).
+  const SubsonicCredentials.legacy(String this.password)
+      : salt = null,
+        token = null,
+        isLegacy = true;
   /// The random salt, sent as the `s=` query parameter.
-  final String salt;
+  final String? salt;
 
   /// `md5(password + salt)`, the secret sent as the `t=` query parameter. Never
   /// log this.
-  final String token;
+  final String? token;
+
+  /// The raw password sent as the `p=` query parameter in legacy mode. Never log this.
+  final String? password;
+
+  /// Flag indicating whether this uses legacy plaintext authentication.
+  final bool isLegacy;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SubsonicCredentials &&
           other.salt == salt &&
-          other.token == token);
+          other.token == token &&
+          other.password == password &&
+          other.isLegacy == isLegacy);
 
   @override
-  int get hashCode => Object.hash(salt, token);
+  int get hashCode => Object.hash(salt, token, password, isLegacy);
 
   /// Redacts the token (and salt) so a credential can't leak through a log.
   @override
-  String toString() =>
-      'SubsonicCredentials(salt: <redacted>, token: <redacted>)';
+  String toString() => isLegacy
+      ? 'SubsonicCredentials.legacy(password: <redacted>)'
+      : 'SubsonicCredentials(salt: <redacted>, token: <redacted>)';
 }
 
 /// Derives Subsonic [SubsonicCredentials] from a password, the one place the
@@ -52,7 +66,12 @@ abstract final class SubsonicAuth {
     String Function()? saltGenerator,
   }) {
     final String salt = (saltGenerator ?? _randomSalt)();
-    return SubsonicCredentials(salt: salt, token: tokenFor(password, salt));
+    return SubsonicCredentials(salt: salt, token: tokenFor(password, salt),isLegacy: false);
+  }
+
+  /// Creates a legacy credential container for plaintext authentication.
+  static SubsonicCredentials legacy(String password) {
+    return SubsonicCredentials.legacy(password);
   }
 
   /// `md5(password + salt)` as a lowercase hex string — exactly what a Subsonic

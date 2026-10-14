@@ -32,6 +32,7 @@ class _SubsonicSettingsSectionState
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _useLegacy = false;
 
   @override
   void initState() {
@@ -39,6 +40,16 @@ class _SubsonicSettingsSectionState
     _urlController.addListener(_onFieldChanged);
     _usernameController.addListener(_onFieldChanged);
     _passwordController.addListener(_onFieldChanged);
+
+    // Sync legacy toggle state if loaded from persisted session
+    ref.listenManual(subsonicSettingsControllerProvider, (previous, next) {
+      if (previous?.isLegacy != next.isLegacy) {
+        setState(() {
+          _useLegacy = next.isLegacy;
+        });
+      }
+    });
+
     // Opening the connection screen is a natural moment to reconcile server
     // playlists/favourites (throttled, best-effort) so they're current without a
     // manual sync.
@@ -70,6 +81,7 @@ class _SubsonicSettingsSectionState
           url: _urlController.text,
           username: _usernameController.text,
           password: _passwordController.text,
+          useLegacy: _useLegacy,
         );
   }
 
@@ -80,6 +92,7 @@ class _SubsonicSettingsSectionState
               url: _urlController.text,
               username: _usernameController.text,
               password: _passwordController.text,
+              useLegacy: _useLegacy,
             );
     // Don't keep the password in memory once it's been exchanged for a token.
     if (ok) {
@@ -92,6 +105,9 @@ class _SubsonicSettingsSectionState
     _urlController.clear();
     _usernameController.clear();
     _passwordController.clear();
+    setState(() {
+      _useLegacy = false;
+    });
   }
 
   Future<void> _sync() async {
@@ -205,6 +221,22 @@ class _SubsonicSettingsSectionState
             ),
           ),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        // --- Legacy / Plaintext Authentication Toggle ---
+        CheckboxListTile(
+          title: const Text('Legacy / Plaintext Authentication'),
+          subtitle: const Text('Required for Nextcloud Music and legacy servers'),
+          value: _useLegacy,
+          onChanged: busy
+              ? null
+              : (bool? value) {
+            setState(() {
+              _useLegacy = value ?? false;
+            });
+          },
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
         const SizedBox(height: AppSpacing.md),
         Row(
           children: [
@@ -304,6 +336,13 @@ class _ConnectedView extends StatelessWidget {
                     Text(
                       'Signed in as ${state.username}',
                       style: theme.textTheme.bodySmall,
+                    ),
+                  if (state.isLegacy)
+                    Text(
+                      'Authentication: Legacy plaintext',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   if (state.baseUrl != null)
                     Text(
