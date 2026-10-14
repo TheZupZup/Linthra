@@ -1000,6 +1000,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Queues a transport resume for a focus regain. A cast receiver owns audio
   /// while suspended, so it is a no-op then.
   ///
+  /// A source that failed while the interruption held it paused was let go of
+  /// ([_onEngineError]), and resuming the engine would report playing in
+  /// silence. The track is opened again where it stopped instead, as [play]
+  /// does (#875). The hold stays until it sounds, and ends with the error if
+  /// it can't.
+  ///
   /// `_player.play()`'s future completes only when playback *ends*, so awaiting
   /// it on the serialized chain would keep the chain occupied for the rest of
   /// the track — every later focus action (a new pause, a duck, a volume
@@ -1010,6 +1016,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _enqueueFocusResume() {
     if (_suspended) return;
     _enqueueTransport(() async {
+      if (!_loadInFlight &&
+          _engineSourceGeneration == _abandonedSourceGeneration &&
+          _queue.current != null) {
+        StabilityDiagnostics.audioFocus('regain:reload');
+        unawaited(_playCurrent(startAt: _state.position));
+        return;
+      }
       // A load in flight has not handed its source over yet, so the engine
       // still holds the song before it, the same reason play() leaves it
       // alone. The load starts its own track when it lands, now that the
@@ -1435,7 +1448,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // device dozes, a stream URL whose token ran out) is reported like any
     // other. Nothing is lost yet, but that source will never play again, and
     // resuming the engine would read as playing in silence. Like a failed
-    // load's, it is let go of, so Play opens the track afresh from here.
+    // load's, it is let go of, so Play (or the focus regain that ends a call)
+    // opens the track afresh from here.
     if (_state.status == PlaybackStatus.paused && !_loadInFlight) {
       _abandonedSourceGeneration = _engineSourceGeneration;
       return;
