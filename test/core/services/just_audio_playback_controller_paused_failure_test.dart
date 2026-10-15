@@ -329,6 +329,22 @@ void main() {
       expect(controller.state.interruptedByTransientFocus, isFalse);
     });
 
+    test('a pause while the song reloads after the call holds it', () async {
+      final Completer<void> gate = resolver.gate = Completer<void>();
+      endCall();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      await controller.pause();
+      gate.complete();
+      await _settle();
+
+      expect(engine.opened, hasLength(2));
+      expect(engine.sounding, isFalse,
+          reason: 'the pause is newer than the reload the call ended with');
+      expect(controller.state.interruptedByTransientFocus, isFalse);
+    });
+
     test('a pause during the call still holds once it ends', () async {
       await controller.pause();
       await _settle();
