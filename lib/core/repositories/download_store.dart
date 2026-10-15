@@ -72,6 +72,12 @@ class CachedTrack {
   /// on-device track that is merely marked available offline).
   bool get isManaged => fileName != null && fileName!.isNotEmpty;
 
+  /// Whether a managed file of [size] bytes can hold this whole download:
+  /// never an empty one, nor one shorter than [sizeBytes], the size it had
+  /// when it was saved. Cut short or emptied since, it would stop part way
+  /// through, or never start.
+  bool isWholeAt(int size) => size > 0 && size >= sizeBytes;
+
   /// The provider-aware cache identity — the source scheme plus the catalog id —
   /// so two providers that expose the same catalog id (a Plex ratingKey `101`
   /// and a Subsonic id `101`) never share a cache slot, file, or eviction

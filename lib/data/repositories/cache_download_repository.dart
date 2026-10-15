@@ -272,9 +272,9 @@ class CacheDownloadRepository
       }
       if (cached.isManaged) {
         final int? size = await _files.sizeFor(cached.fileName!);
-        if (size == null) {
-          // The managed file is gone; drop the record so it isn't counted and
-          // playback falls back to streaming.
+        if (size == null || !cached.isWholeAt(size)) {
+          // The managed file is gone, or no longer all there; drop the record
+          // so it isn't counted and playback falls back to streaming.
           changed = true;
           continue;
         }
