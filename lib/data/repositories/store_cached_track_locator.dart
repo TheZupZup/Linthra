@@ -44,28 +44,37 @@ class StoreCachedTrackLocator implements CachedTrackLocator {
     // Prefer an exact, provider-tagged match (a Plex `101` never resolves to a
     // Subsonic `101`'s file). Fall back to a legacy untagged record (written
     // before source tagging) only if no tagged entry matches.
-    String? exact;
-    String? untagged;
+    CachedTrack? exact;
+    CachedTrack? untagged;
     for (final CachedTrack cached in await _store.loadDownloads()) {
       if (cached.trackId != track.id) continue;
       // Kept for a server other than the one connected now (or while signed
       // out): another server's song with this id.
       if (!offlineCopyBelongs(cached, _origins)) continue;
       if (cached.sourceType == null) {
-        untagged ??= cached.fileName;
+        untagged ??= cached;
       } else if (cached.sourceType == scheme) {
-        exact = cached.fileName;
+        exact = cached;
         break;
       }
     }
-    if (exact != null && exact.isNotEmpty) return _files.pathFor(exact);
-    if (untagged == null || untagged.isEmpty) return null;
+    if (exact != null && exact.isManaged) return _wholeFileOf(exact);
+    if (untagged == null || !untagged.isManaged) return null;
     // A legacy untagged file carries no provider, so it could be another
     // provider's bytes (an id shared by two providers, or a stale queued copy
     // whose source was removed). Serve it only when the catalog attributes this
     // bare id to exactly one provider and that provider is the requested track's.
     if (!await _legacyOwnerMatches(track)) return null;
-    return _files.pathFor(untagged);
+    return _wholeFileOf(untagged);
+  }
+
+  /// The path of [cached]'s file, unless it is missing or not all there
+  /// ([CachedTrack.isWholeAt]): then playback streams instead.
+  Future<String?> _wholeFileOf(CachedTrack cached) async {
+    final String fileName = cached.fileName!;
+    final int? size = await _files.sizeFor(fileName);
+    if (size == null || !cached.isWholeAt(size)) return null;
+    return _files.pathFor(fileName);
   }
 
   /// Whether a legacy untagged cache file for [track]'s bare id can be safely

@@ -209,6 +209,10 @@ class _AudiobookshelfSettingsSectionState
           controller: _passwordController,
           enabled: !busy,
           obscureText: _obscurePassword,
+          autocorrect: false,
+          // Keep the password out of the keyboard's suggestion/learning store
+          // even while it is revealed via the eye toggle.
+          enableSuggestions: false,
           textInputAction: TextInputAction.done,
           onSubmitted: (_canSignIn && !busy) ? (_) => _signIn() : null,
           decoration: InputDecoration(

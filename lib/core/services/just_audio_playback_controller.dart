@@ -1033,16 +1033,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   /// Queues the engine volume for the current duck state on the same serialized
-  /// chain (so it never overlaps a pause/play), capturing the target now so it
-  /// can't be read from a later-mutated [_ducked]. Not epoch-guarded, so a duck
+  /// chain (so it never overlaps a pause/play). Not epoch-guarded, so a duck
   /// and its restore both apply in order and the last (full volume on recovery)
   /// wins — Linthra can never be left stuck ducked.
+  ///
+  /// The level is read when the step runs, not when it is queued: a volume
+  /// change pushed to the engine in between (the listener's slider, in the
+  /// same turn as the duck or its end) would otherwise be written over by the
+  /// level from before it, leaving the engine at one level and the state at
+  /// another.
   void _enqueueFocusVolume() {
     if (_suspended) return;
-    final double target = _engineVolume();
     _focusChain = _focusChain.then((_) async {
       try {
-        await _player.setVolume(target);
+        await _player.setVolume(_engineVolume());
       } catch (_) {
         // A volume failure must never break playback; leave the prior volume.
       }
@@ -1385,9 +1389,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_pendingRecovery != null) _cancelAutomaticRecovery();
     }
     if (status == PlaybackStatus.buffering &&
-        _state.status == PlaybackStatus.playing) {
+        (_state.status == PlaybackStatus.playing ||
+            (_currentHasPlayed && _state.status != PlaybackStatus.buffering))) {
       // A mid-stream re-buffer on a track that was playing: arm the watchdog so
       // a server that vanishes without an engine error can't hang forever.
+      // Resuming into a stall counts too (Play after a pause, or after a
+      // paused seek): the track has played, so this is no first load.
       _armBufferingWatchdog();
     }
     // When a track finishes, what happens next depends on the repeat mode.

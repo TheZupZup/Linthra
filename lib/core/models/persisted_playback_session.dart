@@ -389,7 +389,19 @@ Track? logicalTrackFromJson(Map<String, dynamic> json) {
 bool isPersistableArtworkUri(Uri uri) {
   final String raw = uri.toString().toLowerCase();
   if (_looksTokenBearing(raw)) return false;
-  return true;
+  return !_signsInByItself(uri);
+}
+
+/// Whether [uri] carries a sign-in the markers in [_looksTokenBearing] don't
+/// spell: a `user:password@` authority, or Subsonic's own parameters, its
+/// token `t` with the salt `s` it was made with, or a password `p`.
+bool _signsInByItself(Uri uri) {
+  if (uri.userInfo.isNotEmpty) return true;
+  final Set<String> names = <String>{
+    for (final String pair in uri.query.split('&'))
+      pair.split('=').first.toLowerCase(),
+  };
+  return names.contains('p') || (names.contains('t') && names.contains('s'));
 }
 
 bool _looksTokenBearing(String value, {bool filePath = false}) {
