@@ -238,6 +238,15 @@ abstract interface class DownloadStore {
   Future<void> saveDownloads(List<CachedTrack> downloads);
 }
 
+/// A [DownloadStore] that keeps a records document it couldn't read in full
+/// aside, rather than writing the next save over it.
+abstract interface class UnreadableDownloadRecords {
+  /// Whether such a document is here, as the live records or set aside. Any
+  /// file in the offline folder may then be one it names, so none of them can
+  /// be told apart from an abandoned one.
+  Future<bool> holdsUnreadableRecords();
+}
+
 /// Thrown by [DownloadStore.saveDownloads] when the set couldn't be written.
 class DownloadStoreWriteException implements Exception {
   const DownloadStoreWriteException();

@@ -309,13 +309,18 @@ class CacheDownloadRepository
     // evicts or clears those, so they go now, before anything here writes
     // (#747). Every record is kept, set-aside copies and pre-cached ones
     // included. A record list that read as empty may be a document that
-    // couldn't be read rather than no downloads, so then only the temps go.
+    // couldn't be read rather than no downloads, and one that couldn't be
+    // read in full (or was set aside for that) may name any file here, so
+    // then only the temps go.
     await _files.removeAbandoned(
       <String>{
         for (final CachedTrack cached in kept)
           if (cached.isManaged) cached.fileName!,
       },
-      temporaryOnly: records.isEmpty,
+      temporaryOnly: records.isEmpty ||
+          (_store is UnreadableDownloadRecords &&
+              await (_store as UnreadableDownloadRecords)
+                  .holdsUnreadableRecords()),
     );
     _loaded = true;
   }
