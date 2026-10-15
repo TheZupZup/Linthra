@@ -1943,6 +1943,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (wasEmpty) {
       // Nothing was playing, so there is no "next" to insert before: start the
       // set from its first track, exactly as playNext does with one.
+      if (_shuffleEnabled) {
+        _queue = _queue.shuffled(_random);
+      }
+
       _startFreshAfterFailures();
       unawaited(_playCurrent());
       return;
@@ -1956,6 +1960,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final bool wasEmpty = _queue.current == null;
     _queue = _queue.appendedAll(tracks);
     if (wasEmpty) {
+      if (_shuffleEnabled) {
+        _queue = _queue.shuffled(_random);
+      }
+
       _startFreshAfterFailures();
       unawaited(_playCurrent());
       return;

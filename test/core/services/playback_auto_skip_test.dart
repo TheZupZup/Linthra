@@ -151,6 +151,72 @@ void main() {
     return handler;
   }
 
+  test('shuffle works when adding songs to an empty queue(#881)', () async {
+    final controller = build(random: Random(42));
+
+    final songs = <Track>[
+      _track('a'),
+      _track('b'),
+      _track('c'),
+      _track('d'),
+      _track('e'),
+      _track('f'),
+      _track('g'),
+      _track('h'),
+    ];
+
+    controller.setShuffleEnabled(true);
+    controller.addAllToQueue(songs);
+    await _settle();
+
+    expect(controller.state.shuffleEnabled, isTrue);
+    expect(controller.state.currentTrack, songs.first);
+    expect(
+      controller.state.upNext,
+      isNot(orderedEquals(songs.skip(1))),
+    );
+
+    controller.setShuffleEnabled(false);
+    expect(
+      controller.state.upNext,
+      orderedEquals(songs.skip(1)),
+    );
+  });
+
+  test('play next respects shuffle on an empty queue (#881)', () async {
+    final controller = build(random: Random(42));
+
+    final songs = <Track>[
+      _track('a'),
+      _track('b'),
+      _track('c'),
+      _track('d'),
+      _track('e'),
+      _track('f'),
+      _track('g'),
+      _track('h'),
+    ];
+
+    controller.setShuffleEnabled(true);
+    controller.playNextAll(songs);
+    await _settle();
+
+    expect(controller.state.shuffleEnabled, isTrue);
+    expect(controller.state.currentTrack, songs.first);
+
+    expect(
+      controller.state.upNext,
+      isNot(orderedEquals(songs.skip(1))),
+    );
+
+    controller.setShuffleEnabled(false);
+
+    expect(
+      controller.state.upNext,
+      orderedEquals(songs.skip(1)),
+    );
+  });
+
   group('with automatic skip off (the default until the listener allows it)',
       () {
     test('still retries, then stops on the failed track with its reason',
