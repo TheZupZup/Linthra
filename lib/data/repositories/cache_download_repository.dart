@@ -512,7 +512,9 @@ class CacheDownloadRepository
         final DownloadStatus? phase = running.phase;
         if (phase != null) _set(key, phase);
       }
-      return DownloadRequestOutcome.started;
+      // Answered as the request running was: held for Wi-Fi or a connection,
+      // or started. Asked in the same turn, that is still being decided.
+      return running.admitted.future;
     }
     // One still out was asked under an account that has signed out or been
     // replaced (or on a server no longer connected): it saves nothing (see
@@ -554,6 +556,7 @@ class CacheDownloadRepository
       // that came back while a request asked on the server just left was out.
       // The row and the progress are left to the request that replaced this
       // one, if one did (see above).
+      if (!operation.admitted.isCompleted) operation.admitted.complete(outcome);
       final bool current = identical(_inFlight[key], operation);
       final CachedTrack? committed = _downloads[key];
       if (current && operation.canceled && _statuses.containsKey(key)) {
@@ -743,6 +746,7 @@ class CacheDownloadRepository
     }
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
+    operation.admitted.complete(DownloadRequestOutcome.started);
     _setPhase(key, operation, DownloadStatus.queued);
     // What the network policy says once the slot is free. A download can wait
     // a long time for one (a whole album is accepted at once and three fetch
@@ -1764,6 +1768,13 @@ class _CacheOperation {
   /// cancellation can't stop it any more: a removal takes the copy back out
   /// instead, so a fresh request can't take this operation back either.
   bool recording = false;
+
+  /// What the request that started this was told about the network policy:
+  /// started once it may run, or why it is held. Completed once that is
+  /// known, and always by the time the request returns, so a second request
+  /// for the same track can answer the same.
+  final Completer<DownloadRequestOutcome> admitted =
+      Completer<DownloadRequestOutcome>();
 }
 
 /// Whether the network policy lets a download run now, and why not when it
