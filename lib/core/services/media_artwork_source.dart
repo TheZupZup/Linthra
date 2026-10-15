@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../models/persisted_playback_session.dart';
+
 /// A synchronous source of already-fetched, safe **local** media-session
 /// artwork — the seam the media handler reads while building a `MediaItem`,
 /// without ever awaiting or triggering a fetch on the playback path.
@@ -37,8 +39,12 @@ abstract interface class MediaArtworkSource {
 /// an app `content:` URI. Any other scheme is an app-internal *reference* (e.g.
 /// Subsonic's `subsonic-cover:<id>`) that must first be fetched to a local file
 /// (see `MediaArtworkCache`) before it can be shown on the media session.
+///
+/// An `http`/`https` cover that carries a credential is never one: whatever
+/// it is handed to (the system media session, Android Auto, a desktop shell)
+/// would get the credential with it.
 bool isPlatformLoadableArtwork(Uri uri) =>
     uri.isScheme('file') ||
-    uri.isScheme('http') ||
-    uri.isScheme('https') ||
+    ((uri.isScheme('http') || uri.isScheme('https')) &&
+        isPersistableArtworkUri(uri)) ||
     uri.isScheme('content');
