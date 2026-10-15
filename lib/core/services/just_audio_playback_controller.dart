@@ -1033,16 +1033,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   /// Queues the engine volume for the current duck state on the same serialized
-  /// chain (so it never overlaps a pause/play), capturing the target now so it
-  /// can't be read from a later-mutated [_ducked]. Not epoch-guarded, so a duck
+  /// chain (so it never overlaps a pause/play). Not epoch-guarded, so a duck
   /// and its restore both apply in order and the last (full volume on recovery)
   /// wins — Linthra can never be left stuck ducked.
+  ///
+  /// The level is read when the step runs, not when it is queued: a volume
+  /// change pushed to the engine in between (the listener's slider, in the
+  /// same turn as the duck or its end) would otherwise be written over by the
+  /// level from before it, leaving the engine at one level and the state at
+  /// another.
   void _enqueueFocusVolume() {
     if (_suspended) return;
-    final double target = _engineVolume();
     _focusChain = _focusChain.then((_) async {
       try {
-        await _player.setVolume(target);
+        await _player.setVolume(_engineVolume());
       } catch (_) {
         // A volume failure must never break playback; leave the prior volume.
       }
