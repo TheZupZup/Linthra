@@ -56,6 +56,11 @@ class StreamInterruption {
 /// retried.
 const int unsupportedAudioFormatErrorCode = 4005;
 
+/// A protocol version or an `I/O` in an engine error: slashes that start no
+/// location.
+final RegExp _notALocation =
+    RegExp(r'\b(?:HTTP/\d(?:\.\d)?|I/O)\b', caseSensitive: false);
+
 /// Classifies an audio-engine error into a [StreamInterruption].
 ///
 /// Security invariant: the engine's raw error can carry the tokenized stream URL
@@ -66,10 +71,13 @@ const int unsupportedAudioFormatErrorCode = 4005;
 /// The track's own location is not evidence of anything: an item id, a
 /// timestamp in a path or a token quoted in the text can hold `401` or
 /// `403`, and read as a status would end a dropped connection as an expired
-/// session. So locations are taken out before the text is read.
+/// session. So locations are taken out before the text is read, all but the
+/// slashes that aren't one: a status line's `HTTP/1.1` and an `I/O`, which
+/// would otherwise take the status or the reason after them along.
 StreamInterruption classifyEngineError(Object error) {
-  final String text =
-      LinuxPlaybackRuntime.redactLocations(error.toString()).toLowerCase();
+  final String text = LinuxPlaybackRuntime.redactLocations(
+    error.toString().replaceAll(_notALocation, ' '),
+  ).toLowerCase();
 
   // Structural, not wording: the Android engine's "no decoder on this device
   // for this audio" error (#674) carries Media3's code, and just_audio renders

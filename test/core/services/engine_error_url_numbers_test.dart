@@ -37,6 +37,9 @@ void main() {
       'Failed to open https://h/Audio/1/stream?ApiKey=k: 403 Forbidden',
       'HTTP 401 Unauthorized, uri=https://h/Audio/1/stream?ApiKey=k',
       'Response code: 403',
+      // A status line's protocol version is a slash, not a location.
+      'HTTP/1.1 401 Unauthorized',
+      'Failed to open stream: HTTP/2 403 Forbidden',
     ]) {
       expect(
         classifyEngineError(PlayerException(0, message)).kind,
@@ -44,5 +47,13 @@ void main() {
         reason: message,
       );
     }
+  });
+
+  test('an I/O error still reads by the reason after it', () {
+    expect(
+      classifyEngineError(PlayerException(0, 'I/O timeout reading stream'))
+          .kind,
+      StreamInterruptionKind.networkDropped,
+    );
   });
 }
