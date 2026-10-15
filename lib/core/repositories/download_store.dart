@@ -244,13 +244,31 @@ abstract interface class DownloadStore {
   Future<void> saveDownloads(List<CachedTrack> downloads);
 }
 
+/// What a [DownloadStore]'s records were read from.
+enum DownloadRecordsSource {
+  /// No records document at all: nothing saved yet, or preferences that came
+  /// back empty, which can't be told from preferences that couldn't be read.
+  none,
+
+  /// A document read in full, even an empty one.
+  readable,
+
+  /// A document that couldn't be read in full, as the live records or set
+  /// aside. Any file in the offline folder may then be one it names, so none
+  /// of them can be told apart from an abandoned one.
+  unreadable,
+}
+
 /// A [DownloadStore] that keeps a records document it couldn't read in full
 /// aside, rather than writing the next save over it.
 abstract interface class UnreadableDownloadRecords {
-  /// Whether such a document is here, as the live records or set aside. Any
-  /// file in the offline folder may then be one it names, so none of them can
-  /// be told apart from an abandoned one.
-  Future<bool> holdsUnreadableRecords();
+  /// What the records come from now.
+  Future<DownloadRecordsSource> recordsSource();
+
+  /// Drops a document set aside. Only for once the listener has cleared every
+  /// download: what it named is theirs to be rid of then. Throws a
+  /// [DownloadStoreWriteException] when it couldn't be dropped.
+  Future<void> releaseUnreadableRecords();
 }
 
 /// Thrown by [DownloadStore.saveDownloads] when the set couldn't be written.

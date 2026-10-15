@@ -7,7 +7,8 @@
 // records over that document, so the launch after it saw a record list that
 // named none of the older files, and its sweep deleted every one of them.
 // The unreadable document is now set aside before anything is written over
-// it, and while it is kept aside the sweep keeps to temp files. The same goes
+// it, and while it is kept aside the sweep keeps to temp files, until a Clear
+// all releases it and the next launch reclaims what it kept. The same goes
 // for a document with one record that can't be read: the sweep used to take
 // that record's file on the very first launch.
 //
@@ -197,5 +198,92 @@ void main() {
     expect(await repository.statusFor('c1'), DownloadStatus.downloaded);
 
     expect(orphan.existsSync(), isFalse);
+  });
+
+  group('a Clear all', () {
+    test(
+        'releases the document kept aside, and the next launch reclaims '
+        'its files', () async {
+      SharedPreferences.setMockInitialValues(
+        <String, Object>{_key: _unreadable},
+      );
+      final File a1 = downloadedEarlier('a1.mp3');
+      final CacheDownloadRepository repository = launch();
+      await repository.requestDownload(
+        const Track(id: 'c1', title: 'New', uri: 'jellyfin:c1'),
+      );
+
+      await repository.clearAll();
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.get('${_key}_unreadable'), isNull);
+      SharedPreferences.resetStatic();
+      await launch().statusFor('a1');
+      expect(a1.existsSync(), isFalse, reason: 'a1.mp3 kept for good');
+    });
+
+    test('with nothing counted still lets the next launch reclaim them',
+        () async {
+      // Only the files the unreadable document named are left: the cache
+      // counts nothing, but a Clear all still drops the document.
+      SharedPreferences.setMockInitialValues(
+        <String, Object>{_key: _unreadable},
+      );
+      final File a1 = downloadedEarlier('a1.mp3');
+      final CacheDownloadRepository repository = launch();
+      await repository.statusFor('a1');
+
+      await repository.clearAll();
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.get('${_key}_unreadable'), isNull);
+      expect(prefs.getString(_key), '[]');
+      SharedPreferences.resetStatic();
+      await launch().statusFor('a1');
+      expect(a1.existsSync(), isFalse, reason: 'a1.mp3 kept for good');
+    });
+
+    test('is the only clear that does: Clear cache keeps it aside', () async {
+      SharedPreferences.setMockInitialValues(
+        <String, Object>{_key: _unreadable},
+      );
+      final File a1 = downloadedEarlier('a1.mp3');
+      final CacheDownloadRepository repository = launch();
+      await repository.requestDownload(
+        const Track(id: 'c1', title: 'New', uri: 'jellyfin:c1'),
+      );
+
+      // Pinned downloads survive it, and the document may name some.
+      await repository.clearUnpinned();
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('${_key}_unreadable'), _unreadable);
+      SharedPreferences.resetStatic();
+      await launch().statusFor('a1');
+      expect(a1.existsSync(), isTrue, reason: 'a1.mp3 deleted by the sweep');
+    });
+  });
+
+  test('a readable empty document lets the sweep take abandoned files',
+      () async {
+    // Every download removed, then one cut off before its record was saved:
+    // nothing names that file, and nothing ever counts or clears it.
+    SharedPreferences.setMockInitialValues(<String, Object>{_key: '[]'});
+    final File orphan = downloadedEarlier('orphan.mp3');
+
+    await launch().statusFor('orphan');
+
+    expect(orphan.existsSync(), isFalse);
+  });
+
+  test('no document at all still keeps finished files', () async {
+    // Preferences that came back empty can't be told from ones that couldn't
+    // be read, so the sweep keeps to temp files (#747).
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final File a1 = downloadedEarlier('a1.mp3');
+
+    await launch().statusFor('a1');
+
+    expect(a1.existsSync(), isTrue);
   });
 }

@@ -19,9 +19,10 @@ import 'shared_preferences_write.dart';
 ///
 /// A document that can't be read in full (a write cut short, a record from
 /// another version) still hands out every record it can, and the first save
-/// over it copies it, exactly as it is, to a key of its own that nothing ever
-/// deletes. Once that copy exists [holdsUnreadableRecords] stays true, so the
-/// files it may name are never taken for abandoned ones.
+/// over it copies it, exactly as it is, to a key of its own. While that copy
+/// exists [recordsSource] reads unreadable, so the files it may name are never
+/// taken for abandoned ones, until a Clear all releases it
+/// ([releaseUnreadableRecords]).
 class SharedPreferencesDownloadStore
     implements DownloadStore, UnreadableDownloadRecords {
   SharedPreferencesDownloadStore();
@@ -79,11 +80,28 @@ class SharedPreferencesDownloadStore
   }
 
   @override
-  Future<bool> holdsUnreadableRecords() async {
+  Future<DownloadRecordsSource> recordsSource() async {
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.get(_setAsideKey) != null) return true;
+    if (prefs.get(_setAsideKey) != null) {
+      return DownloadRecordsSource.unreadable;
+    }
     final String? raw = prefs.getString(_key);
-    return raw != null && raw.isNotEmpty && !_remember(raw);
+    if (raw == null || raw.isEmpty) return DownloadRecordsSource.none;
+    return _remember(raw)
+        ? DownloadRecordsSource.readable
+        : DownloadRecordsSource.unreadable;
+  }
+
+  @override
+  Future<void> releaseUnreadableRecords() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.get(_setAsideKey) == null) return;
+    final bool removed = await writeOrRestore(
+      prefs,
+      _setAsideKey,
+      () => prefs.remove(_setAsideKey),
+    );
+    if (!removed) throw const DownloadStoreWriteException();
   }
 
   /// Copies the live document to [_setAsideKey] before a save writes over it,

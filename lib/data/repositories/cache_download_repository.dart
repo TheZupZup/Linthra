@@ -311,16 +311,17 @@ class CacheDownloadRepository
     // included. A record list that read as empty may be a document that
     // couldn't be read rather than no downloads, and one that couldn't be
     // read in full (or was set aside for that) may name any file here, so
-    // then only the temps go.
+    // then only the temps go. A store that can tell an empty document from
+    // none says which it was.
     await _files.removeAbandoned(
       <String>{
         for (final CachedTrack cached in kept)
           if (cached.isManaged) cached.fileName!,
       },
-      temporaryOnly: records.isEmpty ||
-          (_store is UnreadableDownloadRecords &&
-              await (_store as UnreadableDownloadRecords)
-                  .holdsUnreadableRecords()),
+      temporaryOnly: _store is UnreadableDownloadRecords
+          ? await (_store as UnreadableDownloadRecords).recordsSource() !=
+              DownloadRecordsSource.readable
+          : records.isEmpty,
     );
     _loaded = true;
   }
@@ -1339,6 +1340,7 @@ class CacheDownloadRepository
         _allCopies.where((CachedTrack c) => !(keepPinned && c.pinned)).toList();
     if (victims.isEmpty) {
       if (resetARow) _emitStatus();
+      if (!keepPinned) await _releaseUnreadableRecords();
       return;
     }
     for (final CachedTrack victim in victims) {
@@ -1366,8 +1368,29 @@ class CacheDownloadRepository
         if (!victim.preloaded) _statuses[key] = DownloadStatus.downloaded;
       }
     }
+    if (!keepPinned) await _releaseUnreadableRecords();
     _emitStatus();
     _emitCache();
+  }
+
+  /// After a Clear all: a records document that couldn't be read named only
+  /// downloads the listener has just cleared, so it goes, and the next
+  /// launch's sweep takes the files it was keeping. The live document is saved
+  /// over first when it is the unreadable one, which sets it aside too.
+  Future<void> _releaseUnreadableRecords() async {
+    final DownloadStore store = _store;
+    if (store is! UnreadableDownloadRecords) return;
+    final UnreadableDownloadRecords records =
+        store as UnreadableDownloadRecords;
+    try {
+      if (await records.recordsSource() != DownloadRecordsSource.unreadable) {
+        return;
+      }
+      await _saveOrThrow();
+      await records.releaseUnreadableRecords();
+    } catch (_) {
+      // Kept aside a while longer: its files wait for a later Clear all.
+    }
   }
 
   /// Whether [victim], picked for eviction before an await, may still go. It
