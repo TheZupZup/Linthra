@@ -887,6 +887,11 @@ class CacheDownloadRepository
         checkWanted();
         await draft.add(chunk);
       }
+      // A body that ends cleanly short of the size the server announced was
+      // cut off on the way, and is not the whole file.
+      if (total != null && received < total) {
+        throw StateError('The download ended before all of it arrived.');
+      }
       return _Downloaded(draft, data.fileExtension);
     } on Object {
       // A body never listened to is cancelled, so its connection is closed
