@@ -1,13 +1,18 @@
 import 'dart:async';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
+import 'package:linthra/core/services/linthra_audio_handler.dart';
 import 'package:linthra/core/services/linux_playback_controller.dart';
+import 'package:linthra/core/services/media_browser_tree.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
+
+import '../../features/library/fake_music_library_repository.dart';
 
 /// An engine whose loaded source can fail while it is paused, the way the
 /// real ones report it:
@@ -113,14 +118,29 @@ class _Engine extends Fake implements AudioPlayer {
 }
 
 class _Resolver implements PlayableUriResolver {
+  /// Whether the server has gone, so the next resolve fails.
+  bool unreachable = false;
+
+  /// Holds the next resolve open until it completes, when set.
+  Completer<void>? gate;
+
   @override
   bool handles(Track track) => true;
 
   @override
-  Future<ResolvedPlayable> resolve(Track track) async => ResolvedPlayable(
-        Uri.parse('https://host/stream/${track.id}'),
-        PlaybackSource.streamingDirect,
+  Future<ResolvedPlayable> resolve(Track track) async {
+    await gate?.future;
+    if (unreachable) {
+      throw const PlaybackResolutionException(
+        "Couldn't reach your music server.",
+        kind: PlaybackResolutionErrorKind.serverUnreachable,
       );
+    }
+    return ResolvedPlayable(
+      Uri.parse('https://host/stream/${track.id}'),
+      PlaybackSource.streamingDirect,
+    );
+  }
 }
 
 const Track _song = Track(
@@ -203,4 +223,139 @@ void main() {
       expect(engine.sounding, isTrue);
     });
   }
+
+  // #875: a call pauses the stream (a transient focus loss) and the stream
+  // fails while the call lasts. That source is let go of, so the focus regain
+  // at the end of the call has nothing left in the engine to resume.
+  group('Android: a stream that fails during a call (#875)', () {
+    late _Engine engine;
+    late _Resolver resolver;
+    late JustAudioPlaybackController controller;
+    late LinthraAudioHandler session;
+
+    setUp(() async {
+      engine = _Engine(reportsLossAsIdle: false);
+      resolver = _Resolver();
+      controller = JustAudioPlaybackController(
+        player: engine,
+        resolver: resolver,
+      )..focusPauseDebounce = Duration.zero;
+      session = LinthraAudioHandler(
+        controller,
+        MediaBrowserTree(FakeMusicLibraryRepository(tracks: const <Track>[])),
+      );
+      addTearDown(() async {
+        await session.dispose();
+        await controller.dispose();
+      });
+
+      await controller.playTracks(<Track>[_song]);
+      await _settle();
+      controller.setPositionForTesting(const Duration(seconds: 70));
+
+      controller.onAudioInterruption(
+          AudioInterruptionEvent(true, AudioInterruptionType.pause));
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.paused);
+      expect(controller.state.interruptedByTransientFocus, isTrue);
+      engine.loseSource();
+      await _settle();
+    });
+
+    void endCall() => controller.onAudioInterruption(
+        AudioInterruptionEvent(false, AudioInterruptionType.pause));
+
+    test('the end of the call opens the song again where it stopped', () async {
+      final List<bool> sessionPlaying = <bool>[];
+      final StreamSubscription<void> sub = session.playbackState
+          .skip(1)
+          .listen((state) => sessionPlaying.add(state.playing));
+      addTearDown(sub.cancel);
+
+      endCall();
+      await _settle();
+
+      expect(engine.opened, hasLength(2),
+          reason: 'the source that failed can never play again');
+      expect(engine.seeks.last, const Duration(seconds: 70));
+      expect(engine.sounding, isTrue,
+          reason: 'not silence under a session that says playing');
+      expect(controller.state.status, PlaybackStatus.playing);
+      expect(controller.state.interruptedByTransientFocus, isFalse,
+          reason: 'playing again, so nothing is left for the hold to bridge');
+      expect(sessionPlaying, isNot(contains(false)),
+          reason: 'a paused session takes the media service out of the '
+              'foreground while the song reloads in the background');
+    });
+
+    test('a reload that fails again ends on the error, not a silent hold',
+        () async {
+      resolver.unreachable = true;
+
+      endCall();
+      await _settle();
+
+      expect(controller.state.status, PlaybackStatus.error);
+      expect(controller.state.interruptedByTransientFocus, isFalse,
+          reason: 'nothing will resume, so the session must stop saying '
+              'playing');
+      expect(engine.sounding, isFalse);
+    });
+
+    test('another interruption during the reload holds it until it ends',
+        () async {
+      final Completer<void> gate = resolver.gate = Completer<void>();
+      endCall();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      controller.onAudioInterruption(
+          AudioInterruptionEvent(true, AudioInterruptionType.pause));
+      await _settle();
+      gate.complete();
+      await _settle();
+
+      expect(engine.opened, hasLength(2));
+      expect(engine.sounding, isFalse,
+          reason: 'the new interruption holds the reloaded song');
+      expect(controller.state.interruptedByTransientFocus, isTrue);
+
+      endCall();
+      await _settle();
+
+      expect(engine.opened, hasLength(2),
+          reason: 'the reloaded source is fine, so it is resumed as is');
+      expect(engine.sounding, isTrue);
+      expect(controller.state.interruptedByTransientFocus, isFalse);
+    });
+
+    test('a pause while the song reloads after the call holds it', () async {
+      final Completer<void> gate = resolver.gate = Completer<void>();
+      endCall();
+      await _settle();
+      expect(controller.state.status, PlaybackStatus.loading);
+
+      await controller.pause();
+      gate.complete();
+      await _settle();
+
+      expect(engine.opened, hasLength(2));
+      expect(engine.sounding, isFalse,
+          reason: 'the pause is newer than the reload the call ended with');
+      expect(controller.state.interruptedByTransientFocus, isFalse);
+    });
+
+    test('a pause during the call still holds once it ends', () async {
+      await controller.pause();
+      await _settle();
+
+      endCall();
+      await _settle();
+
+      expect(engine.opened, hasLength(1),
+          reason: 'the listener paused, so nothing reloads');
+      expect(engine.sounding, isFalse);
+      expect(controller.state.interruptedByTransientFocus, isFalse);
+    });
+  });
 }
