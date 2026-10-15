@@ -412,9 +412,7 @@ class HttpJellyfinClient implements JellyfinClient {
       () => _client.get(uri, headers: _authHeaders(session)),
     );
     _checkStatus(response);
-    final Map<String, dynamic> json = _decodeObject(response);
-    final Object? rawItems = json['Items'];
-    if (rawItems is! List) return <String>{};
+    final List<Object?> rawItems = _itemsOf(_decodeObject(response));
     final Set<String> ids = <String>{};
     for (final Object? entry in rawItems) {
       if (entry is Map<String, dynamic>) {
@@ -457,9 +455,7 @@ class HttpJellyfinClient implements JellyfinClient {
       () => _client.get(uri, headers: _authHeaders(session)),
     );
     _checkStatus(response);
-    final Map<String, dynamic> json = _decodeObject(response);
-    final Object? rawItems = json['Items'];
-    if (rawItems is! List) return const <JellyfinPlaylistDto>[];
+    final List<Object?> rawItems = _itemsOf(_decodeObject(response));
     final List<JellyfinPlaylistDto> playlists = <JellyfinPlaylistDto>[];
     for (final Object? entry in rawItems) {
       if (entry is Map<String, dynamic>) {
@@ -484,9 +480,7 @@ class HttpJellyfinClient implements JellyfinClient {
       () => _client.get(uri, headers: _authHeaders(session)),
     );
     _checkStatus(response);
-    final Map<String, dynamic> json = _decodeObject(response);
-    final Object? rawItems = json['Items'];
-    if (rawItems is! List) return const <JellyfinPlaylistEntry>[];
+    final List<Object?> rawItems = _itemsOf(_decodeObject(response));
     final List<JellyfinPlaylistEntry> entries = <JellyfinPlaylistEntry>[];
     for (final Object? entry in rawItems) {
       if (entry is Map<String, dynamic>) {
@@ -735,6 +729,20 @@ class HttpJellyfinClient implements JellyfinClient {
     // Other 4xx (wrong path, Cloudflare 4xx, …) usually mean the address isn't
     // really a Jellyfin API root.
     throw JellyfinException.notJellyfin();
+  }
+
+  /// The `Items` of an answer that lists a whole set (favourites, playlists,
+  /// a playlist's entries). Jellyfin sends an empty list when there is
+  /// nothing; an answer without one can't say what the set holds, and read as
+  /// empty it would replace what the app has. Only the server's own total of
+  /// 0 still reads as empty.
+  static List<Object?> _itemsOf(Map<String, dynamic> json) {
+    final Object? rawItems = json['Items'];
+    if (rawItems is List) return rawItems;
+    if (rawItems == null && json['TotalRecordCount'] == 0) {
+      return const <Object?>[];
+    }
+    throw JellyfinException.unsupportedResponse();
   }
 
   /// Decodes a JSON object body, or throws [JellyfinErrorKind.notJellyfin] when
