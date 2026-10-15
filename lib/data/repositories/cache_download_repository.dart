@@ -1605,11 +1605,20 @@ class CacheDownloadRepository
     _emitStatus();
   }
 
-  void _emitStatus() => _changes.add(_snapshot());
+  // A fetch already out when the repository is disposed still finishes and
+  // reports, after the streams it would report on are closed: nothing is
+  // listening any more, so it says nothing.
+  void _emitStatus() {
+    if (!_disposed) _changes.add(_snapshot());
+  }
 
-  void _emitCache() => _cacheChanges.add(_cacheSnapshot());
+  void _emitCache() {
+    if (!_disposed) _cacheChanges.add(_cacheSnapshot());
+  }
 
-  void _emitProgress() => _progressChanges.add(_progressSnapshot());
+  void _emitProgress() {
+    if (!_disposed) _progressChanges.add(_progressSnapshot());
+  }
 
   /// Runs [action] (a cache commit) only after any in-flight commit finishes,
   /// so the eviction + write step is never interleaved across the otherwise
