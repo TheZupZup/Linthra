@@ -1026,9 +1026,22 @@ class CacheDownloadRepository
       return;
     }
 
-    final String fileName = await downloaded.draft.publish(
-      extension: downloaded.fileExtension,
-    );
+    final String fileName;
+    try {
+      fileName = await downloaded.draft.publish(
+        extension: downloaded.fileExtension,
+      );
+    } catch (_) {
+      // The file couldn't be written (the disk is full at the flush): the
+      // download fails, but the evictions already made stand, so persist them
+      // and the metadata matches what is on disk.
+      if (evictedAny) {
+        await _save();
+        if (evictedAStatus) _emitStatus();
+        _emitCache();
+      }
+      rethrow;
+    }
     if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
         (preloaded && !_passes(isStillWanted))) {
       // Removed or cleared, or the session changed, while the bytes were being
