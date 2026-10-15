@@ -1,3 +1,5 @@
+import 'linux_playback_runtime.dart';
+
 /// Why a remote stream stopped mid-playback, classified from the audio engine's
 /// raw error so the player can recover (a bounded retry) or show a precise,
 /// friendly message.
@@ -60,8 +62,14 @@ const int unsupportedAudioFormatErrorCode = 4005;
 /// (e.g. a `ClientException` echoing the request URI). This NEVER echoes, logs,
 /// or interpolates the error text — it only *reads* it to pick a branch and
 /// returns a fixed, safe message. So a token can't leak through a playback error.
+///
+/// The track's own location is not evidence of anything: an item id, a
+/// timestamp in a path or a token quoted in the text can hold `401` or
+/// `403`, and read as a status would end a dropped connection as an expired
+/// session. So locations are taken out before the text is read.
 StreamInterruption classifyEngineError(Object error) {
-  final String text = error.toString().toLowerCase();
+  final String text =
+      LinuxPlaybackRuntime.redactLocations(error.toString()).toLowerCase();
 
   // Structural, not wording: the Android engine's "no decoder on this device
   // for this audio" error (#674) carries Media3's code, and just_audio renders
