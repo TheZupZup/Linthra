@@ -5,6 +5,7 @@ import '../../../app/dimens.dart';
 import '../../../core/models/cache_size.dart';
 import '../../../core/services/offline_cache_manager.dart';
 import '../../../data/repositories/download_repository_provider.dart';
+import '../../downloads/bulk_download_controller.dart';
 import '../../downloads/download_providers.dart';
 
 /// The offline-cache card on the Settings screen.
@@ -134,6 +135,9 @@ class CacheSettingsSection extends ConsumerWidget {
       builder: (_) => const _ClearCacheDialog(),
     );
     if (choice == null) return;
+    // A "Download all" still running would otherwise go on refilling what
+    // this frees.
+    ref.read(bulkDownloadControllerProvider.notifier).stopForClear();
     final manager = ref.read(offlineCacheManagerProvider);
     switch (choice) {
       case _ClearChoice.unpinned:
