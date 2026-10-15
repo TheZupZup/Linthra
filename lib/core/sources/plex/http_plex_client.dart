@@ -505,7 +505,10 @@ class HttpPlexClient implements PlexClient {
     if (code == 404) {
       throw PlexException.notFound();
     }
-    if (code >= 500) {
+    if (code >= 500 || code == 408 || code == 429) {
+      // A request timeout or a rate limit (a reverse proxy throttling a large
+      // section walk) is transient, not a wrong address, as Jellyfin and
+      // Subsonic read it too.
       throw PlexException.serverError(code);
     }
     // Other 4xx (wrong path, proxy 4xx, …) usually mean the address isn't really
