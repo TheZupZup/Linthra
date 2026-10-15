@@ -76,22 +76,20 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
 
   @override
   Future<String?> pathFor(String fileName) async {
-    final Directory dir = await _directory();
-    final File file = File(p.join(dir.path, fileName));
-    return await file.exists() ? file.path : null;
+    final File? file = _fileIn(await _directory(), fileName);
+    return file != null && await file.exists() ? file.path : null;
   }
 
   @override
   Future<int?> sizeFor(String fileName) async {
-    final Directory dir = await _directory();
-    final File file = File(p.join(dir.path, fileName));
-    return await file.exists() ? await file.length() : null;
+    final File? file = _fileIn(await _directory(), fileName);
+    return file != null && await file.exists() ? await file.length() : null;
   }
 
   @override
   Future<void> delete(String fileName) async {
-    final Directory dir = await _directory();
-    final File file = File(p.join(dir.path, fileName));
+    final File? file = _fileIn(await _directory(), fileName);
+    if (file == null) return;
     try {
       await file.delete();
     } on PathNotFoundException {
@@ -132,6 +130,20 @@ class FileSystemOfflineFileStore implements OfflineFileStore {
     } on Object {
       // Best-effort: the cache works the same with the leftovers in place.
     }
+  }
+
+  /// The file [fileName] names in [dir], or null when it is not a plain name
+  /// there. This store only ever writes such names ([_fileNameFor]); a stored
+  /// record naming anything else (an absolute path, a `../`) would otherwise
+  /// have a clear or an eviction delete a file outside the offline folder.
+  static File? _fileIn(Directory dir, String fileName) {
+    if (fileName == '.' ||
+        fileName == '..' ||
+        fileName.isEmpty ||
+        p.basename(fileName) != fileName) {
+      return null;
+    }
+    return File(p.join(dir.path, fileName));
   }
 
   /// Builds a safe cache file name from the non-secret [trackId] (never a
