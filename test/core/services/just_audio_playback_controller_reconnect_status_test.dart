@@ -7,6 +7,8 @@
 // through, those reports would turn the UI and the media session back to a
 // plain "Buffering…" or "Loading…", as if the stream were merely slow, while
 // the reconnect is still under way.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:linthra/core/models/playback_source.dart';
@@ -84,40 +86,43 @@ const StreamInterruption _networkDrop = StreamInterruption(
 );
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  test(
+  testWidgets(
       'buffering and loading from the dead source during the backoff keep '
-      'it reconnecting', () async {
+      'it reconnecting', (WidgetTester tester) async {
     final _Player player = _Player();
     final _Resolver resolver = _Resolver();
     final JustAudioPlaybackController controller =
         JustAudioPlaybackController(player: player, resolver: resolver)
-          ..streamRetryBackoff = const Duration(milliseconds: 40)
+          ..streamRetryBackoff = const Duration(seconds: 2)
           ..midStreamBufferingTimeout = const Duration(hours: 1);
-    addTearDown(controller.dispose);
     await controller.playTracks(<Track>[_song]);
     controller.handleEngineState(PlayerState(true, ProcessingState.ready));
 
-    final Future<void> recovery =
-        controller.handleStreamFailureForTestingAsync(_networkDrop);
-    await Future<void>.delayed(Duration.zero);
+    unawaited(controller.handleStreamFailureForTestingAsync(_networkDrop));
+    await tester.pump();
     expect(controller.state.status, PlaybackStatus.reconnecting);
     expect(resolver.calls, hasLength(1), reason: 'still in the backoff');
 
-    // The engine keeps trying the dead connection, and reports it.
+    // The engine keeps trying the dead connection, and reports it, all
+    // through the backoff.
     controller.handleEngineState(PlayerState(true, ProcessingState.buffering));
     expect(controller.state.status, PlaybackStatus.reconnecting);
+    await tester.pump(const Duration(seconds: 1));
     controller.handleEngineState(PlayerState(true, ProcessingState.loading));
     expect(controller.state.status, PlaybackStatus.reconnecting);
     controller.handleEngineState(PlayerState(false, ProcessingState.buffering));
     expect(controller.state.status, PlaybackStatus.reconnecting);
+    expect(resolver.calls, hasLength(1), reason: 'still in the backoff');
 
     // The reconnect still runs once the backoff is over.
-    await recovery;
+    await tester.pump(const Duration(seconds: 2));
     expect(resolver.calls, hasLength(2));
     expect(player.setUrlCalls, hasLength(2));
     controller.handleEngineState(PlayerState(true, ProcessingState.ready));
     expect(controller.state.status, PlaybackStatus.playing);
+
+    // Disposed inside the test so none of its timers outlives it.
+    unawaited(controller.dispose());
+    await tester.pump();
   });
 }

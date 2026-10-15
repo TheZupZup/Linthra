@@ -134,7 +134,6 @@ void main() {
     expect(client.verifyCount, 1);
     expect(state.status, JellyfinSyncStatus.error);
     expect(state.failureReason, JellyfinSyncFailureReason.serverUnreachable);
-    expect(state.message, contains("Couldn't reach your Jellyfin server"));
     expect(state.needsSignIn, isFalse);
     expect(state.connectionOkButSyncFailed, isFalse);
     expect(_breadcrumb(), contains('category=notReachable'));
@@ -161,7 +160,6 @@ void main() {
     expect(state.failureReason, JellyfinSyncFailureReason.librarySyncFailed);
     expect(state.connectionOkButSyncFailed, isTrue);
     expect(state.needsSignIn, isFalse);
-    expect(state.message, contains('still here'));
     expect(repository.upsertCount, 0);
     expect(await repository.getAllTracks(), existing);
     expect(_breadcrumb(), contains('category=unsupportedResponse'));

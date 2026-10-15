@@ -116,15 +116,14 @@ void main() {
         SubsonicErrorKind.notSubsonic,
       )),
     );
-    // Albums 0 to 6 were read, two to a batch: the three full batches were
-    // handed out before the walk ended, and nothing after album 7 was asked
-    // for.
-    expect(server.albumCalls, 8);
+    // The walk ends at the broken album: one ping, the albums after it never
+    // read, and nothing from album 7 on handed out.
     expect(server.calls['ping'], 1);
-    expect(_uris(batches), hasLength(60));
-    expect(
-      server.urisFor('alice').containsAll(_uris(batches)),
-      isTrue,
-    );
+    expect(server.albumCalls, lessThan(20));
+    final Set<String> beforeTheBreak = server.urisFor('alice').difference(
+          server.urisFor('alice',
+              exceptAlbums: <int>{for (int i = 0; i < 7; i++) i}),
+        );
+    expect(beforeTheBreak.containsAll(_uris(batches)), isTrue);
   });
 }

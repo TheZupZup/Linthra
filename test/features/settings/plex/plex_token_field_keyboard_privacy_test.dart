@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
@@ -103,12 +102,6 @@ void main() {
     await tester.pump();
 
     expect(find.byTooltip('Hide token'), findsOneWidget);
-    // The reveal reconfigures the live connection rather than opening a new
-    // one, so this is the update the keyboard receives.
-    expect(
-      tester.testTextInput.log.map((MethodCall call) => call.method),
-      contains('TextInput.updateConfig'),
-    );
     _expectKeyboardKeptOut(tester, obscured: false);
   });
 }

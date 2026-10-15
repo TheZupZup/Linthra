@@ -118,8 +118,8 @@ void main() {
             q = q.appended(t);
             keepsCurrent = playing != null;
           case 6:
-            // A set added to an empty queue is left out: what shuffle does
-            // with it there is #881's to decide.
+            // A set added to an empty queue is left out: whether it starts
+            // shuffled is the controller's call there (#881), not the model's.
             if (before.isEmpty) continue;
             final List<Track> set = <Track>[any(), any(), any()];
             steps.add('enqueueAllNext(${_uris(set)})');

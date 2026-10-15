@@ -76,17 +76,9 @@ class _Resolver implements PlayableUriResolver {
 const Track _playing = Track(id: 'r', title: 'R', uri: 'jellyfin:r');
 const Track _next = Track(id: 'n', title: 'N', uri: 'jellyfin:n');
 
-Future<void> _settle() async {
-  for (int i = 0; i < 5; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
-}
-
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  test('a skip during the wait after a wake leaves the reload undone',
-      () async {
+  testWidgets('a skip during the wait after a wake leaves the reload undone',
+      (WidgetTester tester) async {
     final _Engine engine = _Engine();
     final _Resolver resolver = _Resolver();
     final FakeMachineSleep machine = FakeMachineSleep();
@@ -95,7 +87,7 @@ void main() {
       resolver: resolver,
       sleepWatcher: machine.watcher(),
     )
-      ..suspendResumeBackoff = const Duration(milliseconds: 30)
+      ..suspendResumeBackoff = const Duration(seconds: 2)
       ..midStreamBufferingTimeout = const Duration(hours: 1);
     addTearDown(controller.dispose);
     await controller.playTracks(<Track>[_playing, _next]);
@@ -105,17 +97,16 @@ void main() {
     // The lid opens; the reload waits for the device and the network.
     machine.sleep(const Duration(minutes: 30));
     machine.look();
-    await _settle();
+    await tester.pump(const Duration(seconds: 1));
     expect(engine.setUrlCalls, hasLength(1), reason: 'still waiting');
 
     // Next, from a media key, inside that wait.
     await controller.skipToNext();
-    await _settle();
+    await tester.pump();
     expect(engine.setUrlCalls, hasLength(2));
 
     // Well past the wait.
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    await _settle();
+    await tester.pump(const Duration(seconds: 5));
 
     expect(resolver.calls, <String>[_playing.uri, _next.uri],
         reason: 'neither track is resolved again by the stale reload');

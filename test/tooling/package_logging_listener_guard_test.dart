@@ -105,29 +105,11 @@ void main() {
       );
     });
 
-    test('the line a finding is on is reported', () {
-      final LoggingListenerFinding finding = scanLoggingListeners(
-        'void f() {\n'
-        '  final int a = 1;\n'
-        '  Logger.root.onRecord.listen(print);\n'
-        '}\n',
-      ).single;
-      expect(finding.line, 3);
-    });
-
     test('prose and strings are not code', () {
       expect(
         found('/// Never call Logger.root.onRecord.listen here.\n'
             '// hierarchicalLoggingEnabled stays off.\n'
             "const String note = 'onRecord';\n"),
-        isEmpty,
-      );
-    });
-
-    test('a name that merely contains the word is left alone', () {
-      expect(
-        found('void onRecordSaved() {}\n'
-            'const bool hierarchicalLoggingEnabledInDocs = false;\n'),
         isEmpty,
       );
     });

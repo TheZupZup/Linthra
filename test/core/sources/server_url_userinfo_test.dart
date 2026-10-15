@@ -129,6 +129,34 @@ void main() {
         'http://[::1]:8096/jf',
       );
     });
+
+    test('a user name alone, or a password alone, is dropped too', () {
+      expect(
+        ServerUrlNormalizer.parse('https://alice@music.example.com').toBase(),
+        'https://music.example.com',
+      );
+      expect(
+        ServerUrlNormalizer.parse('https://:$_password@music.example.com')
+            .toBase(),
+        'https://music.example.com',
+      );
+    });
+
+    test('a percent-encoded @ in the password does not survive', () {
+      final String base =
+          ServerUrlNormalizer.parse('https://alice:p%40ss@music.example.com')
+              .toBase();
+
+      expect(base, 'https://music.example.com');
+      expect(base, isNot(contains('%40')));
+    });
+
+    test('userinfo with no host is refused', () {
+      expect(
+        () => ServerUrlNormalizer.parse('https://alice:$_password@'),
+        throwsA(isA<ServerUrlParseFailure>()),
+      );
+    });
   });
 
   for (final provider in _providers) {
@@ -149,26 +177,6 @@ void main() {
 
         expect(base, 'https://music.example.com:8096');
         _expectNoCredentials(base, reason: provider.name);
-      });
-
-      test('a user name alone, or a password alone, is dropped too', () {
-        expect(
-          provider.normalize('https://alice@music.example.com'),
-          'https://music.example.com',
-        );
-        expect(
-          provider.normalize('https://:$_password@music.example.com'),
-          'https://music.example.com',
-        );
-      });
-
-      test('a percent-encoded @ in the password does not survive', () {
-        final String base =
-            provider.normalize('https://alice:p%40ss@music.example.com');
-
-        expect(base, 'https://music.example.com');
-        expect(base, isNot(contains('p%40ss')));
-        expect(base, isNot(contains('%40')));
       });
 
       test('a raw @ in the password is refused without quoting any of it', () {
@@ -199,18 +207,6 @@ void main() {
           }
           expect(provider.tryNormalize(input), isNull, reason: input);
         }
-      });
-
-      test('userinfo with no host is refused without quoting it', () {
-        Object? thrown;
-        try {
-          provider.normalize('https://alice:$_password@');
-        } catch (error) {
-          thrown = error;
-        }
-
-        expect(thrown, provider.invalid);
-        _expectNoCredentials(thrown.toString(), reason: provider.name);
       });
     });
   }

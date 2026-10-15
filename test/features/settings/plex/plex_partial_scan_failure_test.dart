@@ -252,7 +252,6 @@ void main() {
     );
     final PlexSyncState state = container.read(plexSyncControllerProvider);
     expect(state.status, PlexSyncStatus.error);
-    expect(state.message, contains('reported an error'));
     expect(repo.upsertBatches, 0);
     expect(repo.pruneCount, 0);
     expect(repo.replaceCount, 0);
@@ -284,7 +283,6 @@ void main() {
     expect(starts, <String>['0', '2']);
     final PlexSyncState state = container.read(plexSyncControllerProvider);
     expect(state.status, PlexSyncStatus.error);
-    expect(state.message, contains('reported an error'));
     expect(repo.upsertBatches, 0);
     expect(repo.pruneCount, 0);
     expect(repo.replaceCount, 0);

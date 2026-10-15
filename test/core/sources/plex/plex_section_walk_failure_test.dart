@@ -1,12 +1,13 @@
 // A Plex section that fails on a later page fails as a whole.
 //
 // `fetchSectionItems` reads a section page by page and retries nothing. When
-// the first page lands and the second does not (the server errors, the
-// connection drops, a proxy answers with its own HTML page), the walk must
-// throw the typed failure for that page, after exactly the two pages it
-// asked for. Returning the first page instead would hand the sync half a
-// section to replace the whole catalog with, and the prune after it would
-// drop the rest.
+// the first page lands and the second does not (the connection drops, a
+// proxy answers with its own HTML page), the walk must throw the typed
+// failure for that page, after exactly the two pages it asked for. Returning
+// the first page instead would hand the sync half a section to replace the
+// whole catalog with, and the prune after it would drop the rest. A server
+// error on that page is driven end to end, through the sync, in
+// plex_partial_scan_failure_test.dart.
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -76,24 +77,6 @@ Matcher _throwsKind(PlexErrorKind kind) => throwsA(
 
 void main() {
   group('a section walk whose second page fails', () {
-    test('a 503 fails the walk as serverError after two requests', () async {
-      final List<String?> starts = <String?>[];
-      final HttpPlexClient client = _sectionClient(
-        starts,
-        () async => http.Response('Service Unavailable', 503),
-      );
-
-      await expectLater(
-        _walk(client),
-        throwsA(isA<PlexException>()
-            .having(
-                (PlexException e) => e.kind, 'kind', PlexErrorKind.serverError)
-            .having((PlexException e) => e.statusCode, 'statusCode', 503)),
-      );
-      // No retry and no third page: the walk stopped on the failed one.
-      expect(starts, <String>['0', '2']);
-    });
-
     test(
         'a dropped connection fails the walk as notReachable after two '
         'requests', () async {

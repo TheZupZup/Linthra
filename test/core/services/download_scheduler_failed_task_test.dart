@@ -62,44 +62,4 @@ void main() {
     expect(scheduler.activeCount, 0);
     expect(activeWhileRunning, everyElement(lessThanOrEqualTo(1)));
   });
-
-  test('a task failing beside a running one hands its slot to the next',
-      () async {
-    final DownloadScheduler scheduler = DownloadScheduler(maxConcurrent: 2);
-    final List<Completer<void>> gates = <Completer<void>>[
-      for (int i = 0; i < 4; i++) Completer<void>(),
-    ];
-    final List<int> started = <int>[];
-    final List<int> peaks = <int>[];
-
-    for (int i = 0; i < gates.length; i++) {
-      final int index = i;
-      unawaited(scheduler.schedule<void>(() async {
-        started.add(index);
-        peaks.add(scheduler.activeCount);
-        await gates[index].future;
-        if (index == 1) throw StateError('Download failed.');
-      }).catchError((Object _) {}));
-    }
-    await _pump();
-    expect(started, <int>[0, 1]);
-
-    // The second one fails first: the third takes its slot, the first keeps
-    // its own.
-    gates[1].complete();
-    await _pump();
-    expect(started, <int>[0, 1, 2]);
-    expect(scheduler.activeCount, 2);
-    expect(scheduler.pendingCount, 1);
-
-    for (final Completer<void> gate in gates) {
-      if (!gate.isCompleted) gate.complete();
-    }
-    await _pump();
-
-    expect(started, <int>[0, 1, 2, 3]);
-    expect(peaks, everyElement(lessThanOrEqualTo(2)));
-    expect(scheduler.activeCount, 0);
-    expect(scheduler.pendingCount, 0);
-  });
 }

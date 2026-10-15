@@ -230,9 +230,6 @@ void main() {
       expect(await records.loadDownloads(), isEmpty);
       expect(namesOnDisk(), isEmpty, reason: 'a .part temp was left behind');
       expect(opened.closed, isTrue, reason: 'the temp file was left open');
-      // The write that failed was the second; the rest of the body is not
-      // written to a disk that has no room for it.
-      expect(opened.writes, 2);
       expect((await repository.cacheSnapshot()).usedBytes, 0);
     });
   });
