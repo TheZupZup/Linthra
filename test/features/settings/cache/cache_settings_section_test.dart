@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/cache_size.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/connectivity_service.dart';
 import 'package:linthra/core/services/offline_copy_origins.dart';
 import 'package:linthra/core/services/remote_track_downloader.dart';
 import 'package:linthra/data/repositories/download_repository_provider.dart';
+import 'package:linthra/features/downloads/download_providers.dart';
 import 'package:linthra/features/settings/cache/cache_settings_section.dart';
 
 import '../../library/fake_remote_track_downloader.dart';
@@ -61,6 +63,68 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('of 8 GB used'), findsOneWidget);
+    });
+
+    Future<void> openCustomLimit(WidgetTester tester) async {
+      await tester.tap(find.text('Change limit'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Custom'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('custom limit keeps Save disabled for invalid values', (
+      tester,
+    ) async {
+      await pump(tester);
+      await openCustomLimit(tester);
+
+      // double.tryParse accepts "NaN" and "Infinity", and "1e999" parses to
+      // Infinity. The dialog rebuilds on every keystroke, so these used to
+      // throw and replace it with an error widget (#884).
+      for (final String text in <String>[
+        'NaN',
+        'Infinity',
+        '-Infinity',
+        '1e999',
+        '0',
+        '-0',
+        '-1',
+        'abc',
+        '',
+      ]) {
+        await tester.enterText(find.byType(TextField), text);
+        await tester.pump();
+
+        expect(tester.takeException(), isNull, reason: text);
+        expect(_saveButton(tester).onPressed, isNull, reason: text);
+      }
+    });
+
+    testWidgets('custom limit saves valid values within the supported range', (
+      tester,
+    ) async {
+      final container = await pump(tester);
+
+      for (final (String text, int expected) in <(String, int)>[
+        ('1.5', CacheSize.gigabytes(1.5)),
+        // Finite, but overflows to Infinity if converted to bytes unclamped.
+        ('1e300', CacheSize.maxLimit),
+        ('0.1', CacheSize.minLimit),
+      ]) {
+        await openCustomLimit(tester);
+        await tester.enterText(find.byType(TextField), text);
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: text);
+
+        await tester.tap(find.text('Save'));
+        await tester.pumpAndSettle();
+
+        expect(
+          container.read(maxCacheBytesControllerProvider).valueOrNull,
+          expected,
+          reason: text,
+        );
+      }
     });
 
     testWidgets('clear all empties the cache', (tester) async {
@@ -163,6 +227,9 @@ void main() {
     });
   });
 }
+
+FilledButton _saveButton(WidgetTester tester) =>
+    tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
 
 /// The Plex server connected now; [switchTo] connects another and says so.
 class _PlexOrigins implements OfflineCopyOrigins {
