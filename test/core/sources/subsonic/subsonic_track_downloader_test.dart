@@ -308,4 +308,42 @@ void main() {
       );
     });
   });
+
+  // Legacy password sign-in: a download URL carrying the password is never
+  // sent on through a redirect.
+  test('a download carrying a password does not follow redirects', () async {
+    final List<http.BaseRequest> requests = <http.BaseRequest>[];
+    final downloader = SubsonicTrackDownloader(
+      () => _FakeStreamSource(
+        downloadUri: Uri.parse(
+          'https://music.example.com/rest/download.view?id=s1&u=a&'
+          'p=enc:70617373',
+        ),
+      ),
+      httpClient: MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response('', 302, headers: const <String, String>{
+          'location': 'http://music.example.com/elsewhere',
+        });
+      }),
+    );
+
+    await expectLater(downloader.fetch(_track), throwsStateError);
+    expect(requests.single.followRedirects, isFalse);
+  });
+
+  test('a token download follows redirects as before', () async {
+    final List<http.BaseRequest> requests = <http.BaseRequest>[];
+    final downloader = SubsonicTrackDownloader(
+      () => _FakeStreamSource(downloadUri: _downloadUri),
+      httpClient: MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response.bytes(<int>[1, 2, 3], 200,
+            headers: const <String, String>{'content-type': 'audio/flac'});
+      }),
+    );
+
+    await _bodyOf(await downloader.fetch(_track));
+    expect(requests.single.followRedirects, isTrue);
+  });
 }

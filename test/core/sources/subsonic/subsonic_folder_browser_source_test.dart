@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_folder_browser_source.dart';
 
 void main() {
@@ -99,6 +100,56 @@ void main() {
     expect(listing.folders.single.id, 'directory:album-1');
     expect(listing.tracks.single.title, 'A Song');
     expect(listing.tracks.single.uri, 'subsonic:song-1');
+  });
+
+  // Legacy password sign-in: folder browsing carries the encoded password
+  // and never follows a redirect with it.
+  test('a password session browses with p and without redirects', () async {
+    const SubsonicSession passwordSession = SubsonicSession.password(
+      baseUrl: 'https://music.example.test',
+      username: 'listener',
+      password: 'app-password',
+    );
+    final List<http.Request> requests = <http.Request>[];
+    final MockClient client = MockClient((http.Request request) async {
+      requests.add(request);
+      return _ok(<String, Object>{
+        'musicFolders': <String, Object>{'musicFolder': <Object>[]},
+      });
+    });
+
+    await SubsonicFolderBrowserSource(
+      session: passwordSession,
+      httpClient: client,
+    ).fetchRootFolders();
+
+    final Map<String, String> q = requests.single.url.queryParameters;
+    expect(q['p'], startsWith('enc:'));
+    expect(q.containsKey('t'), isFalse);
+    expect(q.containsKey('s'), isFalse);
+    expect(requests.single.followRedirects, isFalse);
+  });
+
+  test('a password session refuses a redirect', () async {
+    const SubsonicSession passwordSession = SubsonicSession.password(
+      baseUrl: 'https://music.example.test',
+      username: 'listener',
+      password: 'app-password',
+    );
+    final MockClient client = MockClient((_) async => http.Response(
+          '',
+          302,
+          headers: const <String, String>{'location': 'http://elsewhere/'},
+        ));
+
+    await expectLater(
+      SubsonicFolderBrowserSource(
+        session: passwordSession,
+        httpClient: client,
+      ).fetchRootFolders(),
+      throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+          'kind', SubsonicErrorKind.insecureConnection)),
+    );
   });
 }
 

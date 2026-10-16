@@ -55,4 +55,95 @@ void main() {
       expect(session.toJson().containsKey('password'), isFalse);
     });
   });
+
+  // Opt-in legacy password sign-in, for a server that refuses the token.
+  group('password session', () {
+    const password = SubsonicSession.password(
+      baseUrl: 'https://cloud.example.com/apps/music/subsonic',
+      username: 'alice',
+      password: 'app-password',
+      serverType: 'Nextcloud Music',
+    );
+
+    test('round-trips through toJson/fromJson', () {
+      final restored = SubsonicSession.fromJson(password.toJson());
+      expect(restored, password);
+      expect(restored!.usesPassword, isTrue);
+      expect(restored.salt, isNull);
+      expect(restored.token, isNull);
+    });
+
+    test('is marked as one, and carries no salt or token', () {
+      final json = password.toJson();
+      expect(json['auth'], 'password');
+      expect(json.containsKey('salt'), isFalse);
+      expect(json.containsKey('token'), isFalse);
+    });
+
+    test('a salt+token record is written exactly as before', () {
+      expect(session.toJson().keys, <String>[
+        'baseUrl',
+        'username',
+        'salt',
+        'token',
+        'serverType',
+        'serverVersion',
+        'apiVersion',
+      ]);
+      expect(session.usesPassword, isFalse);
+    });
+
+    test('a record saved before password sign-in restores as salt+token', () {
+      final restored = SubsonicSession.fromJson(<String, dynamic>{
+        'baseUrl': 'https://music.example.com',
+        'username': 'alice',
+        'salt': 'abc123salt',
+        'token': 'deadbeef',
+      });
+      expect(restored, isNotNull);
+      expect(restored!.usesPassword, isFalse);
+      expect(restored.token, 'deadbeef');
+    });
+
+    test('is never restored for an http server', () {
+      expect(
+        SubsonicSession.fromJson(<String, dynamic>{
+          'baseUrl': 'http://192.168.1.20:8080',
+          'username': 'alice',
+          'auth': 'password',
+          'password': 'app-password',
+        }),
+        isNull,
+      );
+    });
+
+    test('reads as signed out without a usable password', () {
+      for (final Object? value in <Object?>[null, '', 42]) {
+        expect(
+          SubsonicSession.fromJson(<String, dynamic>{
+            'baseUrl': 'https://cloud.example.com',
+            'username': 'alice',
+            'auth': 'password',
+            'password': value,
+          }),
+          isNull,
+          reason: 'password: $value',
+        );
+      }
+    });
+
+    test('toString redacts the password', () {
+      final String text = password.toString();
+      expect(text, isNot(contains('app-password')));
+      expect(text, contains('password: <redacted>'));
+      expect(text, contains('alice'));
+    });
+
+    test('copyWith keeps the password', () {
+      final moved = password.copyWith(baseUrl: 'https://other.example.com');
+      expect(moved.usesPassword, isTrue);
+      expect(moved.password, 'app-password');
+      expect(moved.baseUrl, 'https://other.example.com');
+    });
+  });
 }

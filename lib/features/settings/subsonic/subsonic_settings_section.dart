@@ -18,6 +18,10 @@ import 'subsonic_sync_state.dart';
 ///
 /// Subsonic's `ping` requires credentials, so both "Test connection" and "Sign
 /// in" need all three fields — a successful test confirms sign-in will work.
+///
+/// Legacy password sign-in is off by default and resets on sign-out: it is for
+/// a server that refuses the token (Nextcloud Music), and the card says what it
+/// costs while it is on.
 class SubsonicSettingsSection extends ConsumerStatefulWidget {
   const SubsonicSettingsSection({super.key});
 
@@ -32,6 +36,7 @@ class _SubsonicSettingsSectionState
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _usePassword = false;
 
   @override
   void initState() {
@@ -70,6 +75,7 @@ class _SubsonicSettingsSectionState
           url: _urlController.text,
           username: _usernameController.text,
           password: _passwordController.text,
+          usePassword: _usePassword,
         );
   }
 
@@ -80,14 +86,19 @@ class _SubsonicSettingsSectionState
               url: _urlController.text,
               username: _usernameController.text,
               password: _passwordController.text,
+              usePassword: _usePassword,
             );
     // Don't keep the password in memory once it's been exchanged for a token.
+    // A password session keeps its own copy, in the encrypted store.
     if (ok) {
       _passwordController.clear();
     }
   }
 
   Future<void> _signOut() async {
+    // Off before the form comes back, which happens as soon as the session is
+    // gone, while the rest of the sign-out is still cleaning up.
+    setState(() => _usePassword = false);
     await ref.read(subsonicSettingsControllerProvider.notifier).clear();
     _urlController.clear();
     _usernameController.clear();
@@ -105,6 +116,14 @@ class _SubsonicSettingsSectionState
     final SubsonicSyncState syncState =
         ref.watch(subsonicSyncControllerProvider);
     final ThemeData theme = Theme.of(context);
+    // What the card promises follows the sign-in it describes: the session's
+    // once connected, the switch's before that.
+    final bool usesPassword =
+        state.isConnected ? state.usesPassword : _usePassword;
+    final String passwordNote = usesPassword
+        ? 'With legacy password sign-in, your password is kept encrypted on '
+            'this device and sent with every request.'
+        : 'Your password is never stored — only a derived token is kept.';
 
     return Card(
       child: Padding(
@@ -123,8 +142,8 @@ class _SubsonicSettingsSectionState
             const SizedBox(height: AppSpacing.xs),
             Text(
               'Stream from your own Navidrome or other Subsonic-compatible '
-              'server, including one behind an HTTPS reverse proxy. Your '
-              'password is never stored — only a derived token is kept.',
+              'server, including one behind an HTTPS reverse proxy. '
+              '$passwordNote',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -208,6 +227,21 @@ class _SubsonicSettingsSectionState
                   setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        SwitchListTile(
+          key: const Key('subsonic_legacy_password_signin'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Legacy password sign-in'),
+          subtitle: const Text(
+            'Only for servers that refuse token sign-in, like Nextcloud Music '
+            '(use the API key from its Music settings). Sends the password '
+            'with every request, https only.',
+          ),
+          value: _usePassword,
+          onChanged: busy
+              ? null
+              : (bool value) => setState(() => _usePassword = value),
         ),
         const SizedBox(height: AppSpacing.md),
         Row(
@@ -307,6 +341,11 @@ class _ConnectedView extends StatelessWidget {
                   if (state.username != null && state.username!.isNotEmpty)
                     Text(
                       'Signed in as ${state.username}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  if (state.usesPassword)
+                    Text(
+                      'Legacy password sign-in',
                       style: theme.textTheme.bodySmall,
                     ),
                   if (state.baseUrl != null)

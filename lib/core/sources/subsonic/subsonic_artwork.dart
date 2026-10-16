@@ -1,6 +1,7 @@
 import '../../models/subsonic_session.dart';
 import 'subsonic_auth.dart';
 import 'subsonic_endpoints.dart';
+import 'subsonic_exception.dart';
 
 /// Subsonic/Navidrome cover art as a *credential-free reference* that is safe to
 /// persist in the catalog, plus its render-time resolution into an authenticated
@@ -48,19 +49,26 @@ abstract final class SubsonicArtwork {
   /// Subsonic cover reference. The salt+token are woven in here, on demand, and
   /// never persisted — the stored reference stays credential-free.
   ///
+  /// `null` too for a password session the endpoints refuse to send the
+  /// password for (anything but https), so a cover shows its placeholder
+  /// rather than leaking it.
+  ///
   /// [size] (px) is forwarded to `getCoverArt` to ask the server for a scaled
   /// cover: it is left unset for the in-app full-size render, and set for the
   /// platform media-session cache, which wants a small, fast-to-decode image.
   static Uri? resolve(Uri reference, SubsonicSession session, {int? size}) {
     final String? id = coverArtId(reference);
     if (id == null) return null;
-    return SubsonicEndpoints.coverArt(
-      session.baseUrl,
-      username: session.username,
-      credentials:
-          SubsonicCredentials(salt: session.salt, token: session.token),
-      coverArtId: id,
-      size: size,
-    );
+    try {
+      return SubsonicEndpoints.coverArt(
+        session.baseUrl,
+        username: session.username,
+        credentials: SubsonicCredentials.of(session),
+        coverArtId: id,
+        size: size,
+      );
+    } on SubsonicException {
+      return null;
+    }
   }
 }

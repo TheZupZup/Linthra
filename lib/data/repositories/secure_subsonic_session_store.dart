@@ -10,8 +10,9 @@ import 'secure_session_storage.dart';
 /// under a single key, through [SecureSessionStorage]: the Android
 /// Keystore-backed store on Android, and libsecret on Linux (the freedesktop
 /// Secret Service natively; inside a Flatpak, libsecret's own portal-keyed
-/// encrypted store). The credential (salt + token) is never at rest in
-/// plaintext (unlike `shared_preferences`) on either platform, and Linthra
+/// encrypted store). The credential (salt + token, or the password of a
+/// legacy password sign-in) is never at rest in plaintext (unlike
+/// `shared_preferences`) on either platform, and Linthra
 /// writes no file of its
 /// own when the platform store is unavailable. This is the production binding;
 /// it's intentionally never touched by tests, which use the in-memory store so

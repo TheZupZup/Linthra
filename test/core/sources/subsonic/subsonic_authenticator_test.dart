@@ -99,4 +99,73 @@ void main() {
       );
     });
   });
+
+  group('legacy password sign-in', () {
+    test('signs in with the password over https and keeps it', () async {
+      final session = await auth().signIn(
+        rawUrl: 'https://cloud.example.com/apps/music/subsonic',
+        username: 'alice',
+        password: 'app-password',
+        usePassword: true,
+      );
+
+      expect(
+        client.lastCredentials,
+        const SubsonicCredentials.password('app-password'),
+      );
+      expect(session.usesPassword, isTrue);
+      expect(session.password, 'app-password');
+      expect(session.salt, isNull);
+      expect(session.token, isNull);
+    });
+
+    test('a bare address defaults to https and is allowed', () async {
+      await auth().testConnection(
+        rawUrl: 'cloud.example.com',
+        username: 'alice',
+        password: 'app-password',
+        usePassword: true,
+      );
+      expect(client.lastBaseUrl, 'https://cloud.example.com');
+    });
+
+    test('refuses an http address before sending anything', () async {
+      for (final Future<Object?> Function() attempt
+          in <Future<Object?> Function()>[
+        () => auth().testConnection(
+              rawUrl: 'http://192.168.1.20:8080',
+              username: 'alice',
+              password: 'app-password',
+              usePassword: true,
+            ),
+        () => auth().signIn(
+              rawUrl: 'http://192.168.1.20:8080',
+              username: 'alice',
+              password: 'app-password',
+              usePassword: true,
+            ),
+      ]) {
+        await expectLater(
+          attempt(),
+          throwsA(isA<SubsonicException>().having(
+            (SubsonicException e) => e.kind,
+            'kind',
+            SubsonicErrorKind.cleartextBlocked,
+          )),
+        );
+      }
+      expect(client.lastCredentials, isNull);
+    });
+
+    test('is off unless asked for', () async {
+      final session = await auth().signIn(
+        rawUrl: 'http://192.168.1.20:4533',
+        username: 'alice',
+        password: 'hunter2',
+      );
+      expect(session.usesPassword, isFalse);
+      expect(client.lastCredentials!.password, isNull);
+      expect(session.token, SubsonicAuth.tokenFor('hunter2', 'fixedsalt'));
+    });
+  });
 }

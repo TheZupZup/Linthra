@@ -348,6 +348,30 @@ void main() {
       expect(await afterRestart.read(), isNull);
     });
 
+    test(
+        'Subsonic legacy password sign-in: kept only in the keyring, restored '
+        'after a restart, and gone after sign-out', () async {
+      const SubsonicSession passwordSession = SubsonicSession.password(
+        baseUrl: 'https://cloud.example.com/apps/music/subsonic',
+        username: 'alice',
+        password: 'app-password-do-not-leak',
+        serverType: 'Nextcloud Music',
+      );
+      const SecureSubsonicSessionStore store = SecureSubsonicSessionStore();
+      await store.write(passwordSession);
+      expect(keyring.items.keys, <String>['subsonic_session_v1']);
+
+      const SecureSubsonicSessionStore afterRestart =
+          SecureSubsonicSessionStore();
+      final SubsonicSession? restored = await afterRestart.read();
+      expect(restored, passwordSession);
+      expect(restored!.usesPassword, isTrue);
+
+      await afterRestart.clear();
+      expect(keyring.items, isEmpty);
+      expect(await afterRestart.read(), isNull);
+    });
+
     test('Plex: saves, restores after a restart, and signs out clean',
         () async {
       const SecurePlexSessionStore store = SecurePlexSessionStore();

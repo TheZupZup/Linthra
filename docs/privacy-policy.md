@@ -43,7 +43,8 @@ it needs to keep you signed in:
 - your **username** (as returned by the server) and the server's identifying
   details;
 - a **session credential**: a **session token** for Jellyfin, or a
-  `salt`+`token` pair for Navidrome / Subsonic.
+  `salt`+`token` pair for Navidrome / Subsonic (or your password, only if you
+  turn on legacy password sign-in; see below).
 
 These are stored together in the device's **encrypted** secure storage
 (Android Keystore-backed), so the session credential is not kept in plaintext.
@@ -55,6 +56,15 @@ Your **password is never stored.** How it is used depends on the server type:
 - **Navidrome / Subsonic:** the password is used **only on your device** to
   compute a `salt`+`token` (`token = md5(password + salt)`); the plaintext
   password is not sent to the server and is then discarded.
+
+The one exception is **legacy password sign-in**, an option that is off by
+default and only for servers that refuse the token, such as Nextcloud Music.
+If you turn it on, Linthra keeps your password in the same encrypted storage
+and sends it to your server with every request, hex-encoded (which is not
+encryption). It only works with an `https://` address, and Linthra won't send
+the password on through a redirect. Your server may record it in its access
+logs, so use an app password if your server offers one. Signing out deletes it
+from the device.
 
 This information is used **only** to talk to the server you configured. Linthra
 does not transmit it anywhere else.

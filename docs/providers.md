@@ -191,7 +191,8 @@ mirrors how Jellyfin stores a derived access token rather than the password.
 
 Concretely, Linthra:
 
-- never stores the plaintext password;
+- never stores the plaintext password (unless the user turns on legacy
+  password sign-in, below);
 - never logs the password, salt, or token;
 - never stores an authenticated stream/download URL in `Track.uri` or the
   database (the URI is the opaque `subsonic:<id>`);
@@ -207,6 +208,36 @@ Concretely, Linthra:
 - never surfaces a credential or credentialed URL in a UI error message;
 - resolves stream/download URLs **only at play/download time**, and cover-art
   URLs **only at render time**.
+
+### Legacy password sign-in (opt-in)
+
+Some servers refuse the token: Nextcloud Music always does, and so does a
+Subsonic account whose password lives in LDAP (both answer error 41). For them
+the Subsonic card has a **Legacy password sign-in** switch, off by default.
+With it on, the session keeps the password in the same encrypted store and
+sends it as `p=enc:<hex>` on every request. The hex is the spec's encoding, not
+encryption, so it comes with rules of its own:
+
+- **https only.** Sign-in refuses an `http://` address, a stored password
+  session for one is never restored, and the URL builders refuse to put the
+  password on one.
+- **No redirects.** A request carrying the password is never sent on through a
+  redirect: API calls, playlist form posts, lyrics, the stream probe,
+  downloads, folder browsing and covers (the in-app image, both artwork
+  caches). The 3xx is reported or the cover shows its placeholder.
+- **The audio engine never sees it.** ExoPlayer and libmpv follow redirects on
+  their own, on every request, so a password session's stream reaches them as
+  a loopback address (`SubsonicStreamRelay`). The relay fetches each request
+  from the https address with redirects refused. Casting goes through that
+  relay too.
+- **Gone on sign-out**, like any other session: the stored password, the
+  relay's tokens and the warmed stream URLs pointing at them. A song still
+  playing from the relay stops.
+
+What it can't prevent: the server, and any proxy in front of it, can record
+the password in its access logs. Nextcloud Music takes an API key from its
+Music settings rather than the account password, so what it exposes there is a
+key that can be revoked.
 
 ### What remains (follow-ups)
 

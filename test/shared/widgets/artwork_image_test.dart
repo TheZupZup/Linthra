@@ -9,6 +9,7 @@ import 'package:linthra/core/sources/plex/plex_artwork.dart';
 import 'package:linthra/core/sources/plex/plex_track_mapper.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_artwork.dart';
 import 'package:linthra/shared/widgets/artwork_image.dart';
+import 'package:linthra/shared/widgets/unredirected_network_image.dart';
 
 const _subsonicSession = SubsonicSession(
   baseUrl: 'https://music.example.com',
@@ -388,6 +389,45 @@ void main() {
       // render of the *same reference* is a hit regardless of the token.
       expect(cache.cachedFile(reference), isNotNull);
       expect(artworkImageProvider(reference), isA<FileImage>());
+    });
+  });
+
+  // NetworkImage follows redirects and can't be told not to, so a cover URL
+  // carrying a password never goes through it.
+  group('artworkImageProvider with legacy password sign-in', () {
+    const passwordSession = SubsonicSession.password(
+      baseUrl: 'https://cloud.example.com',
+      username: 'alice',
+      password: 'app-password',
+    );
+    final Uri reference = SubsonicArtwork.reference('al-1');
+
+    test('loads a password cover without following redirects', () {
+      installArtworkReferenceResolver(
+        (Uri uri) => SubsonicArtwork.resolve(uri, passwordSession),
+      );
+
+      final ImageProvider provider = artworkImageProvider(reference);
+      final ImageProvider resized =
+          artworkImageProvider(reference, decodeExtent: 96);
+
+      expect(provider, isA<UnredirectedNetworkImage>());
+      expect(
+        (provider as UnredirectedNetworkImage).url.queryParameters['p'],
+        startsWith('enc:'),
+      );
+      expect(resized, isA<CoverResizeImage>());
+      expect((resized as CoverResizeImage).imageProvider,
+          isA<UnredirectedNetworkImage>());
+      expect(provider.toString(), isNot(contains('enc:')));
+    });
+
+    test('a token cover still uses NetworkImage', () {
+      installArtworkReferenceResolver(
+        (Uri uri) => SubsonicArtwork.resolve(uri, _subsonicSession),
+      );
+
+      expect(artworkImageProvider(reference), isA<NetworkImage>());
     });
   });
 }

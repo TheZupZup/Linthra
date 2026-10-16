@@ -22,6 +22,12 @@ import 'subsonic_exception.dart';
 ///
 /// Every failure becomes a [SubsonicException]; the username/salt/token are
 /// never written to an exception, so a leaked error string can't expose them.
+///
+/// A request carrying a password (opt-in legacy sign-in) is never sent on
+/// through a redirect: a 3xx is refused with
+/// [SubsonicException.passwordRedirectRefused] instead, so the password reaches
+/// only the https address the user entered, never an http:// or other host a
+/// misconfigured proxy points at.
 class HttpSubsonicClient implements SubsonicClient {
   HttpSubsonicClient({http.Client? httpClient})
       : _client = httpClient ?? http.Client();
@@ -52,8 +58,9 @@ class HttpSubsonicClient implements SubsonicClient {
   /// signed in again) ask for themselves, so a refusal of one session's
   /// credentials can't fail another's write. Dropped as each one ends, so no
   /// credentials are kept once it has.
-  final Map<(String, String, String), Future<bool?>> _formPostLookups =
-      <(String, String, String), Future<bool?>>{};
+  final Map<(String, String, SubsonicCredentials), Future<bool?>>
+      _formPostLookups =
+      <(String, String, SubsonicCredentials), Future<bool?>>{};
 
   @override
   Future<SubsonicServerInfo> ping(
@@ -241,9 +248,14 @@ class HttpSubsonicClient implements SubsonicClient {
     // drops Range) would otherwise send the entire file here, before the engine
     // fetches it again, and on a slow link that wait runs into the timeout and
     // reads as a server that can't be reached. The body is let go of instead.
+    //
+    // The engine opens the same URL right after, and follows redirects on its
+    // own. So a password URL that this probe sees redirected is refused here,
+    // before the engine ever gets it.
     final http.StreamedResponse response = await _send(
       () => _client.send(
         http.Request('GET', url)
+          ..followRedirects = _mayFollowRedirects(url)
           ..headers.addAll(const <String, String>{
             'Accept': '*/*',
             'Range': 'bytes=0-1',
@@ -251,6 +263,7 @@ class HttpSubsonicClient implements SubsonicClient {
       ),
     );
     await _release(response);
+    _refusePasswordRedirect(url, response.statusCode);
     return SubsonicStreamProbe(
       statusCode: response.statusCode,
       contentType: response.headers['content-type'],
@@ -449,8 +462,8 @@ class HttpSubsonicClient implements SubsonicClient {
     final (String, String) server = (session.baseUrl, session.username);
     final bool? known = _formPostAnswers[server];
     if (known != null) return known;
-    final (String, String, String) asker =
-        (session.baseUrl, session.username, session.token);
+    final (String, String, SubsonicCredentials) asker =
+        (session.baseUrl, session.username, _credentials(session));
     final Future<bool?> lookup =
         _formPostLookups[asker] ??= _lookUpFormPost(session).whenComplete(() {
       // A block, not an arrow: the removed value is this very future, and
@@ -527,16 +540,21 @@ class HttpSubsonicClient implements SubsonicClient {
   Future<SubsonicEnvelope> _postForm(Uri request) async {
     final ({Uri target, String body}) form =
         SubsonicEndpoints.asFormPost(request);
-    final http.Response response = await _send(
-      () => _client.post(
-        form.target,
-        headers: const <String, String>{
-          'Accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form.body,
-      ),
-    );
+    const Map<String, String> headers = <String, String>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    final http.Response response = await _send(() async {
+      if (_mayFollowRedirects(request)) {
+        return _client.post(form.target, headers: headers, body: form.body);
+      }
+      final http.Request post = http.Request('POST', form.target)
+        ..followRedirects = false
+        ..headers.addAll(headers)
+        ..body = form.body;
+      return http.Response.fromStream(await _client.send(post));
+    });
+    _refusePasswordRedirect(request, response.statusCode);
     // A body over a proxy's size limit: too many songs for one request, not
     // a wrong address.
     if (response.statusCode == 413) {
@@ -599,7 +617,37 @@ class HttpSubsonicClient implements SubsonicClient {
   }
 
   SubsonicCredentials _credentials(SubsonicSession session) =>
-      SubsonicCredentials(salt: session.salt, token: session.token);
+      SubsonicCredentials.of(session);
+
+  /// Whether a GET of [uri] may follow a redirect: not when it carries a
+  /// password, which goes only to the address the user entered.
+  static bool _mayFollowRedirects(Uri uri) =>
+      !SubsonicEndpoints.carriesPassword(uri);
+
+  /// Refuses the redirect a request carrying a password was answered with. It
+  /// was not followed (see [_mayFollowRedirects]); this says why.
+  static void _refusePasswordRedirect(Uri uri, int statusCode) {
+    if (statusCode >= 300 &&
+        statusCode < 400 &&
+        SubsonicEndpoints.carriesPassword(uri)) {
+      throw SubsonicException.passwordRedirectRefused();
+    }
+  }
+
+  /// GETs [uri] for a JSON answer. [followRedirects] off, or a [uri] carrying
+  /// a password, answers a redirect with its own 3xx.
+  Future<http.Response> _getJson(Uri uri, {bool followRedirects = true}) =>
+      _send(() async {
+        if (followRedirects && _mayFollowRedirects(uri)) {
+          return _client.get(uri, headers: const <String, String>{
+            'Accept': 'application/json',
+          });
+        }
+        final http.Request request = http.Request('GET', uri)
+          ..followRedirects = false
+          ..headers['Accept'] = 'application/json';
+        return http.Response.fromStream(await _client.send(request));
+      });
 
   /// GETs a lyrics endpoint and runs [parse] on a successful envelope.
   ///
@@ -613,11 +661,7 @@ class HttpSubsonicClient implements SubsonicClient {
     Uri uri,
     Lyrics? Function(SubsonicEnvelope envelope) parse,
   ) async {
-    final http.Response response = await _send(
-      () => _client.get(uri, headers: const <String, String>{
-        'Accept': 'application/json',
-      }),
-    );
+    final http.Response response = await _getJson(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) return null;
     final Map<String, dynamic> body;
     try {
@@ -639,24 +683,17 @@ class HttpSubsonicClient implements SubsonicClient {
   /// what a status means for its request can throw something more precise.
   ///
   /// [followRedirects] off answers a redirect with its own 3xx, which then
-  /// fails like any other unexpected status.
+  /// fails like any other unexpected status. A redirect for a [uri] carrying a
+  /// password is never followed, and is refused as exactly that.
   Future<SubsonicEnvelope> _get(
     Uri uri, {
     void Function(int statusCode)? onRejectedStatus,
     bool followRedirects = true,
   }) async {
-    final http.Response response = await _send(() async {
-      if (followRedirects) {
-        return _client.get(uri, headers: const <String, String>{
-          'Accept': 'application/json',
-        });
-      }
-      final http.Request request = http.Request('GET', uri)
-        ..followRedirects = false
-        ..headers['Accept'] = 'application/json';
-      return http.Response.fromStream(await _client.send(request));
-    });
+    final http.Response response =
+        await _getJson(uri, followRedirects: followRedirects);
     final int code = response.statusCode;
+    _refusePasswordRedirect(uri, code);
     if (onRejectedStatus != null && (code < 200 || code >= 300)) {
       onRejectedStatus(code);
     }
@@ -742,8 +779,9 @@ class HttpSubsonicClient implements SubsonicClient {
   /// stream-unavailable; an incompatible version is unsupported.
   SubsonicException _mapErrorCode(int? code) {
     switch (code) {
+      case 41: // token auth not supported (Nextcloud Music, LDAP users)
+        return SubsonicException.tokenAuthUnsupported();
       case 40: // wrong username or password
-      case 41: // token auth not supported for LDAP
       case 44: // invalid API key
       case 45: // API key not authorized
       case 50: // user not authorized for the operation

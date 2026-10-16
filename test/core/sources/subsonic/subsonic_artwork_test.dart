@@ -127,4 +127,37 @@ void main() {
       );
     });
   });
+
+  group('SubsonicArtwork.resolve with legacy password sign-in', () {
+    test('weaves in the encoded password, not a token', () {
+      const session = SubsonicSession.password(
+        baseUrl: 'https://cloud.example.com',
+        username: 'alice',
+        password: 'app-password',
+      );
+      final Uri? url =
+          SubsonicArtwork.resolve(SubsonicArtwork.reference('al-1'), session);
+
+      expect(url, isNotNull);
+      expect(url!.queryParameters['p'], startsWith('enc:'));
+      expect(url.queryParameters.containsKey('t'), isFalse);
+      expect(url.toString(), isNot(contains('app-password')));
+      // The persisted reference stays credential-free either way.
+      expect(
+          SubsonicArtwork.reference('al-1').toString(), 'subsonic-cover:al-1');
+    });
+
+    test('resolves nothing rather than send it over http', () {
+      // Sign-in and restore never make one; this is the last line anyway.
+      const session = SubsonicSession.password(
+        baseUrl: 'http://cloud.example.com',
+        username: 'alice',
+        password: 'app-password',
+      );
+      expect(
+        SubsonicArtwork.resolve(SubsonicArtwork.reference('al-1'), session),
+        isNull,
+      );
+    });
+  });
 }

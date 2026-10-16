@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../core/services/artwork_disk_cache.dart';
+import '../../core/services/artwork_fetch.dart';
+import 'unredirected_network_image.dart';
 
 /// Turns a credential-free artwork *reference* into a loadable URL at render
 /// time, or returns `null` for a [reference] it doesn't own.
@@ -298,6 +300,10 @@ ImageProvider _rawArtworkImageProvider(Uri uri) {
     // never throws (see [ArtworkDiskCache.warm]).
     unawaited(cache.warm(uri));
   }
-  final Uri? resolved = _referenceResolver?.call(uri);
-  return NetworkImage((resolved ?? uri).toString());
+  final Uri target = _referenceResolver?.call(uri) ?? uri;
+  // A cover URL carrying a password never goes through NetworkImage, which
+  // follows redirects with no way to stop.
+  return coverMayFollowRedirects(target)
+      ? NetworkImage(target.toString())
+      : UnredirectedNetworkImage(target);
 }
