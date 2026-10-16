@@ -1900,4 +1900,124 @@ void main() {
       expect(requests.single.url.queryParametersAll['songId'], isNull);
     });
   });
+
+  // Legacy password sign-in. The password goes only to the https address the
+  // user entered: never through a redirect, which could point anywhere.
+  group('legacy password sign-in', () {
+    const SubsonicSession passwordSession = SubsonicSession.password(
+      baseUrl: _base,
+      username: 'alice',
+      password: 'app-password',
+    );
+
+    test('sends the encoded password, never a token or the raw password',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return _ok(<String, dynamic>{'version': '1.16.1'});
+      }));
+
+      await client.verifySession(passwordSession);
+
+      final Map<String, String> q = requests.single.url.queryParameters;
+      expect(q['u'], 'alice');
+      expect(q['p'], SubsonicAuth.encodePassword('app-password'));
+      expect(q.containsKey('t'), isFalse);
+      expect(q.containsKey('s'), isFalse);
+      expect(requests.single.url.toString(), isNot(contains('app-password')));
+    });
+
+    test('does not follow a redirect, and says why', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response('', 302, headers: <String, String>{
+          'location': 'http://music.example.com${request.url.path}?'
+              '${request.url.query}',
+        });
+      }));
+
+      await expectLater(
+        client.verifySession(passwordSession),
+        throwsA(isA<SubsonicException>()
+            .having((SubsonicException e) => e.kind, 'kind',
+                SubsonicErrorKind.insecureConnection)
+            .having((SubsonicException e) => e.message, 'message',
+                contains('redirected'))
+            .having((SubsonicException e) => e.message, 'message',
+                isNot(contains('app-password')))),
+      );
+      expect(requests, hasLength(1));
+      expect(requests.single.followRedirects, isFalse);
+    });
+
+    test('token requests still follow redirects as before', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return _ok(<String, dynamic>{'version': '1.16.1'});
+      }));
+
+      await client.verifySession(_session);
+      await client.probeStream(Uri.parse('$_base/rest/stream.view?t=x&s=y'));
+
+      expect(requests.map((http.Request r) => r.followRedirects),
+          <bool>[true, true]);
+    });
+
+    test('a stream probe refuses a redirect before the engine sees the URL',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response('', 301, headers: const <String, String>{
+          'location': 'http://cdn.example.net/track.mp3',
+        });
+      }));
+      final Uri url = Uri.parse(
+        '$_base/rest/stream.view?u=alice&'
+        'p=${SubsonicAuth.encodePassword('app-password')}&id=s1',
+      );
+
+      await expectLater(
+        client.probeStream(url),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.insecureConnection)),
+      );
+      expect(requests.single.followRedirects, isFalse);
+    });
+
+    test('lyrics behind a redirect are simply not there', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        return http.Response('', 302, headers: const <String, String>{
+          'location': 'http://elsewhere.example.net/',
+        });
+      }));
+
+      expect(await client.fetchLyrics(passwordSession, 's1'), isNull);
+      expect(requests, isNotEmpty);
+      expect(
+        requests.every((http.Request r) => !r.followRedirects),
+        isTrue,
+      );
+    });
+
+    test('a server refusing tokens (error 41) points at password sign-in',
+        () async {
+      final client = _client(MockClient((_) async =>
+          _failed(41, 'Token-based authentication not supported')));
+
+      await expectLater(
+        client.ping(_base, username: 'alice', credentials: _credentials),
+        throwsA(isA<SubsonicException>()
+            .having((SubsonicException e) => e.kind, 'kind',
+                SubsonicErrorKind.unauthorized)
+            .having((SubsonicException e) => e.message, 'message',
+                contains('legacy password sign-in'))),
+      );
+    });
+  });
 }

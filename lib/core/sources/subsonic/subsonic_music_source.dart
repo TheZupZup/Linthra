@@ -395,8 +395,7 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
     }
   }
 
-  SubsonicCredentials get _credentials =>
-      SubsonicCredentials(salt: session.salt, token: session.token);
+  SubsonicCredentials get _credentials => SubsonicCredentials.of(session);
 
   /// The Subsonic song id behind [track]: the part after the `subsonic:` scheme,
   /// falling back to the track id for an unprefixed value.

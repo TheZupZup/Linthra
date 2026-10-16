@@ -9,7 +9,9 @@ import '../models/subsonic_session.dart';
 ///
 /// The production binding encrypts on-device; tests and dev use an in-memory
 /// implementation. The user's password is never given to this store — only the
-/// session (derived salt + token + server + user) is.
+/// session (derived salt + token + server + user) is. The exception is a
+/// session the user opted into legacy password sign-in for, which carries the
+/// password itself, and so may only ever be stored here.
 abstract interface class SubsonicSessionStore {
   /// The persisted session, or `null` if the user isn't signed in (or the
   /// stored record was missing/corrupt).

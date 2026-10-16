@@ -60,7 +60,7 @@ Linthra developer (there is no developer backend).
 | **Server URL** (Jellyfin or Subsonic/Navidrome) | Connect to the user's chosen server | Encrypted secure storage (Android Keystore-backed) | Only to the user's own server, only if configured |
 | **Username** + server identity | Display the signed-in account; auth | Encrypted secure storage | Sent to the user's own server during auth |
 | **Session credential** — a Jellyfin session token, or a Subsonic/Navidrome `salt`+`token` (`token = md5(password + salt)`) | Keep the user signed in | Encrypted secure storage (never plaintext, never logged) | Sent to the user's own server as the auth header/params |
-| **Password** | One-time sign-in only | **Not stored** — used once to derive the token/credential, then discarded | Sent once to the user's own server (Jellyfin), or used only locally to derive the Subsonic token, to authenticate |
+| **Password** | One-time sign-in only | **Not stored** — used once to derive the token/credential, then discarded. Exception: opt-in legacy password sign-in for Subsonic servers that refuse tokens keeps it in encrypted secure storage | Sent once to the user's own server (Jellyfin), or used only locally to derive the Subsonic token, to authenticate. With legacy password sign-in, sent to the user's own server over https with every request |
 | **Music library metadata** (track/album/artist) | Browse/play, work offline | Local SQLite database on device | No |
 | **Offline cache / downloaded tracks** | User-requested offline playback | Local app file storage on device | No (downloaded *from* the user's server on request) |
 | **App settings** (selected folder, cache size, download prefs) | App functionality | Local Android preference storage | No |
@@ -71,7 +71,9 @@ Notes for the form:
   Subsonic/Navidrome salt+token) are the only account/credential-style data, and
   they live in **encrypted** on-device storage. The **password is never
   stored** — for Subsonic/Navidrome it is only used locally to compute the
-  `md5(password + salt)` token, then discarded.
+  `md5(password + salt)` token, then discarded. The only exception is the
+  opt-in legacy password sign-in (off by default, https only), which keeps it
+  in the same encrypted storage for servers that refuse tokens.
 - The user-selected **music folder** uses Android's Storage Access Framework
   grant and needs no storage permission. The optional **All music on this
   device** mode reads MediaStore's audio collection on the device, using

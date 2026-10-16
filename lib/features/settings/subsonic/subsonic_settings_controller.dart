@@ -35,7 +35,8 @@ import 'subsonic_sync_controller.dart';
 /// The live [session] (with its salt+token) is kept privately for building the
 /// source; it is never exposed through the public [state], never logged, and the
 /// password handed to [signIn]/[testConnection] is forwarded once (to derive the
-/// token) and never retained.
+/// token) and never retained — unless the user opted into legacy password
+/// sign-in, where the session keeps it, in the encrypted store only.
 class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   SubsonicSession? _session;
   late final Future<void> _initialLoad;
@@ -97,17 +98,20 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: saved.serverType,
       serverVersion: saved.serverVersion,
       apiVersion: saved.apiVersion,
+      usesPassword: saved.usesPassword,
       statusMessage: _connectedMessage(saved.username, saved.serverType),
     );
   }
 
   /// Tests that [url] + credentials reach a Subsonic server that accepts them.
   /// Returns whether it succeeded; details land in [state]. The password is
-  /// forwarded once (to derive the token) and never stored.
+  /// forwarded once (to derive the token, or with [usePassword] to send as it
+  /// is) and never stored.
   Future<bool> testConnection({
     required String url,
     required String username,
     required String password,
+    bool usePassword = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.testing,
@@ -121,6 +125,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                usePassword: usePassword,
               );
       state = SubsonicSettingsState(
         phase: SubsonicConnectionPhase.tested,
@@ -142,12 +147,14 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   }
 
   /// Signs in with [url] + [username] + [password], persists the resulting
-  /// session (only its derived salt+token), and flips to connected. Returns
-  /// whether it succeeded.
+  /// session (only its derived salt+token, or with [usePassword] the password
+  /// for an https server), and flips to connected. Returns whether it
+  /// succeeded.
   Future<bool> signIn({
     required String url,
     required String username,
     required String password,
+    bool usePassword = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.signingIn,
@@ -161,6 +168,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                usePassword: usePassword,
               );
       try {
         await ref.read(subsonicSessionStoreProvider).write(newSession);
@@ -168,7 +176,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         // The new session couldn't reach the keyring. Adopting it anyway would
         // look signed in until the next launch and then silently be gone, so
         // don't: report it and let the user fix the keyring and retry. The
-        // derived salt+token is dropped here rather than kept anywhere else.
+        // credential is dropped here rather than kept anywhere else.
         _setFailure(
           "Couldn't save your Navidrome/Subsonic sign-in on this device. "
           '${_storageRemedy(error)}',
@@ -193,6 +201,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         serverType: newSession.serverType,
         serverVersion: newSession.serverVersion,
         apiVersion: newSession.apiVersion,
+        usesPassword: newSession.usesPassword,
         statusMessage:
             _connectedMessage(newSession.username, newSession.serverType),
       );
@@ -315,6 +324,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: current?.serverType ?? state.serverType,
       serverVersion: current?.serverVersion ?? state.serverVersion,
       apiVersion: current?.apiVersion ?? state.apiVersion,
+      usesPassword: current?.usesPassword ?? false,
       statusMessage: current != null
           ? _connectedMessage(current.username, current.serverType)
           : null,

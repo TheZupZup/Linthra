@@ -1,5 +1,6 @@
 import '../../app_info.dart';
 import 'subsonic_auth.dart';
+import 'subsonic_exception.dart';
 
 /// Every Subsonic REST path and URL Linthra builds, in one place.
 ///
@@ -17,6 +18,10 @@ import 'subsonic_auth.dart';
 /// (`u`, `t`, `s`, `v`, `c`, `f`), including the binary stream/download URLs the
 /// audio engine and the offline downloader fetch — which is exactly why those
 /// URLs must be minted on demand here and never persisted on a [Track].
+///
+/// A password credential (opt-in legacy sign-in) rides as `p` instead of `t`
+/// and `s`, and only to an https server: a builder asked to put one on any
+/// other address throws [SubsonicException.passwordNeedsHttps] instead.
 abstract final class SubsonicEndpoints {
   /// The Subsonic API version Linthra targets. 1.16.1 covers the token+salt
   /// auth and the ID3 browsing endpoints used here.
@@ -26,6 +31,7 @@ abstract final class SubsonicEndpoints {
   static const String userParam = 'u';
   static const String tokenParam = 't';
   static const String saltParam = 's';
+  static const String passwordParam = 'p';
   static const String versionParam = 'v';
   static const String clientParam = 'c';
   static const String formatParam = 'f';
@@ -320,8 +326,25 @@ abstract final class SubsonicEndpoints {
         if (size != null) 'size': '$size',
       });
 
+  /// `GET /rest/<method>.view` for a [method] with no builder of its own (the
+  /// folder browser's), authenticated exactly like the rest.
+  static Uri endpoint(
+    String baseUrl,
+    String method, {
+    required String username,
+    required SubsonicCredentials credentials,
+    Map<String, String> extra = const <String, String>{},
+  }) =>
+      _build(baseUrl, method, username, credentials, extra: extra);
+
+  /// Whether [uri] carries a password (`p`). Such a request is never sent on
+  /// through a redirect: the password goes to the address the user entered
+  /// and nowhere else.
+  static bool carriesPassword(Uri uri) =>
+      uri.queryParameters.containsKey(passwordParam);
+
   /// Builds `/rest/<method>.view` with the standard auth + format query and any
-  /// method-specific [extra] parameters. The single place the salt+token are
+  /// method-specific [extra] parameters. The single place the credential is
   /// woven into a URL.
   static Uri _build(
     String baseUrl,
@@ -333,8 +356,7 @@ abstract final class SubsonicEndpoints {
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, String>{
         userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
+        ..._credentialQuery(baseUrl, credentials),
         versionParam: apiVersion,
         clientParam: AppInfo.name,
         formatParam: 'json',
@@ -358,13 +380,33 @@ abstract final class SubsonicEndpoints {
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, dynamic>{
         userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
+        ..._credentialQuery(baseUrl, credentials),
         versionParam: apiVersion,
         clientParam: AppInfo.name,
         formatParam: 'json',
         ...extra,
       },
     );
+  }
+
+  /// The query parameters that carry [credentials]: the token and salt, or the
+  /// encoded password, which is refused for anything but an https [baseUrl].
+  static Map<String, String> _credentialQuery(
+    String baseUrl,
+    SubsonicCredentials credentials,
+  ) {
+    final String? password = credentials.password;
+    if (password == null) {
+      return <String, String>{
+        tokenParam: credentials.token!,
+        saltParam: credentials.salt!,
+      };
+    }
+    if (!(Uri.tryParse(baseUrl)?.isScheme('https') ?? false)) {
+      throw SubsonicException.passwordNeedsHttps();
+    }
+    return <String, String>{
+      passwordParam: SubsonicAuth.encodePassword(password),
+    };
   }
 }

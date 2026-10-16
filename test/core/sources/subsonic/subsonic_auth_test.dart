@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
 
 void main() {
@@ -67,6 +68,48 @@ void main() {
       );
       expect(creds.salt, isNot(contains('super-secret-password')));
       expect(creds.token, isNot(contains('super-secret-password')));
+    });
+  });
+
+  group('password credentials (legacy sign-in)', () {
+    test('encode the password as enc: and its UTF-8 bytes in hex', () {
+      expect(SubsonicAuth.encodePassword('sesame'), 'enc:736573616d65');
+      expect(SubsonicAuth.encodePassword('pä'), 'enc:70c3a4');
+      // Nothing a query or a proxy could re-escape survives the encoding.
+      expect(
+        SubsonicAuth.encodePassword('a+b&c=d% e'),
+        matches(RegExp(r'^enc:[0-9a-f]+$')),
+      );
+    });
+
+    test('toString redacts the password', () {
+      const creds = SubsonicCredentials.password('super-secret-password');
+      expect(creds.toString(), isNot(contains('super-secret-password')));
+      expect(creds.toString(), contains('<redacted>'));
+      expect(creds.salt, isNull);
+      expect(creds.token, isNull);
+    });
+
+    test('follow the session they are made from', () {
+      const token = SubsonicSession(
+        baseUrl: 'https://music.example.com',
+        username: 'alice',
+        salt: 's',
+        token: 't',
+      );
+      const password = SubsonicSession.password(
+        baseUrl: 'https://music.example.com',
+        username: 'alice',
+        password: 'pw',
+      );
+      expect(
+        SubsonicCredentials.of(token),
+        const SubsonicCredentials(salt: 's', token: 't'),
+      );
+      expect(
+        SubsonicCredentials.of(password),
+        const SubsonicCredentials.password('pw'),
+      );
     });
   });
 }

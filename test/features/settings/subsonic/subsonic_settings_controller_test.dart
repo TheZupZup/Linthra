@@ -403,4 +403,119 @@ void main() {
       expect(await store.read(), _session);
     });
   });
+
+  // Opt-in legacy password sign-in, for a server that refuses the token.
+  group('legacy password sign-in', () {
+    const passwordSession = SubsonicSession.password(
+      baseUrl: 'https://cloud.example.com/apps/music/subsonic',
+      username: 'alice',
+      password: 'app-password',
+      serverType: 'Nextcloud Music',
+    );
+
+    test('signs in with the password, keeps it in the store, and says so',
+        () async {
+      final store = InMemorySubsonicSessionStore();
+      final client = FakeSubsonicClient();
+      final container = _container(client: client, store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await _settle();
+
+      final ok = await notifier.signIn(
+        url: 'https://cloud.example.com/apps/music/subsonic',
+        username: 'alice',
+        password: 'app-password',
+        usePassword: true,
+      );
+
+      expect(ok, isTrue);
+      expect(client.lastCredentials!.password, 'app-password');
+      final saved = await store.read();
+      expect(saved!.usesPassword, isTrue);
+      final state = container.read(subsonicSettingsControllerProvider);
+      expect(state.isConnected, isTrue);
+      expect(state.usesPassword, isTrue);
+      // The display state still holds no secret.
+      expect(state.statusMessage, isNot(contains('app-password')));
+      expect(state.errorMessage, isNull);
+    });
+
+    test('over http it is refused: nothing sent, nothing stored', () async {
+      final store = InMemorySubsonicSessionStore();
+      final client = FakeSubsonicClient();
+      final container = _container(client: client, store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await _settle();
+
+      final ok = await notifier.signIn(
+        url: 'http://192.168.1.20:8080',
+        username: 'alice',
+        password: 'app-password',
+        usePassword: true,
+      );
+
+      expect(ok, isFalse);
+      expect(client.lastCredentials, isNull);
+      expect(await store.read(), isNull);
+      final state = container.read(subsonicSettingsControllerProvider);
+      expect(state.errorKind, SubsonicErrorKind.cleartextBlocked);
+      expect(state.errorMessage, contains('https://'));
+      expect(state.usesPassword, isFalse);
+    });
+
+    test('a restored password session shows as one', () async {
+      final container = _container(
+        store: InMemorySubsonicSessionStore(initialSession: passwordSession),
+      );
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      final state = container.read(subsonicSettingsControllerProvider);
+      expect(state.isConnected, isTrue);
+      expect(state.usesPassword, isTrue);
+      expect(notifier.session, passwordSession);
+      expect(container.read(subsonicMusicSourceProvider), isNotNull);
+    });
+
+    test('sign-out removes the password from the store', () async {
+      final store =
+          InMemorySubsonicSessionStore(initialSession: passwordSession);
+      final container = _container(store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.clear();
+
+      expect(await store.read(), isNull);
+      expect(notifier.session, isNull);
+      expect(
+        container.read(subsonicSettingsControllerProvider).usesPassword,
+        isFalse,
+      );
+    });
+
+    test('a token sign-in stays a token sign-in', () async {
+      final store = InMemorySubsonicSessionStore();
+      final container = _container(store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await _settle();
+
+      await notifier.signIn(
+        url: 'music.example.com',
+        username: 'alice',
+        password: 'hunter2',
+      );
+
+      expect((await store.read())!.usesPassword, isFalse);
+      expect(
+        container.read(subsonicSettingsControllerProvider).usesPassword,
+        isFalse,
+      );
+    });
+  });
 }

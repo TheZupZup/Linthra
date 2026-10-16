@@ -93,6 +93,33 @@ class SubsonicException implements Exception {
         kind: SubsonicErrorKind.unauthorized,
       );
 
+  /// Subsonic error 41: the server refuses token sign-in. Nextcloud Music
+  /// always does, and so does a Subsonic account whose password is in LDAP.
+  factory SubsonicException.tokenAuthUnsupported() => const SubsonicException(
+        "Your server doesn't accept Linthra's usual token sign-in (Nextcloud "
+        'Music is one that refuses it). Turn on legacy password sign-in to '
+        'connect over https.',
+        kind: SubsonicErrorKind.unauthorized,
+      );
+
+  /// Legacy password sign-in asked for on an http:// address. Refused before
+  /// anything is sent.
+  factory SubsonicException.passwordNeedsHttps() => const SubsonicException(
+        'Legacy password sign-in only works with an https:// address, so your '
+        'password never crosses the network unencrypted.',
+        kind: SubsonicErrorKind.cleartextBlocked,
+      );
+
+  /// A redirect answered a request carrying the password. It is not
+  /// followed: the password goes only to the address the user entered.
+  factory SubsonicException.passwordRedirectRefused() =>
+      const SubsonicException(
+        'Your server redirected the request. With legacy password sign-in, '
+        'Linthra only sends your password to the exact address you entered, so '
+        'sign in with the address your server redirects to.',
+        kind: SubsonicErrorKind.insecureConnection,
+      );
+
   factory SubsonicException.notSubsonic() => const SubsonicException(
         "That address responded, but it doesn't look like a Subsonic-compatible "
         'server (such as Navidrome). Double-check the URL — point it at the '

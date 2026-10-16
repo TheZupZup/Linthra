@@ -14,9 +14,13 @@ import 'subsonic_server_url.dart';
 /// anything — the controller decides whether/where to store the session — so
 /// this stays a pure coordinator that's trivial to test with a fake client.
 ///
-/// The password is used only to compute the token (via [SubsonicAuth]) and is
-/// never held, copied into the session, or logged. The session carries only the
-/// derived (salt, token).
+/// By default the password is used only to compute the token (via
+/// [SubsonicAuth]) and is never held, copied into the session, or logged. The
+/// session carries only the derived (salt, token).
+///
+/// `usePassword` is the opt-in legacy sign-in for a server that refuses
+/// tokens: the session then carries the password itself, and only for an
+/// https address. Anything else is refused before a request is made.
 class SubsonicAuthenticator {
   SubsonicAuthenticator(
     this._client, {
@@ -39,33 +43,34 @@ class SubsonicAuthenticator {
     required String rawUrl,
     required String username,
     required String password,
+    bool usePassword = false,
   }) async {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
-    final SubsonicCredentials credentials =
-        SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
     return _client.ping(
       baseUrl,
       username: trimmedUsername,
-      credentials: credentials,
+      credentials: _credentials(baseUrl, password, usePassword: usePassword),
     );
   }
 
-  /// Signs in and returns a session that stores only the derived (salt, token).
+  /// Signs in and returns a session that stores only the derived (salt, token),
+  /// or with [usePassword], the password for an https server.
   ///
-  /// Throws [SubsonicException] for a bad URL, missing credentials, or rejected
-  /// credentials.
+  /// Throws [SubsonicException] for a bad URL, missing credentials, rejected
+  /// credentials, or password sign-in on an address that isn't https.
   Future<SubsonicSession> signIn({
     required String rawUrl,
     required String username,
     required String password,
+    bool usePassword = false,
   }) async {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
     final SubsonicCredentials credentials =
-        SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+        _credentials(baseUrl, password, usePassword: usePassword);
 
     final SubsonicServerInfo info = await _client.ping(
       baseUrl,
@@ -73,15 +78,41 @@ class SubsonicAuthenticator {
       credentials: credentials,
     );
 
+    if (usePassword) {
+      return SubsonicSession.password(
+        baseUrl: baseUrl,
+        username: trimmedUsername,
+        password: password,
+        serverType: info.type,
+        serverVersion: info.serverVersion,
+        apiVersion: info.apiVersion,
+      );
+    }
     return SubsonicSession(
       baseUrl: baseUrl,
       username: trimmedUsername,
-      salt: credentials.salt,
-      token: credentials.token,
+      salt: credentials.salt!,
+      token: credentials.token!,
       serverType: info.type,
       serverVersion: info.serverVersion,
       apiVersion: info.apiVersion,
     );
+  }
+
+  /// The salt + token for [password], or with [usePassword] the password
+  /// itself, which only an https [baseUrl] may receive.
+  SubsonicCredentials _credentials(
+    String baseUrl,
+    String password, {
+    required bool usePassword,
+  }) {
+    if (!usePassword) {
+      return SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    }
+    if (!Uri.parse(baseUrl).isScheme('https')) {
+      throw SubsonicException.passwordNeedsHttps();
+    }
+    return SubsonicCredentials.password(password);
   }
 
   String _requireUsername(String username) {

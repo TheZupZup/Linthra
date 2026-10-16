@@ -26,8 +26,8 @@ enum SubsonicConnectionPhase {
 ///
 /// Security: this state intentionally holds NO secret. There is no token, salt,
 /// or password field; only display-safe values (server URL, username, server
-/// product/version) live here, so nothing sensitive can leak through the widget
-/// tree or a state dump.
+/// product/version, whether the session signs in with a password) live here,
+/// so nothing sensitive can leak through the widget tree or a state dump.
 class SubsonicSettingsState {
   const SubsonicSettingsState({
     this.phase = SubsonicConnectionPhase.disconnected,
@@ -36,6 +36,7 @@ class SubsonicSettingsState {
     this.serverType,
     this.serverVersion,
     this.apiVersion,
+    this.usesPassword = false,
     this.statusMessage,
     this.errorMessage,
     this.errorKind,
@@ -57,6 +58,10 @@ class SubsonicSettingsState {
 
   /// Subsonic API version the server speaks, when reported.
   final String? apiVersion;
+
+  /// Whether the connected session uses legacy password sign-in. A flag, not
+  /// the password.
+  final bool usesPassword;
 
   /// A friendly, non-error status line (e.g. "Connected to …").
   final String? statusMessage;

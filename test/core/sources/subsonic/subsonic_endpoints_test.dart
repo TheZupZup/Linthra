@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_endpoints.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 
 const String _base = 'https://music.example.com';
 const String _user = 'alice';
@@ -201,6 +202,65 @@ void main() {
       expect(uri.path, isNot(contains(_creds.salt)));
       expect(uri.queryParameters['t'], _creds.token);
       expect(uri.queryParameters['s'], _creds.salt);
+    });
+  });
+
+  // Legacy password sign-in: the password rides as `p`, encoded, and only to
+  // an https server.
+  group('password credentials', () {
+    const SubsonicCredentials password =
+        SubsonicCredentials.password('open sesame');
+
+    test('send the encoded password instead of a token and salt', () {
+      final Uri uri = SubsonicEndpoints.stream(
+        _base,
+        username: _user,
+        credentials: password,
+        songId: 's1',
+      );
+      expect(uri.queryParameters, <String, String>{
+        'u': _user,
+        'p': SubsonicAuth.encodePassword('open sesame'),
+        'v': SubsonicEndpoints.apiVersion,
+        'c': 'Linthra',
+        'f': 'json',
+        'id': 's1',
+      });
+      expect(uri.toString(), isNot(contains('sesame')));
+      expect(SubsonicEndpoints.carriesPassword(uri), isTrue);
+    });
+
+    test('a token URL carries no password', () {
+      final Uri uri =
+          SubsonicEndpoints.ping(_base, username: _user, credentials: _creds);
+      expect(uri.queryParameters.containsKey('p'), isFalse);
+      expect(SubsonicEndpoints.carriesPassword(uri), isFalse);
+    });
+
+    test('are refused for anything but https', () {
+      final List<Uri Function(String base)> builders = <Uri Function(String)>[
+        (String base) => SubsonicEndpoints.ping(base,
+            username: _user, credentials: password),
+        (String base) => SubsonicEndpoints.stream(base,
+            username: _user, credentials: password, songId: 's1'),
+        (String base) => SubsonicEndpoints.coverArt(base,
+            username: _user, credentials: password, coverArtId: 'al-1'),
+        (String base) => SubsonicEndpoints.createPlaylist(base,
+            username: _user, credentials: password, songIds: <String>['a']),
+        (String base) => SubsonicEndpoints.endpoint(base, 'getMusicFolders',
+            username: _user, credentials: password),
+      ];
+      for (final Uri Function(String) build in builders) {
+        expect(
+          () => build('http://192.168.1.20:4533'),
+          throwsA(isA<SubsonicException>().having(
+            (SubsonicException e) => e.kind,
+            'kind',
+            SubsonicErrorKind.cleartextBlocked,
+          )),
+        );
+        expect(build(_base).scheme, 'https');
+      }
     });
   });
 }
