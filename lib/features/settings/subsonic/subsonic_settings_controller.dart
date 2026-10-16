@@ -35,7 +35,7 @@ import 'subsonic_sync_controller.dart';
 /// The live [session] (with its salt+token) is kept privately for building the
 /// source; it is never exposed through the public [state], never logged, and the
 /// password handed to [signIn]/[testConnection] is forwarded once (to derive the
-/// token) and never retained — unless the user opted into legacy password
+/// token) and never retained, unless the user opted into legacy password
 /// sign-in, where the session keeps it, in the encrypted store only.
 class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   SubsonicSession? _session;

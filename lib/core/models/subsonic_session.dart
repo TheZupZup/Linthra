@@ -58,7 +58,7 @@ class SubsonicSession {
   final String? token;
 
   /// The password, kept only by a [SubsonicSession.password] session. The
-  /// secret — never log this.
+  /// secret: never log this.
   final String? password;
 
   /// The server product, when reported (OpenSubsonic `type`, e.g. `navidrome`).
