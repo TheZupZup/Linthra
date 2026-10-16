@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -188,8 +190,13 @@ class _CacheLimitDialogState extends State<_CacheLimitDialog> {
   int? get _resolvedBytes {
     if (!_custom) return _selectedPreset;
     final double? gb = double.tryParse(_customController.text.trim());
-    if (gb == null || gb <= 0) return null;
-    return CacheSize.clamp(CacheSize.gigabytes(gb));
+    // tryParse also accepts "NaN" and "Infinity" ("1e999" parses to
+    // Infinity), and rounding those to bytes throws.
+    if (gb == null || !gb.isFinite || gb <= 0) return null;
+    // Cap in GB first: a huge finite value like 1e300 still overflows to
+    // Infinity once multiplied out to bytes.
+    const double maxGb = CacheSize.maxLimit / CacheSize.bytesPerGb;
+    return CacheSize.clamp(CacheSize.gigabytes(math.min(gb, maxGb)));
   }
 
   Object get _selectedChoice =>
