@@ -19,6 +19,7 @@ import '../../../data/repositories/remote_cache_index_provider.dart';
 import '../../../data/repositories/subsonic_session_store_provider.dart';
 import '../../../data/repositories/subsonic_sync_pending_store_provider.dart';
 import '../../library/source_preference_controller.dart';
+import '../../player/player_providers.dart';
 import '../local_network/local_network_providers.dart';
 import 'subsonic_settings_providers.dart';
 import 'subsonic_settings_state.dart';
@@ -185,6 +186,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         );
         return false;
       }
+      await _forgetPasswordStreams(_session);
       _session = newSession;
       // The just-signed-in server becomes the active/default provider for
       // picking among duplicate sources: a song that also lives on Jellyfin now
@@ -260,6 +262,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       return;
     }
     _session = null;
+    await _forgetPasswordStreams(signingOut);
     if (signingOut != null) {
       await ref
           .read(subsonicSyncControllerProvider.notifier)
@@ -298,6 +301,15 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     await ref
         .read(remoteCacheIndexProvider)
         .removeSource(RemoteCacheKey.sourceIdSubsonic);
+  }
+
+  /// When [ending] signed in with a password, drops what still reaches its
+  /// streams: the relay's tokens (and the password URLs behind them), and the
+  /// warmed stream URLs pointing at them, which would only answer 404 now.
+  Future<void> _forgetPasswordStreams(SubsonicSession? ending) async {
+    if (ending == null || !ending.usesPassword) return;
+    ref.read(remotePlaybackCacheProvider).clear();
+    await ref.read(subsonicStreamRelayProvider).revokeAll();
   }
 
   /// The user-facing tail for a secure-storage failure: what went wrong with
@@ -368,5 +380,7 @@ final subsonicMusicSourceProvider = Provider<SubsonicMusicSource?>((ref) {
   return SubsonicMusicSource(
     session: session,
     client: ref.read(subsonicClientProvider),
+    streamRelay:
+        session.usesPassword ? ref.read(subsonicStreamRelayProvider) : null,
   );
 });

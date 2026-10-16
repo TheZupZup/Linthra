@@ -2005,6 +2005,41 @@ void main() {
       );
     });
 
+    test('a big playlist write is posted without following a redirect',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final client = _client(MockClient((http.Request request) async {
+        requests.add(request);
+        if (request.url.path == '/rest/getOpenSubsonicExtensions.view') {
+          return _ok(<String, dynamic>{
+            'openSubsonicExtensions': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'name': 'formPost',
+                'versions': <int>[1],
+              },
+            ],
+          });
+        }
+        return http.Response('', 307, headers: const <String, String>{
+          'location': 'http://elsewhere.example.net/rest/createPlaylist.view',
+        });
+      }));
+      final List<String> songs = <String>[
+        for (int i = 0; i < 400; i++) 'song-$i-0123456789abcdef',
+      ];
+
+      await expectLater(
+        client.setPlaylistSongs(passwordSession, 'p-1', songs),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.insecureConnection)),
+      );
+      final http.Request write = requests.last;
+      expect(write.method, 'POST');
+      expect(write.url.query, isEmpty);
+      expect(Uri(query: write.body).queryParameters['p'], startsWith('enc:'));
+      expect(requests.every((http.Request r) => !r.followRedirects), isTrue);
+    });
+
     test('a server refusing tokens (error 41) points at password sign-in',
         () async {
       final client = _client(MockClient((_) async =>

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
@@ -6,6 +10,7 @@ import 'package:linthra/core/sources/subsonic/subsonic_api.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_music_source.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_playable_uri_resolver.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_stream_relay.dart';
 
 import 'fake_subsonic_client.dart';
 
@@ -192,5 +197,97 @@ void main() {
   test('verifyReachable delegates to the client', () async {
     await source().verifyReachable();
     expect(client.verifyCount, 1);
+  });
+
+  // Legacy password sign-in: the engine never gets the password URL, which it
+  // would follow redirects with on its own.
+  group('resolvePlayableUri with legacy password sign-in', () {
+    const passwordSession = SubsonicSession.password(
+      baseUrl: 'https://cloud.example.com',
+      username: 'alice',
+      password: 'app-password',
+    );
+    const track = Track(id: 's1', title: 'One', uri: 'subsonic:s1');
+
+    test('hands the engine the relay address, after probing the real one',
+        () async {
+      final List<http.BaseRequest> upstream = <http.BaseRequest>[];
+      final relay = SubsonicStreamRelay(
+        client: MockClient((http.Request request) async {
+          upstream.add(request);
+          return http.Response.bytes(<int>[1, 2, 3], 200,
+              headers: const <String, String>{'content-type': 'audio/mpeg'});
+        }),
+      );
+      addTearDown(relay.close);
+
+      final Uri? engineUri = await SubsonicMusicSource(
+        session: passwordSession,
+        client: client,
+        streamRelay: relay,
+      ).resolvePlayableUri(track);
+
+      // The probe saw the password URL; the engine gets a loopback one.
+      expect(client.lastProbedUrl!.queryParameters['p'], startsWith('enc:'));
+      expect(engineUri!.host, '127.0.0.1');
+      expect(engineUri.toString(), isNot(contains('enc:')));
+      expect(engineUri.toString(), isNot(contains('cloud.example.com')));
+
+      // And what the engine asks the relay for is the real stream.
+      final HttpClient engine = HttpClient();
+      addTearDown(() => engine.close(force: true));
+      final HttpClientResponse response =
+          await (await engine.getUrl(engineUri)).close();
+      await response.drain<void>();
+      expect(response.statusCode, 200);
+      expect(upstream.single.url, client.lastProbedUrl);
+      expect(upstream.single.followRedirects, isFalse);
+    });
+
+    test('a source from before a sign-out can no longer stream', () async {
+      final relay = SubsonicStreamRelay(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      addTearDown(relay.close);
+      final SubsonicMusicSource signedOut = SubsonicMusicSource(
+        session: passwordSession,
+        client: client,
+        streamRelay: relay,
+      );
+
+      await relay.revokeAll();
+
+      await expectLater(
+        signedOut.resolvePlayableUri(track),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.unexpected)),
+      );
+    });
+
+    test('without a relay there is no stream, never the password URL',
+        () async {
+      await expectLater(
+        SubsonicMusicSource(session: passwordSession, client: client)
+            .resolvePlayableUri(track),
+        throwsA(isA<SubsonicException>().having((SubsonicException e) => e.kind,
+            'kind', SubsonicErrorKind.unexpected)),
+      );
+    });
+
+    test('a token session still gets its own URL, no relay involved', () async {
+      final relay = SubsonicStreamRelay(
+        client: MockClient((_) async => http.Response('', 500)),
+      );
+      addTearDown(relay.close);
+
+      final Uri? uri = await SubsonicMusicSource(
+        session: _session,
+        client: client,
+        streamRelay: relay,
+      ).resolvePlayableUri(track);
+
+      expect(uri, client.lastProbedUrl);
+      expect(uri!.queryParameters['t'], 'tok-abc');
+    });
   });
 }

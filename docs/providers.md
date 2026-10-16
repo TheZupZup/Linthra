@@ -222,18 +222,22 @@ encryption, so it comes with rules of its own:
   session for one is never restored, and the URL builders refuse to put the
   password on one.
 - **No redirects.** A request carrying the password is never sent on through a
-  redirect (API calls, the stream probe, downloads, folder browsing); the 3xx
-  is reported instead. The audio engine opens a stream only after the probe
-  has seen that same URL answer without one.
-- **Gone on sign-out**, like any other session.
+  redirect: API calls, playlist form posts, lyrics, the stream probe,
+  downloads, folder browsing and covers (the in-app image, both artwork
+  caches). The 3xx is reported or the cover shows its placeholder.
+- **The audio engine never sees it.** ExoPlayer and libmpv follow redirects on
+  their own, on every request, so a password session's stream reaches them as
+  a loopback address (`SubsonicStreamRelay`). The relay fetches each request
+  from the https address with redirects refused. Casting goes through that
+  relay too.
+- **Gone on sign-out**, like any other session: the stored password, the
+  relay's tokens and the warmed stream URLs pointing at them. A song still
+  playing from the relay stops.
 
 What it can't prevent: the server, and any proxy in front of it, can record
-the password in its access logs. Cover art is loaded by the image loader, which
-follows redirects itself, so covers rely on the server not redirecting
-`getCoverArt` alone; sign-in, every sync and every stream have checked that
-server for redirects already. Nextcloud Music takes an API key from its Music
-settings rather than the account password, so what it exposes is a key that
-can be revoked.
+the password in its access logs. Nextcloud Music takes an API key from its
+Music settings rather than the account password, so what it exposes there is a
+key that can be revoked.
 
 ### What remains (follow-ups)
 

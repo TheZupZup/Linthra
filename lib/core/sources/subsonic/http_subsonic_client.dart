@@ -540,16 +540,21 @@ class HttpSubsonicClient implements SubsonicClient {
   Future<SubsonicEnvelope> _postForm(Uri request) async {
     final ({Uri target, String body}) form =
         SubsonicEndpoints.asFormPost(request);
-    final http.Response response = await _send(
-      () => _client.post(
-        form.target,
-        headers: const <String, String>{
-          'Accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form.body,
-      ),
-    );
+    const Map<String, String> headers = <String, String>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    final http.Response response = await _send(() async {
+      if (_mayFollowRedirects(request)) {
+        return _client.post(form.target, headers: headers, body: form.body);
+      }
+      final http.Request post = http.Request('POST', form.target)
+        ..followRedirects = false
+        ..headers.addAll(headers)
+        ..body = form.body;
+      return http.Response.fromStream(await _client.send(post));
+    });
+    _refusePasswordRedirect(request, response.statusCode);
     // A body over a proxy's size limit: too many songs for one request, not
     // a wrong address.
     if (response.statusCode == 413) {

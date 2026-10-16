@@ -11,6 +11,7 @@ import 'subsonic_catalog_walk.dart';
 import 'subsonic_client.dart';
 import 'subsonic_endpoints.dart';
 import 'subsonic_exception.dart';
+import 'subsonic_stream_relay.dart';
 import 'subsonic_stream_source.dart';
 import 'subsonic_track_mapper.dart';
 
@@ -34,15 +35,26 @@ import 'subsonic_track_mapper.dart';
 /// ID3 enumeration. The library sync uses [walkTracks], the same walk handed
 /// out in batches, so a large library never has to fit in memory at once.
 class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
-  const SubsonicMusicSource({
+  SubsonicMusicSource({
     required this.session,
     required SubsonicClient client,
-  }) : _client = client;
+    SubsonicStreamRelay? streamRelay,
+  })  : _client = client,
+        _streamRelay = streamRelay,
+        _relayGeneration = streamRelay?.generation;
 
   /// The session this source reads on behalf of (server URL, user, credential).
   final SubsonicSession session;
 
   final SubsonicClient _client;
+
+  /// Where a password session's streams are served to the engine from (see
+  /// [resolvePlayableUri]). Unused by a salt + token session.
+  final SubsonicStreamRelay? _streamRelay;
+
+  /// The relay's generation when this source was built: once its session
+  /// signs out, the relay takes nothing more from it.
+  final int? _relayGeneration;
 
   /// The stable source id under which Subsonic tracks are stored. A single id
   /// covers any Subsonic-compatible server (the [displayName] reflects the
@@ -329,6 +341,11 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
   /// a rejected credential, or a non-audio response becomes a precise error
   /// instead of an opaque engine failure. The credential is woven in here, at
   /// play time, never stored on the track.
+  ///
+  /// A password session's URL is never returned: the engines follow redirects
+  /// on their own, on every request, so the engine is handed the
+  /// [SubsonicStreamRelay]'s loopback address for it instead. Without a relay
+  /// there is no stream, rather than the password URL.
   @override
   Future<Uri?> resolvePlayableUri(Track track) async {
     final Uri url = SubsonicEndpoints.stream(
@@ -346,7 +363,13 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
       contentType: probe.contentType,
     );
     _ensurePlayableAudio(probe);
-    return url;
+    if (!session.usesPassword) return url;
+    final SubsonicStreamRelay? relay = _streamRelay;
+    final int? generation = _relayGeneration;
+    if (relay == null || generation == null) {
+      throw SubsonicException.streamRelayUnavailable();
+    }
+    return relay.publish(url, generation: generation);
   }
 
   /// Mints the original-file download URL for [track] on demand. No probe: the

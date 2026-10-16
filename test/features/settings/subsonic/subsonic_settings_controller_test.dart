@@ -2,15 +2,24 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
+import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/secure_storage_exception.dart';
 import 'package:linthra/core/repositories/subsonic_session_store.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_entry.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_index.dart';
+import 'package:linthra/core/services/remote_cache/remote_cache_key.dart';
 import 'package:linthra/core/services/remote_cache/remote_cache_record.dart';
+import 'package:linthra/core/services/remote_cache/remote_playback_cache.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_exception.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_stream_relay.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_session_store.dart';
 import 'package:linthra/data/repositories/remote_cache_index_provider.dart';
 import 'package:linthra/data/repositories/subsonic_session_store_provider.dart';
+import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_controller.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_providers.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_state.dart';
@@ -518,4 +527,111 @@ void main() {
       );
     });
   });
+
+  // Signing out of a password session takes its streams with it: the relay's
+  // tokens (and the password URLs behind them) and the warmed URLs pointing
+  // at them.
+  group('legacy password sign-out and its streams', () {
+    const passwordSession = SubsonicSession.password(
+      baseUrl: 'https://cloud.example.com',
+      username: 'alice',
+      password: 'app-password',
+    );
+
+    RemoteCacheEntry warmed() {
+      final DateTime now = DateTime.now();
+      return RemoteCacheEntry(
+        key: RemoteCacheKey.forUri('subsonic:s1')!,
+        streamUri: Uri.parse('http://127.0.0.1:1/stream/token'),
+        source: PlaybackSource.streamingDirect,
+        resolvedAt: now,
+        expiresAt: now.add(const Duration(minutes: 2)),
+      );
+    }
+
+    ProviderContainer containerWith(
+      SubsonicSession session,
+      _RecordingRelay relay,
+      RemotePlaybackCache cache,
+    ) {
+      final container = ProviderContainer(overrides: <Override>[
+        subsonicClientProvider.overrideWithValue(FakeSubsonicClient()),
+        subsonicSessionStoreProvider.overrideWithValue(
+          InMemorySubsonicSessionStore(initialSession: session),
+        ),
+        subsonicStreamRelayProvider.overrideWithValue(relay),
+        remotePlaybackCacheProvider.overrideWithValue(cache),
+      ]);
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('signing out revokes the relay and drops warmed streams', () async {
+      final relay = _RecordingRelay();
+      final cache = RemotePlaybackCache()..store(warmed());
+      final container = containerWith(passwordSession, relay, cache);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.clear();
+
+      expect(relay.revoked, 1);
+      expect(cache.length, 0);
+    });
+
+    test('a password source is built with the relay', () async {
+      final relay = _RecordingRelay();
+      final container =
+          containerWith(passwordSession, relay, RemotePlaybackCache());
+      await container
+          .read(subsonicSettingsControllerProvider.notifier)
+          .ensureLoaded();
+
+      final source = container.read(subsonicMusicSourceProvider)!;
+      expect(source.session.usesPassword, isTrue);
+      // Proven end to end in subsonic_music_source_test; here, that it is
+      // given one at all: a relay-less password source refuses to stream.
+      await expectLater(
+        source.resolvePlayableUri(
+          const Track(id: 's1', title: 'One', uri: 'subsonic:s1'),
+        ),
+        completion(isNot(isNull)),
+      );
+      expect(relay.published, 1);
+    });
+
+    test('a token sign-out leaves the relay and warmed streams alone',
+        () async {
+      final relay = _RecordingRelay();
+      final cache = RemotePlaybackCache()..store(warmed());
+      final container = containerWith(_session, relay, cache);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await notifier.ensureLoaded();
+
+      await notifier.clear();
+
+      expect(relay.revoked, 0);
+      expect(cache.length, 1);
+    });
+  });
+}
+
+/// Counts what the controller asks of the relay, without opening a socket.
+class _RecordingRelay extends SubsonicStreamRelay {
+  _RecordingRelay()
+      : super(client: MockClient((_) async => http.Response('', 200)));
+
+  int revoked = 0;
+  int published = 0;
+
+  @override
+  Future<Uri> publish(Uri upstream, {required int generation}) async {
+    published++;
+    return Uri.parse('http://127.0.0.1:1/stream/token');
+  }
+
+  @override
+  Future<void> revokeAll() async => revoked++;
 }

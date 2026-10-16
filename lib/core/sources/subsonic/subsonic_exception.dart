@@ -110,6 +110,14 @@ class SubsonicException implements Exception {
         kind: SubsonicErrorKind.cleartextBlocked,
       );
 
+  /// The on-device relay that streams a legacy password sign-in couldn't
+  /// serve. Nothing is sent: the engine never gets the password URL instead.
+  factory SubsonicException.streamRelayUnavailable() => const SubsonicException(
+        "Couldn't start streaming for legacy password sign-in on this device. "
+        'Try again, or restart Linthra.',
+        kind: SubsonicErrorKind.unexpected,
+      );
+
   /// A redirect answered a request carrying the password. It is not
   /// followed: the password goes only to the address the user entered.
   factory SubsonicException.passwordRedirectRefused() =>
