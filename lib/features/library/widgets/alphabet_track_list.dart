@@ -412,12 +412,12 @@ class _AlphabetIndex extends StatelessWidget {
                 mainAxisSize: height > 0 ? MainAxisSize.max : MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  for (final letter in letters)
+                  for (var i = 0; i < letters.length; i++)
                     _IndexLetter(
-                      key: ValueKey<String>(letter),
-                      letter: letter,
-                      active: letter == activeLetter,
-                      onPressed: () => onSelected(letter),
+                      key: ValueKey<String>('${letters[i]}_$i'),
+                      letter: letters[i],
+                      active: letters[i] == activeLetter,
+                      onPressed: () => onSelected(letters[i]),
                     ),
                 ],
               ),
