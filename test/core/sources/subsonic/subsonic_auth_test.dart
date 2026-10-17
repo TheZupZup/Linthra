@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_endpoints.dart';
 
 void main() {
   group('SubsonicAuth.tokenFor', () {
@@ -67,6 +69,52 @@ void main() {
       );
       expect(creds.salt, isNot(contains('super-secret-password')));
       expect(creds.token, isNot(contains('super-secret-password')));
+    });
+  });
+
+  group('SubsonicAuth legacy mode', () {
+    test('legacy credentials produce correct password parameter and flag', () {
+      final creds = SubsonicCredentials.legacy('mysecretpassword');
+      expect(creds.isLegacy, isTrue);
+      expect(creds.password, 'mysecretpassword');
+    });
+
+    test('legacy credentials redact password in toString()', () {
+      final creds = SubsonicCredentials.legacy('mysecretpassword');
+      final text = creds.toString();
+      expect(text, isNot(contains('mysecretpassword')));
+      expect(text, contains('<redacted>'));
+    });
+
+    test('SubsonicEndpoints builds URI with p=password in legacy mode', () {
+      final uri = SubsonicEndpoints.stream(
+        'https://music.example.com',
+        username: 'testuser',
+        credentials: SubsonicCredentials.legacy('secret123'),
+        songId: 'song-xyz',
+      );
+
+      expect(uri.queryParameters['u'], 'testuser');
+      expect(uri.queryParameters['p'], 'secret123');
+      expect(uri.queryParameters.containsKey('t'), isFalse);
+      expect(uri.queryParameters.containsKey('s'), isFalse);
+    });
+
+    test('SubsonicSession serializes and deserializes legacy state correctly', () {
+      const session = SubsonicSession(
+        baseUrl: 'https://music.example.com',
+        username: 'testuser',
+        isLegacy: true,
+        password: 'secret123',
+      );
+
+      final json = session.toJson();
+      final restored = SubsonicSession.fromJson(json);
+
+      expect(restored?.isLegacy, isTrue);
+      expect(restored?.password, 'secret123');
+      expect(restored?.token, isNull);
+      expect(restored?.salt, isNull);
     });
   });
 }
