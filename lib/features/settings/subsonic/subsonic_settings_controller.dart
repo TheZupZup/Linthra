@@ -108,6 +108,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     required String url,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.testing,
@@ -121,6 +122,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                useLegacy: useLegacy,
               );
       state = SubsonicSettingsState(
         phase: SubsonicConnectionPhase.tested,
@@ -148,6 +150,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     required String url,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.signingIn,
@@ -161,6 +164,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                useLegacy: useLegacy,
               );
       try {
         await ref.read(subsonicSessionStoreProvider).write(newSession);

@@ -54,11 +54,16 @@ abstract final class SubsonicArtwork {
   static Uri? resolve(Uri reference, SubsonicSession session, {int? size}) {
     final String? id = coverArtId(reference);
     if (id == null) return null;
+
+    // Use legacy credentials if the session requires it, otherwise token-based
+    final SubsonicCredentials credentials = session.isLegacy
+        ? SubsonicCredentials.legacy(session.password!)
+        : SubsonicCredentials(salt: session.salt!, token: session.token!);
+
     return SubsonicEndpoints.coverArt(
       session.baseUrl,
       username: session.username,
-      credentials:
-          SubsonicCredentials(salt: session.salt, token: session.token),
+      credentials: credentials,
       coverArtId: id,
       size: size,
     );

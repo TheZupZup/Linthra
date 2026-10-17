@@ -142,16 +142,23 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
     String method, {
     Map<String, String> extra = const <String, String>{},
   }) async {
+    final Map<String, String> queryParams = <String, String>{
+      'u': session.username,
+      'v': SubsonicEndpoints.apiVersion,
+      'c': AppInfo.name,
+      'f': 'json',
+      ...extra,
+    };
+
+    if (session.isLegacy) {
+      queryParams['p'] = session.password!;
+    } else {
+      queryParams['t'] = session.token!;
+      queryParams['s'] = session.salt!;
+    }
+
     final Uri uri = Uri.parse('${session.baseUrl}/rest/$method.view').replace(
-      queryParameters: <String, String>{
-        'u': session.username,
-        't': session.token,
-        's': session.salt,
-        'v': SubsonicEndpoints.apiVersion,
-        'c': AppInfo.name,
-        'f': 'json',
-        ...extra,
-      },
+      queryParameters: queryParams,
     );
 
     final http.Response response;
