@@ -14,6 +14,7 @@ import 'package:linthra/data/repositories/library_song_sort_store_provider.dart'
 import 'package:linthra/data/repositories/music_library_repository_provider.dart';
 import 'package:linthra/features/library/library_screen.dart';
 import 'package:linthra/features/library/song_sort.dart';
+import 'package:linthra/features/library/source_availability_providers.dart';
 import 'package:linthra/features/library/widgets/alphabet_track_list.dart';
 import 'package:linthra/features/library/widgets/song_sort_button.dart';
 import 'package:linthra/features/library/widgets/track_tile.dart';
@@ -215,6 +216,7 @@ Future<FakePlaybackController> _pump(
   List<Track> tracks = _tracks,
   LibrarySongSortStore? sortStore,
   LibraryAddedStore? addedStore,
+  Set<String> unavailableSources = const <String>{},
   TargetPlatform platform = TargetPlatform.linux,
   Size size = const Size(800, 1400),
   bool settle = true,
@@ -236,6 +238,7 @@ Future<FakePlaybackController> _pump(
         libraryAddedStoreProvider.overrideWithValue(
           addedStore ?? InMemoryLibraryAddedStore(_addedAt),
         ),
+        unavailableSourceIdsProvider.overrideWithValue(unavailableSources),
       ],
       child: MaterialApp(
         // On a desktop a tap plays in place rather than pushing the player.
@@ -480,6 +483,22 @@ void main() {
       expect(store.writes, <String>['newestAdded']);
     });
 
+    testWidgets(
+        'picking the order already shown before the stored one loads is '
+        'stored', (tester) async {
+      final _ManualSortStore store = _ManualSortStore();
+      await _pump(tester, sortStore: store);
+
+      // The list shows the fallback while a different order is still being
+      // read, and the user picks the fallback on purpose.
+      await _sortBy(tester, SongSort.titleAscending);
+      store.completeWith('artistDescending');
+      await tester.pumpAndSettle();
+
+      expect(_buttonLabel(tester), 'Title (A to Z)');
+      expect(store.writes, <String>['titleAscending']);
+    });
+
     testWidgets('an unknown stored order falls back to title', (tester) async {
       await _pump(tester, sortStore: InMemoryLibrarySongSortStore('bogus'));
 
@@ -542,6 +561,56 @@ void main() {
       expect(find.bySemanticsLabel('Sorting your songs'), findsNothing);
       // With nothing known about when anything arrived, it reads by title.
       expect(_rows(tester), _expected[SongSort.titleAscending]);
+    });
+
+    testWidgets('a server that drops out does not move its songs',
+        (tester) async {
+      // "Shared" has been on Jellyfin since January and turned up in the local
+      // folder in May. "Other" is local only, from March.
+      const Track jellyfinShared = Track(
+        id: 'j1',
+        title: 'Shared',
+        uri: 'jellyfin:j1',
+        artistName: 'Band',
+        albumName: 'Record',
+        trackNumber: 1,
+        duration: Duration(minutes: 3),
+      );
+      const Track localShared = Track(
+        id: '/music/shared.mp3',
+        title: 'Shared',
+        uri: '/music/shared.mp3',
+        artistName: 'Band',
+        albumName: 'Record',
+        trackNumber: 1,
+        duration: Duration(minutes: 3),
+      );
+      const Track localOther = Track(
+        id: '/music/other.mp3',
+        title: 'Other',
+        uri: '/music/other.mp3',
+        artistName: 'Someone',
+        albumName: 'Else',
+        duration: Duration(minutes: 4),
+      );
+      final InMemoryLibraryAddedStore added =
+          InMemoryLibraryAddedStore(<String, DateTime>{
+        'jellyfin:j1': DateTime(2026, 1, 1),
+        '/music/shared.mp3': DateTime(2026, 5, 1),
+        '/music/other.mp3': DateTime(2026, 3, 1),
+      });
+
+      // With Jellyfin unreachable only the local copy is on screen, but the
+      // song arrived in January all the same.
+      await _pump(
+        tester,
+        tracks: const <Track>[jellyfinShared, localShared, localOther],
+        addedStore: added,
+        unavailableSources: const <String>{'jellyfin'},
+      );
+      await _sortBy(tester, SongSort.newestAdded);
+
+      expect(_rows(tester), <String>['Other', 'Shared']);
     });
 
     testWidgets('songs nobody stamped stay last in both directions',

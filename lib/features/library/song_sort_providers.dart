@@ -3,11 +3,17 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/logical_track.dart';
+import '../../core/catalog/track_unifier.dart';
+import '../../core/models/track.dart';
 import '../../core/repositories/library_added_store.dart';
 import '../../core/repositories/library_song_sort_store.dart';
 import '../../data/repositories/library_added_store_provider.dart';
 import '../../data/repositories/library_song_sort_store_provider.dart';
+import 'library_controller.dart';
+import 'library_state.dart';
 import 'song_sort.dart';
+import 'source_availability_providers.dart';
+import 'source_preference_controller.dart';
 import 'unified_library_providers.dart';
 
 /// The order the Songs list is in, remembered across launches (#893).
@@ -50,9 +56,12 @@ class SongSortController extends Notifier<SongSort> {
   }
 
   /// Sorts the Songs list by [sort] and remembers it.
+  ///
+  /// Stored even when it is the order already on screen: until the stored
+  /// order has loaded the list shows the fallback, and picking it then means
+  /// it.
   void select(SongSort sort) {
     _chosen = true;
-    if (sort == state) return;
     state = sort;
     final LibrarySongSortStore store = ref.read(librarySongSortStoreProvider);
     _writes = _writes.then((_) async {
@@ -69,14 +78,19 @@ class SongSortController extends Notifier<SongSort> {
 final songSortControllerProvider =
     NotifierProvider<SongSortController, SongSort>(SongSortController.new);
 
-/// When each Library song first arrived, keyed by its displayed [Track.uri],
-/// for the "Date added" orders (#893).
+/// When each Library song first arrived, keyed by [Track.uri], for the "Date
+/// added" orders (#893).
 ///
 /// These are the first-seen times RecordingMusicLibraryRepository stamps on
 /// every scan and sync, the same ones behind the Recently added mix: never a
 /// release date or a file's modification time. A song held by more than one
-/// provider takes its earliest copy's time, so changing the preferred source
-/// never moves a song in the list. A song nobody stamped is left out.
+/// provider takes its earliest copy's time, under every copy's uri, so
+/// changing the preferred source never moves a song in the list. A song nobody
+/// stamped is left out.
+///
+/// Copies are grouped over the whole stored catalog, not only what is
+/// reachable: a server that drops out must not hand its songs a later copy's
+/// time and move them until it is back.
 ///
 /// Recomputed whenever the catalog reloads, which is after any write that may
 /// have stamped new songs. Auto-disposed, so the map is only read while a date
@@ -84,7 +98,14 @@ final songSortControllerProvider =
 final librarySongAddedAtProvider =
     FutureProvider.autoDispose<Map<String, DateTime>>((ref) async {
   final LibraryAddedStore store = ref.watch(libraryAddedStoreProvider);
-  final List<LogicalTrack> songs = ref.watch(libraryLogicalTracksProvider);
+  final List<Track> catalog =
+      ref.watch(libraryControllerProvider.select((LibraryState s) => s.tracks));
+  // With every source reachable the active library is the catalog itself, so
+  // its unified songs are the ones to group by rather than unifying twice.
+  final List<LogicalTrack> songs =
+      identical(ref.watch(activeLibraryTracksProvider), catalog)
+          ? ref.watch(libraryLogicalTracksProvider)
+          : unifyTracks(catalog, ref.watch(librarySourcePriorityProvider));
   final Map<String, DateTime> stored;
   try {
     stored = await store.load();
@@ -102,7 +123,10 @@ final librarySongAddedAtProvider =
         earliest = at;
       }
     }
-    if (earliest != null) bySong[song.id] = earliest;
+    if (earliest == null) continue;
+    for (final TrackSourceCandidate copy in song.candidates) {
+      bySong[copy.track.uri] = earliest;
+    }
   }
   return bySong;
 });

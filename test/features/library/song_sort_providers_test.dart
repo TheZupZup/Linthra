@@ -62,7 +62,11 @@ void main() {
       }),
     );
 
-    expect(addedAt, <String, DateTime>{'jellyfin:101': DateTime(2025, 2, 1)});
+    // Under both copies, so it holds whichever one is shown.
+    expect(addedAt, <String, DateTime>{
+      'jellyfin:101': DateTime(2025, 2, 1),
+      '/music/song.mp3': DateTime(2025, 2, 1),
+    });
   });
 
   test('reads a time a pre-v2 build stored under the bare id', () async {
