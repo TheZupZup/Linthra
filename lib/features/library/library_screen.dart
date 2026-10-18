@@ -34,6 +34,8 @@ import 'library_sync_activity.dart';
 import 'local_root_problem.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
+import 'song_sort.dart';
+import 'song_sort_providers.dart';
 import 'track_selection.dart';
 import 'unified_library_providers.dart';
 import 'widgets/album_grid.dart';
@@ -42,6 +44,7 @@ import 'widgets/artist_grid.dart';
 import 'widgets/library_search_field.dart';
 import 'widgets/local_root_problem_panel.dart';
 import 'widgets/selection_escape_scope.dart';
+import 'widgets/song_sort_button.dart';
 
 /// Browse the de-duplicated catalog across Songs, Albums and Artists.
 ///
@@ -57,9 +60,11 @@ import 'widgets/selection_escape_scope.dart';
 /// nothing in it is exactly where that step is the obvious next one.
 ///
 /// Songs keeps the long-press multi-select and the A–Z fast-scroller from
-/// before. Switching tabs clears the query, so a search meant for one tab never
-/// silently hides another's contents. Search only filters what is shown — it
-/// never touches playback, so the mini-player keeps playing while browsing.
+/// before, and can be sorted by title, artist, album or date added (#893); the
+/// order is remembered across launches. Switching tabs clears the query, so a
+/// search meant for one tab never silently hides another's contents. Search
+/// only filters what is shown — it never touches playback, so the mini-player
+/// keeps playing while browsing.
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
@@ -589,19 +594,56 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   List<Track> _filteredSongs(List<Track> songs) => filterTracks(songs, _query);
 
   Widget _songsList(List<Track> tracks) {
+    final SongSort sort = ref.watch(songSortControllerProvider);
+    // First-seen times are only read for a date order. Until the first read
+    // lands the list waits rather than showing an order that is about to
+    // change; a reload after a rescan keeps the previous times on screen.
+    final AsyncValue<Map<String, DateTime>>? addedAt =
+        sort.field == SongSortField.dateAdded
+            ? ref.watch(librarySongAddedAtProvider)
+            : null;
+    final bool waitingForDates =
+        addedAt != null && addedAt.isLoading && !addedAt.hasValue;
     // Song rows are a single column of text: past [maxContentWidth] the title
     // and the trailing menu end up a screen apart, so the column stops growing
     // instead of stretching across a desktop monitor. On a desktop it stays
     // under the title, tabs and search box above it.
+    //
+    // The sort control stays in this column in every mode, selection included:
+    // the list below must keep its slot, or it would be re-inflated and lose
+    // its scroll position (#582).
     return AdaptiveContentWidth(
-      child: AlphabetTrackList(
-        tracks: tracks,
-        selectable: true,
-        selectionActive: _selecting,
-        selectedUris: _selection.uris,
-        onSelectStart: _enterSelection,
-        onSelectToggle: _toggle,
-        onSelectRange: _extendSelection,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SongSortButton(
+              sort: sort,
+              onSelected: (SongSort next) =>
+                  ref.read(songSortControllerProvider.notifier).select(next),
+            ),
+          ),
+          Expanded(
+            child: waitingForDates
+                ? const LoadingIndicator(label: 'Sorting your songs')
+                : AlphabetTrackList(
+                    // A new order starts from its top. Within one order the
+                    // list keeps its state, so a rescan or a selection never
+                    // moves it.
+                    key: ValueKey<SongSort>(sort),
+                    tracks: tracks,
+                    sort: sort,
+                    addedAt: addedAt?.valueOrNull ?? const <String, DateTime>{},
+                    selectable: true,
+                    selectionActive: _selecting,
+                    selectedUris: _selection.uris,
+                    onSelectStart: _enterSelection,
+                    onSelectToggle: _toggle,
+                    onSelectRange: _extendSelection,
+                  ),
+          ),
+        ],
       ),
     );
   }

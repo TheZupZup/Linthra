@@ -1,27 +1,34 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
-import '../../../core/catalog/text_folding.dart';
+import '../../../core/catalog/library_grouping.dart';
 import '../../../core/models/track.dart';
 import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/focus/list_keyboard_navigation.dart';
+import '../song_sort.dart';
 import 'track_tile.dart';
 
 /// A track list with first-letter section grouping and an A–Z fast-scroll
 /// index pinned to the trailing edge, so large libraries stay navigable.
 ///
-/// Tracks are sorted by title, ignoring case, common accents and leading
-/// spaces, and grouped under a header for each leading letter: "Été" files
-/// under E. Titles that don't start with A–Z (digits, symbols, other scripts)
-/// share one '#' section at the top.
-/// The vertical index rail mirrors exactly the letters present and jumps the
-/// list to a section on tap or drag (a contacts-app style scrubber).
+/// Tracks are ordered by [sort] (by title, A to Z, unless told otherwise),
+/// ignoring case, common accents and leading spaces, and grouped under a
+/// header for each leading letter of the sorted-by value: "Été" files under E.
+/// Values that don't start with A–Z (digits, symbols, other scripts) share one
+/// '#' section, and songs with no artist or album to sort by share a last one.
+/// An order by date added has no letters to jump to, so it shows neither
+/// headers nor the rail.
+/// The vertical index rail mirrors exactly the sections present, in list
+/// order, and jumps the list to a section on tap or drag (a contacts-app style
+/// scrubber).
 ///
 /// Both the rows and the index work off the *same* sorted list, so a row's tap
 /// queues the rest of the library in the order the user sees — see [TrackTile].
 class AlphabetTrackList extends StatefulWidget {
   const AlphabetTrackList({
     required this.tracks,
+    this.sort = SongSort.fallback,
+    this.addedAt = const <String, DateTime>{},
     this.selectable = false,
     this.selectionActive = false,
     this.selectedUris = const <String>{},
@@ -32,6 +39,13 @@ class AlphabetTrackList extends StatefulWidget {
   });
 
   final List<Track> tracks;
+
+  /// The order the rows are in, and so what the sections and the rail index.
+  final SongSort sort;
+
+  /// When each track first entered the library, by [Track.uri], for the date
+  /// added orders. Ignored by the others.
+  final Map<String, DateTime> addedAt;
 
   /// Whether rows can enter multi-select (long-press) and toggle selection.
   final bool selectable;
@@ -124,7 +138,9 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   @override
   void didUpdateWidget(AlphabetTrackList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.tracks, widget.tracks)) {
+    if (!identical(oldWidget.tracks, widget.tracks) ||
+        oldWidget.sort != widget.sort ||
+        !identical(oldWidget.addedAt, widget.addedAt)) {
       _rebuildIndex();
     }
   }
@@ -143,10 +159,10 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   /// one contiguous run and each letter appears once (#872). Sorting on one
   /// key and grouping on another put '#' at both ends of the list.
   void _rebuildIndex() {
-    final List<_SortKey> keys = <_SortKey>[
-      for (final Track track in widget.tracks) _SortKey(track),
-    ]..sort();
-    _sorted = <Track>[for (final _SortKey key in keys) key.track];
+    final SortedSongs sorted =
+        sortSongs(widget.tracks, widget.sort, addedAt: widget.addedAt);
+    _sorted = sorted.tracks;
+    final List<String>? sections = sorted.sections;
 
     _entries = <_Entry>[];
     _letters = <String>[];
@@ -155,9 +171,9 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
 
     double offset = 0;
     String? current;
-    for (var i = 0; i < keys.length; i++) {
-      final letter = keys[i].letter;
-      if (letter != current) {
+    for (var i = 0; i < _sorted.length; i++) {
+      final String? letter = sections?[i];
+      if (letter != null && letter != current) {
         current = letter;
         _letters.add(letter);
         _letterOffsets[letter] = offset;
@@ -169,6 +185,30 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
       offset += _trackExtent;
     }
     _activeLetter = _letters.isNotEmpty ? _letters.first : null;
+  }
+
+  /// What a section's header reads: its letter, or what its songs are missing.
+  String _sectionTitle(String letter) {
+    if (letter != kUnknownSongSection) return letter;
+    return widget.sort.field == SongSortField.album
+        ? kUnknownAlbum
+        : kUnknownArtist;
+  }
+
+  /// What a screen reader says for a section's letter on the rail.
+  String _sectionSemanticsLabel(String letter) {
+    final String things = switch (widget.sort.field) {
+      SongSortField.artist => 'artists',
+      SongSortField.album => 'albums',
+      SongSortField.title || SongSortField.dateAdded => 'songs',
+    };
+    return switch (letter) {
+      '#' => 'Jump to $things starting with a number or symbol',
+      kUnknownSongSection => widget.sort.field == SongSortField.album
+          ? 'Jump to songs with no album'
+          : 'Jump to songs with no artist',
+      _ => 'Jump to $letter',
+    };
   }
 
   /// Keeps [_activeLetter] in step with normal list scrolling so the rail
@@ -229,7 +269,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
             itemBuilder: (context, i) {
               final entry = _entries[i];
               if (entry.isHeader) {
-                return _SectionHeader(letter: entry.letter!);
+                return _SectionHeader(title: _sectionTitle(entry.letter!));
               }
               final int trackIndex = entry.trackIndex!;
               final Track track = _sorted[trackIndex];
@@ -266,6 +306,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
             width: _railWidth,
             child: _AlphabetIndex(
               letters: _letters,
+              semanticsLabel: _sectionSemanticsLabel,
               activeLetter: _activeLetter,
               onSelected: _jumpToLetter,
               onScrubChanged: (scrubbing) =>
@@ -284,40 +325,6 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   }
 }
 
-/// A track with the key it is sorted and sectioned by, folded once so a big
-/// library isn't re-folded on every comparison.
-class _SortKey implements Comparable<_SortKey> {
-  factory _SortKey(Track track) {
-    // `trim` first catches the Unicode spaces [foldText] leaves alone.
-    final String folded = foldText(track.title.trim());
-    final String letter =
-        _latinLetter.hasMatch(folded) ? folded[0].toUpperCase() : '#';
-    return _SortKey._(track, folded, letter);
-  }
-
-  const _SortKey._(this.track, this.folded, this.letter);
-
-  static final RegExp _latinLetter = RegExp('^[a-z]');
-
-  final Track track;
-
-  /// The title lower-cased, without common accents or surrounding spaces.
-  final String folded;
-
-  /// The section: an uppercase A–Z, or '#' for anything else.
-  final String letter;
-
-  @override
-  int compareTo(_SortKey other) {
-    // '#' sorts before 'A', which puts the symbol section first.
-    final int bySection = letter.compareTo(other.letter);
-    if (bySection != 0) return bySection;
-    final int byFolded = folded.compareTo(other.folded);
-    if (byFolded != 0) return byFolded;
-    return track.title.compareTo(other.track.title);
-  }
-}
-
 /// A flat-list entry: either a section header (carrying its [letter]) or a
 /// track (carrying its index into the sorted track list).
 class _Entry {
@@ -331,9 +338,9 @@ class _Entry {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.letter});
+  const _SectionHeader({required this.title});
 
-  final String letter;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -348,7 +355,9 @@ class _SectionHeader extends StatelessWidget {
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
-          letter,
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: theme.textTheme.labelLarge?.copyWith(
             color: theme.colorScheme.primary,
             fontWeight: FontWeight.bold,
@@ -400,12 +409,16 @@ class _ScrubBubble extends StatelessWidget {
 class _AlphabetIndex extends StatelessWidget {
   const _AlphabetIndex({
     required this.letters,
+    required this.semanticsLabel,
     required this.activeLetter,
     required this.onSelected,
     required this.onScrubChanged,
   });
 
   final List<String> letters;
+
+  /// What a screen reader announces for each letter.
+  final String Function(String letter) semanticsLabel;
   final String? activeLetter;
   final ValueChanged<String> onSelected;
   final ValueChanged<bool> onScrubChanged;
@@ -450,6 +463,7 @@ class _AlphabetIndex extends StatelessWidget {
                     _IndexLetter(
                       key: ValueKey<String>(letter),
                       letter: letter,
+                      semanticsLabel: semanticsLabel(letter),
                       active: letter == activeLetter,
                       onPressed: () => onSelected(letter),
                     ),
@@ -472,12 +486,14 @@ class _AlphabetIndex extends StatelessWidget {
 class _IndexLetter extends StatelessWidget {
   const _IndexLetter({
     required this.letter,
+    required this.semanticsLabel,
     required this.active,
     required this.onPressed,
     super.key,
   });
 
   final String letter;
+  final String semanticsLabel;
   final bool active;
   final VoidCallback onPressed;
 
@@ -488,9 +504,7 @@ class _IndexLetter extends StatelessWidget {
       container: true,
       button: true,
       selected: active,
-      label: letter == '#'
-          ? 'Jump to songs starting with a number or symbol'
-          : 'Jump to $letter',
+      label: semanticsLabel,
       onTap: onPressed,
       child: FocusRing(
         borderRadius: BorderRadius.circular(AppRadii.sm),

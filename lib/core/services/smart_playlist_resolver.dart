@@ -4,6 +4,7 @@ import '../models/play_history.dart';
 import '../models/smart_playlist.dart';
 import '../models/track.dart';
 import '../repositories/download_store.dart';
+import '../repositories/library_added_store.dart';
 
 /// Turns a [SmartPlaylistKind] plus the on-device signals into an ordered track
 /// list. Pure and synchronous: it takes everything it needs as arguments and
@@ -75,21 +76,12 @@ class SmartPlaylistResolver {
   /// First-seen time for [track] (the newest-first sort key). Reads the
   /// provider-namespaced [Track.uri] key written by
   /// RecordingMusicLibraryRepository so two providers' same-id tracks don't share
-  /// a timestamp. Falls back to the legacy bare-`id` key for a remote track whose
-  /// timestamp predates the uri-keyed store and hasn't been migrated yet — the
-  /// first post-upgrade sync migrates it in place, but this read can run before
-  /// that, so the fallback keeps Recently Added in order immediately after an
-  /// upgrade instead of collapsing the whole library to catalog order until the
-  /// next sync. Unknown tracks sort oldest (at [_epoch]).
-  DateTime _addedTime(Track track, Map<String, DateTime> addedAt) {
-    final DateTime? byUri = addedAt[track.uri];
-    if (byUri != null) return byUri;
-    if (track.uri != track.id) {
-      final DateTime? legacy = addedAt[track.id];
-      if (legacy != null) return legacy;
-    }
-    return _epoch;
-  }
+  /// a timestamp, with [firstSeenAt]'s legacy bare-`id` fallback, which keeps
+  /// Recently Added in order immediately after an upgrade instead of collapsing
+  /// the whole library to catalog order until the next sync. Unknown tracks sort
+  /// oldest (at [_epoch]).
+  DateTime _addedTime(Track track, Map<String, DateTime> addedAt) =>
+      firstSeenAt(track, addedAt) ?? _epoch;
 
   /// Resolves [orderedUris] (provider-namespaced play-history keys) against the
   /// catalog, preserving the given order and dropping uris the catalog no longer
