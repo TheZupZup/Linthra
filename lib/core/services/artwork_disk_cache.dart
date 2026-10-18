@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'artwork_fetch.dart';
+
 /// Persists remote artwork bytes to a small, Linthra-managed disk cache keyed
 /// by the credential-free artwork identity ([artworkImageProvider]'s `Uri`
 /// argument), so a cover fetched once survives an app restart.
@@ -408,7 +410,7 @@ class ArtworkDiskCache {
   Future<List<int>?> _defaultFetch(Uri url) async {
     try {
       final http.Response response =
-          await _httpClient.get(url).timeout(_timeout);
+          await getCover(_httpClient, url).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final String contentType =
           (response.headers['content-type'] ?? '').toLowerCase();

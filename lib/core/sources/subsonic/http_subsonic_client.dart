@@ -238,9 +238,14 @@ class HttpSubsonicClient implements SubsonicClient {
     // drops Range) would otherwise send the entire file here, before the engine
     // fetches it again, and on a slow link that wait runs into the timeout and
     // reads as a server that can't be reached. The body is let go of instead.
+    //
+    // The engine opens the same URL right after and follows redirects on its
+    // own, so a legacy password URL this probe sees redirected is refused here,
+    // before the engine ever gets it.
     final http.StreamedResponse response = await _send(
       () => _client.send(
         http.Request('GET', url)
+          ..followRedirects = _mayFollowRedirects(url)
           ..headers.addAll(const <String, String>{
             'Accept': '*/*',
             'Range': 'bytes=0-1',
@@ -248,6 +253,7 @@ class HttpSubsonicClient implements SubsonicClient {
       ),
     );
     await _release(response);
+    _refusePasswordRedirect(url, response.statusCode);
     return SubsonicStreamProbe(
       statusCode: response.statusCode,
       contentType: response.headers['content-type'],
@@ -609,11 +615,7 @@ class HttpSubsonicClient implements SubsonicClient {
     Uri uri,
     Lyrics? Function(SubsonicEnvelope envelope) parse,
   ) async {
-    final http.Response response = await _send(
-      () => _client.get(uri, headers: const <String, String>{
-        'Accept': 'application/json',
-      }),
-    );
+    final http.Response response = await _getJson(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) return null;
     final Map<String, dynamic> body;
     try {
@@ -635,28 +637,53 @@ class HttpSubsonicClient implements SubsonicClient {
   /// what a status means for its request can throw something more precise.
   ///
   /// [followRedirects] off answers a redirect with its own 3xx, which then
-  /// fails like any other unexpected status.
+  /// fails like any other unexpected status. A redirect for a [uri] carrying
+  /// the legacy password is never followed, and is refused as exactly that.
   Future<SubsonicEnvelope> _get(
     Uri uri, {
     void Function(int statusCode)? onRejectedStatus,
     bool followRedirects = true,
   }) async {
-    final http.Response response = await _send(() async {
-      if (followRedirects) {
-        return _client.get(uri, headers: const <String, String>{
-          'Accept': 'application/json',
-        });
-      }
-      final http.Request request = http.Request('GET', uri)
-        ..followRedirects = false
-        ..headers['Accept'] = 'application/json';
-      return http.Response.fromStream(await _client.send(request));
-    });
+    final http.Response response =
+        await _getJson(uri, followRedirects: followRedirects);
     final int code = response.statusCode;
+    _refusePasswordRedirect(uri, code);
     if (onRejectedStatus != null && (code < 200 || code >= 300)) {
       onRejectedStatus(code);
     }
     return _readEnvelope(response);
+  }
+
+  /// GETs [uri] for a JSON answer. With [followRedirects] off, or for a [uri]
+  /// carrying the legacy password, a redirect comes back as its own 3xx.
+  Future<http.Response> _getJson(Uri uri, {bool followRedirects = true}) =>
+      _send(() async {
+        if (followRedirects && _mayFollowRedirects(uri)) {
+          return _client.get(uri, headers: const <String, String>{
+            'Accept': 'application/json',
+          });
+        }
+        final http.Request request = http.Request('GET', uri)
+          ..followRedirects = false
+          ..headers['Accept'] = 'application/json';
+        return http.Response.fromStream(await _client.send(request));
+      });
+
+  /// Whether a GET of [uri] may follow a redirect: not when it carries the
+  /// legacy password, which goes only to the address the user entered. A
+  /// redirect keeps the query when a proxy rewrites the address, so following
+  /// one could send the password on to another host, or to plain http.
+  static bool _mayFollowRedirects(Uri uri) =>
+      !SubsonicEndpoints.carriesPassword(uri);
+
+  /// Refuses the redirect a request carrying the legacy password was answered
+  /// with. It was not followed (see [_mayFollowRedirects]); this says why.
+  static void _refusePasswordRedirect(Uri uri, int statusCode) {
+    if (statusCode >= 300 &&
+        statusCode < 400 &&
+        SubsonicEndpoints.carriesPassword(uri)) {
+      throw SubsonicException.passwordRedirectRefused();
+    }
   }
 
   /// Checks [response]'s status and decodes its `subsonic-response` envelope.

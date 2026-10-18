@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'artwork_disk_cache.dart';
+import 'artwork_fetch.dart';
 import 'media_artwork_content_uri.dart';
 import 'media_artwork_source.dart';
 
@@ -273,7 +274,7 @@ class MediaArtworkCache implements MediaArtworkSource {
   Future<List<int>?> _defaultHttpFetch(Uri url) async {
     try {
       final http.Response response =
-          await _httpClient.get(url).timeout(_timeout);
+          await getCover(_httpClient, url).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final String contentType =
           (response.headers['content-type'] ?? '').toLowerCase();

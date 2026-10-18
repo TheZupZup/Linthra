@@ -163,10 +163,13 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
 
     final http.Response response;
     try {
-      response = await _client.get(
-        uri,
-        headers: const <String, String>{'Accept': 'application/json'},
-      ).timeout(_timeout);
+      response = await (session.isLegacy
+              ? _getUnredirected(uri)
+              : _client.get(
+                  uri,
+                  headers: const <String, String>{'Accept': 'application/json'},
+                ))
+          .timeout(_timeout);
     } on TimeoutException {
       throw SubsonicException.notReachable();
     } on Exception {
@@ -175,6 +178,9 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
     }
 
     final int status = response.statusCode;
+    if (session.isLegacy && status >= 300 && status < 400) {
+      throw SubsonicException.passwordRedirectRefused();
+    }
     if (status == 401 || status == 403) {
       throw SubsonicException.unauthorized();
     }
@@ -202,6 +208,15 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
     if (envelope == null) throw SubsonicException.notSubsonic();
     if (!envelope.isOk) throw _mapErrorCode(envelope.errorCode);
     return envelope;
+  }
+
+  /// GETs [uri] without following a redirect: it carries the legacy password,
+  /// which goes only to the address the user entered.
+  Future<http.Response> _getUnredirected(Uri uri) async {
+    final http.Request request = http.Request('GET', uri)
+      ..followRedirects = false
+      ..headers['Accept'] = 'application/json';
+    return http.Response.fromStream(await _client.send(request));
   }
 
   SubsonicException _mapErrorCode(int? code) {

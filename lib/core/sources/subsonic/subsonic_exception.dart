@@ -89,6 +89,16 @@ class SubsonicException implements Exception {
         kind: SubsonicErrorKind.cleartextBlocked,
       );
 
+  /// A redirect answered a request carrying the legacy password. It was not
+  /// followed: the password goes only to the address the user entered.
+  factory SubsonicException.passwordRedirectRefused() =>
+      const SubsonicException(
+        'Your server redirected the request. With legacy sign-in, Linthra only '
+        'sends your password to the exact address you entered, so sign in with '
+        'the address your server redirects to.',
+        kind: SubsonicErrorKind.insecureConnection,
+      );
+
   factory SubsonicException.insecureConnection() => const SubsonicException(
         "Couldn't verify your server's security certificate. If it uses a "
         'self-signed certificate, put it behind a reverse proxy with a trusted '

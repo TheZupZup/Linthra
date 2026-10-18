@@ -321,6 +321,14 @@ abstract final class SubsonicEndpoints {
         if (size != null) 'size': '$size',
       });
 
+  /// Whether [uri] carries the legacy password (`p`). Such a request is never
+  /// sent on through a redirect: the password goes to the address the user
+  /// entered and nowhere else. Reads the raw query, so a malformed escape in
+  /// some other provider's URL can't throw here.
+  static bool carriesPassword(Uri uri) => uri.query
+      .split('&')
+      .any((String pair) => pair.split('=').first == passwordParam);
+
   /// Builds `/rest/<method>.view` with the standard auth + format query and any
   /// method-specific [extra] parameters. The single place the salt+token are
   /// woven into a URL.
