@@ -79,8 +79,13 @@ SortedSongs sortSongs(
   Map<String, DateTime> addedAt = const <String, DateTime>{},
 }) {
   final SongSortField field = sort.field;
+  final List<_Album>? albums =
+      field == SongSortField.artist || field == SongSortField.album
+          ? _albumsOf(tracks)
+          : null;
   final List<_SongKey> keys = <_SongKey>[
-    for (final Track track in tracks) _SongKey(track, field, addedAt),
+    for (int i = 0; i < tracks.length; i++)
+      _SongKey(tracks[i], field, addedAt, albums?[i]),
   ];
   // Picked once, rather than per comparison.
   final _Compare compareValue = switch (field) {
@@ -94,7 +99,6 @@ SortedSongs sortSongs(
     SongSortField.album => _SongKey.compareAlbumTies,
     SongSortField.dateAdded => _SongKey.compareTitleThenTags,
   };
-  if (field == SongSortField.album) _labelAlbums(keys);
   final int direction = sort.descending ? -1 : 1;
   keys.sort((_SongKey a, _SongKey b) {
     if (a.missing != b.missing) return a.missing ? 1 : -1;
@@ -116,33 +120,42 @@ SortedSongs sortSongs(
 
 typedef _Compare = int Function(_SongKey a, _SongKey b);
 
-/// Gives every song the artist its album is filed under, one per album, so an
-/// album's songs share it and stay together in album order whoever performs
-/// each track (a compilation with a stable album id and no album artist would
-/// otherwise split by performer).
+/// The album a song is filed under, with one name and one artist for the
+/// whole album.
+typedef _Album = ({String id, String? name, String? artist});
+
+/// The album each of [tracks] is filed under, keyed the way the Albums tab
+/// groups them ([albumIdForTrack]), with one name and one artist per album.
 ///
-/// The album's own artist wins when any of its songs carries one, otherwise
-/// its first track artist alphabetically, so the label never depends on the
-/// order the catalog came in.
-void _labelAlbums(List<_SongKey> keys) {
+/// Every song on an album shares them, so the album stays in one piece and in
+/// album order even when its songs' own tags disagree: a name missing from one
+/// of them, a suffix on another, a compilation with a stable id where each
+/// track only names its own performer. The alphabetically first name wins, and
+/// the album's own artist when any song carries one, otherwise its first
+/// track artist, so neither depends on the order the catalog came in.
+List<_Album> _albumsOf(List<Track> tracks) {
+  final List<String> ids = <String>[
+    for (final Track track in tracks) albumIdForTrack(track),
+  ];
+  final Map<String, String> names = <String, String>{};
   final Map<String, String> albumArtists = <String, String>{};
   final Map<String, String> trackArtists = <String, String>{};
-  void keepFirst(Map<String, String> labels, String album, String? artist) {
-    if (artist == null) return;
+  void keepFirst(Map<String, String> labels, String album, String? label) {
+    if (label == null) return;
     final String? current = labels[album];
-    if (current == null || artist.compareTo(current) < 0) {
-      labels[album] = artist;
-    }
+    if (current == null || label.compareTo(current) < 0) labels[album] = label;
   }
 
-  for (final _SongKey key in keys) {
-    keepFirst(
-        albumArtists, key._albumId, _SongKey._fold(key.track.albumArtistName));
-    keepFirst(trackArtists, key._albumId, key._artist);
+  for (int i = 0; i < tracks.length; i++) {
+    final Track track = tracks[i];
+    keepFirst(names, ids[i], _SongKey._fold(track.albumName));
+    keepFirst(albumArtists, ids[i], _SongKey._fold(track.albumArtistName));
+    keepFirst(trackArtists, ids[i], _SongKey._fold(track.artistName));
   }
-  for (final _SongKey key in keys) {
-    key.albumLabel = albumArtists[key._albumId] ?? trackArtists[key._albumId];
-  }
+  return <_Album>[
+    for (final String id in ids)
+      (id: id, name: names[id], artist: albumArtists[id] ?? trackArtists[id]),
+  ];
 }
 
 /// A song with what it is ordered by, folded once so a large library isn't
@@ -153,6 +166,7 @@ class _SongKey {
     Track track,
     SongSortField field,
     Map<String, DateTime> addedAt,
+    _Album? album,
   ) {
     final String title = _fold(track.title) ?? '';
     final String titleSection = _sectionOf(title);
@@ -161,9 +175,9 @@ class _SongKey {
         return _SongKey._(track, title, titleSection, section: titleSection);
       case SongSortField.artist:
       case SongSortField.album:
-        final String? value = _fold(
-          field == SongSortField.artist ? track.artistName : track.albumName,
-        );
+        final String? value = field == SongSortField.artist
+            ? _fold(track.artistName)
+            : album!.name;
         return _SongKey._(
           track,
           title,
@@ -171,6 +185,7 @@ class _SongKey {
           value: value,
           section: value == null ? kUnknownSongSection : _sectionOf(value),
           missing: value == null,
+          album: album,
         );
       case SongSortField.dateAdded:
         final int? added = addedAt[track.uri]?.microsecondsSinceEpoch;
@@ -193,6 +208,7 @@ class _SongKey {
     this.value,
     this.addedAt,
     this.missing = false,
+    this.album,
   });
 
   static final RegExp _latinLetter = RegExp('^[a-z]');
@@ -218,17 +234,11 @@ class _SongKey {
   /// after every song that has one.
   final bool missing;
 
+  /// The album the song is filed under, when sorting by artist or album.
+  final _Album? album;
+
   late final String? _artist = _fold(track.artistName);
   late final String? _album = _fold(track.albumName);
-
-  /// The artist this song's album is filed under, set by [_labelAlbums] when
-  /// sorting by album, so two artists' "Greatest Hits" stay apart instead of
-  /// interleaving track by track.
-  String? albumLabel;
-
-  /// The album the song groups under on the Albums tab, so two albums sharing
-  /// a name and artist still never interleave.
-  late final String _albumId = albumIdForTrack(track);
 
   /// By title section, then folded title, then the title as written, so two
   /// spellings that fold alike still land in one order. The section comes
@@ -266,21 +276,23 @@ class _SongKey {
 
   /// One artist's songs: album by album, each in the order it plays in.
   static int compareArtistTies(_SongKey a, _SongKey b) {
-    final int byAlbum = _nullsLast(a._album, b._album);
+    final int byAlbum = _nullsLast(a.album!.name, b.album!.name);
     if (byAlbum != 0) return byAlbum;
     return _compareAlbumOrder(a, b);
   }
 
-  /// One album name's songs: by the album's artist, then in album order.
+  /// One album name's songs: by the album's artist, so two artists' "Greatest
+  /// Hits" stay apart, then in album order.
   static int compareAlbumTies(_SongKey a, _SongKey b) {
-    final int byArtist = _nullsLast(a.albumLabel, b.albumLabel);
+    final int byArtist = _nullsLast(a.album!.artist, b.album!.artist);
     if (byArtist != 0) return byArtist;
     return _compareAlbumOrder(a, b);
   }
 
-  /// By album, then the album's own disc and track order, then title.
+  /// By album, so two albums sharing a name and artist never interleave, then
+  /// the album's own disc and track order, then title.
   static int _compareAlbumOrder(_SongKey a, _SongKey b) {
-    final int byAlbum = a._albumId.compareTo(b._albumId);
+    final int byAlbum = a.album!.id.compareTo(b.album!.id);
     if (byAlbum != 0) return byAlbum;
     final int byDisc = _nullsLast(a.track.discNumber, b.track.discNumber);
     if (byDisc != 0) return byDisc;

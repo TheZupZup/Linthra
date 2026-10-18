@@ -375,6 +375,57 @@ void main() {
       expect(_titles(sorted), <String>['First', 'Second', 'Third']);
     });
 
+    test('one album keeps one place when its songs disagree on its name', () {
+      // The catalog files all three under one album id. One copy of the name
+      // carries a suffix and one is missing, and an unrelated album sorts
+      // between the two spellings.
+      final List<Track> songs = <Track>[
+        _song(
+          'a3',
+          'Third',
+          artist: 'Band',
+          album: 'Alpha Remastered',
+          albumId: 'jellyfin:al-1',
+          trackNumber: 3,
+        ),
+        _song(
+          'b1',
+          'Other',
+          artist: 'Band',
+          album: 'Alpha Beta',
+          albumId: 'jellyfin:al-2',
+          trackNumber: 1,
+        ),
+        _song(
+          'a2',
+          'Second',
+          artist: 'Band',
+          albumId: 'jellyfin:al-1',
+          trackNumber: 2,
+        ),
+        _song(
+          'a1',
+          'First',
+          artist: 'Band',
+          album: 'Alpha',
+          albumId: 'jellyfin:al-1',
+          trackNumber: 1,
+        ),
+      ];
+
+      final SortedSongs byAlbum = sortSongs(songs, SongSort.albumAscending);
+      expect(
+        _titles(byAlbum),
+        <String>['First', 'Second', 'Third', 'Other'],
+      );
+      expect(byAlbum.sections, <String>['A', 'A', 'A', 'A']);
+      // An artist's songs read album by album the same way.
+      expect(
+        _titles(sortSongs(songs, SongSort.artistAscending)),
+        <String>['First', 'Second', 'Third', 'Other'],
+      );
+    });
+
     test('an album with a stable id keeps track order without an album artist',
         () {
       // How a Subsonic compilation arrives: one album id, each track by its
