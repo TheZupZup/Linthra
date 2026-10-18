@@ -10,6 +10,7 @@ Track _song(
   String? artist,
   String? album,
   String? albumArtist,
+  String? albumId,
   int? trackNumber,
   int? discNumber,
 }) {
@@ -20,6 +21,7 @@ Track _song(
     artistName: artist,
     albumName: album,
     albumArtistName: albumArtist,
+    albumId: albumId,
     trackNumber: trackNumber,
     discNumber: discNumber,
   );
@@ -371,6 +373,62 @@ void main() {
       ], SongSort.albumAscending);
 
       expect(_titles(sorted), <String>['First', 'Second', 'Third']);
+    });
+
+    test('an album with a stable id keeps track order without an album artist',
+        () {
+      // How a Subsonic compilation arrives: one album id, each track by its
+      // own performer, no album artist. Another album shares its name.
+      final SortedSongs sorted = sortSongs(<Track>[
+        _song(
+          'n2',
+          'Second',
+          artist: 'Abe',
+          album: 'Now',
+          albumId: 'subsonic:al-1',
+          trackNumber: 2,
+        ),
+        _song(
+          'b1',
+          'Bob One',
+          artist: 'Bob',
+          album: 'Now',
+          albumId: 'subsonic:al-2',
+          trackNumber: 1,
+        ),
+        _song(
+          'n3',
+          'Third',
+          artist: 'Mia',
+          album: 'Now',
+          albumId: 'subsonic:al-1',
+          trackNumber: 3,
+        ),
+        _song(
+          'b2',
+          'Bob Two',
+          artist: 'Bob',
+          album: 'Now',
+          albumId: 'subsonic:al-2',
+          trackNumber: 2,
+        ),
+        _song(
+          'n1',
+          'First',
+          artist: 'Zed',
+          album: 'Now',
+          albumId: 'subsonic:al-1',
+          trackNumber: 1,
+        ),
+      ], SongSort.albumAscending);
+
+      expect(_titles(sorted), <String>[
+        'First',
+        'Second',
+        'Third',
+        'Bob One',
+        'Bob Two',
+      ]);
     });
   });
 

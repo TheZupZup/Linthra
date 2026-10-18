@@ -94,6 +94,7 @@ SortedSongs sortSongs(
     SongSortField.album => _SongKey.compareAlbumTies,
     SongSortField.dateAdded => _SongKey.compareTitleThenTags,
   };
+  if (field == SongSortField.album) _labelAlbums(keys);
   final int direction = sort.descending ? -1 : 1;
   keys.sort((_SongKey a, _SongKey b) {
     if (a.missing != b.missing) return a.missing ? 1 : -1;
@@ -114,6 +115,35 @@ SortedSongs sortSongs(
 }
 
 typedef _Compare = int Function(_SongKey a, _SongKey b);
+
+/// Gives every song the artist its album is filed under, one per album, so an
+/// album's songs share it and stay together in album order whoever performs
+/// each track (a compilation with a stable album id and no album artist would
+/// otherwise split by performer).
+///
+/// The album's own artist wins when any of its songs carries one, otherwise
+/// its first track artist alphabetically, so the label never depends on the
+/// order the catalog came in.
+void _labelAlbums(List<_SongKey> keys) {
+  final Map<String, String> albumArtists = <String, String>{};
+  final Map<String, String> trackArtists = <String, String>{};
+  void keepFirst(Map<String, String> labels, String album, String? artist) {
+    if (artist == null) return;
+    final String? current = labels[album];
+    if (current == null || artist.compareTo(current) < 0) {
+      labels[album] = artist;
+    }
+  }
+
+  for (final _SongKey key in keys) {
+    keepFirst(
+        albumArtists, key._albumId, _SongKey._fold(key.track.albumArtistName));
+    keepFirst(trackArtists, key._albumId, key._artist);
+  }
+  for (final _SongKey key in keys) {
+    key.albumLabel = albumArtists[key._albumId] ?? trackArtists[key._albumId];
+  }
+}
 
 /// A song with what it is ordered by, folded once so a large library isn't
 /// re-folded on every comparison. The tie-breakers are folded only when a
@@ -191,9 +221,10 @@ class _SongKey {
   late final String? _artist = _fold(track.artistName);
   late final String? _album = _fold(track.albumName);
 
-  /// The album's artist, so two artists' "Greatest Hits" stay apart instead of
+  /// The artist this song's album is filed under, set by [_labelAlbums] when
+  /// sorting by album, so two artists' "Greatest Hits" stay apart instead of
   /// interleaving track by track.
-  late final String? _albumArtist = _fold(track.albumArtistName) ?? _artist;
+  String? albumLabel;
 
   /// The album the song groups under on the Albums tab, so two albums sharing
   /// a name and artist still never interleave.
@@ -242,7 +273,7 @@ class _SongKey {
 
   /// One album name's songs: by the album's artist, then in album order.
   static int compareAlbumTies(_SongKey a, _SongKey b) {
-    final int byArtist = _nullsLast(a._albumArtist, b._albumArtist);
+    final int byArtist = _nullsLast(a.albumLabel, b.albumLabel);
     if (byArtist != 0) return byArtist;
     return _compareAlbumOrder(a, b);
   }
