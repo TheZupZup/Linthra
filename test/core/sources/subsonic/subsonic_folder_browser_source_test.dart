@@ -100,6 +100,31 @@ void main() {
     expect(listing.tracks.single.title, 'A Song');
     expect(listing.tracks.single.uri, 'subsonic:song-1');
   });
+
+  test('a legacy session browses with the hex-encoded password only', () async {
+    final List<Uri> requested = <Uri>[];
+    final MockClient client = MockClient((http.Request request) async {
+      requested.add(request.url);
+      return _ok(<String, Object>{
+        'musicFolders': <String, Object>{'musicFolder': <Object>[]},
+      });
+    });
+
+    await SubsonicFolderBrowserSource(
+      session: const SubsonicSession(
+        baseUrl: 'https://cloud.example.test',
+        username: 'listener',
+        isLegacy: true,
+        password: 'api-key',
+      ),
+      httpClient: client,
+    ).fetchRootFolders();
+
+    final Map<String, String> query = requested.single.queryParameters;
+    expect(query['p'], 'enc:6170692d6b6579');
+    expect(query.containsKey('t'), isFalse);
+    expect(query.containsKey('s'), isFalse);
+  });
 }
 
 http.Response _ok(Map<String, Object> payload) {

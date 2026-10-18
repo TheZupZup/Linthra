@@ -347,7 +347,7 @@ abstract final class SubsonicEndpoints {
     };
 
     if (credentials.isLegacy) {
-      query[passwordParam] = credentials.password!;
+      query[passwordParam] = SubsonicAuth.encodePassword(credentials.password!);
     } else {
       query[tokenParam] = credentials.token!;
       query[saltParam] = credentials.salt!;
@@ -381,7 +381,7 @@ abstract final class SubsonicEndpoints {
     };
 
     if (credentials.isLegacy) {
-      query[passwordParam] = credentials.password!;
+      query[passwordParam] = SubsonicAuth.encodePassword(credentials.password!);
     } else {
       query[tokenParam] = credentials.token!;
       query[saltParam] = credentials.salt!;

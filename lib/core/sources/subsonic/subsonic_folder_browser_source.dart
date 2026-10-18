@@ -9,6 +9,7 @@ import '../../models/subsonic_session.dart';
 import '../../models/track.dart';
 import '../../services/folder_browsable_music_source.dart';
 import 'subsonic_api.dart';
+import 'subsonic_auth.dart';
 import 'subsonic_endpoints.dart';
 import 'subsonic_exception.dart';
 import 'subsonic_track_mapper.dart';
@@ -151,7 +152,7 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
     };
 
     if (session.isLegacy) {
-      queryParams['p'] = session.password!;
+      queryParams['p'] = SubsonicAuth.encodePassword(session.password!);
     } else {
       queryParams['t'] = session.token!;
       queryParams['s'] = session.salt!;

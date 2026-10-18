@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
@@ -95,9 +97,32 @@ void main() {
       );
 
       expect(uri.queryParameters['u'], 'testuser');
-      expect(uri.queryParameters['p'], 'secret123');
+      expect(uri.queryParameters['p'], 'enc:736563726574313233');
       expect(uri.queryParameters.containsKey('t'), isFalse);
       expect(uri.queryParameters.containsKey('s'), isFalse);
+    });
+
+    test('the password is sent as enc: and its UTF-8 bytes in hex', () {
+      String decode(String encoded) {
+        expect(encoded, startsWith('enc:'));
+        final String hex = encoded.substring('enc:'.length);
+        return utf8.decode(<int>[
+          for (int i = 0; i < hex.length; i += 2)
+            int.parse(hex.substring(i, i + 2), radix: 16),
+        ]);
+      }
+
+      expect(
+          SubsonicAuth.encodePassword('secret123'), 'enc:736563726574313233');
+      // A password that itself starts with enc: still means itself, and the
+      // characters query escaping disagrees on come back intact.
+      for (final String password in <String>[
+        'enc:6869',
+        'a+b%20c&d=e',
+        'pässwörd ключ 🎵',
+      ]) {
+        expect(decode(SubsonicAuth.encodePassword(password)), password);
+      }
     });
 
     test('SubsonicSession serializes and deserializes legacy state correctly',

@@ -215,8 +215,11 @@ Some servers refuse the token: Nextcloud Music always does, and so does a
 Subsonic account whose password lives in LDAP (both answer error 41). For them
 the Subsonic card has a **Legacy sign-in (https only)** checkbox, off by
 default. With it on, the session keeps the password in the same encrypted store
-and sends it as `p=` on every request. That is the protocol's only option for
-these servers, so it comes with rules of its own:
+and sends it as `p=enc:<hex>` on every request. The hex is the protocol's
+encoding, not encryption: it only keeps a password that starts with `enc:`, or
+holds characters query escaping disagrees on, from being misread. Sending the
+password is the protocol's only option for these servers, so it comes with
+rules of its own:
 
 - **https only.** Sign-in and Test connection refuse an `http://` address
   before anything is sent, and a stored legacy session for one is not restored.

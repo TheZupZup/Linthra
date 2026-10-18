@@ -87,6 +87,21 @@ abstract final class SubsonicAuth {
     return md5.convert(utf8.encode('$password$salt')).toString();
   }
 
+  /// [password] as the legacy `p=` value: `enc:` and its UTF-8 bytes in hex,
+  /// the form every server that takes `p=` understands.
+  ///
+  /// The hex is an encoding, not encryption: anyone holding the URL holds the
+  /// password. It keeps a password that itself starts with `enc:` from being
+  /// read as hex, and keeps `+`, `%` and non-ASCII characters out of the query
+  /// escaping servers and proxies disagree on.
+  static String encodePassword(String password) {
+    final String hex = utf8
+        .encode(password)
+        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return 'enc:$hex';
+  }
+
   static String _randomSalt() {
     final Random rng = Random.secure();
     final List<int> bytes = List<int>.generate(16, (_) => rng.nextInt(256));
