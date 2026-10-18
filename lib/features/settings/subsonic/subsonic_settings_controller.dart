@@ -97,6 +97,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: saved.serverType,
       serverVersion: saved.serverVersion,
       apiVersion: saved.apiVersion,
+      isLegacy: saved.isLegacy,
       statusMessage: _connectedMessage(saved.username, saved.serverType),
     );
   }
@@ -197,6 +198,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         serverType: newSession.serverType,
         serverVersion: newSession.serverVersion,
         apiVersion: newSession.apiVersion,
+        isLegacy: newSession.isLegacy,
         statusMessage:
             _connectedMessage(newSession.username, newSession.serverType),
       );
@@ -319,6 +321,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: current?.serverType ?? state.serverType,
       serverVersion: current?.serverVersion ?? state.serverVersion,
       apiVersion: current?.apiVersion ?? state.apiVersion,
+      isLegacy: current?.isLegacy ?? false,
       statusMessage: current != null
           ? _connectedMessage(current.username, current.serverType)
           : null,

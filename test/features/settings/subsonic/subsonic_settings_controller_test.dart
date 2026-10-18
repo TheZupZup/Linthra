@@ -225,6 +225,61 @@ void main() {
         SubsonicConnectionPhase.disconnected,
       );
     });
+
+    test('a legacy sign-in says so, and so does its restore', () async {
+      final store = InMemorySubsonicSessionStore();
+      final container = _container(store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await _settle();
+
+      final ok = await notifier.signIn(
+        url: 'https://cloud.example.com',
+        username: 'alice',
+        password: 'api-key',
+        useLegacy: true,
+      );
+
+      expect(ok, isTrue);
+      expect(
+          container.read(subsonicSettingsControllerProvider).isLegacy, isTrue);
+      // The password stays out of what the card shows.
+      final state = container.read(subsonicSettingsControllerProvider);
+      expect(state.statusMessage ?? '', isNot(contains('api-key')));
+
+      final restored = _container(
+        store: InMemorySubsonicSessionStore(initialSession: await store.read()),
+      );
+      await restored
+          .read(subsonicSettingsControllerProvider.notifier)
+          .ensureLoaded();
+      expect(
+          restored.read(subsonicSettingsControllerProvider).isLegacy, isTrue);
+    });
+
+    test('legacy sign-in on http is refused and nothing is stored', () async {
+      final store = InMemorySubsonicSessionStore();
+      final client = FakeSubsonicClient();
+      final container = _container(client: client, store: store);
+      final notifier =
+          container.read(subsonicSettingsControllerProvider.notifier);
+      await _settle();
+
+      final ok = await notifier.signIn(
+        url: 'http://192.168.1.50:8080',
+        username: 'alice',
+        password: 'api-key',
+        useLegacy: true,
+      );
+
+      expect(ok, isFalse);
+      expect(await store.read(), isNull);
+      expect(client.lastCredentials, isNull);
+      expect(
+        container.read(subsonicSettingsControllerProvider).errorMessage,
+        contains('https://'),
+      );
+    });
   });
 
   group('clear', () {

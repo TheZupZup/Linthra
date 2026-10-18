@@ -121,6 +121,13 @@ class _SubsonicSettingsSectionState
     final SubsonicSyncState syncState =
         ref.watch(subsonicSyncControllerProvider);
     final ThemeData theme = Theme.of(context);
+    // The card's promise follows the sign-in it describes: the session's once
+    // connected, the checkbox's before that.
+    final bool legacy = state.isConnected ? state.isLegacy : _useLegacy;
+    final String passwordNote = legacy
+        ? 'With legacy sign-in, your password is kept encrypted on this '
+            'device and sent with every request.'
+        : 'Your password is never stored — only a derived token is kept.';
 
     return Card(
       child: Padding(
@@ -139,8 +146,8 @@ class _SubsonicSettingsSectionState
             const SizedBox(height: AppSpacing.xs),
             Text(
               'Stream from your own Navidrome or other Subsonic-compatible '
-              'server, including one behind an HTTPS reverse proxy. Your '
-              'password is never stored — only a derived token is kept.',
+              'server, including one behind an HTTPS reverse proxy. '
+              '$passwordNote',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -224,9 +231,12 @@ class _SubsonicSettingsSectionState
         const SizedBox(height: AppSpacing.sm),
         // --- Legacy / Plaintext Authentication Toggle ---
         CheckboxListTile(
-          title: const Text('Legacy / Plaintext Authentication'),
-          subtitle:
-              const Text('Required for Nextcloud Music and legacy servers'),
+          title: const Text('Legacy sign-in (https only)'),
+          subtitle: const Text(
+            'For servers that refuse token sign-in, like Nextcloud Music. '
+            'Sends your password with every request, so use an app password '
+            'or API key if your server has one.',
+          ),
           value: _useLegacy,
           onChanged: busy
               ? null
@@ -340,7 +350,7 @@ class _ConnectedView extends StatelessWidget {
                     ),
                   if (state.isLegacy)
                     Text(
-                      'Authentication: Legacy plaintext',
+                      'Signed in with legacy sign-in',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.primary,
                       ),
