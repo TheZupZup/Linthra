@@ -225,15 +225,16 @@ class _SubsonicSettingsSectionState
         // --- Legacy / Plaintext Authentication Toggle ---
         CheckboxListTile(
           title: const Text('Legacy / Plaintext Authentication'),
-          subtitle: const Text('Required for Nextcloud Music and legacy servers'),
+          subtitle:
+              const Text('Required for Nextcloud Music and legacy servers'),
           value: _useLegacy,
           onChanged: busy
               ? null
               : (bool? value) {
-            setState(() {
-              _useLegacy = value ?? false;
-            });
-          },
+                  setState(() {
+                    _useLegacy = value ?? false;
+                  });
+                },
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),

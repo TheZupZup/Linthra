@@ -11,13 +11,19 @@ import 'package:crypto/crypto.dart';
 /// never needs to be stored. Linthra computes one pair at sign-in and keeps
 /// only it — see [SubsonicSession].
 class SubsonicCredentials {
-  const SubsonicCredentials({required this.salt, required this.token, this.password, this.isLegacy = false,});
+  const SubsonicCredentials({
+    required this.salt,
+    required this.token,
+    this.password,
+    this.isLegacy = false,
+  });
 
   /// Factory constructor for legacy/plaintext servers (like Nextcloud Music).
   const SubsonicCredentials.legacy(String this.password)
       : salt = null,
         token = null,
         isLegacy = true;
+
   /// The random salt, sent as the `s=` query parameter.
   final String? salt;
 
@@ -66,7 +72,8 @@ abstract final class SubsonicAuth {
     String Function()? saltGenerator,
   }) {
     final String salt = (saltGenerator ?? _randomSalt)();
-    return SubsonicCredentials(salt: salt, token: tokenFor(password, salt),isLegacy: false);
+    return SubsonicCredentials(
+        salt: salt, token: tokenFor(password, salt), isLegacy: false);
   }
 
   /// Creates a legacy credential container for plaintext authentication.

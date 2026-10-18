@@ -596,6 +596,7 @@ class HttpSubsonicClient implements SubsonicClient {
       token: session.token,
     );
   }
+
   /// GETs a lyrics endpoint and runs [parse] on a successful envelope.
   ///
   /// Lyrics are best-effort: only a transport failure (from [_send]) propagates

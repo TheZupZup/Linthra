@@ -11,7 +11,7 @@
 /// pair is a credential — it is persisted only through the `SubsonicSessionStore`
 /// (the production binding is encrypted on-device) and must never be logged or
 /// shown. [toString] redacts both so an accidental interpolation can't leak it.
-
+///
 /// Supports both modern token-based auth (salt + token) and legacy plaintext
 /// password auth (for Nextcloud Music via `isLegacy` and `password`).
 class SubsonicSession {
@@ -87,16 +87,16 @@ class SubsonicSession {
   /// Serializes for the encrypted secure store. Credentials (tokens or legacy password)
   /// are included safely since the store is encrypted on-device.
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'baseUrl': baseUrl,
-    'username': username,
-    if (salt != null) 'salt': salt,
-    if (token != null) 'token': token,
-    if (password != null) 'password': password,
-    'isLegacy': isLegacy,
-    if (serverType != null) 'serverType': serverType,
-    if (serverVersion != null) 'serverVersion': serverVersion,
-    if (apiVersion != null) 'apiVersion': apiVersion,
-  };
+        'baseUrl': baseUrl,
+        'username': username,
+        if (salt != null) 'salt': salt,
+        if (token != null) 'token': token,
+        if (password != null) 'password': password,
+        'isLegacy': isLegacy,
+        if (serverType != null) 'serverType': serverType,
+        if (serverVersion != null) 'serverVersion': serverVersion,
+        if (apiVersion != null) 'apiVersion': apiVersion,
+      };
 
   /// Rebuilds a session from [toJson] output, or returns `null` if any required
   /// field is missing/blank. Branches validation based on [isLegacy].
@@ -141,35 +141,35 @@ class SubsonicSession {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-          (other is SubsonicSession &&
-              other.baseUrl == baseUrl &&
-              other.username == username &&
-              other.salt == salt &&
-              other.token == token &&
-              other.password == password &&
-              other.isLegacy == isLegacy &&
-              other.serverType == serverType &&
-              other.serverVersion == serverVersion &&
-              other.apiVersion == apiVersion);
+      (other is SubsonicSession &&
+          other.baseUrl == baseUrl &&
+          other.username == username &&
+          other.salt == salt &&
+          other.token == token &&
+          other.password == password &&
+          other.isLegacy == isLegacy &&
+          other.serverType == serverType &&
+          other.serverVersion == serverVersion &&
+          other.apiVersion == apiVersion);
 
   @override
   int get hashCode => Object.hash(
-    baseUrl,
-    username,
-    salt,
-    token,
-    password,
-    isLegacy,
-    serverType,
-    serverVersion,
-    apiVersion,
-  );
+        baseUrl,
+        username,
+        salt,
+        token,
+        password,
+        isLegacy,
+        serverType,
+        serverVersion,
+        apiVersion,
+      );
 
   /// Redacts sensitive credentials (salt, token, password) so the session can
   /// be safely interpolated into logs or error messages.
   @override
   String toString() => 'SubsonicSession(baseUrl: $baseUrl, '
-      'username: $username, isLegacy: $isLegacy, serverType:$serverType, '
-      'serverVersion: $serverVersion, apiVersion:$apiVersion, '
+      'username: $username, isLegacy: $isLegacy, serverType: $serverType, '
+      'serverVersion: $serverVersion, apiVersion: $apiVersion, '
       'salt: <redacted>, token: <redacted>, password: <redacted>)';
 }
