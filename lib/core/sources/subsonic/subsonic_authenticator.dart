@@ -14,9 +14,13 @@ import 'subsonic_server_url.dart';
 /// anything — the controller decides whether/where to store the session — so
 /// this stays a pure coordinator that's trivial to test with a fake client.
 ///
-/// The password is used only to compute the token (via [SubsonicAuth]) and is
-/// never held, copied into the session, or logged. The session carries only the
-/// derived (salt, token).
+/// By default the password is used only to compute the token (via
+/// [SubsonicAuth]) and is never held, copied into the session, or logged. The
+/// session carries only the derived (salt, token).
+///
+/// `useLegacy` is the opt-in for a server that refuses tokens (Nextcloud
+/// Music): the session then carries the password itself, and only for an
+/// https address. Anything else is refused before a request is made.
 class SubsonicAuthenticator {
   SubsonicAuthenticator(
     this._client, {
@@ -44,9 +48,8 @@ class SubsonicAuthenticator {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
-    final SubsonicCredentials credentials = useLegacy
-        ? SubsonicCredentials.legacy(password)
-        : SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    final SubsonicCredentials credentials =
+        _credentials(baseUrl, password, useLegacy: useLegacy);
     return _client.ping(
       baseUrl,
       username: trimmedUsername,
@@ -54,10 +57,11 @@ class SubsonicAuthenticator {
     );
   }
 
-  /// Signs in and returns a session that stores only the derived (salt, token).
+  /// Signs in and returns a session that stores only the derived (salt, token),
+  /// or with [useLegacy] the password, for an https server only.
   ///
-  /// Throws [SubsonicException] for a bad URL, missing credentials, or rejected
-  /// credentials.
+  /// Throws [SubsonicException] for a bad URL, missing credentials, rejected
+  /// credentials, or legacy sign-in on an address that isn't https.
   Future<SubsonicSession> signIn({
     required String rawUrl,
     required String username,
@@ -67,9 +71,8 @@ class SubsonicAuthenticator {
     final String baseUrl = SubsonicServerUrl.normalize(rawUrl);
     final String trimmedUsername = _requireUsername(username);
     _requirePassword(password);
-    final SubsonicCredentials credentials = useLegacy
-        ? SubsonicCredentials.legacy(password)
-        : SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    final SubsonicCredentials credentials =
+        _credentials(baseUrl, password, useLegacy: useLegacy);
 
     final SubsonicServerInfo info = await _client.ping(
       baseUrl,
@@ -88,6 +91,22 @@ class SubsonicAuthenticator {
       serverVersion: info.serverVersion,
       apiVersion: info.apiVersion,
     );
+  }
+
+  /// The salt + token for [password], or with [useLegacy] the password itself,
+  /// which only an https [baseUrl] may receive.
+  SubsonicCredentials _credentials(
+    String baseUrl,
+    String password, {
+    required bool useLegacy,
+  }) {
+    if (!useLegacy) {
+      return SubsonicAuth.credentials(password, saltGenerator: _saltGenerator);
+    }
+    if (!Uri.parse(baseUrl).isScheme('https')) {
+      throw SubsonicException.legacyNeedsHttps();
+    }
+    return SubsonicCredentials.legacy(password);
   }
 
   String _requireUsername(String username) {

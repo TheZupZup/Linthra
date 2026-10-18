@@ -117,5 +117,28 @@ void main() {
       expect(restored?.token, isNull);
       expect(restored?.salt, isNull);
     });
+
+    test('a stored legacy session for http is never restored', () {
+      final restored = SubsonicSession.fromJson(<String, dynamic>{
+        'baseUrl': 'http://192.168.1.50:8080',
+        'username': 'testuser',
+        'isLegacy': true,
+        'password': 'secret123',
+      });
+      expect(restored, isNull);
+    });
+
+    test('a token session stored before legacy sign-in existed restores', () {
+      final restored = SubsonicSession.fromJson(<String, dynamic>{
+        'baseUrl': 'http://192.168.1.50:4533',
+        'username': 'testuser',
+        'salt': 'salt1',
+        'token': 'tok1',
+      });
+      expect(restored, isNotNull);
+      expect(restored!.isLegacy, isFalse);
+      expect(restored.password, isNull);
+      expect(restored.token, 'tok1');
+    });
   });
 }

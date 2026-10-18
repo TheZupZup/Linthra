@@ -99,7 +99,8 @@ class SubsonicSession {
       };
 
   /// Rebuilds a session from [toJson] output, or returns `null` if any required
-  /// field is missing/blank. Branches validation based on [isLegacy].
+  /// field is missing/blank. Branches validation based on [isLegacy]; a legacy
+  /// session for anything but https reads as `null` too.
   static SubsonicSession? fromJson(Map<String, dynamic> json) {
     final String? baseUrl = json['baseUrl'] as String?;
     final String? username = json['username'] as String?;
@@ -111,6 +112,9 @@ class SubsonicSession {
     if (isLegacy) {
       final String? password = json['password'] as String?;
       if (password == null || password.isEmpty) return null;
+      // Sign-in never makes one for http; restoring it would send the
+      // password in the clear.
+      if (!(Uri.tryParse(baseUrl)?.isScheme('https') ?? false)) return null;
       return SubsonicSession(
         baseUrl: baseUrl,
         username: username,
