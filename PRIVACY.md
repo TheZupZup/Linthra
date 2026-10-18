@@ -1,6 +1,6 @@
 # Linthra Privacy Policy
 
-Last updated: 2026-09-29
+Last updated: 2026-10-18
 
 Linthra is an open-source Android music player focused on local music and user-controlled self-hosted music libraries.
 
@@ -23,6 +23,7 @@ Depending on how the user chooses to use Linthra, the app may handle the followi
 - Playback state, queue information, favorites, playlists, and play history.
 - Self-hosted server settings, such as server URL, selected library, and connection state.
 - Authentication tokens or session details for user-configured music services such as Jellyfin, Plex, Subsonic/Navidrome, or Audiobookshelf.
+- For a Subsonic-compatible server, only if the user turns on legacy sign-in (off by default, for servers such as Nextcloud Music that refuse token sign-in): the server password itself.
 - In the GitHub Sponsor APK only, and only if the user chooses to connect GitHub: a GitHub access token, used to check sponsorship.
 - Diagnostic information generated locally when the user chooses to report a problem.
 
@@ -50,6 +51,8 @@ Links in the app, such as the project page, the privacy policy or the prefilled 
 ## Authentication and tokens
 
 Authentication tokens and session information are stored locally on the user's device, in the platform's secure storage. Linthra uses music server tokens only to connect to the music servers configured by the user.
+
+Server passwords are not stored, with one opt-in exception. Subsonic's legacy sign-in, for servers that refuse token sign-in such as Nextcloud Music, has no token to keep, so when the user turns it on Linthra keeps the password in the same secure storage (Android Keystore-backed on Android, libsecret on Linux) and sends it to the user's own server with every request. It only works with an `https://` address, Linthra's own requests never follow a redirect with it, and signing out deletes it. The server, and any proxy in front of it, may record it in their access logs, so an app password or API key is the better choice where the server offers one (Nextcloud Music asks for an API key from its Music settings, which can be revoked there).
 
 In the GitHub Sponsor APK, if the user connects GitHub, Linthra also stores the GitHub access token that GitHub issues for it. The token is limited to reading the user's GitHub profile (the `read:user` scope). Linthra sends it only to GitHub's API (api.github.com), only to check whether the account sponsors the project, and deletes it when the user disconnects GitHub. No other build stores a GitHub token.
 

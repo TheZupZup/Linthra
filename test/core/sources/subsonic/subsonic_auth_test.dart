@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/core/sources/subsonic/subsonic_auth.dart';
+import 'package:linthra/core/sources/subsonic/subsonic_endpoints.dart';
 
 void main() {
   group('SubsonicAuth.tokenFor', () {
@@ -67,6 +71,99 @@ void main() {
       );
       expect(creds.salt, isNot(contains('super-secret-password')));
       expect(creds.token, isNot(contains('super-secret-password')));
+    });
+  });
+
+  group('SubsonicAuth legacy mode', () {
+    test('legacy credentials produce correct password parameter and flag', () {
+      const creds = SubsonicCredentials.legacy('mysecretpassword');
+      expect(creds.isLegacy, isTrue);
+      expect(creds.password, 'mysecretpassword');
+    });
+
+    test('legacy credentials redact password in toString()', () {
+      const creds = SubsonicCredentials.legacy('mysecretpassword');
+      final text = creds.toString();
+      expect(text, isNot(contains('mysecretpassword')));
+      expect(text, contains('<redacted>'));
+    });
+
+    test('SubsonicEndpoints builds URI with p=password in legacy mode', () {
+      final uri = SubsonicEndpoints.stream(
+        'https://music.example.com',
+        username: 'testuser',
+        credentials: const SubsonicCredentials.legacy('secret123'),
+        songId: 'song-xyz',
+      );
+
+      expect(uri.queryParameters['u'], 'testuser');
+      expect(uri.queryParameters['p'], 'enc:736563726574313233');
+      expect(uri.queryParameters.containsKey('t'), isFalse);
+      expect(uri.queryParameters.containsKey('s'), isFalse);
+    });
+
+    test('the password is sent as enc: and its UTF-8 bytes in hex', () {
+      String decode(String encoded) {
+        expect(encoded, startsWith('enc:'));
+        final String hex = encoded.substring('enc:'.length);
+        return utf8.decode(<int>[
+          for (int i = 0; i < hex.length; i += 2)
+            int.parse(hex.substring(i, i + 2), radix: 16),
+        ]);
+      }
+
+      expect(
+          SubsonicAuth.encodePassword('secret123'), 'enc:736563726574313233');
+      // A password that itself starts with enc: still means itself, and the
+      // characters query escaping disagrees on come back intact.
+      for (final String password in <String>[
+        'enc:6869',
+        'a+b%20c&d=e',
+        'pässwörd ключ 🎵',
+      ]) {
+        expect(decode(SubsonicAuth.encodePassword(password)), password);
+      }
+    });
+
+    test('SubsonicSession serializes and deserializes legacy state correctly',
+        () {
+      const session = SubsonicSession(
+        baseUrl: 'https://music.example.com',
+        username: 'testuser',
+        isLegacy: true,
+        password: 'secret123',
+      );
+
+      final json = session.toJson();
+      final restored = SubsonicSession.fromJson(json);
+
+      expect(restored?.isLegacy, isTrue);
+      expect(restored?.password, 'secret123');
+      expect(restored?.token, isNull);
+      expect(restored?.salt, isNull);
+    });
+
+    test('a stored legacy session for http is never restored', () {
+      final restored = SubsonicSession.fromJson(<String, dynamic>{
+        'baseUrl': 'http://192.168.1.50:8080',
+        'username': 'testuser',
+        'isLegacy': true,
+        'password': 'secret123',
+      });
+      expect(restored, isNull);
+    });
+
+    test('a token session stored before legacy sign-in existed restores', () {
+      final restored = SubsonicSession.fromJson(<String, dynamic>{
+        'baseUrl': 'http://192.168.1.50:4533',
+        'username': 'testuser',
+        'salt': 'salt1',
+        'token': 'tok1',
+      });
+      expect(restored, isNotNull);
+      expect(restored!.isLegacy, isFalse);
+      expect(restored.password, isNull);
+      expect(restored.token, 'tok1');
     });
   });
 }

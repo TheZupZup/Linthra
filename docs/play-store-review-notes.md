@@ -68,6 +68,9 @@ one:
 - The password is used **once** to obtain a session token (Jellyfin) or to
   derive a Subsonic/Navidrome `salt`+`token` locally; the password is **not
   stored**, and the session credential is kept in encrypted on-device storage.
+  The one exception is the opt-in Subsonic legacy sign-in (off by default,
+  https only) for servers that refuse tokens, which keeps the password in that
+  same encrypted storage until sign-out.
   See [docs/privacy-policy.md](./privacy-policy.md) and
   [docs/play-store-data-safety.md](./play-store-data-safety.md).
 

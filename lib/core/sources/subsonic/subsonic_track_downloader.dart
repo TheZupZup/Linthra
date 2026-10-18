@@ -6,6 +6,7 @@ import '../../models/track.dart';
 import '../../services/remote_track_downloader.dart';
 import '../download_response_body.dart';
 import '../media_content_type.dart';
+import 'subsonic_endpoints.dart';
 import 'subsonic_stream_source.dart';
 import 'subsonic_track_mapper.dart';
 
@@ -59,9 +60,13 @@ class SubsonicTrackDownloader implements RemoteTrackDownloader {
     try {
       // The request carries the credential in its URL, but the URL never
       // leaves this method, is never logged, and any transport error below is
-      // replaced with a generic message so it can't escape either.
-      final http.StreamedResponse response =
-          await _client.send(http.Request('GET', uri)).timeout(_timeout);
+      // replaced with a generic message so it can't escape either. The legacy
+      // password goes only to the address the user entered, so a URL carrying
+      // it is not sent on through a redirect; the 3xx fails below.
+      final http.StreamedResponse response = await _client
+          .send(http.Request('GET', uri)
+            ..followRedirects = !SubsonicEndpoints.carriesPassword(uri))
+          .timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         // Cancel the body rather than read it to the end: a server that
         // stalls, or keeps a chunked body open, would otherwise hold this

@@ -314,7 +314,9 @@ A single rule runs through playback, Cast, providers, downloads, and
 diagnostics — it's worth stating in one place:
 
 - **The password is used once, then discarded.** Sign-in trades it for a
-  session token; the password is never stored.
+  session token; the password is never stored. The one opt-in exception is
+  Subsonic's legacy sign-in, for servers that refuse tokens (see
+  [providers.md](providers.md)), which keeps it in the encrypted store.
 - **Tokens are encrypted at rest** (`flutter_secure_storage`), never written to
   shared preferences, logs, or diagnostics, and never shown on screen.
 - **Authenticated stream URLs are minted on demand** and never persisted — not

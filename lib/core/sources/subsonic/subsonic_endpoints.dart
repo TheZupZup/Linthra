@@ -26,6 +26,7 @@ abstract final class SubsonicEndpoints {
   static const String userParam = 'u';
   static const String tokenParam = 't';
   static const String saltParam = 's';
+  static const String passwordParam = 'p';
   static const String versionParam = 'v';
   static const String clientParam = 'c';
   static const String formatParam = 'f';
@@ -320,6 +321,14 @@ abstract final class SubsonicEndpoints {
         if (size != null) 'size': '$size',
       });
 
+  /// Whether [uri] carries the legacy password (`p`). Such a request is never
+  /// sent on through a redirect: the password goes to the address the user
+  /// entered and nowhere else. Reads the raw query, so a malformed escape in
+  /// some other provider's URL can't throw here.
+  static bool carriesPassword(Uri uri) => uri.query
+      .split('&')
+      .any((String pair) => pair.split('=').first == passwordParam);
+
   /// Builds `/rest/<method>.view` with the standard auth + format query and any
   /// method-specific [extra] parameters. The single place the salt+token are
   /// woven into a URL.
@@ -330,14 +339,23 @@ abstract final class SubsonicEndpoints {
     SubsonicCredentials credentials, {
     Map<String, String> extra = const <String, String>{},
   }) {
+    final Map<String, String> query = <String, String>{
+      userParam: username,
+      versionParam: apiVersion,
+      clientParam: AppInfo.name,
+      formatParam: 'json',
+    };
+
+    if (credentials.isLegacy) {
+      query[passwordParam] = SubsonicAuth.encodePassword(credentials.password!);
+    } else {
+      query[tokenParam] = credentials.token!;
+      query[saltParam] = credentials.salt!;
+    }
+
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, String>{
-        userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
-        versionParam: apiVersion,
-        clientParam: AppInfo.name,
-        formatParam: 'json',
+        ...query,
         ...extra,
       },
     );
@@ -355,14 +373,23 @@ abstract final class SubsonicEndpoints {
     SubsonicCredentials credentials, {
     Map<String, dynamic> extra = const <String, dynamic>{},
   }) {
+    final Map<String, dynamic> query = <String, dynamic>{
+      userParam: username,
+      versionParam: apiVersion,
+      clientParam: AppInfo.name,
+      formatParam: 'json',
+    };
+
+    if (credentials.isLegacy) {
+      query[passwordParam] = SubsonicAuth.encodePassword(credentials.password!);
+    } else {
+      query[tokenParam] = credentials.token!;
+      query[saltParam] = credentials.salt!;
+    }
+
     return Uri.parse('$baseUrl/rest/$method.view').replace(
       queryParameters: <String, dynamic>{
-        userParam: username,
-        tokenParam: credentials.token,
-        saltParam: credentials.salt,
-        versionParam: apiVersion,
-        clientParam: AppInfo.name,
-        formatParam: 'json',
+        ...query,
         ...extra,
       },
     );

@@ -35,7 +35,8 @@ import 'subsonic_sync_controller.dart';
 /// The live [session] (with its salt+token) is kept privately for building the
 /// source; it is never exposed through the public [state], never logged, and the
 /// password handed to [signIn]/[testConnection] is forwarded once (to derive the
-/// token) and never retained.
+/// token) and never retained, unless the user opted into legacy sign-in, where
+/// the session keeps it, in the encrypted store only.
 class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   SubsonicSession? _session;
   late final Future<void> _initialLoad;
@@ -97,6 +98,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: saved.serverType,
       serverVersion: saved.serverVersion,
       apiVersion: saved.apiVersion,
+      isLegacy: saved.isLegacy,
       statusMessage: _connectedMessage(saved.username, saved.serverType),
     );
   }
@@ -108,6 +110,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     required String url,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.testing,
@@ -121,6 +124,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                useLegacy: useLegacy,
               );
       state = SubsonicSettingsState(
         phase: SubsonicConnectionPhase.tested,
@@ -148,6 +152,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     required String url,
     required String username,
     required String password,
+    bool useLegacy = false,
   }) async {
     state = SubsonicSettingsState(
       phase: SubsonicConnectionPhase.signingIn,
@@ -161,6 +166,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
                 rawUrl: url,
                 username: username,
                 password: password,
+                useLegacy: useLegacy,
               );
       try {
         await ref.read(subsonicSessionStoreProvider).write(newSession);
@@ -193,6 +199,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
         serverType: newSession.serverType,
         serverVersion: newSession.serverVersion,
         apiVersion: newSession.apiVersion,
+        isLegacy: newSession.isLegacy,
         statusMessage:
             _connectedMessage(newSession.username, newSession.serverType),
       );
@@ -315,6 +322,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
       serverType: current?.serverType ?? state.serverType,
       serverVersion: current?.serverVersion ?? state.serverVersion,
       apiVersion: current?.apiVersion ?? state.apiVersion,
+      isLegacy: current?.isLegacy ?? false,
       statusMessage: current != null
           ? _connectedMessage(current.username, current.serverType)
           : null,

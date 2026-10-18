@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/subsonic_session.dart';
 import 'package:linthra/data/repositories/in_memory_subsonic_session_store.dart';
 import 'package:linthra/data/repositories/subsonic_session_store_provider.dart';
 import 'package:linthra/features/settings/subsonic/subsonic_settings_providers.dart';
@@ -8,13 +9,13 @@ import 'package:linthra/features/settings/subsonic/subsonic_settings_section.dar
 
 import '../../../core/sources/subsonic/fake_subsonic_client.dart';
 
-Future<void> _pump(WidgetTester tester) async {
+Future<void> _pump(WidgetTester tester, {SubsonicSession? saved}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
         subsonicClientProvider.overrideWithValue(FakeSubsonicClient()),
-        subsonicSessionStoreProvider
-            .overrideWithValue(InMemorySubsonicSessionStore()),
+        subsonicSessionStoreProvider.overrideWithValue(
+            InMemorySubsonicSessionStore(initialSession: saved)),
       ],
       child: const MaterialApp(
         home: Scaffold(
@@ -68,5 +69,38 @@ void main() {
     await tester.pump();
 
     expect(signIn().onPressed, isNotNull);
+  });
+
+  testWidgets('ticking legacy sign-in changes what the card promises',
+      (tester) async {
+    await _pump(tester);
+    expect(
+        find.textContaining('Your password is never stored'), findsOneWidget);
+
+    await tester.tap(find.text('Legacy sign-in (https only)'));
+    await tester.pump();
+
+    expect(find.textContaining('Your password is never stored'), findsNothing);
+    expect(
+      find.textContaining('your password is kept encrypted on this device'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a restored legacy session says how it signed in',
+      (tester) async {
+    await _pump(
+      tester,
+      saved: const SubsonicSession(
+        baseUrl: 'https://cloud.example.com',
+        username: 'alice',
+        isLegacy: true,
+        password: 'api-key',
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Signed in with legacy sign-in'), findsOneWidget);
+    expect(find.textContaining('Your password is never stored'), findsNothing);
   });
 }

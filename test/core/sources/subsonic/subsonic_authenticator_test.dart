@@ -99,4 +99,65 @@ void main() {
       );
     });
   });
+
+  group('legacy sign-in', () {
+    test('keeps the password for an https server', () async {
+      final session = await auth().signIn(
+        rawUrl: 'https://cloud.example.com/apps/music/subsonic',
+        username: 'alice',
+        password: 'api-key',
+        useLegacy: true,
+      );
+
+      expect(session.isLegacy, isTrue);
+      expect(session.password, 'api-key');
+      expect(session.token, isNull);
+      expect(client.lastCredentials!.password, 'api-key');
+    });
+
+    test('a bare address is https, so it works there too', () async {
+      final session = await auth().signIn(
+        rawUrl: 'cloud.example.com',
+        username: 'alice',
+        password: 'api-key',
+        useLegacy: true,
+      );
+      expect(session.baseUrl, 'https://cloud.example.com');
+    });
+
+    test('is refused for http before anything is sent', () async {
+      await expectLater(
+        auth().testConnection(
+          rawUrl: 'http://192.168.1.50:8080',
+          username: 'alice',
+          password: 'api-key',
+          useLegacy: true,
+        ),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.cleartextBlocked)),
+      );
+      await expectLater(
+        auth().signIn(
+          rawUrl: 'http://192.168.1.50:8080',
+          username: 'alice',
+          password: 'api-key',
+          useLegacy: true,
+        ),
+        throwsA(isA<SubsonicException>()
+            .having((e) => e.kind, 'kind', SubsonicErrorKind.cleartextBlocked)),
+      );
+      expect(client.lastCredentials, isNull);
+    });
+
+    test('token sign-in over http is unchanged', () async {
+      final session = await auth().signIn(
+        rawUrl: 'http://192.168.1.50:4533',
+        username: 'alice',
+        password: 'hunter2',
+      );
+      expect(session.isLegacy, isFalse);
+      expect(session.password, isNull);
+      expect(session.token, SubsonicAuth.tokenFor('hunter2', 'fixedsalt'));
+    });
+  });
 }

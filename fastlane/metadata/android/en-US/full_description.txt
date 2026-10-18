@@ -17,7 +17,8 @@ On privacy:
   downloads only happen when you ask for them (Wi-Fi only unless you opt in to
   mobile data).
 * When you sign in to a server, the password is used once to get a session
-  token, then dropped; the token is stored encrypted and never logged.
+  token, then dropped; the token is stored encrypted and never logged. Only the
+  opt-in Subsonic legacy sign-in (https only) keeps the password, encrypted.
 * Open-source under the GNU Affero General Public License v3.0 or later, so
   anyone can read, build, and contribute to it.
 

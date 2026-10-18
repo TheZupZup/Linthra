@@ -32,6 +32,7 @@ class _SubsonicSettingsSectionState
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _useLegacy = false;
 
   @override
   void initState() {
@@ -39,6 +40,16 @@ class _SubsonicSettingsSectionState
     _urlController.addListener(_onFieldChanged);
     _usernameController.addListener(_onFieldChanged);
     _passwordController.addListener(_onFieldChanged);
+
+    // Sync legacy toggle state if loaded from persisted session
+    ref.listenManual(subsonicSettingsControllerProvider, (previous, next) {
+      if (previous?.isLegacy != next.isLegacy) {
+        setState(() {
+          _useLegacy = next.isLegacy;
+        });
+      }
+    });
+
     // Opening the connection screen is a natural moment to reconcile server
     // playlists/favourites (throttled, best-effort) so they're current without a
     // manual sync.
@@ -70,6 +81,7 @@ class _SubsonicSettingsSectionState
           url: _urlController.text,
           username: _usernameController.text,
           password: _passwordController.text,
+          useLegacy: _useLegacy,
         );
   }
 
@@ -80,6 +92,7 @@ class _SubsonicSettingsSectionState
               url: _urlController.text,
               username: _usernameController.text,
               password: _passwordController.text,
+              useLegacy: _useLegacy,
             );
     // Don't keep the password in memory once it's been exchanged for a token.
     if (ok) {
@@ -92,6 +105,9 @@ class _SubsonicSettingsSectionState
     _urlController.clear();
     _usernameController.clear();
     _passwordController.clear();
+    setState(() {
+      _useLegacy = false;
+    });
   }
 
   Future<void> _sync() async {
@@ -105,6 +121,13 @@ class _SubsonicSettingsSectionState
     final SubsonicSyncState syncState =
         ref.watch(subsonicSyncControllerProvider);
     final ThemeData theme = Theme.of(context);
+    // The card's promise follows the sign-in it describes: the session's once
+    // connected, the checkbox's before that.
+    final bool legacy = state.isConnected ? state.isLegacy : _useLegacy;
+    final String passwordNote = legacy
+        ? 'With legacy sign-in, your password is kept encrypted on this '
+            'device and sent with every request.'
+        : 'Your password is never stored — only a derived token is kept.';
 
     return Card(
       child: Padding(
@@ -123,8 +146,8 @@ class _SubsonicSettingsSectionState
             const SizedBox(height: AppSpacing.xs),
             Text(
               'Stream from your own Navidrome or other Subsonic-compatible '
-              'server, including one behind an HTTPS reverse proxy. Your '
-              'password is never stored — only a derived token is kept.',
+              'server, including one behind an HTTPS reverse proxy. '
+              '$passwordNote',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -208,6 +231,26 @@ class _SubsonicSettingsSectionState
                   setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        // --- Legacy / Plaintext Authentication Toggle ---
+        CheckboxListTile(
+          title: const Text('Legacy sign-in (https only)'),
+          subtitle: const Text(
+            'For servers that refuse token sign-in, like Nextcloud Music. '
+            'Sends your password with every request, so use an app password '
+            'or API key if your server has one.',
+          ),
+          value: _useLegacy,
+          onChanged: busy
+              ? null
+              : (bool? value) {
+                  setState(() {
+                    _useLegacy = value ?? false;
+                  });
+                },
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
         ),
         const SizedBox(height: AppSpacing.md),
         Row(
@@ -308,6 +351,13 @@ class _ConnectedView extends StatelessWidget {
                     Text(
                       'Signed in as ${state.username}',
                       style: theme.textTheme.bodySmall,
+                    ),
+                  if (state.isLegacy)
+                    Text(
+                      'Signed in with legacy sign-in',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   if (state.baseUrl != null)
                     Text(
