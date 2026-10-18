@@ -9,10 +9,12 @@ and works fully offline.
 
 The Library is organised into three tabs:
 
-- **Songs** — every track in your catalog. Sorted by title (A–Z), with the A–Z
-  fast-scroll rail pinned to the right edge for large libraries. Long-press a
-  row to multi-select (add to playlist, remove from Linthra, remove offline
-  copies). Tapping a song plays it and queues the rest of the visible list.
+- **Songs** — every track in your catalog, with the A–Z fast-scroll rail
+  pinned to the right edge for large libraries. The sort button above the list
+  orders it by title, artist, album (A to Z or Z to A) or date added (newest or
+  oldest first); the choice is remembered. Long-press a row to multi-select
+  (add to playlist, remove from Linthra, remove offline copies). Tapping a song
+  plays it and queues the rest of the visible list, in the order shown.
 - **Albums** — tracks grouped into albums. Each row shows the album artwork (or
   a placeholder), the album title, the album artist, and the track count.
   Tapping an album opens its detail view.
@@ -114,10 +116,21 @@ Tests: `test/features/library/quick_search_test.dart`,
 ### Fast-scroll rail
 
 The A–Z fast-scroller is kept on the **Songs** tab, where an alphabetical track
-list benefits from it. It hides automatically when there are too few sections
-(for example, while a search narrows the list to a handful of results), so it
-never gets in the way. The Albums and Artists tabs are short, grouped lists and
-don't use the rail.
+list benefits from it. It indexes whatever the list is sorted by (titles,
+artists or albums, in list order, so Z to A runs Z first), with accents folded
+away: "Édith Piaf" files under E. Anything not starting with A–Z shares a `#`
+section, and songs with no artist or album to sort by share a last `?` section
+in either direction. It hides automatically when there are too few sections
+(for example, while a search narrows the list to a handful of results), and a
+date added order has no letters to index, so it shows neither section headers
+nor the rail. The Albums and Artists tabs are short, grouped lists and don't
+use the rail.
+
+"Date added" is the first-seen time Linthra records when a scan or sync first
+finds a track, the same one behind the Recently added mix. It is not the
+release date or the file's modification time. A song held by more than one
+server takes its earliest copy's time, and songs with no recorded time come
+last.
 
 ## How grouping works
 
@@ -236,4 +249,4 @@ Two things it deliberately does **not** do yet:
 
 - Playlists / favorites integration from album & artist views.
 - Genre browsing.
-- Advanced filters and sort options (by year, recently added, duration).
+- Advanced filters and more sort options (by year, duration).
