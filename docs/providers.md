@@ -224,8 +224,8 @@ these servers, so it comes with rules of its own:
   API calls, lyrics, the stream check, folder browsing, downloads, both artwork
   caches and the in-app cover. A 3xx is refused with its own message, so a
   proxy that rewrites the address can't send the password on to another host or
-  to plain http. Playlist form posts carry it in the body, which is never resent
-  through a redirect.
+  to plain http. Playlist form posts carry it in the body, and are refused on a
+  redirect the same way.
 - **Gone on sign-out**, like any other session.
 
 The audio engines (ExoPlayer, which just_audio lets follow https to http

@@ -266,6 +266,81 @@ void main() {
     });
   });
 
+  // A long playlist write goes as a form POST, the password in its body. The
+  // origin takes form posts, then answers the POST itself with a redirect.
+  group('a long legacy playlist write', () {
+    late HttpServer formOrigin;
+    late int formPosts;
+
+    Future<void> answerPostsWith(int status) async {
+      formPosts = 0;
+      formOrigin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      formOrigin.listen((HttpRequest request) async {
+        if (request.method == 'POST') {
+          formPosts++;
+          await utf8.decoder.bind(request).join();
+          request.response
+            ..statusCode = status
+            ..headers.set(HttpHeaders.locationHeader,
+                '${elsewhere.origin}${request.uri.path}');
+        } else {
+          request.response
+            ..headers.contentType = ContentType.json
+            ..write(jsonEncode(<String, Object>{
+              'subsonic-response': <String, Object>{
+                'status': 'ok',
+                'version': '1.16.1',
+                'openSubsonicExtensions': <Object>[
+                  <String, Object>{
+                    'name': 'formPost',
+                    'versions': <int>[1],
+                  },
+                ],
+              },
+            }));
+        }
+        await request.response.close();
+      });
+      addTearDown(() => formOrigin.close(force: true));
+    }
+
+    Future<void> writeLongPlaylist(SubsonicSession session) =>
+        HttpSubsonicClient(httpClient: http.Client()).setPlaylistSongs(
+          session,
+          'pl-1',
+          <String>[for (int i = 0; i < 400; i++) 'song-id-$i'],
+        );
+
+    for (final int status in <int>[303, 307, 308]) {
+      test('is not sent on through a $status', () async {
+        await answerPostsWith(status);
+        final SubsonicSession session = SubsonicSession(
+          baseUrl: 'http://127.0.0.1:${formOrigin.port}',
+          username: 'alice',
+          isLegacy: true,
+          password: _password,
+        );
+
+        await expectLater(writeLongPlaylist(session), _refusedRedirect);
+        expect(formPosts, 1);
+        expect(elsewhere.seen, isEmpty);
+      });
+    }
+
+    test('with a token still follows a 303 as before', () async {
+      await answerPostsWith(303);
+      final SubsonicSession session = SubsonicSession(
+        baseUrl: 'http://127.0.0.1:${formOrigin.port}',
+        username: 'alice',
+        salt: 'salt1',
+        token: 'tok1',
+      );
+
+      await writeLongPlaylist(session);
+      expect(elsewhere.seen.single.path, '/rest/createPlaylist.view');
+    });
+  });
+
   group('token sign-in is unchanged', () {
     test('API requests still follow a redirect', () async {
       final HttpSubsonicClient client =
