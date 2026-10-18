@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/dimens.dart';
+import '../../../core/catalog/text_folding.dart';
 import '../../../core/models/track.dart';
 import '../../../shared/focus/focus_ring.dart';
 import '../../../shared/focus/list_keyboard_navigation.dart';
@@ -9,8 +10,10 @@ import 'track_tile.dart';
 /// A track list with first-letter section grouping and an A–Z fast-scroll
 /// index pinned to the trailing edge, so large libraries stay navigable.
 ///
-/// Tracks are sorted by title (case-insensitive) and grouped under a header for
-/// each leading letter; titles that don't start with a letter fall under '#'.
+/// Tracks are sorted by title, ignoring case, common accents and leading
+/// spaces, and grouped under a header for each leading letter: "Été" files
+/// under E. Titles that don't start with A–Z (digits, symbols, other scripts)
+/// share one '#' section at the top.
 /// The vertical index rail mirrors exactly the letters present and jumps the
 /// list to a section on tap or drag (a contacts-app style scrubber).
 ///
@@ -135,9 +138,15 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
 
   /// (Re)derives the sorted list, the flat header/track entry list, and the
   /// per-letter scroll offsets from the current tracks.
+  ///
+  /// The order and the sections come from the same key, so every section is
+  /// one contiguous run and each letter appears once (#872). Sorting on one
+  /// key and grouping on another put '#' at both ends of the list.
   void _rebuildIndex() {
-    _sorted = [...widget.tracks]
-      ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    final List<_SortKey> keys = <_SortKey>[
+      for (final Track track in widget.tracks) _SortKey(track),
+    ]..sort();
+    _sorted = <Track>[for (final _SortKey key in keys) key.track];
 
     _entries = <_Entry>[];
     _letters = <String>[];
@@ -146,8 +155,8 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
 
     double offset = 0;
     String? current;
-    for (var i = 0; i < _sorted.length; i++) {
-      final letter = _indexKey(_sorted[i].title);
+    for (var i = 0; i < keys.length; i++) {
+      final letter = keys[i].letter;
       if (letter != current) {
         current = letter;
         _letters.add(letter);
@@ -160,15 +169,6 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
       offset += _trackExtent;
     }
     _activeLetter = _letters.isNotEmpty ? _letters.first : null;
-  }
-
-  /// The leading index character for [title]: an uppercase letter, or '#' for
-  /// anything that doesn't begin with a letter (digits, symbols, empty).
-  static String _indexKey(String title) {
-    final trimmed = title.trimLeft();
-    if (trimmed.isEmpty) return '#';
-    final first = trimmed[0].toUpperCase();
-    return RegExp('[A-Z]').hasMatch(first) ? first : '#';
   }
 
   /// Keeps [_activeLetter] in step with normal list scrolling so the rail
@@ -281,6 +281,40 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
           ),
       ],
     );
+  }
+}
+
+/// A track with the key it is sorted and sectioned by, folded once so a big
+/// library isn't re-folded on every comparison.
+class _SortKey implements Comparable<_SortKey> {
+  factory _SortKey(Track track) {
+    // `trim` first catches the Unicode spaces [foldText] leaves alone.
+    final String folded = foldText(track.title.trim());
+    final String letter =
+        _latinLetter.hasMatch(folded) ? folded[0].toUpperCase() : '#';
+    return _SortKey._(track, folded, letter);
+  }
+
+  const _SortKey._(this.track, this.folded, this.letter);
+
+  static final RegExp _latinLetter = RegExp('^[a-z]');
+
+  final Track track;
+
+  /// The title lower-cased, without common accents or surrounding spaces.
+  final String folded;
+
+  /// The section: an uppercase A–Z, or '#' for anything else.
+  final String letter;
+
+  @override
+  int compareTo(_SortKey other) {
+    // '#' sorts before 'A', which puts the symbol section first.
+    final int bySection = letter.compareTo(other.letter);
+    if (bySection != 0) return bySection;
+    final int byFolded = folded.compareTo(other.folded);
+    if (byFolded != 0) return byFolded;
+    return track.title.compareTo(other.track.title);
   }
 }
 

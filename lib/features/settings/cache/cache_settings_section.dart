@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,7 @@ import '../../../app/dimens.dart';
 import '../../../core/models/cache_size.dart';
 import '../../../core/services/offline_cache_manager.dart';
 import '../../../data/repositories/download_repository_provider.dart';
+import '../../downloads/bulk_download_controller.dart';
 import '../../downloads/download_providers.dart';
 
 /// The offline-cache card on the Settings screen.
@@ -134,6 +137,9 @@ class CacheSettingsSection extends ConsumerWidget {
       builder: (_) => const _ClearCacheDialog(),
     );
     if (choice == null) return;
+    // A "Download all" still running would otherwise go on refilling what
+    // this frees.
+    ref.read(bulkDownloadControllerProvider.notifier).stopForClear();
     final manager = ref.read(offlineCacheManagerProvider);
     switch (choice) {
       case _ClearChoice.unpinned:
@@ -184,8 +190,13 @@ class _CacheLimitDialogState extends State<_CacheLimitDialog> {
   int? get _resolvedBytes {
     if (!_custom) return _selectedPreset;
     final double? gb = double.tryParse(_customController.text.trim());
-    if (gb == null || gb <= 0) return null;
-    return CacheSize.clamp(CacheSize.gigabytes(gb));
+    // tryParse also accepts "NaN" and "Infinity" ("1e999" parses to
+    // Infinity), and rounding those to bytes throws.
+    if (gb == null || !gb.isFinite || gb <= 0) return null;
+    // Cap in GB first: a huge finite value like 1e300 still overflows to
+    // Infinity once multiplied out to bytes.
+    const double maxGb = CacheSize.maxLimit / CacheSize.bytesPerGb;
+    return CacheSize.clamp(CacheSize.gigabytes(math.min(gb, maxGb)));
   }
 
   Object get _selectedChoice =>

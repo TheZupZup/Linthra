@@ -1000,6 +1000,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Queues a transport resume for a focus regain. A cast receiver owns audio
   /// while suspended, so it is a no-op then.
   ///
+  /// A source that failed while the interruption held it paused was let go of
+  /// ([_onEngineError]), and resuming the engine would report playing in
+  /// silence. The track is opened again where it stopped instead, as [play]
+  /// does (#875). The hold stays until it sounds, and ends with the error if
+  /// it can't.
+  ///
   /// `_player.play()`'s future completes only when playback *ends*, so awaiting
   /// it on the serialized chain would keep the chain occupied for the rest of
   /// the track — every later focus action (a new pause, a duck, a volume
@@ -1010,6 +1016,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _enqueueFocusResume() {
     if (_suspended) return;
     _enqueueTransport(() async {
+      if (!_loadInFlight &&
+          _engineSourceGeneration == _abandonedSourceGeneration &&
+          _queue.current != null) {
+        StabilityDiagnostics.audioFocus('regain:reload');
+        unawaited(_playCurrent(startAt: _state.position));
+        return;
+      }
       // A load in flight has not handed its source over yet, so the engine
       // still holds the song before it, the same reason play() leaves it
       // alone. The load starts its own track when it lands, now that the
@@ -1020,16 +1033,20 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }
 
   /// Queues the engine volume for the current duck state on the same serialized
-  /// chain (so it never overlaps a pause/play), capturing the target now so it
-  /// can't be read from a later-mutated [_ducked]. Not epoch-guarded, so a duck
+  /// chain (so it never overlaps a pause/play). Not epoch-guarded, so a duck
   /// and its restore both apply in order and the last (full volume on recovery)
   /// wins — Linthra can never be left stuck ducked.
+  ///
+  /// The level is read when the step runs, not when it is queued: a volume
+  /// change pushed to the engine in between (the listener's slider, in the
+  /// same turn as the duck or its end) would otherwise be written over by the
+  /// level from before it, leaving the engine at one level and the state at
+  /// another.
   void _enqueueFocusVolume() {
     if (_suspended) return;
-    final double target = _engineVolume();
     _focusChain = _focusChain.then((_) async {
       try {
-        await _player.setVolume(target);
+        await _player.setVolume(_engineVolume());
       } catch (_) {
         // A volume failure must never break playback; leave the prior volume.
       }
@@ -1372,9 +1389,12 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_pendingRecovery != null) _cancelAutomaticRecovery();
     }
     if (status == PlaybackStatus.buffering &&
-        _state.status == PlaybackStatus.playing) {
+        (_state.status == PlaybackStatus.playing ||
+            (_currentHasPlayed && _state.status != PlaybackStatus.buffering))) {
       // A mid-stream re-buffer on a track that was playing: arm the watchdog so
       // a server that vanishes without an engine error can't hang forever.
+      // Resuming into a stall counts too (Play after a pause, or after a
+      // paused seek): the track has played, so this is no first load.
       _armBufferingWatchdog();
     }
     // When a track finishes, what happens next depends on the repeat mode.
@@ -1435,7 +1455,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // device dozes, a stream URL whose token ran out) is reported like any
     // other. Nothing is lost yet, but that source will never play again, and
     // resuming the engine would read as playing in silence. Like a failed
-    // load's, it is let go of, so Play opens the track afresh from here.
+    // load's, it is let go of, so Play (or the focus regain that ends a call)
+    // opens the track afresh from here.
     if (_state.status == PlaybackStatus.paused && !_loadInFlight) {
       _abandonedSourceGeneration = _engineSourceGeneration;
       return;
@@ -1929,6 +1950,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (wasEmpty) {
       // Nothing was playing, so there is no "next" to insert before: start the
       // set from its first track, exactly as playNext does with one.
+      if (_shuffleEnabled) {
+        _queue = _queue.shuffled(_random);
+      }
+
       _startFreshAfterFailures();
       unawaited(_playCurrent());
       return;
@@ -1942,6 +1967,10 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     final bool wasEmpty = _queue.current == null;
     _queue = _queue.appendedAll(tracks);
     if (wasEmpty) {
+      if (_shuffleEnabled) {
+        _queue = _queue.shuffled(_random);
+      }
+
       _startFreshAfterFailures();
       unawaited(_playCurrent());
       return;

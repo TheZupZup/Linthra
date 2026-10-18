@@ -272,9 +272,9 @@ class CacheDownloadRepository
       }
       if (cached.isManaged) {
         final int? size = await _files.sizeFor(cached.fileName!);
-        if (size == null) {
-          // The managed file is gone; drop the record so it isn't counted and
-          // playback falls back to streaming.
+        if (size == null || !cached.isWholeAt(size)) {
+          // The managed file is gone, or no longer all there; drop the record
+          // so it isn't counted and playback falls back to streaming.
           changed = true;
           continue;
         }
@@ -309,13 +309,19 @@ class CacheDownloadRepository
     // evicts or clears those, so they go now, before anything here writes
     // (#747). Every record is kept, set-aside copies and pre-cached ones
     // included. A record list that read as empty may be a document that
-    // couldn't be read rather than no downloads, so then only the temps go.
+    // couldn't be read rather than no downloads, and one that couldn't be
+    // read in full (or was set aside for that) may name any file here, so
+    // then only the temps go. A store that can tell an empty document from
+    // none says which it was.
     await _files.removeAbandoned(
       <String>{
         for (final CachedTrack cached in kept)
           if (cached.isManaged) cached.fileName!,
       },
-      temporaryOnly: records.isEmpty,
+      temporaryOnly: _store is UnreadableDownloadRecords
+          ? await (_store as UnreadableDownloadRecords).recordsSource() !=
+              DownloadRecordsSource.readable
+          : records.isEmpty,
     );
     _loaded = true;
   }
@@ -507,7 +513,9 @@ class CacheDownloadRepository
         final DownloadStatus? phase = running.phase;
         if (phase != null) _set(key, phase);
       }
-      return DownloadRequestOutcome.started;
+      // Answered as the request running was: held for Wi-Fi or a connection,
+      // or started. Asked in the same turn, that is still being decided.
+      return running.admitted.future;
     }
     // One still out was asked under an account that has signed out or been
     // replaced (or on a server no longer connected): it saves nothing (see
@@ -549,6 +557,7 @@ class CacheDownloadRepository
       // that came back while a request asked on the server just left was out.
       // The row and the progress are left to the request that replaced this
       // one, if one did (see above).
+      if (!operation.admitted.isCompleted) operation.admitted.complete(outcome);
       final bool current = identical(_inFlight[key], operation);
       final CachedTrack? committed = _downloads[key];
       if (current && operation.canceled && _statuses.containsKey(key)) {
@@ -738,6 +747,7 @@ class CacheDownloadRepository
     }
 
     // Accepted: show "queued" until a concurrency slot frees up, then fetch.
+    operation.admitted.complete(DownloadRequestOutcome.started);
     _setPhase(key, operation, DownloadStatus.queued);
     // What the network policy says once the slot is free. A download can wait
     // a long time for one (a whole album is accepted at once and three fetch
@@ -882,6 +892,11 @@ class CacheDownloadRepository
         checkWanted();
         await draft.add(chunk);
       }
+      // A body that ends cleanly short of the size the server announced was
+      // cut off on the way, and is not the whole file.
+      if (total != null && received < total) {
+        throw StateError('The download ended before all of it arrived.');
+      }
       return _Downloaded(draft, data.fileExtension);
     } on Object {
       // A body never listened to is cancelled, so its connection is closed
@@ -1021,9 +1036,22 @@ class CacheDownloadRepository
       return;
     }
 
-    final String fileName = await downloaded.draft.publish(
-      extension: downloaded.fileExtension,
-    );
+    final String fileName;
+    try {
+      fileName = await downloaded.draft.publish(
+        extension: downloaded.fileExtension,
+      );
+    } catch (_) {
+      // The file couldn't be written (the disk is full at the flush): the
+      // download fails, but the evictions already made stand, so persist them
+      // and the metadata matches what is on disk.
+      if (evictedAny) {
+        await _save();
+        if (evictedAStatus) _emitStatus();
+        _emitCache();
+      }
+      rethrow;
+    }
     if (_canceledOrOrphaned(operation, track, preloaded: preloaded) ||
         (preloaded && !_passes(isStillWanted))) {
       // Removed or cleared, or the session changed, while the bytes were being
@@ -1312,6 +1340,7 @@ class CacheDownloadRepository
         _allCopies.where((CachedTrack c) => !(keepPinned && c.pinned)).toList();
     if (victims.isEmpty) {
       if (resetARow) _emitStatus();
+      if (!keepPinned) await _releaseUnreadableRecords();
       return;
     }
     for (final CachedTrack victim in victims) {
@@ -1339,8 +1368,29 @@ class CacheDownloadRepository
         if (!victim.preloaded) _statuses[key] = DownloadStatus.downloaded;
       }
     }
+    if (!keepPinned) await _releaseUnreadableRecords();
     _emitStatus();
     _emitCache();
+  }
+
+  /// After a Clear all: a records document that couldn't be read named only
+  /// downloads the listener has just cleared, so it goes, and the next
+  /// launch's sweep takes the files it was keeping. The live document is saved
+  /// over first when it is the unreadable one, which sets it aside too.
+  Future<void> _releaseUnreadableRecords() async {
+    final DownloadStore store = _store;
+    if (store is! UnreadableDownloadRecords) return;
+    final UnreadableDownloadRecords records =
+        store as UnreadableDownloadRecords;
+    try {
+      if (await records.recordsSource() != DownloadRecordsSource.unreadable) {
+        return;
+      }
+      await _saveOrThrow();
+      await records.releaseUnreadableRecords();
+    } catch (_) {
+      // Kept aside a while longer: its files wait for a later Clear all.
+    }
   }
 
   /// Whether [victim], picked for eviction before an await, may still go. It
@@ -1582,11 +1632,20 @@ class CacheDownloadRepository
     _emitStatus();
   }
 
-  void _emitStatus() => _changes.add(_snapshot());
+  // A fetch already out when the repository is disposed still finishes and
+  // reports, after the streams it would report on are closed: nothing is
+  // listening any more, so it says nothing.
+  void _emitStatus() {
+    if (!_disposed) _changes.add(_snapshot());
+  }
 
-  void _emitCache() => _cacheChanges.add(_cacheSnapshot());
+  void _emitCache() {
+    if (!_disposed) _cacheChanges.add(_cacheSnapshot());
+  }
 
-  void _emitProgress() => _progressChanges.add(_progressSnapshot());
+  void _emitProgress() {
+    if (!_disposed) _progressChanges.add(_progressSnapshot());
+  }
 
   /// Runs [action] (a cache commit) only after any in-flight commit finishes,
   /// so the eviction + write step is never interleaved across the otherwise
@@ -1732,6 +1791,13 @@ class _CacheOperation {
   /// cancellation can't stop it any more: a removal takes the copy back out
   /// instead, so a fresh request can't take this operation back either.
   bool recording = false;
+
+  /// What the request that started this was told about the network policy:
+  /// started once it may run, or why it is held. Completed once that is
+  /// known, and always by the time the request returns, so a second request
+  /// for the same track can answer the same.
+  final Completer<DownloadRequestOutcome> admitted =
+      Completer<DownloadRequestOutcome>();
 }
 
 /// Whether the network policy lets a download run now, and why not when it

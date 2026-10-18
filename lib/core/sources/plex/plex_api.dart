@@ -175,9 +175,9 @@ class PlexMediaContainer {
         : const <PlexMetadata>[];
 
     return PlexMediaContainer(
-      size: (raw['size'] as num?)?.toInt(),
-      totalSize: (raw['totalSize'] as num?)?.toInt(),
-      offset: (raw['offset'] as num?)?.toInt(),
+      size: _asInt(raw['size']),
+      totalSize: _asInt(raw['totalSize']),
+      offset: _asInt(raw['offset']),
       directories: directories,
       metadata: metadata,
     );
@@ -375,10 +375,10 @@ class PlexMetadata {
       originalTitle: _asString(json['originalTitle']),
       thumb: _asString(json['thumb']),
       parentThumb: _asString(json['parentThumb']),
-      duration: (json['duration'] as num?)?.toInt(),
-      index: (json['index'] as num?)?.toInt(),
-      year: (json['year'] as num?)?.toInt(),
-      leafCount: (json['leafCount'] as num?)?.toInt(),
+      duration: _asInt(json['duration']),
+      index: _asInt(json['index']),
+      year: _asInt(json['year']),
+      leafCount: _asInt(json['leafCount']),
       media: media,
     );
   }
@@ -444,7 +444,7 @@ class PlexPart {
     return PlexPart(
       key: key,
       container: _asString(json['container']),
-      duration: (json['duration'] as num?)?.toInt(),
+      duration: _asInt(json['duration']),
     );
   }
 }
@@ -456,5 +456,15 @@ class PlexPart {
 String? _asString(Object? value) {
   if (value is String) return value;
   if (value is num) return value.toString();
+  return null;
+}
+
+/// Reads a count, offset or duration that PMS sends as a number, or that a
+/// proxy or a modified server sends as a numeric string. Returns `null` for
+/// anything else, so one odd value is "absent" rather than a parse that
+/// throws and takes the whole listing with it.
+int? _asInt(Object? value) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
   return null;
 }

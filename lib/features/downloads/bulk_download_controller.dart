@@ -27,6 +27,9 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
   bool _canceled = false;
   bool _disposed = false;
 
+  /// Whether the running batch was stopped by [stopForClear].
+  bool _cleared = false;
+
   /// Reserved synchronously by [start], before it awaits anything.
   ///
   /// The published state only turns "running" once the downloader has read the
@@ -62,9 +65,10 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
     // is refused rather than racing this one.
     _starting = true;
     _canceled = false;
+    _cleared = false;
     final bool Function() accountChanged = _accountChangeOf(tracks);
     try {
-      final BulkDownloadSummary summary =
+      final BulkDownloadSummary ran =
           await ref.read(bulkDownloaderProvider).run(
                 repository: ref.read(downloadRepositoryProvider),
                 label: label,
@@ -72,6 +76,9 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
                 isCanceled: () => _canceled || accountChanged(),
                 onProgress: _publish,
               );
+      // What the clear took is the user's doing, not the cache limit's.
+      final BulkDownloadSummary summary =
+          _cleared ? ran.copyWith(evictedExisting: 0) : ran;
       _publish(summary);
       return summary;
     } catch (_) {
@@ -95,6 +102,16 @@ class BulkDownloadController extends Notifier<BulkDownloadSummary?> {
   /// per-track cancel on the Downloads screen.
   void cancel() {
     if (isRunning) _canceled = true;
+  }
+
+  /// Stops the running batch because the user is clearing the offline cache:
+  /// the tracks it has not asked for yet would fill again what they are
+  /// freeing. The downloads the clear takes aren't counted as evicted to stay
+  /// under the cache limit.
+  void stopForClear() {
+    if (!isRunning) return;
+    _canceled = true;
+    _cleared = true;
   }
 
   /// Whether a provider of [tracks] has since signed out, or in as someone

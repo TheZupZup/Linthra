@@ -96,12 +96,13 @@ class HttpSubsonicClient implements SubsonicClient {
     // Shape: artists.index[].artist[]
     final List<SubsonicArtistDto> artists = <SubsonicArtistDto>[];
     final Object? root = envelope.data['artists'];
-    final Object? indexes = root is Map<String, dynamic> ? root['index'] : null;
-    if (indexes is List) {
+    final List<Object?>? indexes =
+        _entries(root is Map<String, dynamic> ? root['index'] : null);
+    if (indexes != null) {
       for (final Object? index in indexes) {
         if (index is! Map<String, dynamic>) continue;
-        final Object? list = index['artist'];
-        if (list is! List) continue;
+        final List<Object?>? list = _entries(index['artist']);
+        if (list == null) continue;
         for (final Object? entry in list) {
           if (entry is Map<String, dynamic>) {
             final SubsonicArtistDto? dto = SubsonicArtistDto.fromJson(entry);
@@ -144,8 +145,9 @@ class HttpSubsonicClient implements SubsonicClient {
     );
     final SubsonicEnvelope envelope = await _get(uri);
     final Object? root = envelope.data['albumList2'];
-    final Object? list = root is Map<String, dynamic> ? root['album'] : null;
-    if (list is! List) {
+    final List<Object?>? list =
+        _entries(root is Map<String, dynamic> ? root['album'] : null);
+    if (list == null) {
       return const SubsonicAlbumPage(
           albums: <SubsonicAlbumDto>[], entryCount: 0);
     }
@@ -172,8 +174,9 @@ class HttpSubsonicClient implements SubsonicClient {
     );
     final SubsonicEnvelope envelope = await _get(uri);
     final Object? root = envelope.data['album'];
-    final Object? list = root is Map<String, dynamic> ? root['song'] : null;
-    if (list is! List) return const <SubsonicSongDto>[];
+    final List<Object?>? list =
+        _entries(root is Map<String, dynamic> ? root['song'] : null);
+    if (list == null) return const <SubsonicSongDto>[];
     final List<SubsonicSongDto> songs = <SubsonicSongDto>[];
     for (final Object? entry in list) {
       if (entry is Map<String, dynamic>) {
@@ -298,8 +301,9 @@ class HttpSubsonicClient implements SubsonicClient {
     final SubsonicEnvelope envelope = await _get(uri);
     // Shape: starred2.song[].id
     final Object? root = envelope.data['starred2'];
-    final Object? songs = root is Map<String, dynamic> ? root['song'] : null;
-    if (songs is! List) return <String>{};
+    final List<Object?>? songs =
+        _entries(root is Map<String, dynamic> ? root['song'] : null);
+    if (songs == null) return <String>{};
     final Set<String> ids = <String>{};
     for (final Object? entry in songs) {
       if (entry is Map<String, dynamic>) {
@@ -342,8 +346,9 @@ class HttpSubsonicClient implements SubsonicClient {
     final SubsonicEnvelope envelope = await _get(uri);
     // Shape: playlists.playlist[]
     final Object? root = envelope.data['playlists'];
-    final Object? list = root is Map<String, dynamic> ? root['playlist'] : null;
-    if (list is! List) return const <SubsonicPlaylistDto>[];
+    final List<Object?>? list =
+        _entries(root is Map<String, dynamic> ? root['playlist'] : null);
+    if (list == null) return const <SubsonicPlaylistDto>[];
     final List<SubsonicPlaylistDto> playlists = <SubsonicPlaylistDto>[];
     for (final Object? entry in list) {
       if (entry is Map<String, dynamic>) {
@@ -577,12 +582,21 @@ class HttpSubsonicClient implements SubsonicClient {
     ));
   }
 
+  /// [value] as a list of entries, or null when it is none. Older servers
+  /// build their JSON from the XML answer, where a list holding one entry
+  /// comes out as that entry alone.
+  static List<Object?>? _entries(Object? value) => switch (value) {
+        final List<Object?> list => list,
+        final Map<String, dynamic> one => <Object?>[one],
+        _ => null,
+      };
+
   /// The ordered song ids of a `playlist` object's `entry` list, skipping any
   /// entry without a usable id.
   static List<String> _entrySongIds(Object? playlist) {
-    final Object? entries =
-        playlist is Map<String, dynamic> ? playlist['entry'] : null;
-    if (entries is! List) return const <String>[];
+    final List<Object?>? entries =
+        _entries(playlist is Map<String, dynamic> ? playlist['entry'] : null);
+    if (entries == null) return const <String>[];
     final List<String> ids = <String>[];
     for (final Object? entry in entries) {
       if (entry is Map<String, dynamic>) {

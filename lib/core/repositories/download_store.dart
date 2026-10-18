@@ -72,6 +72,12 @@ class CachedTrack {
   /// on-device track that is merely marked available offline).
   bool get isManaged => fileName != null && fileName!.isNotEmpty;
 
+  /// Whether a managed file of [size] bytes can hold this whole download:
+  /// never an empty one, nor one shorter than [sizeBytes], the size it had
+  /// when it was saved. Cut short or emptied since, it would stop part way
+  /// through, or never start.
+  bool isWholeAt(int size) => size > 0 && size >= sizeBytes;
+
   /// The provider-aware cache identity — the source scheme plus the catalog id —
   /// so two providers that expose the same catalog id (a Plex ratingKey `101`
   /// and a Subsonic id `101`) never share a cache slot, file, or eviction
@@ -236,6 +242,33 @@ abstract interface class DownloadStore {
   /// written (a [DownloadStoreWriteException] for a full disk), leaving the
   /// last saved set as it was.
   Future<void> saveDownloads(List<CachedTrack> downloads);
+}
+
+/// What a [DownloadStore]'s records were read from.
+enum DownloadRecordsSource {
+  /// No records document at all: nothing saved yet, or preferences that came
+  /// back empty, which can't be told from preferences that couldn't be read.
+  none,
+
+  /// A document read in full, even an empty one.
+  readable,
+
+  /// A document that couldn't be read in full, as the live records or set
+  /// aside. Any file in the offline folder may then be one it names, so none
+  /// of them can be told apart from an abandoned one.
+  unreadable,
+}
+
+/// A [DownloadStore] that keeps a records document it couldn't read in full
+/// aside, rather than writing the next save over it.
+abstract interface class UnreadableDownloadRecords {
+  /// What the records come from now.
+  Future<DownloadRecordsSource> recordsSource();
+
+  /// Drops a document set aside. Only for once the listener has cleared every
+  /// download: what it named is theirs to be rid of then. Throws a
+  /// [DownloadStoreWriteException] when it couldn't be dropped.
+  Future<void> releaseUnreadableRecords();
 }
 
 /// Thrown by [DownloadStore.saveDownloads] when the set couldn't be written.

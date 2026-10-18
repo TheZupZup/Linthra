@@ -318,5 +318,175 @@ void main() {
 
       expect(focusedRowTitle(), 'Z Track');
     });
+
+    // The letters are keyed by the letter itself, so a section that appears
+    // or goes away above a letter doesn't take its focus with it.
+    testWidgets('a focused letter keeps focus when a section appears above it',
+        (
+      tester,
+    ) async {
+      final List<Track> withoutB = <Track>[
+        for (final Track track in _alphabetTracks())
+          if (!track.title.startsWith('B')) track,
+      ];
+      await _pump(tester, withoutB);
+
+      letterNode(tester, 'M').requestFocus();
+      await tester.pump();
+      expect(letterNode(tester, 'M').hasPrimaryFocus, isTrue);
+
+      await _pump(tester, _alphabetTracks());
+
+      expect(letter('B'), findsOneWidget);
+      expect(letterNode(tester, 'M').hasPrimaryFocus, isTrue);
+    });
+  });
+
+  // One key drives both the order and the sections (#872). A title starting
+  // with a digit, a symbol or another script lands in a single '#' block, an
+  // accented title files under its base letter, and a leading space counts
+  // for nothing.
+  group('AlphabetTrackList sections', () {
+    const List<Track> mixedTracks = <Track>[
+      Track(id: '1', title: 'Zulu', uri: 'file:///1.mp3'),
+      Track(id: '2', title: 'Été indien', uri: 'file:///2.mp3'),
+      Track(id: '3', title: '99 Luftballons', uri: 'file:///3.mp3'),
+      Track(id: '4', title: 'Mango', uri: 'file:///4.mp3'),
+      Track(id: '5', title: 'Кино', uri: 'file:///5.mp3'),
+      Track(
+        id: '6',
+        title: "(I Can't Get No) Satisfaction",
+        uri: 'file:///6.mp3',
+      ),
+      Track(id: '7', title: 'À la claire fontaine', uri: 'file:///7.mp3'),
+      Track(id: '8', title: ' Zebra', uri: 'file:///8.mp3'),
+      Track(id: '9', title: 'Apple', uri: 'file:///9.mp3'),
+      Track(id: '10', title: '東京', uri: 'file:///10.mp3'),
+      Track(id: '11', title: 'Echo', uri: 'file:///11.mp3'),
+      Track(id: '12', title: 'Ödland', uri: 'file:///12.mp3'),
+    ];
+
+    const String symbolLabel = 'Jump to songs starting with a number or symbol';
+
+    final Finder list = find.byKey(const Key('library_track_list'));
+    final Finder rail = find.byKey(const Key('library_alphabet_index'));
+
+    List<String?> railLetters(WidgetTester tester) => tester
+        .widgetList<Text>(
+            find.descendant(of: rail, matching: find.byType(Text)))
+        .map((Text text) => text.data)
+        .toList();
+
+    List<String> rowTitles(WidgetTester tester) => tester
+        .widgetList<TrackTile>(find.byType(TrackTile))
+        .map((TrackTile tile) => tile.tracks[tile.index].title)
+        .toList();
+
+    Matcher railLetter(String label, {required bool selected}) =>
+        matchesSemantics(
+          label: label,
+          isButton: true,
+          hasSelectedState: true,
+          isSelected: selected,
+          isFocusable: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+        );
+
+    testWidgets('each section is one block, sorted the way it is grouped', (
+      tester,
+    ) async {
+      // Tall enough to build every row and header at once.
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await _pump(tester, mixedTracks, height: 1400);
+
+      expect(tester.takeException(), isNull);
+      expect(railLetters(tester), <String>['#', 'A', 'E', 'M', 'O', 'Z']);
+      expect(rowTitles(tester), <String>[
+        "(I Can't Get No) Satisfaction",
+        '99 Luftballons',
+        'Кино',
+        '東京',
+        'À la claire fontaine',
+        'Apple',
+        'Echo',
+        'Été indien',
+        'Mango',
+        'Ödland',
+        ' Zebra',
+        'Zulu',
+      ]);
+      for (final String header in <String>['#', 'A', 'E', 'M', 'O', 'Z']) {
+        expect(
+          find.descendant(of: list, matching: find.text(header)),
+          findsOneWidget,
+          reason: 'one $header section',
+        );
+      }
+    });
+
+    testWidgets("'#' jumps back to the top of the list", (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(tester, mixedTracks, height: 300);
+
+      tester.semantics.tap(find.semantics.byLabel('Jump to Z'));
+      await tester.pumpAndSettle();
+      expect(find.text('Zulu'), findsOneWidget);
+      expect(find.text('99 Luftballons'), findsNothing);
+
+      tester.semantics.tap(find.semantics.byLabel(symbolLabel));
+      await tester.pumpAndSettle();
+
+      expect(find.text("(I Can't Get No) Satisfaction"), findsOneWidget);
+      expect(find.text('99 Luftballons'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(symbolLabel)),
+        railLetter(symbolLabel, selected: true),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('the highlight follows the scroll into an accented section', (
+      tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(tester, mixedTracks, height: 300);
+
+      // The header is built in the cache area below the viewport.
+      await tester.ensureVisible(
+        find.descendant(
+          of: list,
+          matching: find.text('E', skipOffstage: false),
+          skipOffstage: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Jump to E')),
+        railLetter('Jump to E', selected: true),
+      );
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(symbolLabel)),
+        railLetter(symbolLabel, selected: false),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a letter jumps to the accented titles filed under it', (
+      tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(tester, mixedTracks, height: 300);
+
+      tester.semantics.tap(find.semantics.byLabel('Jump to O'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ödland'), findsOneWidget);
+      expect(find.text('99 Luftballons'), findsNothing);
+      handle.dispose();
+    });
   });
 }
