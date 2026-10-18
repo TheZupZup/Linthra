@@ -145,7 +145,9 @@ Linthra does not send telemetry or analytics.
   Android 13+, or the older storage permission on Android 12 and below, which
   covers more than music.
 - The server password is used once to get a token, then discarded. The token
-  is stored encrypted and never logged.
+  is stored encrypted and never logged. The one exception is Subsonic's opt-in
+  legacy sign-in for servers like Nextcloud Music that refuse tokens: it keeps
+  the password encrypted on the device and only works over https.
 
 Details are in [PRIVACY.md](./PRIVACY.md) and the provider docs.
 

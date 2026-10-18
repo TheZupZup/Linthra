@@ -36,7 +36,7 @@
     <section class="section legal">
       <div class="container narrow">
         <h1 class="section-title legal-title">Privacy Policy</h1>
-        <p class="legal-updated">Last updated: 2026-09-29</p>
+        <p class="legal-updated">Last updated: 2026-10-18</p>
 
         <div class="legal-body">
           <p>
@@ -91,6 +91,7 @@
             <li>Playback state, queue information, favorites, playlists, and play history.</li>
             <li>Self-hosted server settings, such as server URL, selected library, and connection state.</li>
             <li>Authentication tokens or session details for user-configured music services such as Jellyfin, Plex, Subsonic/Navidrome, or Audiobookshelf.</li>
+            <li>For a Subsonic-compatible server, only if the user turns on legacy sign-in (off by default, for servers such as Nextcloud Music that refuse token sign-in): the server password itself.</li>
             <li>In the GitHub Sponsor APK only, and only if the user chooses to connect GitHub: a GitHub access token, used to check sponsorship.</li>
             <li>Diagnostic information generated locally when the user chooses to report a problem.</li>
           </ul>
@@ -159,6 +160,20 @@
             the user's device, in the platform's secure storage. Linthra uses
             music server tokens only to connect to the music servers configured
             by the user.
+          </p>
+          <p>
+            Server passwords are not stored, with one opt-in exception.
+            Subsonic's legacy sign-in, for servers that refuse token sign-in
+            such as Nextcloud Music, has no token to keep, so when the user turns
+            it on Linthra keeps the password in the same secure storage (Android
+            Keystore-backed on Android, libsecret on Linux) and sends it to the
+            user's own server with every request. It only works with an
+            <code>https://</code> address, Linthra's own requests never follow a
+            redirect with it, and signing out deletes it. The server, and any
+            proxy in front of it, may record it in their access logs, so an app
+            password or API key is the better choice where the server offers one
+            (Nextcloud Music asks for an API key from its Music settings, which
+            can be revoked there).
           </p>
           <p>
             In the GitHub Sponsor APK, if the user connects GitHub, Linthra also

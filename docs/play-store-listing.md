@@ -69,7 +69,8 @@ description (§2). The shipped feature set:
   wired headset).
 - Android Auto browsing.
 - Jellyfin **and** Navidrome / Subsonic: connect, sign in (the session
-  credential is stored encrypted; the password is never saved), sync, and stream
+  credential is stored encrypted; the password is not saved, except with the
+  opt-in Subsonic legacy sign-in, which keeps it encrypted), sync, and stream
   — including over HTTPS.
 - Explicit, user-initiated offline downloads with a smart cache and a
   configurable size limit (Wi-Fi only by default).

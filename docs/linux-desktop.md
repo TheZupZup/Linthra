@@ -157,9 +157,11 @@ exactly as they are on Android.
 
 What is stored: one entry per provider (`jellyfin_session_v1`,
 `subsonic_session_v1`, `plex_session_v1`), each the JSON of a session object.
-Passwords are never among them: Jellyfin exchanges one for an access token,
+Passwords are not among them: Jellyfin exchanges one for an access token,
 Subsonic derives a salt+token pair and discards it, Plex is token-based from
-the start.
+the start. The one exception is Subsonic's opt-in legacy sign-in for servers
+that refuse tokens (Nextcloud Music): its `subsonic_session_v1` entry holds the
+password, in the same libsecret store, until you sign out.
 
 Three runtime facts worth knowing:
 

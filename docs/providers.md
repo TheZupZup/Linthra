@@ -191,7 +191,8 @@ mirrors how Jellyfin stores a derived access token rather than the password.
 
 Concretely, Linthra:
 
-- never stores the plaintext password;
+- never stores the plaintext password (unless the user turns on legacy
+  sign-in, below);
 - never logs the password, salt, or token;
 - never stores an authenticated stream/download URL in `Track.uri` or the
   database (the URI is the opaque `subsonic:<id>`);
@@ -207,6 +208,38 @@ Concretely, Linthra:
 - never surfaces a credential or credentialed URL in a UI error message;
 - resolves stream/download URLs **only at play/download time**, and cover-art
   URLs **only at render time**.
+
+### Legacy sign-in (opt-in)
+
+Some servers refuse the token: Nextcloud Music always does, and so does a
+Subsonic account whose password lives in LDAP (both answer error 41). For them
+the Subsonic card has a **Legacy sign-in (https only)** checkbox, off by
+default. With it on, the session keeps the password in the same encrypted store
+and sends it as `p=` on every request. That is the protocol's only option for
+these servers, so it comes with rules of its own:
+
+- **https only.** Sign-in and Test connection refuse an `http://` address
+  before anything is sent, and a stored legacy session for one is not restored.
+- **No redirects.** A request carrying the password stops at the first answer:
+  API calls, lyrics, the stream check, folder browsing, downloads, both artwork
+  caches and the in-app cover. A 3xx is refused with its own message, so a
+  proxy that rewrites the address can't send the password on to another host or
+  to plain http. Playlist form posts carry it in the body, which is never resent
+  through a redirect.
+- **Gone on sign-out**, like any other session.
+
+The audio engines (ExoPlayer, which just_audio lets follow https to http
+redirects, and libmpv) fetch the stream themselves and follow redirects on
+their own. The stream check asks for the same URL right before the engine gets
+it, so a server that redirects it is caught there and nothing is played. What
+remains is a redirect that only appears on the engine's later requests (a seek,
+a retry); closing that too would mean serving the engine from a local relay.
+Casting already goes through the cast relay, which keeps the URL on the phone.
+
+What it can't prevent: the server, and any proxy in front of it, can record the
+password in its access logs. Nextcloud Music takes an API key from its Music
+settings rather than the account password, so what it exposes there is a key
+that can be revoked.
 
 ### What remains (follow-ups)
 
