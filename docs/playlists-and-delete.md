@@ -209,6 +209,10 @@ scoped (a Jellyfin sign-out never drops Navidrome playlists, and vice-versa).
 - Server membership is treated as the source of truth on refresh, so a change
   that failed to push (marked `syncFailed`) may be reconciled to the server
   state on the next refresh.
+- A big add to a synced Jellyfin playlist goes to the server 100 songs at a
+  time, in order. If one of those requests fails, the songs sent before it are
+  already on the server: the playlist is marked `syncFailed`, the next refresh
+  shows what got there, and adding the songs again sends only the missing ones.
 
 ## Safe song removal / deletion
 
