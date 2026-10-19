@@ -275,8 +275,9 @@ a bug** — and the whole point is that it's **secret-free by construction.**
   auto-sent.
 - `lib/core/diagnostics/app_diagnostics.dart` builds the snapshot. The data
   object can *only* hold report-safe values by design: server addresses are
-  reduced to host (`hostOnly`), filesystem paths to `…/basename`
-  (`redactPath`), and track ids are hashed, never raw.
+  described in fixed words, never shown (`describeServer`), filesystem paths
+  are reduced to `…/basename` (`redactPath`), and track ids are hashed, never
+  raw.
 - `lib/core/diagnostics/safe_event_log.dart` is a small ring buffer of recent
   events. Each event is a fixed *category* plus a *structural* detail
   (`lifecycle`, `bg-playback`, `output`, `precache`, `error`-by-kind) — there's

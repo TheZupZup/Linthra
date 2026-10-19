@@ -12,8 +12,9 @@ body:
         secret-free report, review it, then tap **Open GitHub issue** to land
         here with everything prefilled. (Or **Settings → Diagnostics → Copy
         diagnostics** and paste it into the Diagnostics field below.) Reports are
-        secret-free by construction — no password, token, or full server URL,
-        just versions, connection state, server host, counts, and feature flags.
+        secret-free by construction: no password, token, server address or
+        URL, just versions, connection state, the kind of server connection
+        (http/https, local or public network), counts, and feature flags.
   - type: textarea
     id: what-happened
     attributes:
