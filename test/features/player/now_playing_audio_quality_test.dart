@@ -368,6 +368,34 @@ void main() {
     expect(engine.reads, 0);
   });
 
+  testWidgets('a receiver that is only connected leaves the local line on',
+      (tester) async {
+    // Connected, but nothing handed off (a local file the receiver cannot
+    // take): the engine here is still the one playing.
+    const CastDevice device = CastDevice(id: 'd1', name: 'Living Room');
+    final FakeCastService cast = FakeCastService(
+      initial: const CastState(
+        availability: CastAvailability.connected,
+        devices: <CastDevice>[device],
+        connectedDevice: device,
+      ),
+    );
+    addTearDown(cast.dispose);
+    final _FakeEngine engine = _FakeEngine()..report = _flac;
+
+    await _pump(
+      tester,
+      controller: FakePlaybackController(
+        initial: _state(_songA, source: PlaybackSource.localFile),
+      ),
+      engine: engine,
+      cast: cast,
+    );
+    await _settle(tester);
+
+    expect(find.text('FLAC · Lossless · 44.1 kHz'), findsOneWidget);
+  });
+
   testWidgets('the line keeps its height whether or not a report is known',
       (tester) async {
     final _FakeEngine engine = _FakeEngine()..report = _flac;

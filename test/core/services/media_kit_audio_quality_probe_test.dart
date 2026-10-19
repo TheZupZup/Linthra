@@ -71,6 +71,21 @@ void main() {
       expect(quality?.sampleRateHz, 48000);
     });
 
+    test('floating-point and 64-bit PCM state their width too', () {
+      int? depth(String codec) => MediaKitAudioQualityProbe.fromPlayerState(
+            _state(
+                audio: <AudioTrack>[AudioTrack('1', null, null, codec: codec)]),
+          )?.bitDepth;
+      expect(depth('pcm_f32le'), 32);
+      expect(depth('pcm_f64be'), 64);
+      expect(depth('pcm_s64le'), 64);
+      expect(depth('pcm_u8'), 8);
+      // Companded PCM is 8-bit on the wire but not linear, and a planar or
+      // packed variant is not a plain sample width.
+      expect(depth('pcm_alaw'), isNull);
+      expect(depth('pcm_s16le_planar'), isNull);
+    });
+
     test('takes the bitrate the container reports, in kbps', () {
       final AudioStreamQuality? quality =
           MediaKitAudioQualityProbe.fromPlayerState(_state(

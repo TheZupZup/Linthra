@@ -48,11 +48,13 @@ class NowPlayingAudioQuality extends AutoDisposeNotifier<AudioStreamQuality?> {
   @override
   AudioStreamQuality? build() {
     if (!ref.watch(audioQualityLineEnabledProvider)) return null;
-    // A receiver is playing, not this engine.
+    // A receiver is playing, not this engine. Only a real handoff counts: a
+    // receiver that is merely connected (the track is a local file it cannot
+    // take) leaves the engine playing here.
     final bool casting = ref.watch(
-          castStateProvider.select((s) => s.valueOrNull?.isConnected),
+          castStateProvider.select((s) => s.valueOrNull?.isCasting),
         ) ??
-        ref.watch(castServiceProvider).state.isConnected;
+        ref.watch(castServiceProvider).state.isCasting;
     if (casting) return null;
 
     final PlaybackController controller = ref.watch(playbackControllerProvider);

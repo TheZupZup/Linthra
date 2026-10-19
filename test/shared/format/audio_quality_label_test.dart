@@ -68,6 +68,18 @@ void main() {
   test('an unknown codec id is shown as the engine wrote it', () {
     expect(AudioQualityLabel.codecName('speex'), 'SPEEX');
     expect(AudioQualityLabel.codecName('opus'), 'Opus');
-    expect(AudioQualityLabel.codecName('pcm_f32le'), 'PCM');
+    expect(AudioQualityLabel.codecName('pcm_s16le'), 'PCM');
+  });
+
+  test('floating-point PCM is named apart from integer PCM', () {
+    expect(AudioQualityLabel.codecName('pcm_f32le'), 'PCM float');
+    expect(
+      AudioQualityLabel.text(const AudioStreamQuality(
+        codec: 'pcm_f32le',
+        sampleRateHz: 48000,
+        bitDepth: 32,
+      )),
+      'PCM float · Lossless · 48 kHz · 32-bit',
+    );
   });
 }

@@ -145,11 +145,13 @@ class MediaKitAudioQualityProbe implements AudioQualityProbe {
     return id;
   }
 
-  static final RegExp _pcmInteger = RegExp(r'^pcm_[su](8|16|24|32)(le|be)?$');
+  /// Integer (`pcm_s24le`, `pcm_u8`) and floating-point (`pcm_f32le`) PCM,
+  /// whose ids state the sample width.
+  static final RegExp _pcmWidth = RegExp(r'^pcm_[suf](8|16|24|32|64)(le|be)?$');
 
   static int? _pcmBitDepth(String? codec) {
     if (codec == null) return null;
-    final RegExpMatch? match = _pcmInteger.firstMatch(codec);
+    final RegExpMatch? match = _pcmWidth.firstMatch(codec);
     return match == null ? null : int.parse(match.group(1)!);
   }
 

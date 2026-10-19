@@ -36,6 +36,8 @@ abstract final class AudioQualityLabel {
   /// The familiar name for an engine codec id. An id this does not know is
   /// shown as the engine wrote it, upper-cased, rather than guessed at.
   static String codecName(String codec) {
+    // Named apart, so a float stream's "32-bit" is not read as integer.
+    if (codec.startsWith('pcm_f')) return 'PCM float';
     if (codec.startsWith('pcm_')) return 'PCM';
     return switch (codec) {
       'flac' => 'FLAC',
