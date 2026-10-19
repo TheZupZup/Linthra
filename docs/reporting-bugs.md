@@ -56,7 +56,7 @@ The report is Markdown so it pastes cleanly into a GitHub issue:
 Linthra diagnostics
 App version: …
 Jellyfin: connected
-Jellyfin host: music.example.com
+Jellyfin server: https, unknown network (hostname), default port
 …
 ```
 
@@ -83,9 +83,12 @@ The diagnostics block reuses the same builder as **Settings → Diagnostics**
 ([`AppDiagnostics`](../lib/core/diagnostics/app_diagnostics.dart)), which is
 secret‑free *by construction*:
 
-- Server addresses are always reduced to **host[:port]** (`hostOnly`), so a full
-  authenticated URL can never carry a token, an `api_key` query, or a
-  `user:pass@` prefix into the report.
+- Server addresses are never shown, not even the host. `describeServer` turns
+  each one into fixed words: `http` or `https`, the kind of network (local
+  network, public network, VPN/CGNAT range, loopback, or unknown when a
+  hostname could point anywhere), and default or custom port. No hostname, IP,
+  port number, `user:pass@` prefix, token or `api_key` query can reach the
+  report.
 - The "last error" is a stable **enum name**, never a raw error string (which
   could contain a tokenized URL or a path).
 - The current track is a **hash tag** (e.g. `id#1a2b3c`), never the id/title/URL.

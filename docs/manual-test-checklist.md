@@ -421,9 +421,10 @@ cache's knowledge survives a restart; it never holds a URL or token.
   does not report the previously-seen server. *(Fixed this release.)*
 - ☐ **Diagnostics card**: "Copy diagnostics" copies the app snapshot to the
   clipboard and shows the "no passwords, tokens, or URLs" confirmation; pasting
-  it shows app version, connection state, server **host only**, counts, and
-  feature status — and **no** token, password, `Authorization` header, or full
-  authenticated URL (see §12).
+  it shows app version, connection state, a **described** server line (scheme,
+  kind of network, default or custom port), counts, and feature status, and
+  **no** server hostname or IP, token, password, `Authorization` header, or
+  full authenticated URL (see §12).
 - ☐ "Save diagnostics" writes the same snapshot and confirms with a **redacted**
   location (basename only, never the private app directory path). On Linux it
   opens the save dialog first (the portal's inside the Flatpak); the file lands
@@ -565,11 +566,12 @@ without a back-and-forth — and without you having to share anything sensitive.
 
 The snapshot is **secret-free by design**: it carries the app version, Android
 version and device model (when available), the Jellyfin/Subsonic connection
-state and **server host only**, the library track count, cache used/limit, the
-current playback output, the last safe error kind, and feature status (Cast,
-Android Auto, offline cache, smart pre-cache). It **never** includes your
-password, any token, an `Authorization` header, or a full authenticated URL — so
-it is safe to paste into a public issue.
+state and a **description** of each server address (`http`/`https`, the kind
+of network, default or custom port), the library track count, cache used/limit,
+the current playback output, the last safe error kind, and feature status
+(Cast, Android Auto, offline cache, smart pre-cache). It **never** includes your
+server's hostname or IP, your password, any token, an `Authorization` header,
+or a full authenticated URL, so it is safe to paste into a public issue.
 
 **What to include in a bug report**
 

@@ -4,7 +4,7 @@ import 'package:linthra/core/diagnostics/bug_report.dart';
 void main() {
   const String diagnostics = 'Linthra diagnostics\n'
       'App version: 0.1.0-test\n'
-      'Jellyfin host: music.example.com\n'
+      'Jellyfin server: https, unknown network (hostname), default port\n'
       'Last error: none';
 
   group('BugReport.markdown', () {

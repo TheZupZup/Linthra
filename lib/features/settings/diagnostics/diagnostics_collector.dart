@@ -41,10 +41,11 @@ import '../subsonic/subsonic_sync_state.dart';
 /// renders it through [AppDiagnostics].
 ///
 /// It only ever reads already-secret-free values — the settings *states* (which
-/// hold no token/password by design), host-only addresses, counts, and feature
+/// hold no token/password by design), server addresses, counts, and feature
 /// flags — so nothing sensitive can be assembled here in the first place. The
-/// rendering step ([AppDiagnostics.report]) is the second guard: it forces both
-/// server addresses through `hostOnly`.
+/// rendering step ([AppDiagnostics.report]) is the second guard: it turns both
+/// server addresses into a fixed-word `describeServer` line, so the address
+/// itself never reaches the report.
 class DiagnosticsCollector {
   DiagnosticsCollector(this._ref);
 

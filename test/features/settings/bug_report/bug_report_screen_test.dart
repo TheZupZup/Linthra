@@ -13,7 +13,8 @@ import 'package:linthra/features/settings/bug_report/bug_report_providers.dart';
 import 'package:linthra/features/settings/bug_report/bug_report_screen.dart';
 
 /// A fixed, secret-free snapshot the screen renders from. The Jellyfin host is
-/// deliberately a full authenticated URL to prove `hostOnly` still reduces it.
+/// deliberately a full authenticated URL to prove `describeServer` keeps all
+/// of it, the host included, out of the report.
 const BugReportDiagnostics _bundle = BugReportDiagnostics(
   data: AppDiagnosticsData(
     appVersion: '0.1.0-test',
@@ -31,6 +32,10 @@ const BugReportDiagnostics _bundle = BugReportDiagnostics(
     'error: load',
   ],
 );
+
+/// What the report says about [_bundle]'s Jellyfin address.
+const String _jellyfinServerLine =
+    'Jellyfin server: https, unknown network (hostname), default port';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
   _FakeLinkLauncher({this.result = true});
@@ -127,11 +132,12 @@ void main() {
       expect(find.text('Share bug report'), findsOneWidget);
       expect(find.text('Save report file'), findsOneWidget);
 
-      // The live preview shows the assembled, host-only report.
+      // The live preview shows the assembled report, with the server only
+      // described.
       expect(find.textContaining('# Linthra bug report'), findsOneWidget);
       expect(find.textContaining('App version: 0.1.0-test'), findsOneWidget);
-      expect(find.textContaining('Jellyfin host: music.example.com'),
-          findsOneWidget);
+      expect(find.textContaining(_jellyfinServerLine), findsOneWidget);
+      expect(find.textContaining('music.example.com'), findsNothing);
     });
 
     testWidgets('Copy puts the secret-free markdown report on the clipboard',
@@ -150,8 +156,9 @@ void main() {
       final String copied = args['text'] as String;
       expect(copied, contains('# Linthra bug report'));
       expect(copied, contains('## Diagnostics'));
-      expect(copied, contains('Jellyfin host: music.example.com'));
-      // Nothing sensitive from the full authenticated URL survives.
+      expect(copied, contains(_jellyfinServerLine));
+      // Nothing from the full authenticated URL survives, not even its host.
+      expect(copied, isNot(contains('music.example.com')));
       expect(copied, isNot(contains('api_key')));
       expect(copied, isNot(contains('secret')));
       expect(copied, isNot(contains('pass@')));
@@ -230,7 +237,12 @@ void main() {
       expect(opened.queryParameters['labels'], 'bug');
       final String body = opened.queryParameters['body']!;
       expect(body, contains('# Linthra bug report'));
+      expect(body, contains(_jellyfinServerLine));
+      // The prefilled issue is public once submitted, so the server's host is
+      // nowhere in it: not in the body, and not anywhere else in the link.
       expect(body, isNot(contains('api_key')));
+      expect(opened.toString(), isNot(contains('music.example')));
+      expect(body, isNot(contains('user:pass')));
 
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
