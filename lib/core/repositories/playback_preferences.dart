@@ -14,6 +14,9 @@
 ///    for a track is spent, playback moves on to the next playable track after
 ///    a visible countdown instead of stopping. Unset until the listener
 ///    chooses, and unset behaves as off.
+///  - "Show audio quality": whether Now Playing shows what the engine reports
+///    about the stream it is decoding (codec, sample rate, bitrate). Off by
+///    default.
 abstract interface class PlaybackPreferences {
   /// Whether volume normalization (ReplayGain) is applied during playback.
   /// Defaults to `false`, so audio plays untouched out of the box.
@@ -54,4 +57,10 @@ abstract interface class PlaybackPreferences {
 
   /// Records the listener's choice, which also stops the question being asked.
   Future<void> setAutoSkipUnplayable(bool value);
+
+  /// Whether Now Playing shows the audio quality the engine reports. Defaults
+  /// to `false`.
+  Future<bool> showAudioQuality();
+
+  Future<void> setShowAudioQuality(bool value);
 }

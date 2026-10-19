@@ -5,6 +5,7 @@ import '../core/models/theme_mode_preference.dart';
 import '../core/platform/host_platform.dart';
 import '../data/repositories/app_icon_variant_store_provider.dart';
 import '../data/repositories/audio_output_device_service_provider.dart';
+import '../data/repositories/audio_quality_probe_provider.dart';
 import '../data/repositories/audiobookshelf_session_store_provider.dart';
 import '../data/repositories/background_permission_provider.dart';
 import '../data/repositories/cast_receiver_pin_store_provider.dart';
@@ -94,6 +95,9 @@ List<Override> productionApplicationOverrides({
       // Inside the Flatpak, the Background portal is asked before "Keep
       // playing" relies on running with the window closed (#754).
       linuxBackgroundPermissionOverride,
+      // libmpv is the one engine whose audio quality Linthra can read, so the
+      // "Show audio quality" setting only exists here.
+      mediaKitAudioQualityProbeOverride,
     ],
     fileSystemOfflineFileStoreOverride,
     remoteTrackDownloaderOverride,

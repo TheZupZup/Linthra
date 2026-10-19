@@ -443,7 +443,8 @@ from pub.dev. The local delta is two small additions:
   currently exist. just_audio's platform interface has no concept of an audio
   output device, and media_kit's `Player` is private to the plugin, so this is
   how [Audio output device](#audio-output-device) reaches libmpv's
-  `audio-device-list` and `audio-device`.
+  `audio-device-list` and `audio-device`, and how
+  [Audio quality](#audio-quality) reads what the player is decoding.
 
 ### libmpv properties Linthra sets
 
@@ -621,6 +622,36 @@ it, so the packaged app needs no host libmpv at all
 `media_kit_libs_linux` normally offers an optional build-time mimalloc download;
 Linthra explicitly disables it in `linux/CMakeLists.txt`, so this backend adds no
 undeclared network access to an isolated `flatpak-builder` build.
+
+### Audio quality
+
+Settings → Music & playback → **Show audio quality** (off by default) adds a
+line under "Playing from …" on Now Playing, like `FLAC · Lossless · 44.1 kHz`
+or `MP3 · 44.1 kHz · 320 kbps`. It describes the stream libmpv is decoding,
+not the catalog entry, so a Subsonic transcode reads as the transcode and a
+fallback to another provider reads as that provider's copy.
+
+It reads `track-list` and `audio-params`, which media_kit already mirrors into
+its player state, so it adds no libmpv call and nothing to playback startup
+(`lib/core/services/media_kit_audio_quality_probe.dart`). Anything libmpv does
+not state is left out rather than guessed:
+
+* the codec comes from the audio track, and "Lossless" only from a codec that
+  cannot be lossy (FLAC, ALAC, APE, TTA, WMA Lossless, linear PCM);
+* the sample rate is what the decoder outputs;
+* the bitrate is the container's `demux-bitrate`, so a format whose container
+  does not state one (raw FLAC, Opus) shows none;
+* the bit depth only appears for uncompressed PCM. FLAC above 16 bits decodes
+  to `s32` whatever the file's depth, so a FLAC's depth stays unknown.
+
+The setting is not offered on Android yet: just_audio does not pass ExoPlayer's
+track format up to Dart.
+
+| Check | Expected |
+| --- | --- |
+| Turn it on, play a FLAC, then an MP3 | The line changes with the song, and the FLAC's never shows under the MP3. |
+| Play a Navidrome track the server transcodes | The line names the transcode (e.g. MP3), not the original file. |
+| Turn it off | The line goes away and Now Playing looks as it did before. |
 
 ## Playback diagnostics
 
