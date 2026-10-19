@@ -127,7 +127,9 @@ abstract interface class JellyfinClient {
     List<String> itemIds = const <String>[],
   });
 
-  /// Appends audio [itemIds] to the playlist [playlistId]. Throws on failure.
+  /// Appends audio [itemIds] to the playlist [playlistId], in order. A long
+  /// list may go in several requests: when one fails it throws, and the ids
+  /// sent before it are already in the playlist.
   Future<void> addItemsToPlaylist(
     JellyfinSession session,
     String playlistId,

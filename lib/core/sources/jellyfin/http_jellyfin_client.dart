@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -516,23 +517,36 @@ class HttpJellyfinClient implements JellyfinClient {
     return id;
   }
 
+  /// How many item ids one playlist add carries (#876). They all ride in the
+  /// query string, and a few hundred run past the 8 KB request line that
+  /// Kestrel and most proxies accept. A hundred is about 3.5 KB.
+  static const int _playlistAddBatchSize = 100;
+
   @override
   Future<void> addItemsToPlaylist(
     JellyfinSession session,
     String playlistId,
     List<String> itemIds,
   ) async {
-    if (itemIds.isEmpty) return;
-    final Uri uri = JellyfinEndpoints.addPlaylistItems(
-      session.baseUrl,
-      playlistId: playlistId,
-      userId: session.userId,
-      itemIds: itemIds,
-    );
-    final http.Response response = await _send(
-      () => _client.post(uri, headers: _authHeaders(session)),
-    );
-    _checkStatus(response);
+    // One batch at a time, each appended after the last, so the songs land in
+    // the order given. A failed batch throws and stops the rest. The batches
+    // before it stay on the server and are never resent, since that can put
+    // their songs in the playlist twice.
+    for (int start = 0;
+        start < itemIds.length;
+        start += _playlistAddBatchSize) {
+      final int end = math.min(start + _playlistAddBatchSize, itemIds.length);
+      final Uri uri = JellyfinEndpoints.addPlaylistItems(
+        session.baseUrl,
+        playlistId: playlistId,
+        userId: session.userId,
+        itemIds: itemIds.sublist(start, end),
+      );
+      final http.Response response = await _send(
+        () => _client.post(uri, headers: _authHeaders(session)),
+      );
+      _checkStatus(response);
+    }
   }
 
   @override
