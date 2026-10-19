@@ -73,19 +73,24 @@ class SortedSongs {
 /// added together read by title.
 ///
 /// [addedAt] maps a song's [Track.uri] to when it first entered the library.
+/// [albums] files each song under its album for the artist and album orders;
+/// pass the catalog's when [tracks] is a search of it, so a search that hides
+/// the song carrying an album's name doesn't move the rest to Unknown Album.
+/// Without it the albums are worked out from [tracks] alone.
 SortedSongs sortSongs(
   List<Track> tracks,
   SongSort sort, {
   Map<String, DateTime> addedAt = const <String, DateTime>{},
+  SongAlbums? albums,
 }) {
   final SongSortField field = sort.field;
-  final List<_Album>? albums =
+  final SongAlbums? filing =
       field == SongSortField.artist || field == SongSortField.album
-          ? _albumsOf(tracks)
+          ? albums ?? SongAlbums.of(tracks)
           : null;
   final List<_SongKey> keys = <_SongKey>[
-    for (int i = 0; i < tracks.length; i++)
-      _SongKey(tracks[i], field, addedAt, albums?[i]),
+    for (final Track track in tracks)
+      _SongKey(track, field, addedAt, filing?._albumOf(track)),
   ];
   // Picked once, rather than per comparison.
   final _Compare compareValue = switch (field) {
@@ -124,8 +129,10 @@ typedef _Compare = int Function(_SongKey a, _SongKey b);
 /// whole album.
 typedef _Album = ({String id, String? name, String? artist});
 
-/// The album each of [tracks] is filed under, keyed the way the Albums tab
-/// groups them ([albumIdForTrack]), with one name and one artist per album.
+/// The album every song of a catalog is filed under, keyed the way the Albums
+/// tab groups them ([albumIdForTrack]), with one name and one artist per
+/// album. Worked out once per catalog, so a search sorts against it without
+/// walking the whole library again.
 ///
 /// Every song on an album shares them, so the album stays in one piece and in
 /// album order even when its songs' own tags disagree: a name missing from one
@@ -133,29 +140,53 @@ typedef _Album = ({String id, String? name, String? artist});
 /// track only names its own performer. The alphabetically first name wins, and
 /// the album's own artist when any song carries one, otherwise its first
 /// track artist, so neither depends on the order the catalog came in.
-List<_Album> _albumsOf(List<Track> tracks) {
-  final List<String> ids = <String>[
-    for (final Track track in tracks) albumIdForTrack(track),
-  ];
-  final Map<String, String> names = <String, String>{};
-  final Map<String, String> albumArtists = <String, String>{};
-  final Map<String, String> trackArtists = <String, String>{};
-  void keepFirst(Map<String, String> labels, String album, String? label) {
+class SongAlbums {
+  factory SongAlbums.of(List<Track> catalog) {
+    final SongAlbums albums = SongAlbums._();
+    for (final Track track in catalog) {
+      final String id = albumIdForTrack(track);
+      albums._idByUri[track.uri] = id;
+      _keepFirst(albums._names, id, _SongKey._fold(track.albumName));
+      _keepFirst(
+        albums._albumArtists,
+        id,
+        _SongKey._fold(track.albumArtistName),
+      );
+      _keepFirst(albums._trackArtists, id, _SongKey._fold(track.artistName));
+    }
+    return albums;
+  }
+
+  SongAlbums._();
+
+  final Map<String, String> _idByUri = <String, String>{};
+  final Map<String, String> _names = <String, String>{};
+  final Map<String, String> _albumArtists = <String, String>{};
+  final Map<String, String> _trackArtists = <String, String>{};
+
+  static void _keepFirst(
+    Map<String, String> labels,
+    String album,
+    String? label,
+  ) {
     if (label == null) return;
     final String? current = labels[album];
     if (current == null || label.compareTo(current) < 0) labels[album] = label;
   }
 
-  for (int i = 0; i < tracks.length; i++) {
-    final Track track = tracks[i];
-    keepFirst(names, ids[i], _SongKey._fold(track.albumName));
-    keepFirst(albumArtists, ids[i], _SongKey._fold(track.albumArtistName));
-    keepFirst(trackArtists, ids[i], _SongKey._fold(track.artistName));
+  /// [track]'s album. A song the catalog doesn't hold falls back on its own
+  /// tags rather than on nothing.
+  _Album _albumOf(Track track) {
+    final String id = _idByUri[track.uri] ?? albumIdForTrack(track);
+    return (
+      id: id,
+      name: _names[id] ?? _SongKey._fold(track.albumName),
+      artist: _albumArtists[id] ??
+          _trackArtists[id] ??
+          _SongKey._fold(track.albumArtistName) ??
+          _SongKey._fold(track.artistName),
+    );
   }
-  return <_Album>[
-    for (final String id in ids)
-      (id: id, name: names[id], artist: albumArtists[id] ?? trackArtists[id]),
-  ];
 }
 
 /// A song with what it is ordered by, folded once so a large library isn't

@@ -499,7 +499,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         message: 'You can still browse the connected server from Folders.',
       );
     }
-    return _songsList(filtered);
+    return _songsList(filtered, songs);
   }
 
   Widget _albumsTab(String? syncHeadline) {
@@ -593,7 +593,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   List<Track> _filteredSongs(List<Track> songs) => filterTracks(songs, _query);
 
-  Widget _songsList(List<Track> tracks) {
+  /// [tracks] as filtered by the search, sorted against the whole [catalog].
+  Widget _songsList(List<Track> tracks, List<Track> catalog) {
     final SongSort sort = ref.watch(songSortControllerProvider);
     // First-seen times are only read for a date order. Until the first read
     // lands the list waits rather than showing an order that is about to
@@ -633,6 +634,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                     // moves it.
                     key: ValueKey<SongSort>(sort),
                     tracks: tracks,
+                    catalog: catalog,
                     sort: sort,
                     addedAt: addedAt?.valueOrNull ?? const <String, DateTime>{},
                     selectable: true,

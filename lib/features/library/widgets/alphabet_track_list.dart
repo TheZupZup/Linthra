@@ -29,6 +29,7 @@ class AlphabetTrackList extends StatefulWidget {
     required this.tracks,
     this.sort = SongSort.fallback,
     this.addedAt = const <String, DateTime>{},
+    this.catalog,
     this.selectable = false,
     this.selectionActive = false,
     this.selectedUris = const <String>{},
@@ -46,6 +47,11 @@ class AlphabetTrackList extends StatefulWidget {
   /// When each track first entered the library, by [Track.uri], for the date
   /// added orders. Ignored by the others.
   final Map<String, DateTime> addedAt;
+
+  /// The whole list [tracks] was filtered from, when a search narrowed it, so
+  /// the artist and album orders file each song under the album its other
+  /// songs name. See [SongAlbums].
+  final List<Track>? catalog;
 
   /// Whether rows can enter multi-select (long-press) and toggle selection.
   final bool selectable;
@@ -93,6 +99,11 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   final ScrollController _controller = ScrollController();
 
   late List<Track> _sorted;
+
+  /// [AlphabetTrackList.catalog]'s albums, and the catalog they came from, so
+  /// each search sorts against them rather than walking the catalog again.
+  SongAlbums? _albums;
+  List<Track>? _albumsCatalog;
   late List<_Entry> _entries;
   late List<String> _letters;
   late Map<String, double> _letterOffsets;
@@ -140,7 +151,8 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.tracks, widget.tracks) ||
         oldWidget.sort != widget.sort ||
-        !identical(oldWidget.addedAt, widget.addedAt)) {
+        !identical(oldWidget.addedAt, widget.addedAt) ||
+        !identical(oldWidget.catalog, widget.catalog)) {
       _rebuildIndex();
     }
   }
@@ -159,8 +171,21 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   /// one contiguous run and each letter appears once (#872). Sorting on one
   /// key and grouping on another put '#' at both ends of the list.
   void _rebuildIndex() {
-    final SortedSongs sorted =
-        sortSongs(widget.tracks, widget.sort, addedAt: widget.addedAt);
+    final List<Track>? catalog = widget.catalog;
+    final bool filesByAlbum = widget.sort.field == SongSortField.artist ||
+        widget.sort.field == SongSortField.album;
+    if (catalog != null &&
+        filesByAlbum &&
+        !identical(catalog, _albumsCatalog)) {
+      _albums = SongAlbums.of(catalog);
+      _albumsCatalog = catalog;
+    }
+    final SortedSongs sorted = sortSongs(
+      widget.tracks,
+      widget.sort,
+      addedAt: widget.addedAt,
+      albums: catalog != null && filesByAlbum ? _albums : null,
+    );
     _sorted = sorted.tracks;
     final List<String>? sections = sorted.sections;
 

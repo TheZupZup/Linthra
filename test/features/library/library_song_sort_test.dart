@@ -374,6 +374,43 @@ void main() {
       expect(_rows(tester), _expected[SongSort.newestAdded]);
     });
 
+    testWidgets('a search keeps an album its name', (tester) async {
+      // One album id, the name only on its first track.
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(
+            id: 'a1',
+            title: 'Opening',
+            uri: 'file:///a1.mp3',
+            artistName: 'Band',
+            albumName: 'Alpha',
+            albumId: 'local-album:alpha',
+            trackNumber: 1,
+          ),
+          Track(
+            id: 'a2',
+            title: 'Interlude',
+            uri: 'file:///a2.mp3',
+            artistName: 'Band',
+            albumId: 'local-album:alpha',
+            trackNumber: 2,
+          ),
+        ],
+      );
+      await _sortBy(tester, SongSort.albumAscending);
+      await tester.enterText(
+        find.byKey(const Key('library_search_field')),
+        'interlude',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      expect(_rows(tester), <String>['Interlude']);
+      expect(find.text('Unknown Album'), findsNothing);
+      expect(find.text('A'), findsOneWidget);
+    });
+
     testWidgets('a selection survives a new order', (tester) async {
       await _pump(tester);
 

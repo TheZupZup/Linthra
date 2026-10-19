@@ -426,6 +426,35 @@ void main() {
       );
     });
 
+    test('a search keeps the album name the rest of the catalog gives it', () {
+      final Track named = _song(
+        'n1',
+        'Opening',
+        artist: 'Band',
+        album: 'Alpha',
+        albumId: 'jellyfin:al-1',
+        trackNumber: 1,
+      );
+      final Track unnamed = _song(
+        'n2',
+        'Interlude',
+        artist: 'Band',
+        albumId: 'jellyfin:al-1',
+        trackNumber: 2,
+      );
+      final Track other = _song('o1', 'Zebra', artist: 'Band', album: 'Zulu');
+
+      // A search for "Interlude" leaves only the song without a name.
+      final SortedSongs sorted = sortSongs(
+        <Track>[unnamed, other],
+        SongSort.albumAscending,
+        albums: SongAlbums.of(<Track>[named, unnamed, other]),
+      );
+
+      expect(_titles(sorted), <String>['Interlude', 'Zebra']);
+      expect(sorted.sections, <String>['A', 'Z']);
+    });
+
     test('an album with a stable id keeps track order without an album artist',
         () {
       // How a Subsonic compilation arrives: one album id, each track by its
