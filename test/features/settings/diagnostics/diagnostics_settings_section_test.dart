@@ -9,7 +9,7 @@ import 'package:linthra/features/settings/diagnostics/diagnostics_settings_secti
 
 const String _fakeReport = 'Linthra diagnostics\n'
     'App version: 0.1.0-test\n'
-    'Jellyfin host: music.example.com\n'
+    'Jellyfin server: https, unknown network (hostname), default port\n'
     'Last error: none';
 
 /// A save that ends as [result], recording what it was asked to save.

@@ -449,7 +449,13 @@ void main() {
       final String report = AppDiagnostics.report(data);
       expect(report, contains('Jellyfin: configured (server unreachable)'));
       expect(report, isNot(contains('Jellyfin: connected')));
-      expect(report, contains('Jellyfin host: 192.168.22.1:8096'));
+      // A LAN-only server is still told apart from a public one, without the
+      // address itself.
+      expect(
+        report,
+        contains('Jellyfin server: http, local network, custom port'),
+      );
+      expect(report, isNot(contains('192.168.22.1')));
       expect(report, contains('Library tracks: 9063'));
       expect(
         report,

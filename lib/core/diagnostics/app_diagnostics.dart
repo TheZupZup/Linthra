@@ -6,8 +6,9 @@ import '../models/cache_size.dart';
 ///
 /// Security: by construction this object can only ever hold non-secret,
 /// report-safe values. There is no field for a password, token, `Authorization`
-/// header, salt, or a full authenticated URL. The server addresses are reduced
-/// to host[:port] by [AppDiagnostics.hostOnly] when rendered, the last error is
+/// header, salt, or a full authenticated URL. The server addresses never
+/// appear (only a fixed-word description of each, by
+/// [AppDiagnostics.describeServer]), the last error is
 /// a stable enum *name* (never a raw error string that could carry a path or
 /// server response), and any device-supplied free text is omitted rather than
 /// risk leaking a private path. This mirrors the "diagnostic, never secret" rule
@@ -96,14 +97,16 @@ class AppDiagnosticsData {
   /// playback bug that was really a network one.
   final String? jellyfinState;
 
-  /// The Jellyfin server address. Rendered host-only; never a full URL.
+  /// The Jellyfin server address. Rendered by [AppDiagnostics.describeServer],
+  /// so the address itself never reaches the report.
   final String? jellyfinHost;
 
   /// The Subsonic/Navidrome connection state label, when present. Null when the
   /// user has never used Subsonic.
   final String? subsonicState;
 
-  /// The Subsonic/Navidrome server address. Rendered host-only.
+  /// The Subsonic/Navidrome server address. Rendered by
+  /// [AppDiagnostics.describeServer], like [jellyfinHost].
   final String? subsonicHost;
 
   /// The Subsonic/Navidrome library sync's state, as rendered by
@@ -232,10 +235,11 @@ class AppDiagnosticsData {
 ///
 /// Security invariant: every field is rendered from the display-safe
 /// [AppDiagnosticsData], and the two server-address fields are always passed
-/// through [hostOnly] here — so even if a caller mistakenly handed in a full
-/// authenticated URL, only its host[:port] can ever reach the output. There is
-/// no parameter for a password, token, `Authorization` header, or raw server
-/// response.
+/// through [describeServer] here. The report usually ends up in a public
+/// issue, so not even the host of an address can reach the output, let alone
+/// the credentials of a full authenticated URL a caller handed in by mistake.
+/// There is no parameter for a password, token, `Authorization` header, or raw
+/// server response.
 abstract final class AppDiagnostics {
   /// Assembles the multi-line report. Only [AppDiagnosticsData.appVersion] is
   /// guaranteed present; every other line is emitted only when its value is
@@ -250,8 +254,8 @@ abstract final class AppDiagnostics {
     bool includePlayback = true,
     bool includeCache = true,
   }) {
-    final String? jellyfinHost = hostOnly(data.jellyfinHost);
-    final String? subsonicHost = hostOnly(data.subsonicHost);
+    final String? jellyfinServer = describeServer(data.jellyfinHost);
+    final String? subsonicServer = describeServer(data.subsonicHost);
     final String? cache = includeCache ? _cacheLine(data) : null;
     final List<String> lines = <String>[
       'Linthra diagnostics',
@@ -266,9 +270,9 @@ abstract final class AppDiagnostics {
             '${data.platformAudioFormats!.isEmpty ? 'none' : data.platformAudioFormats!.join(', ')}',
       if (_has(data.deviceModel)) 'Device: ${data.deviceModel}',
       if (data.jellyfinState != null) 'Jellyfin: ${data.jellyfinState}',
-      if (jellyfinHost != null) 'Jellyfin host: $jellyfinHost',
+      if (jellyfinServer != null) 'Jellyfin server: $jellyfinServer',
       if (data.subsonicState != null) 'Subsonic: ${data.subsonicState}',
-      if (subsonicHost != null) 'Subsonic host: $subsonicHost',
+      if (subsonicServer != null) 'Subsonic server: $subsonicServer',
       if (_has(data.subsonicSyncState))
         'Subsonic sync: ${data.subsonicSyncState}',
       if (data.subsonicTrackCount != null)
@@ -344,23 +348,97 @@ abstract final class AppDiagnostics {
 
   static bool _has(String? value) => value != null && value.isNotEmpty;
 
-  /// Reduces a server address to just its host (and port), dropping the scheme,
-  /// path, query, userinfo, and fragment — so a full authenticated URL can never
-  /// carry a token, an `api_key` query, or a `user:pass@` prefix into the
-  /// report. Accepts a bare host (`music.example.com[:8096]`) too, returning it
-  /// reduced. Returns null when [value] is empty or has no host.
-  static String? hostOnly(String? value) {
+  /// Describes a server address in fixed words: its scheme, the kind of
+  /// network it is on, and whether it uses the scheme's default port, e.g.
+  /// `https, public network, default port`. Returns null when [value] is
+  /// empty or has no host.
+  ///
+  /// Nothing from the address itself is copied out: not the host or IP, not
+  /// the port number, userinfo, path or query. The network is only named when
+  /// the address proves it (an IP literal in a known range, `localhost`, or an
+  /// mDNS `.local` name). Any other hostname could resolve anywhere, so it
+  /// reads `unknown network (hostname)`.
+  static String? describeServer(String? value) {
+    final Uri? uri = _serverUri(value);
+    if (uri == null) return null;
+    final String scheme = switch (uri.scheme) {
+      'http' || 'https' => uri.scheme,
+      _ => 'unknown scheme',
+    };
+    // Uri drops a port that matches the scheme's default, so hasPort means
+    // the address names a port of its own.
+    final String port = uri.hasPort ? 'custom port' : 'default port';
+    return '$scheme, ${_networkKind(uri.host)}, $port';
+  }
+
+  /// Parses a server address, accepting a bare `host[:port]` too. Null when
+  /// [value] is empty or has no host.
+  static Uri? _serverUri(String? value) {
     if (value == null) return null;
     final String trimmed = value.trim();
     if (trimmed.isEmpty) return null;
     Uri? uri = Uri.tryParse(trimmed);
     if (uri == null || uri.host.isEmpty) {
       // No scheme present: re-parse as a bare authority so a value like
-      // `music.example.com:8096` (or one with a stray path) still reduces.
+      // `music.example.com:8096` (or one with a stray path) still has a host.
       uri = Uri.tryParse('//$trimmed');
     }
     if (uri == null || uri.host.isEmpty) return null;
-    return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
+    return uri;
+  }
+
+  static String _networkKind(String host) {
+    final List<int>? ip = _ipAddress(host);
+    if (ip == null) {
+      if (host == 'localhost') return 'loopback';
+      if (host.endsWith('.local')) return 'local network (.local name)';
+      return 'unknown network (hostname)';
+    }
+    return ip.length == 4 ? _ipv4Network(ip) : _ipv6Network(ip);
+  }
+
+  /// The bytes of [host] when it is an IP literal, or null for a hostname.
+  static List<int>? _ipAddress(String host) {
+    try {
+      // An IPv6 zone id (the `%25eth0` after a link-local address) names an
+      // interface, not a network.
+      return host.contains(':')
+          ? Uri.parseIPv6Address(host.split('%').first)
+          : Uri.parseIPv4Address(host);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static String _ipv4Network(List<int> ip) {
+    final int a = ip[0];
+    final int b = ip[1];
+    if (a == 127) return 'loopback';
+    if (a == 10 ||
+        (a == 172 && b >= 16 && b <= 31) ||
+        (a == 192 && b == 168) ||
+        (a == 169 && b == 254)) {
+      return 'local network';
+    }
+    // The RFC 6598 shared space: carrier-grade NAT, and the range Tailscale
+    // hands out.
+    if (a == 100 && b >= 64 && b <= 127) return 'VPN/CGNAT range';
+    // "This network", multicast and reserved space are no server's address.
+    if (a == 0 || a >= 224) return 'unknown network';
+    return 'public network';
+  }
+
+  static String _ipv6Network(List<int> ip) {
+    if (ip.last == 1 && ip.take(15).every((int byte) => byte == 0)) {
+      return 'loopback';
+    }
+    // Unique local and link-local addresses.
+    if ((ip[0] & 0xfe) == 0xfc || (ip[0] == 0xfe && (ip[1] & 0xc0) == 0x80)) {
+      return 'local network';
+    }
+    // The global unicast space.
+    if ((ip[0] & 0xe0) == 0x20) return 'public network';
+    return 'unknown network';
   }
 
   /// Redacts a local filesystem path to just its basename behind a `…/` marker,

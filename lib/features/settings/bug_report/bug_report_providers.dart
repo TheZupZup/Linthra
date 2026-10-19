@@ -22,7 +22,8 @@ class BugReportDiagnostics {
     required this.recentEventLines,
   });
 
-  /// The display-safe app snapshot (host-only addresses, counts, flags).
+  /// The display-safe app snapshot (server addresses the report only
+  /// describes, counts, flags).
   final AppDiagnosticsData data;
 
   /// Recent secret-free breadcrumbs, oldest first, each `category: detail`.
