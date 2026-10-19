@@ -49,6 +49,8 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   is syncing" rather than the folder-pick prompt.
 - ☐ Alphabet fast-scroller jumps to the right section and does not overlap rows
   or the overflow menu (narrow phones included).
+- ☐ Each Songs sort order reorders the list, tapping a song queues the list in
+  that order, and the order survives a restart.
 - ☐ Row overflow menu (download / add to playlist / favorite / delete) works.
 - ☐ Long titles/artists/albums ellipsize — no layout overflow on a narrow phone.
 - ☐ Empty library shows the friendly empty state (not a spinner forever).
