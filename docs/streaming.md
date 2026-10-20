@@ -72,7 +72,8 @@ starts faster instead of re-running the session check + URL probe at the change.
   are longer, so the next track is warmed **once more in the last 30 seconds**
   of the current one. The natural roll into the next track then starts from a
   fresh URL instead of paying the session check and probe at the change. That
-  second warm reaches the server only when the first one has gone stale.
+  second warm reaches the server only when the first one has gone stale, or
+  would before the change.
 - Under **repeat-one** it warms nothing — the current track loops, so an
   upcoming track won't play soon.
 - It is **best-effort and never blocks** the current track; a failed warm just
@@ -212,8 +213,8 @@ with the car's Next button still working.
   streaming playback (see [offline-cache.md](offline-cache.md)).
 - **Preloading is conservative on data**: it only warms a single upcoming URL
   (a tiny request, the same one-byte probe play would do anyway), when a track
-  starts and again near its end if that first warm has gone stale. It never
-  downloads track bytes ahead of time.
+  starts and again near its end if that first warm won't last until the
+  change. It never downloads track bytes ahead of time.
 
 ## Playback states
 

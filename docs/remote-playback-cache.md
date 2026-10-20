@@ -23,8 +23,8 @@ session-check + mint. If a warmed URL has expired, the cache resolves a fresh on
 rather than replaying a stale one. Because a warm is only fresh for two minutes
 and most tracks run longer, `RemotePrebufferService` warms the next track once
 more in the last 30 seconds of the current one, so the natural roll-over is
-served from a fresh warm too (the prebufferer skips it when the first warm is
-still fresh).
+served from a fresh warm too (the prebufferer skips it when the first warm
+stays fresh until the change).
 
 It is deliberately **not** the offline cache: it never writes bytes to disk,
 never marks a track as downloaded, and never blocks the current track. (Warming

@@ -63,8 +63,9 @@ class RemotePrebufferService {
   PlaybackState? _lastInputs;
   PlaybackState? _pending;
 
-  /// The tracks to warm again near the end of the current one.
-  List<Track>? _pendingRefresh;
+  /// The tracks to warm again near the end of the current one, and how long
+  /// until it ends.
+  ({List<Track> tracks, Duration remaining})? _pendingRefresh;
 
   /// Whether reaching the last [refreshLead] of the track warms the next one
   /// again. Spent when it does; re-armed when playback leaves that stretch
@@ -105,7 +106,10 @@ class RemotePrebufferService {
     // nothing under repeat-one.
     final List<Track> next = upcomingTracks(state, count: _ahead);
     if (next.isEmpty) return;
-    _pendingRefresh = next;
+    _pendingRefresh = (
+      tracks: next,
+      remaining: state.duration - state.position,
+    );
     unawaited(_drain());
   }
 
@@ -117,11 +121,17 @@ class RemotePrebufferService {
         final PlaybackState? state = _pending;
         _pending = null;
         if (state == null) {
-          final List<Track> next = _pendingRefresh!;
+          final ({List<Track> tracks, Duration remaining}) refresh =
+              _pendingRefresh!;
           _pendingRefresh = null;
-          // Already-fresh warms are skipped by the prebufferer, so this only
-          // reaches the server for one that went stale.
-          await _prebufferer.prepare(upNext: next, ahead: next.length);
+          // A warm that stays fresh past the end of this track is kept, so
+          // this only reaches the server for one that has gone stale or would
+          // before the change.
+          await _prebufferer.prepare(
+            upNext: refresh.tracks,
+            ahead: refresh.tracks.length,
+            keepFreshFor: refresh.remaining,
+          );
           continue;
         }
         // The track changed or the queue moved: this pass warms what plays

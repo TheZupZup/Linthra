@@ -286,6 +286,22 @@ void main() {
       expect(inner.resolved, <String>['a', 'b']);
     });
 
+    test('warms again when the earlier warm would expire before the end',
+        () async {
+      // A 2:10 track: the warm from its start is still fresh when the last
+      // 30 s begin, but runs out at 2:00, ten seconds before the change.
+      const Duration short = Duration(minutes: 2, seconds: 10);
+      build();
+      states.add(at(Duration.zero, duration: short));
+      await _settle();
+
+      now = now.add(const Duration(minutes: 1, seconds: 45));
+      states.add(at(const Duration(minutes: 1, seconds: 45), duration: short));
+      await _settle();
+
+      expect(inner.resolved, <String>['a', 'b', 'b']);
+    });
+
     test('warms once while the track stays in its last stretch', () async {
       build();
       states.add(at(Duration.zero));
