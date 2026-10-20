@@ -52,6 +52,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     LocalNetworkAccess? localNetwork,
     Uri? Function()? serverUri,
     Duration? quickFailureRetryDelay,
+    Object? Function()? session,
     DateTime Function()? clock,
   })  : _inner = inner,
         _providerKey = providerKey,
@@ -61,6 +62,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
         _localNetwork = localNetwork,
         _serverUri = serverUri,
         _quickFailureRetryDelay = quickFailureRetryDelay,
+        _session = session,
         _now = clock ?? DateTime.now;
 
   /// The pause the app takes before trying a server once more when it could
@@ -114,6 +116,14 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   /// took longer is a timeout, and is not tried again: a second one would only
   /// double the wait for a server that is really gone.
   final Duration? _quickFailureRetryDelay;
+
+  /// The session object the provider resolves with right now, compared by
+  /// identity so the quick retry can tell that the listener signed in again
+  /// while it waited. [_providerKey] alone can't: for Plex it names only the
+  /// server, and for Subsonic the server and username, so a new token or a
+  /// Home profile switch leaves it unchanged. Null (tests) relies on
+  /// [_providerKey] alone.
+  final Object? Function()? _session;
 
   final DateTime Function() _now;
 
@@ -190,14 +200,45 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     }
 
     // 3. Resolve for real, recording what we learn so the memory stays current.
+    return _resolveLive(track, key, attempt);
+  }
+
+  /// Resolves [track] through the provider as [attempt], and records what that
+  /// says about the server.
+  ///
+  /// When the server could not be reached and that came back quickly, it waits
+  /// [_quickFailureRetryDelay] and tries once more, as a new attempt: that
+  /// request starts after anything begun during the pause, so its answer is
+  /// the newer one. Only while [key] and the signed-in session are the ones it
+  /// started with: after a sign-in (another account, a new token, another Plex
+  /// Home profile) a second try would be made with credentials that are not
+  /// this attempt's.
+  Future<ResolvedPlayable> _resolveLive(
+    Track track,
+    String key,
+    int attempt, {
+    bool mayRetry = true,
+  }) async {
+    final DateTime started = _now();
+    final Object? session = _session?.call();
     try {
-      final ResolvedPlayable resolved = await _resolveLive(track, key);
+      final ResolvedPlayable resolved = await _inner.resolve(track);
       if (_isNewest(key, attempt)) {
         _reachability.record(key, ReachabilityStatus.reachable);
         _observeFor(key, ReachabilityStatus.reachable);
       }
       return resolved;
     } on PlaybackResolutionException catch (error) {
+      final Duration? pause = _quickFailureRetryDelay;
+      if (mayRetry &&
+          pause != null &&
+          error.kind == PlaybackResolutionErrorKind.serverUnreachable &&
+          _now().difference(started) < quickFailure) {
+        await Future<void>.delayed(pause);
+        if (_providerKey() == key && identical(_session?.call(), session)) {
+          return _resolveLive(track, key, ++_attempts, mayRetry: false);
+        }
+      }
       final ReachabilityStatus? status =
           reachabilityFromPlaybackError(error.kind);
       if (status != null && _isNewest(key, attempt)) {
@@ -214,31 +255,6 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
       }
       rethrow;
     }
-  }
-
-  /// Resolves [track] through the provider, and once more after
-  /// [_quickFailureRetryDelay] when the server could not be reached and that
-  /// came back quickly, as long as [key] is still the server and sign-in.
-  Future<ResolvedPlayable> _resolveLive(Track track, String key) async {
-    final Duration? pause = _quickFailureRetryDelay;
-    if (pause == null) return _inner.resolve(track);
-    final DateTime started = _now();
-    final PlaybackResolutionException failure;
-    try {
-      return await _inner.resolve(track);
-    } on PlaybackResolutionException catch (error) {
-      if (error.kind != PlaybackResolutionErrorKind.serverUnreachable ||
-          _now().difference(started) >= quickFailure) {
-        rethrow;
-      }
-      failure = error;
-    }
-    await Future<void>.delayed(pause);
-    // Signed out, or into another server or session, meanwhile: the failure
-    // is about a session that is gone, and a second try would be a new
-    // attempt made with someone else's credentials in this one's name.
-    if (_providerKey() != key) throw failure;
-    return _inner.resolve(track);
   }
 
   bool _remembersOutage(String key) =>
