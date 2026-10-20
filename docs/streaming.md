@@ -19,9 +19,11 @@ Android SAF `content://` documents, and remote streams all share one path:
 1. **Offline first.** If the track has a downloaded copy, it plays from the local
    `file://` cache — no network.
 2. **Stream on a miss.** For a Jellyfin/Subsonic track the source verifies the
-   session (a tiny reachability check), then mints the **authenticated stream
-   URL at play time** and **probes** it (a one-byte ranged GET, following
-   redirects) to confirm it's really audio.
+   session (a tiny reachability check) while it mints the **authenticated
+   stream URL at play time** and **probes** it (a one-byte ranged GET,
+   following redirects) to confirm it's really audio. The two requests go out
+   together, so a track waits one round trip for its URL rather than two; when
+   both fail, the session check's answer is the one shown.
 3. The minted URL is handed to the engine and **never stored on the track,
    logged, or shown** — see [Security](#security).
 
@@ -66,6 +68,11 @@ starts faster instead of re-running the session check + URL probe at the change.
 - With shuffle **off** it warms the next track in queue order; with shuffle
   **on**, the next track in the shuffled order (the queue is kept in effective
   play order, so this needs no special-casing).
+- A warmed URL is only used while it is fresh (two minutes), and most songs
+  are longer, so the next track is warmed **once more in the last 30 seconds**
+  of the current one. The natural roll into the next track then starts from a
+  fresh URL instead of paying the session check and probe at the change. That
+  second warm reaches the server only when the first one has gone stale.
 - Under **repeat-one** it warms nothing — the current track loops, so an
   upcoming track won't play soon.
 - It is **best-effort and never blocks** the current track; a failed warm just
@@ -87,6 +94,11 @@ If a stream fails **mid-playback**, Linthra recovers rather than dying silently:
   reloads at the **preserved position** (no jump to the start, no duplicate
   playback). The re-resolution re-checks the session/server, so a real outage or
   expiry then surfaces a precise message instead of looping.
+- A request to the server that is **refused or cut** and says so quickly (a
+  dropped connection, a Wi-Fi/LTE handover, a server restarting) is tried once
+  more a second later before it counts as the server being down. One lost
+  request no longer fails the track into the ten-second wait below. A request
+  that ran into its timeout is not tried again.
 - An **expired session** shows a friendly "sign in again" message and is **not**
   retried (no infinite loop).
 - A **server-unreachable** failure shows a friendly "couldn't reach your server"
@@ -148,7 +160,9 @@ same on Android and Linux) takes a few bounded steps on its own:
    as played). That covers a Wi-Fi/LTE handover or a server that blinked. The
    wait is as long as the provider's "this server is down" memory, so the
    retry really asks the server again instead of being answered from that
-   memory.
+   memory. The memory counts from when the outage was first seen: a
+   background warm that was already on its way and fails a moment later
+   doesn't push it back past the retry.
 2. **Then the next track, if you allowed it.** Moving on is the
    **Automatically skip tracks that can't play** setting (Settings, under
    Playback), off until you choose. With it on, the player shows the reason
@@ -197,7 +211,8 @@ with the car's Next button still working.
 - The **Wi-Fi-only gate controls downloads and the offline cache**, not
   streaming playback (see [offline-cache.md](offline-cache.md)).
 - **Preloading is conservative on data**: it only warms a single upcoming URL
-  (a tiny request, the same one-byte probe play would do anyway) — it never
+  (a tiny request, the same one-byte probe play would do anyway), when a track
+  starts and again near its end if that first warm has gone stale — it never
   downloads track bytes ahead of time.
 
 ## Playback states
@@ -254,6 +269,8 @@ behaviour is in [cast.md](cast.md).
 2. Stream a Jellyfin track over **LTE / mobile data** (streaming should work by
    default; downloads still respect the Wi-Fi gate).
 3. **Skip to next** and confirm it starts faster (the next URL was preloaded).
+   Let a song longer than two minutes **play to its end** and confirm the next
+   one starts as quickly as a skip does.
 4. Enable **shuffle** and confirm upcoming tracks still start smoothly.
 5. Simulate a **weak network** (briefly toggle airplane mode mid-song).
 6. Confirm a **"Buffering…"** state appears instead of an instant failure.
