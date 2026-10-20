@@ -156,13 +156,23 @@ drop `cache-on-disk=no`.
 
 ### Who reads `livePlayers` and `livePlayersChanged`
 
-One caller for both: `lib/core/services/linux_audio_output_device_service.dart`.
+Three callers:
 
-It reads a live player to enumerate `audio-device-list` and calls
-`setAudioDevice` on every entry when the listener picks an output. When the map
-is empty (nothing is playing) it builds its own short-lived `Player` for
-enumeration instead and disposes it, so the registry is never a requirement for
-listing outputs — only for moving audio that is already playing.
+- `lib/core/services/linux_audio_output_device_service.dart`, described below.
+  It is the caller the signal exists for.
+- `lib/core/services/linux_mpv_probe.dart` reads `mpv-version` from the live
+  player for the playback diagnostics card, and only when one exists.
+- `lib/core/services/media_kit_audio_quality_probe.dart` reads the live
+  player's state (`track-list`, `audio-params`) for "Show audio quality", and
+  follows `livePlayersChanged` the same way the device service does, only
+  while Now Playing shows the line. It makes no libmpv call of its own.
+
+The output device service reads a live player to enumerate
+`audio-device-list` and calls `setAudioDevice` on every entry when the listener
+picks an output. When the map is empty (nothing is playing) it builds its own
+short-lived `Player` for enumeration instead and disposes it, so the registry
+is never a requirement for listing outputs — only for moving audio that is
+already playing.
 
 It listens to `livePlayersChanged` to keep exactly one device-list subscription
 per live player: on each event it attaches to players it is not watching and

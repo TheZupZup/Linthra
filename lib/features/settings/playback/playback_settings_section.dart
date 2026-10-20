@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/dimens.dart';
+import '../../../data/repositories/audio_quality_probe_provider.dart';
 import 'auto_skip_controller.dart';
 import 'normalize_volume_controller.dart';
+import 'show_audio_quality_controller.dart';
 
 /// The "Playback" card on the Settings screen.
 ///
-/// Hosts the "Normalize volume" choice and the "Automatically skip tracks that
-/// can't play" choice. With normalization off (the default) audio plays
+/// Hosts the "Normalize volume" choice, the "Automatically skip tracks that
+/// can't play" choice and, where the engine can report it, "Show audio
+/// quality". With normalization off (the default) audio plays
 /// untouched; with it on, playback applies each track's ReplayGain so songs sit
 /// at a more even loudness. The widget never touches the audio engine itself —
 /// it only writes the user's choice back through the preference controller; the
@@ -49,6 +52,7 @@ class PlaybackSettingsSection extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             const NormalizeVolumeTile(contentPadding: EdgeInsets.zero),
             const AutoSkipTile(contentPadding: EdgeInsets.zero),
+            const ShowAudioQualityTile(contentPadding: EdgeInsets.zero),
           ],
         ),
       ),
@@ -114,6 +118,39 @@ class AutoSkipTile extends ConsumerWidget {
           ? null
           : (value) =>
               ref.read(autoSkipControllerProvider.notifier).setEnabled(value),
+    );
+  }
+}
+
+/// The "Show audio quality" switch. Only offered where the engine can report
+/// what it is decoding (Linux today), so a platform that would always show an
+/// empty line never offers it. Disabled while the stored value is loading.
+class ShowAudioQualityTile extends ConsumerWidget {
+  const ShowAudioQualityTile({super.key, this.contentPadding});
+
+  final EdgeInsetsGeometry? contentPadding;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(audioQualityProbeProvider).isAvailable) {
+      return const SizedBox.shrink();
+    }
+    final AsyncValue<bool> show = ref.watch(showAudioQualityControllerProvider);
+    return SwitchListTile(
+      contentPadding: contentPadding,
+      secondary: const Icon(Icons.graphic_eq),
+      title: const Text('Show audio quality'),
+      subtitle: const Text(
+        'Show the format, sample rate and bitrate of what is playing on Now '
+        'Playing, as the audio engine reports them. Anything it does not '
+        'report stays hidden.',
+      ),
+      value: show.valueOrNull ?? false,
+      onChanged: show.isLoading
+          ? null
+          : (value) => ref
+              .read(showAudioQualityControllerProvider.notifier)
+              .setEnabled(value),
     );
   }
 }

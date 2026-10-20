@@ -46,6 +46,12 @@ class _RawPreferences implements PlaybackPreferences {
   Future<void> setAutoSkipUnplayable(bool value) async {}
 
   @override
+  Future<bool> showAudioQuality() async => false;
+
+  @override
+  Future<void> setShowAudioQuality(bool value) async {}
+
+  @override
   Future<void> setVolume(double value) async {
     final Completer<void>? gate = writeGate;
     if (gate != null) await gate.future;

@@ -18,6 +18,7 @@ import 'cast/cast_button.dart';
 import 'cast/cast_providers.dart';
 import 'player_providers.dart';
 import 'widgets/album_artwork.dart';
+import 'widgets/audio_quality_line.dart';
 import 'widgets/auto_skip_intro_panel.dart';
 import 'widgets/auto_skip_notice.dart';
 import 'widgets/lyrics/lyrics_backdrop.dart';
@@ -740,8 +741,12 @@ class _LiveControls extends ConsumerWidget {
           AutoSkipIntroPanel(failure: failure)
         else if (failure != null)
           PlaybackErrorNotice(failure: failure)
-        else
+        else ...<Widget>[
           _StatusSlot(child: _SourceIndicator(state: state)),
+          // Takes no room unless "Show audio quality" is on. Const, so a
+          // position tick rebuilding this column never rebuilds it.
+          const AudioQualityLine(),
+        ],
         const SizedBox(height: AppSpacing.md),
         PlaybackProgressBar(
           // Identity is the track, so a track change disposes the bar's state

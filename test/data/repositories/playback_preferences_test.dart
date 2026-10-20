@@ -85,4 +85,58 @@ void main() {
       });
     });
   });
+
+  group('showAudioQuality preference', () {
+    test('in-memory defaults to off and round-trips', () async {
+      final prefs = InMemoryPlaybackPreferences();
+      expect(await prefs.showAudioQuality(), isFalse);
+
+      await prefs.setShowAudioQuality(true);
+      expect(await prefs.showAudioQuality(), isTrue);
+
+      await prefs.setShowAudioQuality(false);
+      expect(await prefs.showAudioQuality(), isFalse);
+    });
+
+    group('shared_preferences', () {
+      setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+      test('defaults to off when never set', () async {
+        expect(
+          await const SharedPreferencesPlaybackPreferences().showAudioQuality(),
+          isFalse,
+        );
+      });
+
+      test('persists the choice across instances', () async {
+        for (final bool value in <bool>[true, false]) {
+          await const SharedPreferencesPlaybackPreferences()
+              .setShowAudioQuality(value);
+          expect(
+            await const SharedPreferencesPlaybackPreferences()
+                .showAudioQuality(),
+            value,
+          );
+        }
+      });
+
+      test('a value of the wrong type reads as off, not a crash', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'playback_show_audio_quality': 'yes',
+        });
+        expect(
+          await const SharedPreferencesPlaybackPreferences().showAudioQuality(),
+          isFalse,
+        );
+      });
+
+      test('is stored apart from the other playback choices', () async {
+        await const SharedPreferencesPlaybackPreferences()
+            .setShowAudioQuality(true);
+        const prefs = SharedPreferencesPlaybackPreferences();
+        expect(await prefs.normalizeVolume(), isFalse);
+        expect(await prefs.autoSkipUnplayable(), isNull);
+      });
+    });
+  });
 }
