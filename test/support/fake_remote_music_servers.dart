@@ -50,6 +50,10 @@ abstract class FakeProviderServer {
   /// never a status.
   bool refuseConnections = false;
 
+  /// How long every request waits before it is answered: a stand-in for the
+  /// round trip to a server that is not on loopback. Zero by default.
+  Duration responseDelay = Duration.zero;
+
   /// The two bytes a ranged probe reads, and the whole "file" the engine
   /// fetches. Small, fixed, and not real audio: nothing decodes it here.
   static const List<int> audioBytes = <int>[0x4C, 0x49, 0x4E, 0x54, 0x48, 0x52];
@@ -130,6 +134,9 @@ abstract class FakeProviderServer {
 
   Future<void> _dispatch(HttpRequest request) async {
     requests.add(FakeServerRequest.from(request));
+    if (responseDelay > Duration.zero) {
+      await Future<void>.delayed(responseDelay);
+    }
     if (refuseConnections) {
       final Socket socket = await request.response.detachSocket();
       socket.destroy();
