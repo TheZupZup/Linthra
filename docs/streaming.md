@@ -212,7 +212,7 @@ with the car's Next button still working.
   streaming playback (see [offline-cache.md](offline-cache.md)).
 - **Preloading is conservative on data**: it only warms a single upcoming URL
   (a tiny request, the same one-byte probe play would do anyway), when a track
-  starts and again near its end if that first warm has gone stale — it never
+  starts and again near its end if that first warm has gone stale. It never
   downloads track bytes ahead of time.
 
 ## Playback states

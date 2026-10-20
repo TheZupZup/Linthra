@@ -39,7 +39,7 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
     }
 
     // Confirm the session still works while minting and probing the stream
-    // URL — both can throw a typed [JellyfinException], which becomes a
+    // URL. Both can throw a typed [JellyfinException], which becomes a
     // precise, secret-free message rather than the engine's opaque "couldn't
     // play".
     final Uri? uri;

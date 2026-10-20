@@ -40,7 +40,7 @@ class PlexPlayableUriResolver implements PlayableUriResolver {
       );
     }
 
-    // Confirm the session still works while minting the stream URL — both can
+    // Confirm the session still works while minting the stream URL. Both can
     // throw a typed [PlexException], which becomes a precise, secret-free
     // message rather than the engine's opaque "couldn't play".
     final Uri? uri;
