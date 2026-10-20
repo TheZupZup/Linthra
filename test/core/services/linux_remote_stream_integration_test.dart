@@ -397,12 +397,18 @@ void main() {
 
       await controller.playTrack(jellyfinTrack('101'));
 
-      // The session was checked before anything was minted, and the stream URL
-      // carried the token in the query — which is what the engine fetches with.
+      // The session check and the probe go out together, and the engine
+      // fetches the stream only once both have answered. The stream URL
+      // carried the token in the query, which is what the engine fetches with.
+      final List<String> paths =
+          server.requests.map((FakeServerRequest r) => r.path).toList();
+      expect(paths, hasLength(3));
       expect(
-        server.requests.map((FakeServerRequest r) => r.path),
-        containsAllInOrder(<String>['/Users/Me', '/Audio/101/stream']),
+        paths.take(2),
+        unorderedEquals(<String>['/Users/Me', '/Audio/101/stream']),
       );
+      expect(paths.last, '/Audio/101/stream');
+      expect(server.streamFetches.single, same(server.requests.last));
       final FakeServerRequest probe = server.streamProbes.single;
       expect(probe.query['ApiKey'], syntheticJellyfinToken);
       expect(probe.query['static'], 'true');
@@ -499,10 +505,17 @@ void main() {
 
       await controller.playTrack(subsonicTrack('song-7'));
 
+      // The ping and the probe go out together; the engine fetches the stream
+      // once both have answered.
+      final List<String> paths =
+          server.requests.map((FakeServerRequest r) => r.path).toList();
+      expect(paths, hasLength(3));
       expect(
-        server.requests.map((FakeServerRequest r) => r.path),
-        containsAllInOrder(<String>['/rest/ping.view', '/rest/stream.view']),
+        paths.take(2),
+        unorderedEquals(<String>['/rest/ping.view', '/rest/stream.view']),
       );
+      expect(paths.last, '/rest/stream.view');
+      expect(server.streamFetches.single, same(server.requests.last));
       final FakeServerRequest probe = server.streamProbes.single;
       expect(probe.query['id'], 'song-7');
       expect(probe.query['t'], syntheticSubsonicToken);
