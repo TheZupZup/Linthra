@@ -201,7 +201,15 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
       final ReachabilityStatus? status =
           reachabilityFromPlaybackError(error.kind);
       if (status != null && _isNewest(key, attempt)) {
-        _reachability.record(key, status);
+        // An outage already remembered keeps the moment it was first seen:
+        // step 2 lets no new attempt through while it is, so this one was
+        // already on its way (a background warm, typically). The player's
+        // automatic retry waits exactly the memory's length from the failure
+        // it saw; pushed further back, the retry would be answered from
+        // memory instead of reaching the server.
+        if (!status.isServerOutage || !_remembersOutage(key)) {
+          _reachability.record(key, status);
+        }
         _observeFor(key, status);
       }
       rethrow;
@@ -226,6 +234,9 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     await Future<void>.delayed(pause);
     return _inner.resolve(track);
   }
+
+  bool _remembersOutage(String key) =>
+      _reachability.statusOf(key)?.isServerOutage ?? false;
 
   /// Tells the observer what an attempt made under [key] learned, if [key] is
   /// still the server and account signed in. An attempt can take as long as a

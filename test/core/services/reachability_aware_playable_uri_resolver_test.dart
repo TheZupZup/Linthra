@@ -625,6 +625,43 @@ void main() {
     });
   });
 
+  test(
+      'an outage keeps the moment it was first seen when an attempt already '
+      'on its way fails after it', () async {
+    // The player's automatic retry waits the memory out from the failure it
+    // saw. A background warm sent just after the track's own request, lost to
+    // the same drop and failing a moment later, must not push the memory past
+    // that retry, or the retry is answered from memory instead of the server.
+    DateTime now = DateTime(2026, 10, 20, 12);
+    final reachability = CachingProviderReachability(clock: () => now);
+    final inner = _AnsweredInner();
+    final resolver = _build(inner: inner, reachability: reachability);
+    const PlaybackResolutionException lost = PlaybackResolutionException(
+      'connection reset',
+      kind: PlaybackResolutionErrorKind.serverUnreachable,
+    );
+
+    final Future<void> track =
+        expectLater(resolver.resolve(_track), throwsA(anything));
+    final Future<void> warm =
+        expectLater(resolver.resolve(_track), throwsA(anything));
+    await pumpEventQueue();
+    expect(inner.calls, hasLength(2));
+
+    inner.calls[0].completeError(lost);
+    await track;
+    now = now.add(const Duration(seconds: 3));
+    inner.calls[1].completeError(lost);
+    await warm;
+
+    now = now.add(const Duration(seconds: 7));
+    expect(
+      reachability.statusOf('jellyfin'),
+      isNull,
+      reason: 'ten seconds after the outage was first seen, it is forgotten',
+    );
+  });
+
   group('a LAN server behind Android 17\'s local network permission', () {
     test('fails fast with the reason and leaves reachability alone', () async {
       final _FakeInner inner = _FakeInner();

@@ -259,6 +259,54 @@ void main() {
       expect(resolver.calls, isNot(contains('jellyfin:b')));
     });
 
+    test(
+        'the retry reaches the server even when a warm in flight fails after '
+        'the track did', () async {
+      // The prebuffer warms the track the listener just started, through the
+      // same reachability memory. Both requests are lost to the same drop, and
+      // the warm's failure lands a moment after the track's own. The retry
+      // waits the memory out from the track's failure, so the memory has to
+      // date from then too, or the retry is answered from it and the track
+      // stays on its error.
+      const Duration memory = Duration(milliseconds: 80);
+      final Completer<void> warmAnswers = Completer<void>();
+      final _Resolver server = _Resolver()
+        ..failuresLeft['jellyfin:a'] = 2
+        ..holdSkips['jellyfin:a'] = 1
+        ..holds['jellyfin:a'] = warmAnswers;
+      final ReachabilityAwarePlayableUriResolver wrapped =
+          ReachabilityAwarePlayableUriResolver(
+        inner: server,
+        providerKey: () => 'jellyfin:account',
+        reachability: CachingProviderReachability(ttl: memory),
+      );
+      final JustAudioPlaybackController controller =
+          JustAudioPlaybackController(
+        player: player,
+        resolver: wrapped,
+        automaticRecovery: const PlaybackRecoveryPolicy(retryDelay: memory),
+      );
+      addTearDown(controller.dispose);
+
+      final Future<void> playing =
+          controller.playTracks(<Track>[_remote('a'), _remote('b')]);
+      final Future<void> warm =
+          wrapped.resolve(_remote('a')).then((_) {}, onError: (Object _) {});
+      await playing;
+      expect(controller.hasPendingAutomaticRecovery, isTrue);
+
+      await Future<void>.delayed(memory ~/ 2);
+      warmAnswers.complete();
+      await warm;
+      await Future<void>.delayed(memory);
+      await _settle();
+
+      expect(server.calls, <String>['jellyfin:a', 'jellyfin:a', 'jellyfin:a']);
+      expect(controller.state.status, isNot(PlaybackStatus.error));
+      expect(controller.state.source, PlaybackSource.streamingDirect);
+      expect(player.playCalls, 1);
+    });
+
     test('a track that was playing waits as reconnecting, at its position',
         () async {
       final JustAudioPlaybackController controller = build(
