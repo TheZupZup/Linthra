@@ -376,6 +376,43 @@ void main() {
       expect(inner.resolved, <String>['a', 'x']);
     });
 
+    test('warms the same song again when it is queued next', () async {
+      build();
+      states.add(at(Duration.zero, upNext: <Track>[_t('a'), _t('b')]));
+      await _settle();
+      expect(inner.resolved, <String>['a']);
+
+      now = now.add(const Duration(minutes: 3, seconds: 15));
+      states.add(at(
+        const Duration(minutes: 3, seconds: 15),
+        upNext: <Track>[_t('a'), _t('b')],
+      ));
+      await _settle();
+
+      expect(inner.resolved, <String>['a', 'a']);
+    });
+
+    test('a queue of one under repeat-all warms that song again', () async {
+      build();
+      states.add(at(
+        Duration.zero,
+        upNext: const <Track>[],
+        repeat: RepeatMode.all,
+      ));
+      await _settle();
+      expect(inner.resolved, <String>['a']);
+
+      now = now.add(const Duration(minutes: 3, seconds: 15));
+      states.add(at(
+        const Duration(minutes: 3, seconds: 15),
+        upNext: const <Track>[],
+        repeat: RepeatMode.all,
+      ));
+      await _settle();
+
+      expect(inner.resolved, <String>['a', 'a']);
+    });
+
     test('under repeat-one, nothing else is warmed', () async {
       build();
       states.add(at(Duration.zero, repeat: RepeatMode.one));

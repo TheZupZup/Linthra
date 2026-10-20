@@ -102,15 +102,29 @@ class RemotePrebufferService {
     }
     if (!_refreshArmed) return;
     _refreshArmed = false;
-    // What the controller plays next: the wrap to the top under repeat-all,
-    // nothing under repeat-one.
-    final List<Track> next = upcomingTracks(state, count: _ahead);
-    if (next.isEmpty) return;
+    final Track? next = _nextToPlay(state);
+    if (next == null) return;
     _pendingRefresh = (
-      tracks: next,
+      tracks: <Track>[next],
       remaining: state.duration - state.position,
     );
     unawaited(_drain());
+  }
+
+  /// The track the controller resolves when the current one ends: the head
+  /// of up-next, or under repeat-all the top of the queue (the current track
+  /// itself in a queue of one). Nothing under repeat-one, which rewinds
+  /// rather than resolving again.
+  ///
+  /// Unlike [upcomingTracks] it keeps a track that comes round again: a warm
+  /// is used once, by whatever plays next, even when that is the same song.
+  static Track? _nextToPlay(PlaybackState state) {
+    if (state.repeatMode == RepeatMode.one) return null;
+    if (state.upNext.isNotEmpty) return state.upNext.first;
+    if (state.repeatMode != RepeatMode.all) return null;
+    return state.previous.isNotEmpty
+        ? state.previous.first
+        : state.currentTrack;
   }
 
   Future<void> _drain() async {
