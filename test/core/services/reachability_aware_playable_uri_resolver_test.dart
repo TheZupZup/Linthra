@@ -609,6 +609,36 @@ void main() {
       expect(inner.calls, 1);
     });
 
+    test('is not tried again once the sign-in changed', () async {
+      // The listener signed in again (a new token, another account or server)
+      // while the attempt failed: a second try would mint the new session's
+      // URL in the old attempt's name.
+      String key = 'jellyfin:old-session';
+      final inner = _ScriptedInner(
+        <PlaybackResolutionErrorKind?>[
+          PlaybackResolutionErrorKind.serverUnreachable,
+          null,
+        ],
+        onCall: () => key = 'jellyfin:new-session',
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => key,
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>().having(
+          (PlaybackResolutionException e) => e.kind,
+          'kind',
+          PlaybackResolutionErrorKind.serverUnreachable,
+        )),
+      );
+      expect(inner.calls, 1);
+    });
+
     test('a rejected session is not tried again', () async {
       final inner = _FakeInner(
         failWith: PlaybackResolutionErrorKind.sessionExpired,

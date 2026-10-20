@@ -191,7 +191,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
 
     // 3. Resolve for real, recording what we learn so the memory stays current.
     try {
-      final ResolvedPlayable resolved = await _resolveLive(track);
+      final ResolvedPlayable resolved = await _resolveLive(track, key);
       if (_isNewest(key, attempt)) {
         _reachability.record(key, ReachabilityStatus.reachable);
         _observeFor(key, ReachabilityStatus.reachable);
@@ -218,11 +218,12 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
 
   /// Resolves [track] through the provider, and once more after
   /// [_quickFailureRetryDelay] when the server could not be reached and that
-  /// came back quickly.
-  Future<ResolvedPlayable> _resolveLive(Track track) async {
+  /// came back quickly, as long as [key] is still the server and sign-in.
+  Future<ResolvedPlayable> _resolveLive(Track track, String key) async {
     final Duration? pause = _quickFailureRetryDelay;
     if (pause == null) return _inner.resolve(track);
     final DateTime started = _now();
+    final PlaybackResolutionException failure;
     try {
       return await _inner.resolve(track);
     } on PlaybackResolutionException catch (error) {
@@ -230,8 +231,13 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
           _now().difference(started) >= quickFailure) {
         rethrow;
       }
+      failure = error;
     }
     await Future<void>.delayed(pause);
+    // Signed out, or into another server or session, meanwhile: the failure
+    // is about a session that is gone, and a second try would be a new
+    // attempt made with someone else's credentials in this one's name.
+    if (_providerKey() != key) throw failure;
     return _inner.resolve(track);
   }
 
