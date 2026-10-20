@@ -126,6 +126,10 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
         final String? url = serverUrl();
         return url == null ? null : Uri.tryParse(url);
       },
+      // One request lost to a brief drop is tried again a second later,
+      // rather than failing the track into the ten-second automatic retry.
+      quickFailureRetryDelay:
+          ReachabilityAwarePlayableUriResolver.defaultQuickFailureRetryDelay,
     );
   }
 

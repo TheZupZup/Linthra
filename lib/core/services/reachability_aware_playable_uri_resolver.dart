@@ -23,7 +23,10 @@ import 'reachability.dart';
 ///     tracks in a burst fall straight to a cached copy or another provider
 ///     rather than each re-paying the timeout.
 ///  3. **Otherwise** → resolve for real and record the outcome (reachable, or
-///     the kind of failure), so the memory stays current.
+///     the kind of failure), so the memory stays current. A server that could
+///     not be reached, and said so quickly, is tried once more a moment later
+///     first ([_quickFailureRetryDelay]), so one lost request is not taken for
+///     an outage.
 ///
 /// What it deliberately does **not** do:
 ///  - It never short-circuits an [ReachabilityStatus.authFailure]. The server is
@@ -48,13 +51,26 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     void Function(ReachabilityStatus status)? onReachabilityObserved,
     LocalNetworkAccess? localNetwork,
     Uri? Function()? serverUri,
+    Duration? quickFailureRetryDelay,
+    DateTime Function()? clock,
   })  : _inner = inner,
         _providerKey = providerKey,
         _reachability = reachability,
         _connectivity = connectivity,
         _onReachabilityObserved = onReachabilityObserved,
         _localNetwork = localNetwork,
-        _serverUri = serverUri;
+        _serverUri = serverUri,
+        _quickFailureRetryDelay = quickFailureRetryDelay,
+        _now = clock ?? DateTime.now;
+
+  /// The pause the app takes before trying a server once more when it could
+  /// not be reached and that came back quickly ([quickFailure]).
+  static const Duration defaultQuickFailureRetryDelay = Duration(seconds: 1);
+
+  /// A failure that came back faster than this was a connection refused, cut
+  /// or reset (a request lost to a brief drop, a Wi-Fi/LTE handover, a server
+  /// restarting), not a request that ran into its timeout.
+  static const Duration quickFailure = Duration(seconds: 5);
 
   final PlayableUriResolver _inner;
 
@@ -87,6 +103,19 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   /// is every host where the permission doesn't exist.
   final LocalNetworkAccess? _localNetwork;
   final Uri? Function()? _serverUri;
+
+  /// How long to wait before trying the server a second time after a
+  /// [quickFailure] to reach it, or null for no second try (the default, so a
+  /// bare resolver makes exactly one attempt).
+  ///
+  /// Without it, one request lost to a brief drop fails the track, and the
+  /// player then waits out the remembered outage (about ten seconds, the
+  /// player's recovery policy) before it asks the server again. A failure that
+  /// took longer is a timeout, and is not tried again: a second one would only
+  /// double the wait for a server that is really gone.
+  final Duration? _quickFailureRetryDelay;
+
+  final DateTime Function() _now;
 
   /// Numbers each attempt as it starts.
   int _attempts = 0;
@@ -162,7 +191,7 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
 
     // 3. Resolve for real, recording what we learn so the memory stays current.
     try {
-      final ResolvedPlayable resolved = await _inner.resolve(track);
+      final ResolvedPlayable resolved = await _resolveLive(track);
       if (_isNewest(key, attempt)) {
         _reachability.record(key, ReachabilityStatus.reachable);
         _observeFor(key, ReachabilityStatus.reachable);
@@ -177,6 +206,25 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
       }
       rethrow;
     }
+  }
+
+  /// Resolves [track] through the provider, and once more after
+  /// [_quickFailureRetryDelay] when the server could not be reached and that
+  /// came back quickly.
+  Future<ResolvedPlayable> _resolveLive(Track track) async {
+    final Duration? pause = _quickFailureRetryDelay;
+    if (pause == null) return _inner.resolve(track);
+    final DateTime started = _now();
+    try {
+      return await _inner.resolve(track);
+    } on PlaybackResolutionException catch (error) {
+      if (error.kind != PlaybackResolutionErrorKind.serverUnreachable ||
+          _now().difference(started) >= quickFailure) {
+        rethrow;
+      }
+    }
+    await Future<void>.delayed(pause);
+    return _inner.resolve(track);
   }
 
   /// Tells the observer what an attempt made under [key] learned, if [key] is

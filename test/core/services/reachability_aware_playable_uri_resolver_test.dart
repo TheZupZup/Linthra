@@ -56,6 +56,37 @@ class _AnsweredInner implements PlayableUriResolver {
   }
 }
 
+/// An inner resolver that fails or succeeds call by call, as scripted: each
+/// entry is the failure kind for that call, or null for a success. Calls past
+/// the script succeed.
+class _ScriptedInner implements PlayableUriResolver {
+  _ScriptedInner(this.script, {this.onCall});
+
+  final List<PlaybackResolutionErrorKind?> script;
+
+  /// Runs inside each call, before it answers (to move a clock along).
+  final void Function()? onCall;
+  int calls = 0;
+
+  @override
+  bool handles(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async {
+    final int call = calls++;
+    onCall?.call();
+    final PlaybackResolutionErrorKind? kind =
+        call < script.length ? script[call] : null;
+    if (kind != null) {
+      throw PlaybackResolutionException('inner failed', kind: kind);
+    }
+    return ResolvedPlayable(
+      Uri.parse('https://stream/${track.id}'),
+      PlaybackSource.streamingDirect,
+    );
+  }
+}
+
 /// A connectivity service whose status a test can flip, to simulate the network
 /// dropping and returning between resolve calls.
 class _FakeConnectivity implements ConnectivityService {
@@ -476,6 +507,124 @@ void main() {
   // track from it must fail fast with the reason (not a 20 s connect timeout),
   // and must not mark the server down: it isn't, and hiding its library would
   // take away the very tracks the user taps to be asked again.
+  group('a server that could not be reached, quickly', () {
+    test('is tried once more, and counts as reachable if it answers then',
+        () async {
+      // One request lost to a brief drop: the second try a moment later gets
+      // through, and nothing is remembered as an outage.
+      final reachability = CachingProviderReachability();
+      final observed = <ReachabilityStatus>[];
+      final inner = _ScriptedInner(<PlaybackResolutionErrorKind?>[
+        PlaybackResolutionErrorKind.serverUnreachable,
+        null,
+      ]);
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        onReachabilityObserved: observed.add,
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      final ResolvedPlayable resolved = await resolver.resolve(_track);
+
+      expect(resolved.source, PlaybackSource.streamingDirect);
+      expect(inner.calls, 2);
+      expect(reachability.statusOf('jellyfin'), ReachabilityStatus.reachable);
+      expect(observed, <ReachabilityStatus>[ReachabilityStatus.reachable]);
+    });
+
+    test('waits the delay before the second try', () async {
+      final inner = _ScriptedInner(<PlaybackResolutionErrorKind?>[
+        PlaybackResolutionErrorKind.serverUnreachable,
+        null,
+      ]);
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: const Duration(milliseconds: 60),
+      );
+
+      final Future<ResolvedPlayable> resolving = resolver.resolve(_track);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(inner.calls, 1);
+
+      await resolving;
+      expect(inner.calls, 2);
+    });
+
+    test('is remembered as an outage when the second try fails too', () async {
+      final reachability = CachingProviderReachability();
+      final inner = _FakeInner(
+        failWith: PlaybackResolutionErrorKind.serverUnreachable,
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>().having(
+          (PlaybackResolutionException e) => e.kind,
+          'kind',
+          PlaybackResolutionErrorKind.serverUnreachable,
+        )),
+      );
+      expect(inner.calls, 2);
+      expect(
+        reachability.statusOf('jellyfin'),
+        ReachabilityStatus.serverUnreachable,
+      );
+
+      // The tracks after it fail fast, without a request, as before.
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 2);
+    });
+
+    test('is not tried again when the failure took as long as a timeout',
+        () async {
+      // A request that ran into its timeout already cost the listener that
+      // long; a second one would double it for a server that is really gone.
+      DateTime now = DateTime(2026, 10, 20, 12);
+      final inner = _ScriptedInner(
+        <PlaybackResolutionErrorKind?>[
+          PlaybackResolutionErrorKind.serverUnreachable,
+          null,
+        ],
+        onCall: () => now = now.add(const Duration(seconds: 20)),
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(clock: () => now),
+        quickFailureRetryDelay: Duration.zero,
+        clock: () => now,
+      );
+
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 1);
+    });
+
+    test('a rejected session is not tried again', () async {
+      final inner = _FakeInner(
+        failWith: PlaybackResolutionErrorKind.sessionExpired,
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 1);
+    });
+  });
+
   group('a LAN server behind Android 17\'s local network permission', () {
     test('fails fast with the reason and leaves reachability alone', () async {
       final _FakeInner inner = _FakeInner();
