@@ -9,7 +9,7 @@ import 'jellyfin_track_mapper.dart';
 ///
 /// The token is woven into the URL here, on demand by the
 /// [JellyfinStreamSource], and never stored on the track or in the catalog.
-/// Before minting, this verifies the session is still valid and the server
+/// Alongside minting, this verifies the session is still valid and the server
 /// reachable, so the player can show a precise, friendly error (expired session
 /// vs. unreachable server) instead of an opaque audio-engine failure. The
 /// minted URL is returned to the controller and handed to the engine — it is
@@ -38,13 +38,16 @@ class JellyfinPlayableUriResolver implements PlayableUriResolver {
       );
     }
 
-    // Confirm the session still works, then mint and probe the stream URL —
-    // both can throw a typed [JellyfinException], which becomes a precise,
-    // secret-free message rather than the engine's opaque "couldn't play".
+    // Confirm the session still works while minting and probing the stream
+    // URL — both can throw a typed [JellyfinException], which becomes a
+    // precise, secret-free message rather than the engine's opaque "couldn't
+    // play".
     final Uri? uri;
     try {
-      await source.verifyReachable();
-      uri = await source.resolvePlayableUri(track);
+      uri = await sessionCheckedWhileMinting(
+        source.verifyReachable,
+        () => source.resolvePlayableUri(track),
+      );
     } on JellyfinException catch (error) {
       throw _mapFailure(error);
     }

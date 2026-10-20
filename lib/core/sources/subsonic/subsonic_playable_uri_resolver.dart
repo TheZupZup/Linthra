@@ -10,7 +10,7 @@ import 'subsonic_track_mapper.dart';
 ///
 /// The salt+token is woven into the URL here, on demand by the
 /// [SubsonicStreamSource], and never stored on the track or in the catalog.
-/// Before minting, this verifies the session is still valid and the server
+/// Alongside minting, this verifies the session is still valid and the server
 /// reachable, so the player can show a precise, friendly error instead of an
 /// opaque audio-engine failure. The minted URL is returned to the controller
 /// and handed to the engine — never logged, never placed in [Track].
@@ -40,8 +40,10 @@ class SubsonicPlayableUriResolver implements PlayableUriResolver {
 
     final Uri? uri;
     try {
-      await source.verifyReachable();
-      uri = await source.resolvePlayableUri(track);
+      uri = await sessionCheckedWhileMinting(
+        source.verifyReachable,
+        () => source.resolvePlayableUri(track),
+      );
     } on SubsonicException catch (error) {
       throw _mapFailure(error);
     }
