@@ -116,3 +116,22 @@ abstract interface class PlayableUriResolver {
   /// [PlaybackResolutionException] with a friendly, secret-free message.
   Future<ResolvedPlayable> resolve(Track track);
 }
+
+/// Runs a remote resolver's session check and its stream minting at the same
+/// time, and returns what [mint] returned.
+///
+/// The two are independent requests to the same server, so sending them one
+/// after the other only made every remote track wait an extra round trip
+/// before the engine got its URL. [checkSession]'s failure still wins when
+/// both fail, so a rejected session reads as one exactly as it did when it ran
+/// first; [mint]'s outcome is let go of then, and never waited for.
+Future<T> sessionCheckedWhileMinting<T>(
+  Future<void> Function() checkSession,
+  Future<T> Function() mint,
+) async {
+  // Its failure can land before the session check is through, while nothing
+  // awaits it yet; it is still delivered to the await below.
+  final Future<T> minting = mint()..ignore();
+  await checkSession();
+  return minting;
+}

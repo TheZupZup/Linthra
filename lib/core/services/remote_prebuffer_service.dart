@@ -18,6 +18,12 @@ import 'remote_cache/remote_stream_prebufferer.dart';
 /// current track too covers a resume/retry on a flaky connection, and [ahead]
 /// can warm more than one upcoming item.
 ///
+/// A warmed URL only stays fresh for a couple of minutes, and most songs are
+/// longer than that, so the next track is warmed once more as the current one
+/// nears its end ([refreshLead]). Without it, the warm made when a track
+/// started had usually expired by the time the track ended, and the natural
+/// roll into the next one paid the full session check and probe after all.
+///
 /// What it deliberately does NOT do:
 ///  - **Repeat-one stays calm.** The current track loops, so the up-next won't
 ///    play soon — only the current track is (cheaply, usually no-op) prepared.
@@ -32,10 +38,21 @@ class RemotePrebufferService {
     required Stream<PlaybackState> playbackStates,
     required RemoteStreamPrebufferer prebufferer,
     int ahead = 1,
+    this.refreshLead = defaultRefreshLead,
   })  : _prebufferer = prebufferer,
         _ahead = ahead {
     _subscription = playbackStates.listen(_onState);
   }
+
+  /// How close to the end of the current track the next one is warmed again.
+  ///
+  /// Far enough ahead for a slow resolve to finish before the change, close
+  /// enough that the URL is still fresh at it. It costs a request only when
+  /// the earlier warm has gone stale, and it is the request the change would
+  /// have made anyway, made earlier.
+  static const Duration defaultRefreshLead = Duration(seconds: 30);
+
+  final Duration refreshLead;
 
   final RemoteStreamPrebufferer _prebufferer;
   final int _ahead;
@@ -45,27 +62,95 @@ class RemotePrebufferService {
   /// don't re-trigger a pass.
   PlaybackState? _lastInputs;
   PlaybackState? _pending;
+
+  /// The tracks to warm again near the end of the current one, and how long
+  /// until it ends.
+  ({List<Track> tracks, Duration remaining})? _pendingRefresh;
+
+  /// Whether reaching the last [refreshLead] of the track warms the next one
+  /// again. Spent when it does; re-armed when playback leaves that stretch
+  /// (a pause, a seek back) or moves to another track, since the warm may have
+  /// gone stale again by the time it gets back there.
+  bool _refreshArmed = true;
   bool _running = false;
 
   void _onState(PlaybackState state) {
     // Only the inputs that decide what to prepare count: the playing track,
     // shuffle, repeat, and the head of up-next this service warms. A position
     // tick moves none of them and costs a few reference checks here (see
-    // [samePlaybackLookahead]).
-    if (samePlaybackLookahead(state, _lastInputs, ahead: _ahead)) return;
+    // [samePlaybackLookahead]), plus the end-of-track check below.
+    if (samePlaybackLookahead(state, _lastInputs, ahead: _ahead)) {
+      _refreshNearEnd(state);
+      return;
+    }
     _lastInputs = state;
+    _refreshArmed = true;
     if (state.currentTrack == null) return;
     _pending = state;
     unawaited(_drain());
+  }
+
+  /// Warms the track after this one again once the current track is playing
+  /// within [refreshLead] of its end.
+  void _refreshNearEnd(PlaybackState state) {
+    final bool nearEnd = state.status == PlaybackStatus.playing &&
+        state.duration > Duration.zero &&
+        state.duration - state.position <= refreshLead;
+    if (!nearEnd) {
+      _refreshArmed = true;
+      return;
+    }
+    if (!_refreshArmed) return;
+    _refreshArmed = false;
+    final Track? next = _nextToPlay(state);
+    if (next == null) return;
+    _pendingRefresh = (
+      tracks: <Track>[next],
+      remaining: state.duration - state.position,
+    );
+    unawaited(_drain());
+  }
+
+  /// The track the controller resolves when the current one ends: the head
+  /// of up-next, or under repeat-all the top of the queue (the current track
+  /// itself in a queue of one). Nothing under repeat-one, which rewinds
+  /// rather than resolving again.
+  ///
+  /// Unlike [upcomingTracks] it keeps a track that comes round again: a warm
+  /// is used once, by whatever plays next, even when that is the same song.
+  static Track? _nextToPlay(PlaybackState state) {
+    if (state.repeatMode == RepeatMode.one) return null;
+    if (state.upNext.isNotEmpty) return state.upNext.first;
+    if (state.repeatMode != RepeatMode.all) return null;
+    return state.previous.isNotEmpty
+        ? state.previous.first
+        : state.currentTrack;
   }
 
   Future<void> _drain() async {
     if (_running) return;
     _running = true;
     try {
-      while (_pending != null) {
-        final PlaybackState state = _pending!;
+      while (_pending != null || _pendingRefresh != null) {
+        final PlaybackState? state = _pending;
         _pending = null;
+        if (state == null) {
+          final ({List<Track> tracks, Duration remaining}) refresh =
+              _pendingRefresh!;
+          _pendingRefresh = null;
+          // A warm that stays fresh past the end of this track is kept, so
+          // this only reaches the server for one that has gone stale or would
+          // before the change.
+          await _prebufferer.prepare(
+            upNext: refresh.tracks,
+            ahead: refresh.tracks.length,
+            keepFreshFor: refresh.remaining,
+          );
+          continue;
+        }
+        // The track changed or the queue moved: this pass warms what plays
+        // next now, which supersedes a refresh still waiting.
+        _pendingRefresh = null;
         // Repeat-one replays the current track, so the up-next won't play soon:
         // prepare only the current track (a cheap no-op once it is warm) and
         // skip warming unrelated up-next entries.

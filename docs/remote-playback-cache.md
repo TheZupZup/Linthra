@@ -20,7 +20,11 @@ As playback advances, the app warms the **current** remote track and the
 **next** queue item's stream URL into a short-lived, in-memory cache, so the
 next play is served from a pre-resolved URL instead of re-running the
 session-check + mint. If a warmed URL has expired, the cache resolves a fresh one
-rather than replaying a stale one.
+rather than replaying a stale one. Because a warm is only fresh for two minutes
+and most tracks run longer, `RemotePrebufferService` warms the next track once
+more in the last 30 seconds of the current one, so the natural roll-over is
+served from a fresh warm too (the prebufferer skips it when the first warm
+stays fresh until the change).
 
 It is deliberately **not** the offline cache: it never writes bytes to disk,
 never marks a track as downloaded, and never blocks the current track. (Warming
@@ -41,7 +45,7 @@ know nothing about Jellyfin, Plex, or Subsonic beyond a track's URI scheme.
 | `RemoteCacheCleanup` | The pure cleanup rule: which entries are expired and should be dropped. |
 | `RemoteStreamPrebufferer` | The **write side**: pre-resolves the current + next remote URLs through the source router, stores them, and (optionally) records each warm's credential-free key in the durable index. Best-effort; never throws. |
 | `RemoteCacheResolver` | The **read side**: a `PlayableUriResolver` that serves a fresh warmed URL once, else delegates to the router. |
-| `RemotePrebufferService` | Drives the prebufferer from the live `PlaybackState` (current + next, calm under repeat-one, off the playback path). |
+| `RemotePrebufferService` | Drives the prebufferer from the live `PlaybackState` (current + next, the next again near the end of the current track, calm under repeat-one, off the playback path). |
 | `RemoteCacheRecord` | The **persistable, credential-free projection** of an entry: its key + timestamps, with the token-bearing stream URL cut away. There is no field that could hold a URL or token. |
 | `RemoteCacheStore` | The persistence seam — `load` / `save` a list of records. The app impl is `FileRemoteCacheStore` (a JSON manifest under `remote_cache/`); tests use an in-memory fake. |
 | `RemoteCacheIndex` | The durable index orchestrator: loads once, records each warm's credential-free key, sweeps expired records, and clears — every step best-effort and off the playback path. |

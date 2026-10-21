@@ -56,6 +56,37 @@ class _AnsweredInner implements PlayableUriResolver {
   }
 }
 
+/// An inner resolver that fails or succeeds call by call, as scripted: each
+/// entry is the failure kind for that call, or null for a success. Calls past
+/// the script succeed.
+class _ScriptedInner implements PlayableUriResolver {
+  _ScriptedInner(this.script, {this.onCall});
+
+  final List<PlaybackResolutionErrorKind?> script;
+
+  /// Runs inside each call, before it answers (to move a clock along).
+  final void Function()? onCall;
+  int calls = 0;
+
+  @override
+  bool handles(Track track) => track.uri.startsWith('jellyfin:');
+
+  @override
+  Future<ResolvedPlayable> resolve(Track track) async {
+    final int call = calls++;
+    onCall?.call();
+    final PlaybackResolutionErrorKind? kind =
+        call < script.length ? script[call] : null;
+    if (kind != null) {
+      throw PlaybackResolutionException('inner failed', kind: kind);
+    }
+    return ResolvedPlayable(
+      Uri.parse('https://stream/${track.id}'),
+      PlaybackSource.streamingDirect,
+    );
+  }
+}
+
 /// A connectivity service whose status a test can flip, to simulate the network
 /// dropping and returning between resolve calls.
 class _FakeConnectivity implements ConnectivityService {
@@ -476,6 +507,265 @@ void main() {
   // track from it must fail fast with the reason (not a 20 s connect timeout),
   // and must not mark the server down: it isn't, and hiding its library would
   // take away the very tracks the user taps to be asked again.
+  group('a server that could not be reached, quickly', () {
+    test('is tried once more, and counts as reachable if it answers then',
+        () async {
+      // One request lost to a brief drop: the second try a moment later gets
+      // through, and nothing is remembered as an outage.
+      final reachability = CachingProviderReachability();
+      final observed = <ReachabilityStatus>[];
+      final inner = _ScriptedInner(<PlaybackResolutionErrorKind?>[
+        PlaybackResolutionErrorKind.serverUnreachable,
+        null,
+      ]);
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        onReachabilityObserved: observed.add,
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      final ResolvedPlayable resolved = await resolver.resolve(_track);
+
+      expect(resolved.source, PlaybackSource.streamingDirect);
+      expect(inner.calls, 2);
+      expect(reachability.statusOf('jellyfin'), ReachabilityStatus.reachable);
+      expect(observed, <ReachabilityStatus>[ReachabilityStatus.reachable]);
+    });
+
+    test('waits the delay before the second try', () async {
+      final inner = _ScriptedInner(<PlaybackResolutionErrorKind?>[
+        PlaybackResolutionErrorKind.serverUnreachable,
+        null,
+      ]);
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: const Duration(milliseconds: 60),
+      );
+
+      final Future<ResolvedPlayable> resolving = resolver.resolve(_track);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(inner.calls, 1);
+
+      await resolving;
+      expect(inner.calls, 2);
+    });
+
+    test('is remembered as an outage when the second try fails too', () async {
+      final reachability = CachingProviderReachability();
+      final inner = _FakeInner(
+        failWith: PlaybackResolutionErrorKind.serverUnreachable,
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>().having(
+          (PlaybackResolutionException e) => e.kind,
+          'kind',
+          PlaybackResolutionErrorKind.serverUnreachable,
+        )),
+      );
+      expect(inner.calls, 2);
+      expect(
+        reachability.statusOf('jellyfin'),
+        ReachabilityStatus.serverUnreachable,
+      );
+
+      // The tracks after it fail fast, without a request, as before.
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 2);
+    });
+
+    test('is not tried again when the failure took as long as a timeout',
+        () async {
+      // A request that ran into its timeout already cost the listener that
+      // long; a second one would double it for a server that is really gone.
+      DateTime now = DateTime(2026, 10, 20, 12);
+      final inner = _ScriptedInner(
+        <PlaybackResolutionErrorKind?>[
+          PlaybackResolutionErrorKind.serverUnreachable,
+          null,
+        ],
+        onCall: () => now = now.add(const Duration(seconds: 20)),
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(clock: () => now),
+        quickFailureRetryDelay: Duration.zero,
+        clock: () => now,
+      );
+
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 1);
+    });
+
+    test('is not tried again once the sign-in changed', () async {
+      // The listener signed in again (a new token, another account or server)
+      // while the attempt failed: a second try would mint the new session's
+      // URL in the old attempt's name.
+      String key = 'jellyfin:old-session';
+      final inner = _ScriptedInner(
+        <PlaybackResolutionErrorKind?>[
+          PlaybackResolutionErrorKind.serverUnreachable,
+          null,
+        ],
+        onCall: () => key = 'jellyfin:new-session',
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => key,
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(
+        resolver.resolve(_track),
+        throwsA(isA<PlaybackResolutionException>().having(
+          (PlaybackResolutionException e) => e.kind,
+          'kind',
+          PlaybackResolutionErrorKind.serverUnreachable,
+        )),
+      );
+      expect(inner.calls, 1);
+    });
+
+    test('is not tried again after a new sign-in under the same key', () async {
+      // Plex keys its memory by server, Subsonic by server and username: a
+      // new token or another Home profile leaves the key as it was, but a
+      // second try would be made with that other session's credentials.
+      Object session = Object();
+      final inner = _ScriptedInner(
+        <PlaybackResolutionErrorKind?>[
+          PlaybackResolutionErrorKind.serverUnreachable,
+          null,
+        ],
+        onCall: () => session = Object(),
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'plex:machine-1',
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: Duration.zero,
+        session: () => session,
+      );
+
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 1);
+    });
+
+    test('a second try that succeeds is newer than a failure from the pause',
+        () async {
+      // The track's request fails at once and waits to try again. Meanwhile a
+      // warm sent during that pause runs into its timeout and records an
+      // outage. The second try starts after that warm, so its success is the
+      // newest word on the server, not an older attempt's to be ignored.
+      DateTime now = DateTime(2026, 10, 20, 12);
+      final reachability = CachingProviderReachability(clock: () => now);
+      final inner = _AnsweredInner();
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: reachability,
+        quickFailureRetryDelay: const Duration(milliseconds: 50),
+        clock: () => now,
+      );
+      const PlaybackResolutionException lost = PlaybackResolutionException(
+        'connection reset',
+        kind: PlaybackResolutionErrorKind.serverUnreachable,
+      );
+
+      final Future<ResolvedPlayable> track = resolver.resolve(_track);
+      await pumpEventQueue();
+      inner.calls[0].completeError(lost);
+      await pumpEventQueue();
+
+      final Future<void> warm =
+          expectLater(resolver.resolve(_track), throwsA(anything));
+      await pumpEventQueue();
+      expect(inner.calls, hasLength(2));
+      now = now.add(const Duration(seconds: 6));
+      inner.calls[1].completeError(lost);
+      await warm;
+      expect(
+        reachability.statusOf('jellyfin'),
+        ReachabilityStatus.serverUnreachable,
+      );
+
+      while (inner.calls.length < 3) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      inner.calls[2].complete(ResolvedPlayable(
+        Uri.parse('https://stream/t1'),
+        PlaybackSource.streamingDirect,
+      ));
+      await track;
+
+      expect(reachability.statusOf('jellyfin'), ReachabilityStatus.reachable);
+    });
+
+    test('a rejected session is not tried again', () async {
+      final inner = _FakeInner(
+        failWith: PlaybackResolutionErrorKind.sessionExpired,
+      );
+      final resolver = ReachabilityAwarePlayableUriResolver(
+        inner: inner,
+        providerKey: () => 'jellyfin',
+        reachability: CachingProviderReachability(),
+        quickFailureRetryDelay: Duration.zero,
+      );
+
+      await expectLater(resolver.resolve(_track), throwsA(anything));
+      expect(inner.calls, 1);
+    });
+  });
+
+  test(
+      'an outage keeps the moment it was first seen when an attempt already '
+      'on its way fails after it', () async {
+    // The player's automatic retry waits the memory out from the failure it
+    // saw. A background warm sent just after the track's own request, lost to
+    // the same drop and failing a moment later, must not push the memory past
+    // that retry, or the retry is answered from memory instead of the server.
+    DateTime now = DateTime(2026, 10, 20, 12);
+    final reachability = CachingProviderReachability(clock: () => now);
+    final inner = _AnsweredInner();
+    final resolver = _build(inner: inner, reachability: reachability);
+    const PlaybackResolutionException lost = PlaybackResolutionException(
+      'connection reset',
+      kind: PlaybackResolutionErrorKind.serverUnreachable,
+    );
+
+    final Future<void> track =
+        expectLater(resolver.resolve(_track), throwsA(anything));
+    final Future<void> warm =
+        expectLater(resolver.resolve(_track), throwsA(anything));
+    await pumpEventQueue();
+    expect(inner.calls, hasLength(2));
+
+    inner.calls[0].completeError(lost);
+    await track;
+    now = now.add(const Duration(seconds: 3));
+    inner.calls[1].completeError(lost);
+    await warm;
+
+    now = now.add(const Duration(seconds: 7));
+    expect(
+      reachability.statusOf('jellyfin'),
+      isNull,
+      reason: 'ten seconds after the outage was first seen, it is forgotten',
+    );
+  });
+
   group('a LAN server behind Android 17\'s local network permission', () {
     test('fails fast with the reason and leaves reachability alone', () async {
       final _FakeInner inner = _FakeInner();

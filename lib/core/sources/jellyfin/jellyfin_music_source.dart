@@ -22,7 +22,7 @@ import 'jellyfin_track_mapper.dart';
 /// Like the local source, it does not persist anything itself — the
 /// `MusicLibraryRepository` is what syncs these results into the offline cache
 /// the UI reads from. Streaming playback is wired through
-/// `JellyfinPlayableUriResolver`, which calls [verifyReachable] then
+/// `JellyfinPlayableUriResolver`, which calls [verifyReachable] alongside
 /// [resolvePlayableUri] at play time so the token is only ever woven into a URL
 /// on demand.
 class JellyfinMusicSource

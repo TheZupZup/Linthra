@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/track.dart';
@@ -39,6 +41,22 @@ class _FakeStreamSource implements JellyfinStreamSource {
 
 const _jellyfinTrack = Track(id: 't1', title: 'One', uri: 'jellyfin:t1');
 
+/// A source whose session check stays open until the test answers it, and
+/// which notes when the stream URL was asked for.
+class _SlowSessionSource implements JellyfinStreamSource {
+  final Completer<void> session = Completer<void>();
+  bool minted = false;
+
+  @override
+  Future<void> verifyReachable() => session.future;
+
+  @override
+  Future<Uri?> resolvePlayableUri(Track track) async {
+    minted = true;
+    return Uri.parse('https://music.example.com/Audio/t1/stream');
+  }
+}
+
 void main() {
   group('JellyfinPlayableUriResolver', () {
     test('handles only Jellyfin tracks', () {
@@ -67,6 +85,21 @@ void main() {
       expect(resolved.source, PlaybackSource.streamingDirect);
       // The session is verified before the URL is handed to the engine.
       expect(source.verifyCount, 1);
+    });
+
+    test('mints the stream URL while the session check is on its way',
+        () async {
+      // One round trip, not two, before the engine gets its URL.
+      final _SlowSessionSource source = _SlowSessionSource();
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      final Future<ResolvedPlayable> resolving =
+          resolver.resolve(_jellyfinTrack);
+      await pumpEventQueue();
+      expect(source.minted, isTrue);
+
+      source.session.complete();
+      expect((await resolving).uri.path, '/Audio/t1/stream');
     });
 
     test('reports "not signed in" when no source is connected', () async {
@@ -115,6 +148,28 @@ void main() {
             (PlaybackResolutionException e) => e.kind,
             'kind',
             PlaybackResolutionErrorKind.serverUnreachable,
+          ),
+        ),
+      );
+    });
+
+    test('an expired session wins over the probe failing alongside it',
+        () async {
+      // The session check and the probe go out together; when both fail, the
+      // listener is told to sign in, as when the check ran first.
+      final source = _FakeStreamSource(
+        verifyError: JellyfinException.unauthorized(),
+        streamError: JellyfinException.webPage(),
+      );
+      final resolver = JellyfinPlayableUriResolver(() => source);
+
+      await expectLater(
+        resolver.resolve(_jellyfinTrack),
+        throwsA(
+          isA<PlaybackResolutionException>().having(
+            (PlaybackResolutionException e) => e.kind,
+            'kind',
+            PlaybackResolutionErrorKind.sessionExpired,
           ),
         ),
       );

@@ -23,7 +23,10 @@ import 'reachability.dart';
 ///     tracks in a burst fall straight to a cached copy or another provider
 ///     rather than each re-paying the timeout.
 ///  3. **Otherwise** → resolve for real and record the outcome (reachable, or
-///     the kind of failure), so the memory stays current.
+///     the kind of failure), so the memory stays current. A server that could
+///     not be reached, and said so quickly, is tried once more a moment later
+///     first ([_quickFailureRetryDelay]), so one lost request is not taken for
+///     an outage.
 ///
 /// What it deliberately does **not** do:
 ///  - It never short-circuits an [ReachabilityStatus.authFailure]. The server is
@@ -48,13 +51,28 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     void Function(ReachabilityStatus status)? onReachabilityObserved,
     LocalNetworkAccess? localNetwork,
     Uri? Function()? serverUri,
+    Duration? quickFailureRetryDelay,
+    Object? Function()? session,
+    DateTime Function()? clock,
   })  : _inner = inner,
         _providerKey = providerKey,
         _reachability = reachability,
         _connectivity = connectivity,
         _onReachabilityObserved = onReachabilityObserved,
         _localNetwork = localNetwork,
-        _serverUri = serverUri;
+        _serverUri = serverUri,
+        _quickFailureRetryDelay = quickFailureRetryDelay,
+        _session = session,
+        _now = clock ?? DateTime.now;
+
+  /// The pause the app takes before trying a server once more when it could
+  /// not be reached and that came back quickly ([quickFailure]).
+  static const Duration defaultQuickFailureRetryDelay = Duration(seconds: 1);
+
+  /// A failure that came back faster than this was a connection refused, cut
+  /// or reset (a request lost to a brief drop, a Wi-Fi/LTE handover, a server
+  /// restarting), not a request that ran into its timeout.
+  static const Duration quickFailure = Duration(seconds: 5);
 
   final PlayableUriResolver _inner;
 
@@ -87,6 +105,27 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
   /// is every host where the permission doesn't exist.
   final LocalNetworkAccess? _localNetwork;
   final Uri? Function()? _serverUri;
+
+  /// How long to wait before trying the server a second time after a
+  /// [quickFailure] to reach it, or null for no second try (the default, so a
+  /// bare resolver makes exactly one attempt).
+  ///
+  /// Without it, one request lost to a brief drop fails the track, and the
+  /// player then waits out the remembered outage (about ten seconds, the
+  /// player's recovery policy) before it asks the server again. A failure that
+  /// took longer is a timeout, and is not tried again: a second one would only
+  /// double the wait for a server that is really gone.
+  final Duration? _quickFailureRetryDelay;
+
+  /// The session object the provider resolves with right now, compared by
+  /// identity so the quick retry can tell that the listener signed in again
+  /// while it waited. [_providerKey] alone can't: for Plex it names only the
+  /// server, and for Subsonic the server and username, so a new token or a
+  /// Home profile switch leaves it unchanged. Null (tests) relies on
+  /// [_providerKey] alone.
+  final Object? Function()? _session;
+
+  final DateTime Function() _now;
 
   /// Numbers each attempt as it starts.
   int _attempts = 0;
@@ -161,6 +200,27 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
     }
 
     // 3. Resolve for real, recording what we learn so the memory stays current.
+    return _resolveLive(track, key, attempt);
+  }
+
+  /// Resolves [track] through the provider as [attempt], and records what that
+  /// says about the server.
+  ///
+  /// When the server could not be reached and that came back quickly, it waits
+  /// [_quickFailureRetryDelay] and tries once more, as a new attempt: that
+  /// request starts after anything begun during the pause, so its answer is
+  /// the newer one. Only while [key] and the signed-in session are the ones it
+  /// started with: after a sign-in (another account, a new token, another Plex
+  /// Home profile) a second try would be made with credentials that are not
+  /// this attempt's.
+  Future<ResolvedPlayable> _resolveLive(
+    Track track,
+    String key,
+    int attempt, {
+    bool mayRetry = true,
+  }) async {
+    final DateTime started = _now();
+    final Object? session = _session?.call();
     try {
       final ResolvedPlayable resolved = await _inner.resolve(track);
       if (_isNewest(key, attempt)) {
@@ -169,15 +229,36 @@ class ReachabilityAwarePlayableUriResolver implements PlayableUriResolver {
       }
       return resolved;
     } on PlaybackResolutionException catch (error) {
+      final Duration? pause = _quickFailureRetryDelay;
+      if (mayRetry &&
+          pause != null &&
+          error.kind == PlaybackResolutionErrorKind.serverUnreachable &&
+          _now().difference(started) < quickFailure) {
+        await Future<void>.delayed(pause);
+        if (_providerKey() == key && identical(_session?.call(), session)) {
+          return _resolveLive(track, key, ++_attempts, mayRetry: false);
+        }
+      }
       final ReachabilityStatus? status =
           reachabilityFromPlaybackError(error.kind);
       if (status != null && _isNewest(key, attempt)) {
-        _reachability.record(key, status);
+        // An outage already remembered keeps the moment it was first seen:
+        // step 2 lets no new attempt through while it is, so this one was
+        // already on its way (a background warm, typically). The player's
+        // automatic retry waits exactly the memory's length from the failure
+        // it saw; pushed further back, the retry would be answered from
+        // memory instead of reaching the server.
+        if (!status.isServerOutage || !_remembersOutage(key)) {
+          _reachability.record(key, status);
+        }
         _observeFor(key, status);
       }
       rethrow;
     }
   }
+
+  bool _remembersOutage(String key) =>
+      _reachability.statusOf(key)?.isServerOutage ?? false;
 
   /// Tells the observer what an attempt made under [key] learned, if [key] is
   /// still the server and account signed in. An attempt can take as long as a

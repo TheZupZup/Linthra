@@ -74,20 +74,28 @@ class RemoteStreamPrebufferer implements StreamPreloader {
   /// entries of [upNext] into the cache, dropping any stale entries first.
   /// Best-effort and sequential (one warm at a time keeps it off the playback
   /// path and lets a newer queue win); never throws.
+  ///
+  /// [keepFreshFor] is how long the [upNext] warms are needed for (until the
+  /// current track ends): one that would expire before then is warmed again
+  /// rather than kept.
   Future<void> prepare({
     Track? current,
     List<Track> upNext = const <Track>[],
     int ahead = 1,
+    Duration? keepFreshFor,
   }) async {
-    _cache.sweep(_now());
+    final DateTime now = _now();
+    _cache.sweep(now);
     if (current != null) await _prebuffer(current);
+    final DateTime? neededUntil =
+        keepFreshFor == null ? null : now.add(keepFreshFor);
     final int count = ahead < upNext.length ? ahead : upNext.length;
     for (int i = 0; i < count; i++) {
-      await _prebuffer(upNext[i]);
+      await _prebuffer(upNext[i], neededUntil: neededUntil);
     }
   }
 
-  Future<void> _prebuffer(Track track) async {
+  Future<void> _prebuffer(Track track, {DateTime? neededUntil}) async {
     final RemoteCacheKey? key = RemoteCacheKey.forTrack(track);
     // Not a remote stream (local / content:// / tokenized): nothing to warm.
     if (key == null) return;
@@ -95,10 +103,15 @@ class RemoteStreamPrebufferer implements StreamPreloader {
     // The account the URL is about to be minted for. Read before the resolve,
     // which reads the signed-in session at its start.
     final String? scope = accountScopeFor(_accountScopeOf, track);
-    // Already warm and fresh for this account: don't re-resolve (and don't
-    // spend a request). One warmed for another account is replaced below.
+    // Already warm and fresh for this account, for as long as it is needed:
+    // don't re-resolve (and don't spend a request). One warmed for another
+    // account, or about to expire, is replaced below.
     final RemoteCacheEntry? warm = _cache.peek(key, _now());
-    if (warm != null && warm.accountScope == scope) return;
+    if (warm != null &&
+        warm.accountScope == scope &&
+        (neededUntil == null || warm.isFresh(neededUntil))) {
+      return;
+    }
     try {
       final ResolvedPlayable resolved = await _resolver.resolve(track);
       // Signed out, or another account signed in, while it resolved: the URL

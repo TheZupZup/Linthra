@@ -397,12 +397,18 @@ void main() {
 
       await controller.playTrack(jellyfinTrack('101'));
 
-      // The session was checked before anything was minted, and the stream URL
-      // carried the token in the query — which is what the engine fetches with.
+      // The session check and the probe go out together, and the engine
+      // fetches the stream only once both have answered. The stream URL
+      // carried the token in the query, which is what the engine fetches with.
+      final List<String> paths =
+          server.requests.map((FakeServerRequest r) => r.path).toList();
+      expect(paths, hasLength(3));
       expect(
-        server.requests.map((FakeServerRequest r) => r.path),
-        containsAllInOrder(<String>['/Users/Me', '/Audio/101/stream']),
+        paths.take(2),
+        unorderedEquals(<String>['/Users/Me', '/Audio/101/stream']),
       );
+      expect(paths.last, '/Audio/101/stream');
+      expect(server.streamFetches.single, same(server.requests.last));
       final FakeServerRequest probe = server.streamProbes.single;
       expect(probe.query['ApiKey'], syntheticJellyfinToken);
       expect(probe.query['static'], 'true');
@@ -499,10 +505,17 @@ void main() {
 
       await controller.playTrack(subsonicTrack('song-7'));
 
+      // The ping and the probe go out together; the engine fetches the stream
+      // once both have answered.
+      final List<String> paths =
+          server.requests.map((FakeServerRequest r) => r.path).toList();
+      expect(paths, hasLength(3));
       expect(
-        server.requests.map((FakeServerRequest r) => r.path),
-        containsAllInOrder(<String>['/rest/ping.view', '/rest/stream.view']),
+        paths.take(2),
+        unorderedEquals(<String>['/rest/ping.view', '/rest/stream.view']),
       );
+      expect(paths.last, '/rest/stream.view');
+      expect(server.streamFetches.single, same(server.requests.last));
       final FakeServerRequest probe = server.streamProbes.single;
       expect(probe.query['id'], 'song-7');
       expect(probe.query['t'], syntheticSubsonicToken);
@@ -527,14 +540,16 @@ void main() {
 
       await controller.playTrack(plexTrack('4242'));
 
+      // The session check and the Part lookup go out together; the engine
+      // fetches the Part only once both have answered.
+      final List<String> paths =
+          server.requests.map((FakeServerRequest r) => r.path).toList();
+      expect(paths, hasLength(3));
       expect(
-        server.requests.map((FakeServerRequest r) => r.path),
-        containsAllInOrder(<String>[
-          '/identity',
-          '/library/metadata/4242',
-          FakePlexServer.partKeyFor('4242'),
-        ]),
+        paths.take(2),
+        unorderedEquals(<String>['/identity', '/library/metadata/4242']),
       );
+      expect(paths.last, FakePlexServer.partKeyFor('4242'));
       // The token rides in a header for the API calls and only reaches a query
       // on the Part URL the engine fetches.
       final FakeServerRequest metadata = server.requests.firstWhere(
@@ -899,7 +914,9 @@ void main() {
         controller.state.failure!.kind,
         PlaybackFailureKind.sourceSignInRequired,
       );
-      expect(server.streamRequests, isEmpty);
+      // The probe goes out alongside the session check, but nothing reaches
+      // the engine.
+      expect(server.streamFetches, isEmpty);
       expectCredentialsContained(controller);
     });
 
@@ -966,7 +983,7 @@ void main() {
       await controller.playTrack(preferred);
 
       // The preferred copy was tried first and the sibling actually played.
-      expect(jellyfin.streamRequests, isEmpty);
+      expect(jellyfin.streamFetches, isEmpty);
       expect(subsonic.streamProbes, hasLength(1));
       expect(controller.state.status, PlaybackStatus.playing);
       expect(controller.state.currentTrack!.uri, 'subsonic:101');

@@ -113,6 +113,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
     PlayableUriResolver inner,
     String? Function() providerKey, {
     required String? Function() serverUrl,
+    required Object? Function() session,
     void Function(ReachabilityStatus status)? onReachabilityObserved,
   }) {
     return ReachabilityAwarePlayableUriResolver(
@@ -126,6 +127,11 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
         final String? url = serverUrl();
         return url == null ? null : Uri.tryParse(url);
       },
+      // One request lost to a brief drop is tried again a second later,
+      // rather than failing the track into the ten-second automatic retry.
+      quickFailureRetryDelay:
+          ReachabilityAwarePlayableUriResolver.defaultQuickFailureRetryDelay,
+      session: session,
     );
   }
 
@@ -134,6 +140,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
       JellyfinPlayableUriResolver(() => ref.read(jellyfinMusicSourceProvider)),
       () => _jellyfinSignInKey(ref),
       serverUrl: () => ref.read(jellyfinMusicSourceProvider)?.session.baseUrl,
+      session: () => ref.read(jellyfinMusicSourceProvider)?.session,
       // Let the library learn from what the player just found out: the first
       // track that can't reach the server flips Jellyfin to unreachable (and the
       // first that succeeds flips it back) without waiting for the background
@@ -148,6 +155,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
       SubsonicPlayableUriResolver(() => ref.read(subsonicMusicSourceProvider)),
       () => _subsonicAccountKey(ref),
       serverUrl: () => ref.read(subsonicMusicSourceProvider)?.session.baseUrl,
+      session: () => ref.read(subsonicMusicSourceProvider)?.session,
     ),
     // With no Plex session the source provider is null and a plex: track
     // resolves to a friendly "not signed in" rather than falling through
@@ -156,6 +164,7 @@ final remoteSourceRouterProvider = Provider<RoutingPlayableUriResolver>((ref) {
       PlexPlayableUriResolver(() => ref.read(plexMusicSourceProvider)),
       () => _plexAccountKey(ref),
       serverUrl: () => ref.read(plexMusicSourceProvider)?.session.baseUrl,
+      session: () => ref.read(plexMusicSourceProvider)?.session,
     ),
     LocalPlayableUriResolver(presence: ref.read(localFilePresenceProvider)),
   ]);
