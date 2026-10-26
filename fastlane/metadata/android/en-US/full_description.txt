@@ -1,50 +1,34 @@
-Linthra is an open-source Android music player for people who keep their music on
-their own devices or self-hosted servers. It plays local files, and it streams
-from self-hosted music servers such as Jellyfin and Navidrome/Subsonic — you
-bring your own server and sign in with your own account.
+Linthra is an open-source, offline-first music player for Android. Play the
+music stored on your device without an internet connection or a Linthra
+account. Optionally connect to your own Jellyfin, Navidrome / Subsonic, or
+Plex server to browse and stream your personal music library.
 
-Linthra is an unofficial community client. It is not affiliated with Jellyfin,
-Navidrome, or Subsonic.
+Linthra is an independent community client and is not affiliated with
+Jellyfin, Navidrome, Subsonic, or Plex.
 
-The app is still early alpha. It's usable for testing on a real device, but it
-isn't production-stable and has a few rough edges. The lists below separate what
-works today from what's still planned.
+What Linthra offers:
 
-On privacy:
+* Local music playback: select a music folder or use the optional
+  "All music on this device" library, with support for common audio formats
+  including MP3 and FLAC.
+* Browse songs, albums, and artists; search your library and use playlists,
+  favourites, queue / Up Next, shuffle, and repeat.
+* Connect to self-hosted music servers when you want to stream your own
+  collection, including over HTTPS.
+* Download selected tracks for offline listening with a configurable cache.
+* Background playback with notification, lock-screen, Bluetooth, headset,
+  and Android Auto media controls.
+* Album artwork, synced lyrics where available, and optional Chromecast
+  playback to compatible devices.
 
-* No ads, no tracking, no analytics, and no crash-reporting or telemetry SDK.
-* No account to create, and nothing phones home — streaming is the default, and
-  downloads only happen when you ask for them (Wi-Fi only unless you opt in to
-  mobile data).
-* When you sign in to a server, the password is used once to get a session
-  token, then dropped; the token is stored encrypted and never logged. Only the
-  opt-in Subsonic legacy sign-in (https only) keeps the password, encrypted.
-* Open-source under the GNU Affero General Public License v3.0 or later, so
-  anyone can read, build, and contribute to it.
+Privacy first:
 
-What works today:
+* No ads, tracking, analytics, or telemetry SDKs.
+* No Linthra cloud account and no forced synchronization.
+* Your local files stay on your device. Network connections are optional
+  and used for the self-hosted sources and features you choose.
+* Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later), so anyone can inspect, build, and contribute to the code.
 
-* Local library — pick a folder with the Storage Access Framework (no broad
-  storage permission), scan it, and browse Songs, Albums, and Artists with
-  search.
-* Streaming from your own Jellyfin or Navidrome / Subsonic server: test the
-  connection, sign in, sync, and play, including over HTTPS.
-* A smart offline cache — download tracks for offline play, with a size limit
-  and a "Keep offline" pin.
-* Queue / Up Next, playlists and favourites (synced with Jellyfin where it's
-  supported), and automatic "smart mixes" built from on-device signals.
-* Background playback with a media notification and lock-screen, Bluetooth, and
-  wired-headset controls, plus shuffle / repeat and synced lyrics.
-* Android Auto browsing, and casting to a Chromecast, speaker, or TV through a
-  pure-Dart Cast implementation (no Google Play Services).
-
-Still to come:
-
-* Reading tags and album art from local files (for now they show file names).
-* Subsonic favourites, lyrics, and cover art, and fuller playlist sync.
-* "Download all" for an album or playlist.
-* More sources, such as WebDAV / NAS, behind the same interface.
-* A Linux desktop build later, from the same codebase.
-
-Linthra is distributed for testing as a sideloaded APK from GitHub Releases. It
-isn't on F-Droid or Google Play yet.
+Linthra is actively developed, and some features depend on your Android
+device or the capabilities of your connected music server. If something
+does not work as expected, you can report it through the GitHub issue tracker.

@@ -1,1 +1,1 @@
-Open-source, local-first music player for music you own. No forced sync.
+Linthra: Open-source offline music player for local and self-hosted music.
