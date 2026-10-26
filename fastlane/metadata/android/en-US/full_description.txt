@@ -27,7 +27,7 @@ Privacy first:
 * No Linthra cloud account and no forced synchronization.
 * Your local files stay on your device. Network connections are optional
   and used for the self-hosted sources and features you choose.
-* Open-source code that anyone can inspect and contribute to.
+* Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later), so anyone can inspect, build, and contribute to the code.
 
 Linthra is actively developed, and some features depend on your Android
 device or the capabilities of your connected music server. If something
