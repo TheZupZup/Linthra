@@ -527,6 +527,23 @@ jobs:
           python3 .release-tooling/scripts/check_android_target_sdk.py \
             --target "$target" dist/*.apk dist/*.aab
 
+      # The release shrinker drops resources that are only looked up by name.
+      # audio_service resolves every media session icon that way, and v0.2.10
+      # shipped without them: on Android 13+ the session then never started its
+      # foreground service and music stopped with the screen off. Read every
+      # artifact back and refuse one that lost anything the built tree's
+      # keep.xml keeps. A tag from before keep.xml existed has nothing to check.
+      - name: Verify the built artifacts kept what keep.xml keeps
+        run: |
+          set -euo pipefail
+          keep="android/app/src/main/res/raw/keep.xml"
+          if [ ! -f "$keep" ]; then
+            echo "::warning::This tag has no $keep, so there is nothing to check."
+            exit 0
+          fi
+          python3 .release-tooling/scripts/check_android_kept_resources.py \
+            --keep "$keep" dist/*.apk dist/*.aab
+
       # Casting is withheld from shipped builds while a reported security issue
       # is resolved (see lib/core/services/cast/cast_containment.dart). The
       # source tripwire and the containment tests both run against the tree; this
