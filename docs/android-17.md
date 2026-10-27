@@ -23,6 +23,13 @@ to check by hand. Sources were read on 2026-10-09; links are at the end.
 - CI reads `targetSdkVersion` and `minSdkVersion` back out of the built APK and
   App Bundle with the SDK's `aapt2` (`scripts/check_android_target_sdk.py`), on
   every PR and on every release build.
+- AGP 9 shrinks release resources with R8, which removes any resource only
+  looked up by name. `audio_service` finds every media session icon that way,
+  and 0.2.10 shipped without them: on Android 13+ the session then never
+  started its foreground service, so music stopped once the screen went off.
+  Such resources go in `android/app/src/main/res/raw/keep.xml`, and CI checks
+  the built App Bundle still has them
+  (`scripts/check_android_kept_resources.py`).
 
 ## Google Play
 

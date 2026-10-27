@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- audio_service looks these up by name for the Android Auto custom actions,
-     so the release resource shrinker cannot see they are used. -->
+<!-- audio_service looks these up by name, so the release resource shrinker
+     cannot see they are used: the Android Auto custom actions, and the
+     audio_service icons behind every media session control. Without the
+     latter, Android 13+ can't build the Stop control, the session never
+     reports playing and the media service never goes to the foreground, so
+     music stops once the screen is off (v0.2.10). Every icon the session
+     publishes must be listed (media_session_icons_kept_test.dart), and CI
+     checks the built App Bundle still has them
+     (scripts/check_android_kept_resources.py). -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_shuffle,@drawable/ic_favorite" />
+    tools:keep="@drawable/ic_shuffle,@drawable/ic_favorite,@drawable/audio_service_play_arrow,@drawable/audio_service_pause,@drawable/audio_service_stop,@drawable/audio_service_skip_next,@drawable/audio_service_skip_previous" />
