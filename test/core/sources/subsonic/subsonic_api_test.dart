@@ -158,6 +158,27 @@ void main() {
     );
   });
 
+  test('reads the date added from Navidrome', () {
+    final song = SubsonicSongDto.fromJson({
+      'id': 'song1',
+      'title': 'My Song',
+      'created': '2026-10-27T14:00:00Z',
+    });
+
+    expect(song?.dateCreated, DateTime.utc(2026, 10, 27, 14));
+  });
+
+  test('reads the date added for a Navidrome album', () {
+    final album = SubsonicAlbumDto.fromJson({
+      'id': 'album1',
+      'name': 'My Album',
+      'created': '2026-10-27T14:00:00Z',
+    });
+
+    expect(album?.dateCreated, DateTime.utc(2026, 10, 27, 14));
+  });
+
+
   group('SubsonicEnvelope', () {
     Map<String, dynamic> failed(Map<String, dynamic> error) =>
         <String, dynamic>{

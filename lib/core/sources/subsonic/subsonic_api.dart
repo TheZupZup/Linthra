@@ -196,6 +196,7 @@ class SubsonicAlbumDto {
     this.artist,
     this.songCount = 0,
     this.year,
+    this.dateCreated,
     this.coverArt,
   });
 
@@ -204,6 +205,9 @@ class SubsonicAlbumDto {
   final String? artist;
   final int songCount;
   final int? year;
+
+  ///The album's creation date from the server.
+  final DateTime? dateCreated;
 
   /// The server's cover-art id for this album, when present. An opaque handle
   /// (e.g. `al-123`) the `getCoverArt` endpoint resolves to an image — not a
@@ -220,6 +224,9 @@ class SubsonicAlbumDto {
       artist: _asString(json['artist']),
       songCount: _asInt(json['songCount']) ?? 0,
       year: _asInt(json['year']),
+      dateCreated: DateTime.tryParse(
+        _asString(json['created']) ?? '',
+      ),
       coverArt: _asString(json['coverArt']),
     );
   }
@@ -235,6 +242,7 @@ class SubsonicSongDto {
     this.artist,
     this.track,
     this.durationSeconds,
+    this.dateCreated,
     this.coverArt,
   });
 
@@ -257,6 +265,9 @@ class SubsonicSongDto {
   /// seconds, unlike Jellyfin's 100-ns ticks).
   final int? durationSeconds;
 
+  /// The date when this song was added to the server.
+  final DateTime? dateCreated;
+
   /// The server's cover-art id for this song, when present. An opaque handle
   /// (typically the album's, e.g. `al-123`, or the song's own `mf-123`) the
   /// `getCoverArt` endpoint resolves to an image — not a URL and not a
@@ -275,6 +286,9 @@ class SubsonicSongDto {
       artist: _asString(json['artist']),
       track: _asInt(json['track']),
       durationSeconds: _asInt(json['duration']),
+      dateCreated: DateTime.tryParse(
+        _asString(json['created']) ?? '',
+      ),
       coverArt: _asString(json['coverArt']),
     );
   }
