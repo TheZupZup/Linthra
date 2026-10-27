@@ -1,0 +1,8 @@
+Linthra 0.2.10
+
+- Faster remote playback starts, skips and track changes.
+- Targets Android 17, and asks for local network access when a LAN server needs it.
+- Android Auto favorite and shuffle controls, and swipe to queue on Android.
+- Sort songs by title, artist, album or date added.
+- Many stability fixes for playback, downloads, cache, sync and local libraries.
+- Diagnostics no longer include your server's address.
