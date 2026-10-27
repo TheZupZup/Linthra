@@ -174,6 +174,13 @@ jobs:
       - name: Test the target SDK artifact check
         run: python3 test/tooling/check_android_target_sdk_test.py
 
+      # Its sibling for the resources res/raw/keep.xml keeps from the release
+      # shrinker (the media session's icons, which v0.2.10 shipped without).
+      # Same stub aapt2 approach. Local twin:
+      # `python3 test/tooling/check_android_kept_resources_test.py`.
+      - name: Test the kept resources artifact check
+        run: python3 test/tooling/check_android_kept_resources_test.py
+
       # Its Flatpak twin (#618): the Linux release bundle's name, and what the
       # bundle has to contain before it is attached to a Release. The full
       # Flatpak build only runs on packaging changes, but these rules are read

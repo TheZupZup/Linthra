@@ -108,6 +108,16 @@ jobs:
             build/app/outputs/flutter-apk/app-debug.apk \
             build/app/outputs/bundle/release/app-release.aab
 
+      # The release shrinker drops resources only looked up by name, and a debug
+      # build is never shrunk, so only the release App Bundle shows it. Without
+      # audio_service's icons the media session never starts its foreground
+      # service on Android 13+ and music stops with the screen off (v0.2.10).
+      - name: Check the release App Bundle kept what keep.xml keeps
+        run: |
+          python3 scripts/check_android_kept_resources.py \
+            --keep android/app/src/main/res/raw/keep.xml \
+            build/app/outputs/bundle/release/app-release.aab
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
