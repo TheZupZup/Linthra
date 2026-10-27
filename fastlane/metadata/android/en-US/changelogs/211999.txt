@@ -1,0 +1,6 @@
+Linthra 0.2.11
+
+Fixes a major bug in 0.2.10: on Android 13 and later, music stopped a few seconds after the screen turned off or locked, and the media notification and lock screen controls were missing.
+
+- Music keeps playing with the screen off or the phone locked.
+- The media notification and lock screen controls are back.
