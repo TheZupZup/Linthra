@@ -39,7 +39,7 @@ void main() {
       expect(uri.queryParameters['IncludeItemTypes'], 'Audio');
       expect(uri.queryParameters['UserId'], 'user-1');
       expect(uri.queryParameters['Recursive'], 'true');
-      expect(uri.queryParameters['Fields'], 'RunTimeTicks');
+      expect(uri.queryParameters['Fields'], 'RunTimeTicks,DateCreated');
     });
 
     test('album lists MusicAlbum items', () {
@@ -50,6 +50,11 @@ void main() {
       );
       expect(uri.path, '/Items');
       expect(uri.queryParameters['IncludeItemTypes'], 'MusicAlbum');
+
+      expect(
+        uri.queryParameters['Fields'],
+        'ProductionYear,ChildCount,DateCreated',
+      );
     });
 
     test('artist uses the dedicated /Artists endpoint', () {
