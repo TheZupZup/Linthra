@@ -24,6 +24,7 @@ void main() {
       expect(track.artistName, 'Kavinsky');
       expect(track.albumName, 'Drive');
       expect(track.trackNumber, 3);
+      expect(track.serverAddedAt, DateTime.utc(2026, 10, 27, 14));
       expect(track.duration, const Duration(seconds: 256));
     });
 
