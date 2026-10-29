@@ -98,7 +98,7 @@ abstract final class JellyfinEndpoints {
             'IncludeItemTypes': 'Audio',
             'SortBy': 'AlbumArtist,Album,IndexNumber,SortName',
             'SortOrder': 'Ascending',
-            'Fields': 'RunTimeTicks',
+            'Fields': 'RunTimeTicks,DateCreated',
             ...paging,
           },
         );
@@ -110,7 +110,7 @@ abstract final class JellyfinEndpoints {
             'IncludeItemTypes': 'MusicAlbum',
             'SortBy': 'AlbumArtist,SortName',
             'SortOrder': 'Ascending',
-            'Fields': 'ProductionYear,ChildCount',
+            'Fields': 'ProductionYear,ChildCount,DateCreated',
             ...paging,
           },
         );

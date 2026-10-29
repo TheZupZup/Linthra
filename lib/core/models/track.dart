@@ -17,6 +17,7 @@ class Track {
     this.duration = Duration.zero,
     this.trackNumber,
     this.discNumber,
+    this.serverAddedAt,
     this.artworkUri,
     this.replayGain = ReplayGain.none,
   });
@@ -60,6 +61,9 @@ class Track {
   /// multi-disc album interleaves, because track numbers restart on each disc.
   final int? discNumber;
 
+  /// The date this track was added to it's music server.
+  final DateTime? serverAddedAt;
+
   final Uri? artworkUri;
 
   /// Loudness metadata used for volume normalization. Defaults to
@@ -88,6 +92,7 @@ class Track {
     Duration? duration,
     int? trackNumber,
     int? discNumber,
+    DateTime? serverAddedAt,
     Uri? artworkUri,
     ReplayGain? replayGain,
   }) {
@@ -102,6 +107,7 @@ class Track {
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,
+      serverAddedAt: serverAddedAt ?? this.serverAddedAt,
       artworkUri: artworkUri ?? this.artworkUri,
       replayGain: replayGain ?? this.replayGain,
     );

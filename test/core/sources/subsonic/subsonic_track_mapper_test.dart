@@ -6,12 +6,13 @@ import 'package:linthra/core/sources/subsonic/subsonic_track_mapper.dart';
 void main() {
   group('SubsonicTrackMapper.toTrack', () {
     test('maps a song to a token-free subsonic: uri', () {
-      const song = SubsonicSongDto(
+      final song = SubsonicSongDto(
         id: 'song-42',
         title: 'Nightcall',
         album: 'Drive',
         artist: 'Kavinsky',
         track: 3,
+        dateCreated: DateTime.utc(2026, 10, 27, 14),
         durationSeconds: 256,
       );
 
@@ -23,6 +24,7 @@ void main() {
       expect(track.artistName, 'Kavinsky');
       expect(track.albumName, 'Drive');
       expect(track.trackNumber, 3);
+      expect(track.serverAddedAt, DateTime.utc(2026, 10, 27, 14));
       expect(track.duration, const Duration(seconds: 256));
     });
 
