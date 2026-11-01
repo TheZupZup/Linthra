@@ -8,6 +8,7 @@ import 'app/linthra_app.dart';
 import 'core/app_info.dart';
 import 'core/models/desktop_density.dart';
 import 'core/models/theme_mode_preference.dart';
+import 'core/services/android_user_ca_trust.dart';
 import 'data/repositories/desktop_density_store_provider.dart';
 import 'data/repositories/linux_shared_preferences_store.dart';
 import 'data/repositories/theme_mode_store_provider.dart';
@@ -34,6 +35,13 @@ Future<void> main(List<String> arguments) async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
+  // Load Android user-installed CAs before creating network clients.
+  // Keep normal TLS validation even if the CA store is unavailable.
+  try {
+    await trustAndroidUserCas();
+  } on Exception catch (error) {
+    debugPrint('Android user CA initialization failed: ${error.runtimeType}');
+  }
 
   // Before anything reads a preference: on Linux every save replaces the
   // preferences file atomically, so a full disk or a crash mid-save can't
