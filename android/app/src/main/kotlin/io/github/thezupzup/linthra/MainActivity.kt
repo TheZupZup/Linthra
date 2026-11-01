@@ -74,6 +74,11 @@ class MainActivity : AudioServiceActivity() {
         LocalNetworkPermissionChannel(this)
     }
 
+    // Gives Dart access to user-installed Android CA certificates
+    private val androidUserCaChannel by lazy {
+        AndroidUserCaChannel()
+    }
+
     override fun onResume() {
         super.onResume()
         displayRefreshRate.onResume()
@@ -160,6 +165,9 @@ class MainActivity : AudioServiceActivity() {
 
         // Android 17 local network permission: status, request, app settings.
         localNetworkPermissionChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
+
+        // Exposes user-installed CA certificates to Dart for HTTPS validation.
+        androidUserCaChannel.configure(flutterEngine.dartExecutor.binaryMessenger)
 
         // Android metering-aware network state: one-shot current value plus a
         // change stream. Separate from SAF/share/icon channels so the data guard
