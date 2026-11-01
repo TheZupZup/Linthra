@@ -178,7 +178,6 @@ void main() {
     expect(album?.dateCreated, DateTime.utc(2026, 10, 27, 14));
   });
 
-
   group('SubsonicEnvelope', () {
     Map<String, dynamic> failed(Map<String, dynamic> error) =>
         <String, dynamic>{

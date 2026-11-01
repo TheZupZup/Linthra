@@ -39,12 +39,11 @@ void main() {
         'Id': 'song1',
         'Name': 'My Song',
         'DateCreated': '2026-10-27T14:00:00Z',
+      });
+
+      expect(item?.dateCreated, DateTime.utc(2026, 10, 27, 14));
     });
 
-     expect(item?.dateCreated, DateTime.utc(2026, 10, 27, 14));
-   });
-
-    
     test('ignores an invalid Jellyfin date', () {
       final item = JellyfinItemDto.fromJson({
         'Id': 'song2',
@@ -54,7 +53,6 @@ void main() {
 
       expect(item?.dateCreated, isNull);
     });
-    
 
     test('skips an item with no Id', () {
       expect(
