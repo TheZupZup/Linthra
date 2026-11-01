@@ -2,13 +2,14 @@ import '../../core/catalog/library_grouping.dart';
 import '../../core/catalog/text_folding.dart';
 import '../../core/models/track.dart';
 
-/// What the Songs list can be ordered by (#893).
+/// Choose how to sort songs.
 enum SongSortField { title, artist, album, dateAdded }
 
-/// The orders the Songs list offers: one [field], one direction.
+/// This is the list of song sorting options.
+/// Each option has a sort type and a direction.
 ///
-/// Persisted by [name], never by index, so a stored choice survives an order
-/// being added or reordered later.
+/// We save the option by it's name.
+/// This keep the saved choice working after updates.
 enum SongSort {
   titleAscending(SongSortField.title),
   titleDescending(SongSortField.title, descending: true),

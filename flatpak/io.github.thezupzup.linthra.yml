@@ -20,20 +20,6 @@ finish-args:
   - --device=dri
   - --socket=pulseaudio
   - --share=network
-  #
-  # MPRIS (#397). The Linux media session is a D-Bus object Linthra exports and
-  # a well-known name it owns, so a desktop shell can find and drive it. Inside
-  # the sandbox that name has to be granted: Flatpak lets an app own names under
-  # its own application id, and `org.mpris.MediaPlayer2.linthra` is not one of
-  # those.
-  #
-  # These two grants are the narrowest form that works. --own-name is not
-  # --talk-name: owning a name lets other clients call Linthra, and gives
-  # Linthra no way to call anything. Both are scoped to Linthra's own player
-  # names, so no other player's MPRIS interface becomes reachable — which
-  # --socket=session-bus, or an `org.mpris.MediaPlayer2.*` wildcard, would both
-  # do. The second line covers the spec's `.instance<pid>` fallback, used when a
-  # second Linthra window finds the plain name already taken.
   - --own-name=org.mpris.MediaPlayer2.linthra
   - --own-name=org.mpris.MediaPlayer2.linthra.*
 modules:
@@ -136,10 +122,14 @@ modules:
       - ln -s ../lib/linthra/linthra /app/bin/linthra
       - install -Dm644 linux/packaging/io.github.thezupzup.linthra.desktop /app/share/applications/io.github.thezupzup.linthra.desktop
       - install -Dm644 tool/branding/linthra_icon.svg /app/share/icons/hicolor/scalable/apps/io.github.thezupzup.linthra.svg
-      - install -Dm644 linux/packaging/icons/hicolor/48x48/apps/io.github.thezupzup.linthra.png /app/share/icons/hicolor/48x48/apps/io.github.thezupzup.linthra.png
-      - install -Dm644 linux/packaging/icons/hicolor/64x64/apps/io.github.thezupzup.linthra.png /app/share/icons/hicolor/64x64/apps/io.github.thezupzup.linthra.png
-      - install -Dm644 linux/packaging/icons/hicolor/128x128/apps/io.github.thezupzup.linthra.png /app/share/icons/hicolor/128x128/apps/io.github.thezupzup.linthra.png
-      - install -Dm644 linux/packaging/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png /app/share/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png
+      - install -Dm644 linux/packaging/icons/hicolor/48x48/apps/io.github.thezupzup.linthra.png
+        /app/share/icons/hicolor/48x48/apps/io.github.thezupzup.linthra.png
+      - install -Dm644 linux/packaging/icons/hicolor/64x64/apps/io.github.thezupzup.linthra.png
+        /app/share/icons/hicolor/64x64/apps/io.github.thezupzup.linthra.png
+      - install -Dm644 linux/packaging/icons/hicolor/128x128/apps/io.github.thezupzup.linthra.png
+        /app/share/icons/hicolor/128x128/apps/io.github.thezupzup.linthra.png
+      - install -Dm644 linux/packaging/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png
+        /app/share/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png
       - install -Dm644 linux/packaging/io.github.thezupzup.linthra.metainfo.xml /app/share/metainfo/io.github.thezupzup.linthra.metainfo.xml
     sources:
       - type: dir

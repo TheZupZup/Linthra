@@ -45,6 +45,7 @@ abstract final class SubsonicTrackMapper {
       albumId: _albumIdReference(song.albumId),
       duration: _durationFromSeconds(song.durationSeconds),
       trackNumber: song.track,
+      serverAddedAt: song.dateCreated,
       artworkUri: _artworkReference(song.coverArt),
     );
   }

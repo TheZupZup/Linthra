@@ -85,6 +85,12 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<int> fileModifiedAtMs = GeneratedColumn<int>(
       'file_modified_at_ms', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _serverAddedAtMeta =
+      const VerificationMeta('serverAddedAt');
+  @override
+  late final GeneratedColumn<DateTime> serverAddedAt =
+      GeneratedColumn<DateTime>('server_added_at', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -99,7 +105,8 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         trackNumber,
         artworkUri,
         fileSizeBytes,
-        fileModifiedAtMs
+        fileModifiedAtMs,
+        serverAddedAt
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -184,6 +191,12 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           fileModifiedAtMs.isAcceptableOrUnknown(
               data['file_modified_at_ms']!, _fileModifiedAtMsMeta));
     }
+    if (data.containsKey('server_added_at')) {
+      context.handle(
+          _serverAddedAtMeta,
+          serverAddedAt.isAcceptableOrUnknown(
+              data['server_added_at']!, _serverAddedAtMeta));
+    }
     return context;
   }
 
@@ -219,6 +232,8 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}file_size_bytes']),
       fileModifiedAtMs: attachedDatabase.typeMapping.read(
           DriftSqlType.int, data['${effectivePrefix}file_modified_at_ms']),
+      serverAddedAt: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}server_added_at']),
     );
   }
 
@@ -265,6 +280,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   /// schema v5.
   final int? fileSizeBytes;
   final int? fileModifiedAtMs;
+
+  /// The date when the server added this track.
+  /// Local tracks and older database rows may have no date.
+  final DateTime? serverAddedAt;
   const TrackRow(
       {required this.id,
       required this.sourceId,
@@ -278,7 +297,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.trackNumber,
       this.artworkUri,
       this.fileSizeBytes,
-      this.fileModifiedAtMs});
+      this.fileModifiedAtMs,
+      this.serverAddedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -310,6 +330,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     }
     if (!nullToAbsent || fileModifiedAtMs != null) {
       map['file_modified_at_ms'] = Variable<int>(fileModifiedAtMs);
+    }
+    if (!nullToAbsent || serverAddedAt != null) {
+      map['server_added_at'] = Variable<DateTime>(serverAddedAt);
     }
     return map;
   }
@@ -345,6 +368,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       fileModifiedAtMs: fileModifiedAtMs == null && nullToAbsent
           ? const Value.absent()
           : Value(fileModifiedAtMs),
+      serverAddedAt: serverAddedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverAddedAt),
     );
   }
 
@@ -365,6 +391,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       artworkUri: serializer.fromJson<String?>(json['artworkUri']),
       fileSizeBytes: serializer.fromJson<int?>(json['fileSizeBytes']),
       fileModifiedAtMs: serializer.fromJson<int?>(json['fileModifiedAtMs']),
+      serverAddedAt: serializer.fromJson<DateTime?>(json['serverAddedAt']),
     );
   }
   @override
@@ -384,6 +411,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'artworkUri': serializer.toJson<String?>(artworkUri),
       'fileSizeBytes': serializer.toJson<int?>(fileSizeBytes),
       'fileModifiedAtMs': serializer.toJson<int?>(fileModifiedAtMs),
+      'serverAddedAt': serializer.toJson<DateTime?>(serverAddedAt),
     };
   }
 
@@ -400,7 +428,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<int?> trackNumber = const Value.absent(),
           Value<String?> artworkUri = const Value.absent(),
           Value<int?> fileSizeBytes = const Value.absent(),
-          Value<int?> fileModifiedAtMs = const Value.absent()}) =>
+          Value<int?> fileModifiedAtMs = const Value.absent(),
+          Value<DateTime?> serverAddedAt = const Value.absent()}) =>
       TrackRow(
         id: id ?? this.id,
         sourceId: sourceId ?? this.sourceId,
@@ -420,6 +449,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         fileModifiedAtMs: fileModifiedAtMs.present
             ? fileModifiedAtMs.value
             : this.fileModifiedAtMs,
+        serverAddedAt:
+            serverAddedAt.present ? serverAddedAt.value : this.serverAddedAt,
       );
   TrackRow copyWithCompanion(TracksCompanion data) {
     return TrackRow(
@@ -446,6 +477,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       fileModifiedAtMs: data.fileModifiedAtMs.present
           ? data.fileModifiedAtMs.value
           : this.fileModifiedAtMs,
+      serverAddedAt: data.serverAddedAt.present
+          ? data.serverAddedAt.value
+          : this.serverAddedAt,
     );
   }
 
@@ -464,7 +498,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('trackNumber: $trackNumber, ')
           ..write('artworkUri: $artworkUri, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
-          ..write('fileModifiedAtMs: $fileModifiedAtMs')
+          ..write('fileModifiedAtMs: $fileModifiedAtMs, ')
+          ..write('serverAddedAt: $serverAddedAt')
           ..write(')'))
         .toString();
   }
@@ -483,7 +518,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       trackNumber,
       artworkUri,
       fileSizeBytes,
-      fileModifiedAtMs);
+      fileModifiedAtMs,
+      serverAddedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -500,7 +536,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.trackNumber == this.trackNumber &&
           other.artworkUri == this.artworkUri &&
           other.fileSizeBytes == this.fileSizeBytes &&
-          other.fileModifiedAtMs == this.fileModifiedAtMs);
+          other.fileModifiedAtMs == this.fileModifiedAtMs &&
+          other.serverAddedAt == this.serverAddedAt);
 }
 
 class TracksCompanion extends UpdateCompanion<TrackRow> {
@@ -517,6 +554,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<String?> artworkUri;
   final Value<int?> fileSizeBytes;
   final Value<int?> fileModifiedAtMs;
+  final Value<DateTime?> serverAddedAt;
   final Value<int> rowid;
   const TracksCompanion({
     this.id = const Value.absent(),
@@ -532,6 +570,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.artworkUri = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.fileModifiedAtMs = const Value.absent(),
+    this.serverAddedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TracksCompanion.insert({
@@ -548,6 +587,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.artworkUri = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.fileModifiedAtMs = const Value.absent(),
+    this.serverAddedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         sourceId = Value(sourceId),
@@ -567,6 +607,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<String>? artworkUri,
     Expression<int>? fileSizeBytes,
     Expression<int>? fileModifiedAtMs,
+    Expression<DateTime>? serverAddedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -583,6 +624,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (artworkUri != null) 'artwork_uri': artworkUri,
       if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
       if (fileModifiedAtMs != null) 'file_modified_at_ms': fileModifiedAtMs,
+      if (serverAddedAt != null) 'server_added_at': serverAddedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -601,6 +643,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<String?>? artworkUri,
       Value<int?>? fileSizeBytes,
       Value<int?>? fileModifiedAtMs,
+      Value<DateTime?>? serverAddedAt,
       Value<int>? rowid}) {
     return TracksCompanion(
       id: id ?? this.id,
@@ -616,6 +659,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       artworkUri: artworkUri ?? this.artworkUri,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       fileModifiedAtMs: fileModifiedAtMs ?? this.fileModifiedAtMs,
+      serverAddedAt: serverAddedAt ?? this.serverAddedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -662,6 +706,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (fileModifiedAtMs.present) {
       map['file_modified_at_ms'] = Variable<int>(fileModifiedAtMs.value);
     }
+    if (serverAddedAt.present) {
+      map['server_added_at'] = Variable<DateTime>(serverAddedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -684,6 +731,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('artworkUri: $artworkUri, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('fileModifiedAtMs: $fileModifiedAtMs, ')
+          ..write('serverAddedAt: $serverAddedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -717,6 +765,7 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<String?> artworkUri,
   Value<int?> fileSizeBytes,
   Value<int?> fileModifiedAtMs,
+  Value<DateTime?> serverAddedAt,
   Value<int> rowid,
 });
 typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
@@ -733,6 +782,7 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<String?> artworkUri,
   Value<int?> fileSizeBytes,
   Value<int?> fileModifiedAtMs,
+  Value<DateTime?> serverAddedAt,
   Value<int> rowid,
 });
 
@@ -785,6 +835,9 @@ class $$TracksTableFilterComposer
   ColumnFilters<int> get fileModifiedAtMs => $composableBuilder(
       column: $table.fileModifiedAtMs,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get serverAddedAt => $composableBuilder(
+      column: $table.serverAddedAt, builder: (column) => ColumnFilters(column));
 }
 
 class $$TracksTableOrderingComposer
@@ -837,6 +890,10 @@ class $$TracksTableOrderingComposer
   ColumnOrderings<int> get fileModifiedAtMs => $composableBuilder(
       column: $table.fileModifiedAtMs,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get serverAddedAt => $composableBuilder(
+      column: $table.serverAddedAt,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$TracksTableAnnotationComposer
@@ -886,6 +943,9 @@ class $$TracksTableAnnotationComposer
 
   GeneratedColumn<int> get fileModifiedAtMs => $composableBuilder(
       column: $table.fileModifiedAtMs, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get serverAddedAt => $composableBuilder(
+      column: $table.serverAddedAt, builder: (column) => column);
 }
 
 class $$TracksTableTableManager extends RootTableManager<
@@ -924,6 +984,7 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> artworkUri = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<int?> fileModifiedAtMs = const Value.absent(),
+            Value<DateTime?> serverAddedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TracksCompanion(
@@ -940,6 +1001,7 @@ class $$TracksTableTableManager extends RootTableManager<
             artworkUri: artworkUri,
             fileSizeBytes: fileSizeBytes,
             fileModifiedAtMs: fileModifiedAtMs,
+            serverAddedAt: serverAddedAt,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -956,6 +1018,7 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> artworkUri = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<int?> fileModifiedAtMs = const Value.absent(),
+            Value<DateTime?> serverAddedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TracksCompanion.insert(
@@ -972,6 +1035,7 @@ class $$TracksTableTableManager extends RootTableManager<
             artworkUri: artworkUri,
             fileSizeBytes: fileSizeBytes,
             fileModifiedAtMs: fileModifiedAtMs,
+            serverAddedAt: serverAddedAt,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

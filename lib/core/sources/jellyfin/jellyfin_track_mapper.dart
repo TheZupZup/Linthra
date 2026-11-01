@@ -39,6 +39,7 @@ abstract final class JellyfinTrackMapper {
       albumArtistName: item.albumArtist,
       duration: _durationFromTicks(item.runTimeTicks),
       trackNumber: item.indexNumber,
+      serverAddedAt: item.dateCreated,
       artworkUri: _artworkUri(baseUrl, item),
     );
   }

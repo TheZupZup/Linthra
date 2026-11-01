@@ -189,6 +189,7 @@ class JellyfinItemDto {
     this.runTimeTicks,
     this.indexNumber,
     this.productionYear,
+    this.dateCreated,
     this.childCount,
     this.hasPrimaryImage = false,
     this.primaryImageTag,
@@ -205,6 +206,10 @@ class JellyfinItemDto {
   final int? runTimeTicks;
   final int? indexNumber;
   final int? productionYear;
+
+  /// The date when this item is added to jellyfin.
+  final DateTime? dateCreated;
+
   final int? childCount;
 
   /// Whether the server has primary cover art for this item, so the mapper only
@@ -246,6 +251,9 @@ class JellyfinItemDto {
       runTimeTicks: _coerceInt(json['RunTimeTicks']),
       indexNumber: _coerceInt(json['IndexNumber']),
       productionYear: _coerceInt(json['ProductionYear']),
+      dateCreated: DateTime.tryParse(
+        _coerceString(json['DateCreated']) ?? '',
+      ),
       childCount: _coerceInt(json['ChildCount']),
       hasPrimaryImage: hasPrimary,
       primaryImageTag: primaryTag,

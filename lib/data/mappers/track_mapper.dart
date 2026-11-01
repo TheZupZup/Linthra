@@ -21,6 +21,7 @@ Track trackFromRow(TrackRow row) {
     albumArtistName: row.albumArtistName,
     duration: Duration(milliseconds: row.durationMs),
     trackNumber: row.trackNumber,
+    serverAddedAt: row.serverAddedAt,
     artworkUri: row.artworkUri == null ? null : Uri.tryParse(row.artworkUri!),
   );
 }
@@ -69,5 +70,6 @@ TracksCompanion trackToCompanion(
     artworkUri: Value(track.artworkUri?.toString()),
     fileSizeBytes: Value(stamp?.sizeBytes),
     fileModifiedAtMs: Value(stamp?.modifiedAtMs),
+    serverAddedAt: Value(track.serverAddedAt),
   );
 }

@@ -37,7 +37,7 @@ class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -77,6 +77,10 @@ class LinthraDatabase extends _$LinthraDatabase {
           // arrives here with them and must not add them twice.
           if (from < 5 && from >= 2) {
             await _addLocalFileStampColumns(m);
+          }
+          // Add the server date without deleting existing tracks.
+          if (from < 6 && from >= 2) {
+            await _addColumnUnlessPresent(m, tracks.serverAddedAt);
           }
         },
       );

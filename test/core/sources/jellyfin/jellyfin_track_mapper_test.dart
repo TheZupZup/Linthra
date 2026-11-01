@@ -7,7 +7,7 @@ const String _baseUrl = 'https://music.example.com';
 void main() {
   group('JellyfinTrackMapper.toTrack', () {
     test('maps the core fields and a token-free uri', () {
-      const item = JellyfinItemDto(
+      final item = JellyfinItemDto(
         id: 'track-1',
         name: 'Song Title',
         album: 'The Album',
@@ -15,6 +15,7 @@ void main() {
         // 4 minutes in Jellyfin ticks (10,000,000 ticks per second).
         runTimeTicks: 2400000000,
         indexNumber: 3,
+        dateCreated: DateTime.utc(2026, 10, 27, 14),
         hasPrimaryImage: true,
       );
 
@@ -27,6 +28,7 @@ void main() {
       expect(track.albumName, 'The Album');
       expect(track.duration, const Duration(minutes: 4));
       expect(track.trackNumber, 3);
+      expect(track.serverAddedAt, DateTime.utc(2026, 10, 27, 14));
       expect(
         track.artworkUri,
         Uri.parse('$_baseUrl/Items/track-1/Images/Primary'
