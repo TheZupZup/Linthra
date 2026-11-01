@@ -66,6 +66,10 @@ class Tracks extends Table {
   IntColumn get fileSizeBytes => integer().nullable()();
   IntColumn get fileModifiedAtMs => integer().nullable()();
 
+  /// The date when the server added this track.
+  /// Local tracks and older database rows may have no date.
+  DateTimeColumn get serverAddedAt => dateTime().nullable()();
+
   @override
   Set<Column> get primaryKey => {uri};
 }

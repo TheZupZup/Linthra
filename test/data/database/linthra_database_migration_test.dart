@@ -488,6 +488,91 @@ void main() {
     });
   });
 
+  test('v5 to v6 keeps songs and saves server dates', () async {
+    // Create a database using the old v5 table structure.
+    final db = LinthraDatabase.forTesting(
+      NativeDatabase.memory(
+        setup: (sqlite) {
+          sqlite.execute('''
+          CREATE TABLE tracks (
+            id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            uri TEXT NOT NULL,
+            artist_name TEXT,
+            album_name TEXT,
+            album_id TEXT,
+            album_artist_name TEXT,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            track_number INTEGER,
+            artwork_uri TEXT,
+            file_size_bytes INTEGER,
+            file_modified_at_ms INTEGER,
+            PRIMARY KEY (uri)
+          );
+        ''');
+
+          sqlite.execute(
+            'CREATE INDEX tracks_source_id ON tracks (source_id);',
+          );
+
+          // This song already existed before the upgrade.
+          sqlite.execute('''
+          INSERT INTO tracks (
+            id, source_id, title, uri, artist_name,
+            file_size_bytes
+          ) VALUES (
+            't1', 'local', 'Old Song', '/music/old.flac',
+            'Old Artist', 2048
+          );
+        ''');
+
+          sqlite.execute('PRAGMA user_version = 5;');
+        },
+      ),
+    );
+
+    addTearDown(db.close);
+
+    // Opening the database triggers the real migration.
+    final oldSong = await db.select(db.tracks).getSingle();
+
+    // The existing song must not disappear or change.
+    expect(oldSong.title, 'Old Song');
+    expect(oldSong.artistName, 'Old Artist');
+    expect(oldSong.fileSizeBytes, 2048);
+    expect(oldSong.serverAddedAt, isNull);
+
+    // The upgraded database must accept the new field.
+    final addedDate = DateTime.utc(2026, 10, 31, 12, 30);
+
+    await db.into(db.tracks).insert(
+          TracksCompanion.insert(
+            id: 't2',
+            sourceId: 'subsonic',
+            title: 'New Song',
+            uri: 'subsonic:t2',
+            serverAddedAt: Value(addedDate),
+          ),
+        );
+
+    final songs = await db.select(db.tracks).get();
+    expect(songs, hasLength(2));
+
+    final newSong = songs.singleWhere(
+      (song) => song.uri == 'subsonic:t2',
+    );
+
+    expect(newSong.serverAddedAt, isNotNull);
+    expect(
+      newSong.serverAddedAt!.isAtSameMomentAs(addedDate),
+      isTrue,
+    );
+
+    // The database should now report the current version.
+    expect(await _userVersion(db), db.schemaVersion);
+  });
+
   group('a file an older release opened in between', () {
     // Going back to an older release and then forward again, say to step
     // around a regression. The older release reads the newer file fine, but
@@ -551,7 +636,7 @@ void main() {
       expect(row.albumId, 'album-1');
       expect(row.fileSizeBytes, 4096);
       expect(row.fileModifiedAtMs, 1700000000000);
-      expect(await _userVersion(db), 5);
+      expect(await _userVersion(db), 6);
     });
 
     test('coming back from a v3 release (0.2.0 to 0.2.2) keeps the library',
@@ -566,7 +651,7 @@ void main() {
       expect(row.albumId, 'album-1');
       expect(row.fileSizeBytes, 4096);
       expect(await _hasSourceIdIndex(db), isTrue);
-      expect(await _userVersion(db), 5);
+      expect(await _userVersion(db), 6);
     });
 
     test('the library still takes writes afterwards', () async {
@@ -639,7 +724,7 @@ void main() {
           );
       expect(await db.select(db.tracks).get(), hasLength(1));
       expect(await _hasSourceIdIndex(db), isTrue);
-      expect(await _userVersion(db), 5);
+      expect(await _userVersion(db), 6);
     }
 
     test('after the whole schema was created', () async {

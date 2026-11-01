@@ -35,7 +35,7 @@ dependencies:
   # otherwise, beside the one sqlite3_flutter_libs builds from source. The
   # Flatpak builds with the network off and F-Droid builds from source, so
   # that move needs its own PR. See docs/dependency-updates.md.
-  drift: ">=2.18.0 <2.32.0"
+  drift: ">=2.30.0 <2.32.0"
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.4
   # Held below 2.3 (#681). path_provider_android 2.3 moves to JNI, which brings
@@ -169,7 +169,7 @@ dev_dependencies:
   # Drift code generation. Run via the manual "Generate Drift files" workflow;
   # produces the *.g.dart files that back LinthraDatabase. Held with drift
   # (#681).
-  drift_dev: ">=2.18.0 <2.32.0"
+  drift_dev: ">=2.30.0 <2.32.0"
   build_runner: ^2.4.13
   # Test-only. audio_service's platform seam, already in the graph as one of its
   # own dependencies. The Android media-session boundary test needs it directly
@@ -184,7 +184,7 @@ dev_dependencies:
   # it, so it reads string literals the way the compiler does: escapes,
   # interpolation, adjacency and comments included (#663). Nothing in lib/
   # imports it.
-  analyzer: ^7.7.1
+  analyzer: ^8.1.0
 
 flutter:
   uses-material-design: true

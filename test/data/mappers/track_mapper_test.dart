@@ -129,4 +129,36 @@ void main() {
       expect(trackFromRow(row).albumArtistName, isNull);
     });
   });
+
+  test('server added date survives the mapper round-trip', () {
+    final addedAt = DateTime.utc(
+      2026,
+      10,
+      31,
+      12,
+      30,
+    );
+
+    final track = Track(
+      id: 'song-1',
+      title: 'Song',
+      uri: 'subsonic:song-1',
+      serverAddedAt: addedAt,
+    );
+
+    final companion = trackToCompanion(track, 'subsonic');
+
+    expect(companion.serverAddedAt.value, addedAt);
+
+    final row = TrackRow(
+      id: track.id,
+      sourceId: 'subsonic',
+      title: track.title,
+      uri: track.uri,
+      durationMs: 0,
+      serverAddedAt: companion.serverAddedAt.value,
+    );
+
+    expect(trackFromRow(row).serverAddedAt, addedAt);
+  });
 }
