@@ -269,7 +269,9 @@ class SyncedPlaylistRepository
       id,
       (Playlist p) => p.copyWith(
         name: name,
-        description: description != null ? () => description : null,
+        description: description == null
+            ? null
+            : () => description.isEmpty ? null : description,
         updatedAt: _now(),
       ),
     );

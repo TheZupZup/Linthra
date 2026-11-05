@@ -234,6 +234,30 @@ void main() {
       expect(updated.description, 'desc');
     });
 
+    test('clears a playlist description when empty', () async {
+      // Create a playlist.
+      final Playlist created = await repository.createPlaylist('My Music');
+
+      // Give it a description.
+      await repository.renamePlaylist(
+        created.id,
+        'My Music',
+        description: 'My favorite songs',
+      );
+
+      // Clear its description.
+      await repository.renamePlaylist(
+        created.id,
+        'My Music',
+        description: '',
+      );
+
+      // The old description should be gone.
+      final Playlist? updated = await repository.getPlaylistById(created.id);
+
+      expect(updated!.description, isNull);
+    });
+
     test('deletes a playlist', () async {
       final Playlist created = await repository.createPlaylist('Mix');
       await repository.deletePlaylist(created.id);
