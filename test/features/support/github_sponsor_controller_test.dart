@@ -22,12 +22,11 @@ void main() {
     bool active = false,
     Duration revalidationInterval = const Duration(hours: 6),
     _FakeGitHubSponsorClient? client,
+    SupportDistribution distribution = SupportDistribution.githubRelease,
   }) {
     final ProviderContainer container = ProviderContainer(
       overrides: <Override>[
-        supportDistributionProvider.overrideWithValue(
-          SupportDistribution.githubRelease,
-        ),
+        supportDistributionProvider.overrideWithValue(distribution),
         githubSponsorRevalidationIntervalProvider.overrideWithValue(
           revalidationInterval,
         ),
@@ -63,6 +62,23 @@ void main() {
 
     expect(status.access, GitHubSponsorAccess.active);
     expect(status.login, 'music-fan');
+  });
+
+  test('Play can verify a Gihub sponsor without unlocking Pro', () async {
+    final ProviderContainer container = createContainer(
+      distribution: SupportDistribution.play,
+      storedToken: 'saved-token',
+      active: true,
+    );
+
+    final GitHubSponsorStatus status =
+        await container.read(githubSponsorControllerProvider.future);
+
+    expect(status.access, GitHubSponsorAccess.active);
+    expect(
+      container.read(supporterEntitlementProvider),
+      SupporterEntitlement.locked,
+    );
   });
 
   test('completed device flow stores token and unlocks active sponsor',

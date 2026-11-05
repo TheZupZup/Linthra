@@ -28,6 +28,11 @@ enum SupportDistribution {
   /// Whether this distribution may expose the supporter-only custom palette.
   bool get offersCustomPalette => this == SupportDistribution.githubRelease;
 
+  /// Whether this build can verify  an active Github sponsorship.
+  bool get supportsGithubSponsors =>
+      this == SupportDistribution.githubRelease ||
+      this == SupportDistribution.play;
+
   /// The channel this build was compiled for, from the dart-define (default
   /// [fdroid]).
   static SupportDistribution get current =>
