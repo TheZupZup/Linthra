@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
@@ -9,6 +10,33 @@ import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
 void main() {
   group('MethodChannelSafDocumentLister.parseScanResult', () {
+    test('decodes native CUE bytes as Windows-1251 before matching SAF audio',
+        () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'cueSheets': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://doc/cue',
+              'relativePath': 'album/disc.cue',
+              'bytes': Uint8List.fromList(<int>[
+                ...'FILE "'.codeUnits,
+                0xc0,
+                0xeb,
+                0xfc,
+                0xe1,
+                0xee,
+                0xec,
+                ...'.flac" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00'.codeUnits,
+              ]),
+            },
+          ],
+        },
+      );
+
+      expect(result.cueSheets.single.contents,
+          contains('FILE "\u0410\u043b\u044c\u0431\u043e\u043c.flac" WAVE'));
+    });
+
     test('a null reply is an empty, failure-free result', () {
       final result = MethodChannelSafDocumentLister.parseScanResult(null);
 
@@ -43,6 +71,38 @@ void main() {
       expect(result.documents.first.mimeType, 'audio/mpeg');
       expect(result.filesVisited, 5);
       expect(result.readFailures, 1);
+    });
+
+    test('parses SAF paths and CUE sheet contents', () {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://doc/1',
+              'name': 'album.flac',
+              'relativePath': 'Artist/Album/album.flac',
+            },
+          ],
+          'cueSheets': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://doc/2',
+              'relativePath': 'Artist/Album/album.cue',
+              'contents': 'FILE "album.flac" WAVE',
+              'sizeBytes': 123,
+              'modifiedAtMs': 456,
+            },
+            'malformed',
+          ],
+        },
+      );
+
+      expect(result.documents.single.relativePath, 'Artist/Album/album.flac');
+      expect(result.cueSheets, hasLength(1));
+      expect(result.cueSheets.single.uri, 'content://doc/2');
+      expect(result.cueSheets.single.relativePath, 'Artist/Album/album.cue');
+      expect(result.cueSheets.single.contents, 'FILE "album.flac" WAVE');
+      expect(result.cueSheets.single.sizeBytes, 123);
+      expect(result.cueSheets.single.modifiedAtMs, 456);
     });
 
     test('parses the folders-visited count when reported', () {

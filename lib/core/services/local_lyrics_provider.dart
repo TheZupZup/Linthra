@@ -1,5 +1,6 @@
 import '../models/lyrics.dart';
 import '../models/track.dart';
+import '../sources/local/cue_track_uri.dart';
 import '../sources/local/local_lyrics_reader.dart';
 import '../sources/music_provider.dart';
 import 'lyrics_provider.dart';
@@ -34,10 +35,14 @@ class LocalLyricsProvider implements LyricsProvider {
   @override
   Future<Lyrics?> lyricsFor(Track track) async {
     // Prefer a synced `.lrc`; fall back to a plain `.txt`.
-    final Lyrics? synced =
-        await _read(track.uri, 'lrc', LyricsTextParser.parseLrc);
+    final Lyrics? synced = await _read(
+        CueTrackUri.audioPath(track.uri), 'lrc', LyricsTextParser.parseLrc);
     if (synced != null) return synced;
-    return _read(track.uri, 'txt', LyricsTextParser.parsePlain);
+    return _read(
+      CueTrackUri.audioPath(track.uri),
+      'txt',
+      LyricsTextParser.parsePlain,
+    );
   }
 
   /// Reads the sidecar with [extension] and runs [parse] on it, returning the

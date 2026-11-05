@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -181,22 +182,26 @@ class SafDocumentScanner(
      */
     private fun readText(uri: Uri): String? {
         return try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val buffer = ByteArrayOutputStream()
-                val chunk = ByteArray(8192)
-                var total = 0
-                while (true) {
-                    val read = stream.read(chunk)
-                    if (read < 0) break
-                    total += read
-                    if (total > MAX_SIDECAR_BYTES) return null
-                    buffer.write(chunk, 0, read)
-                }
-                String(buffer.toByteArray(), Charsets.UTF_8)
-            }
+            String(readBytes(uri, MAX_SIDECAR_BYTES), Charsets.UTF_8)
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun readBytes(uri: Uri, maxBytes: Int): ByteArray {
+        return context.contentResolver.openInputStream(uri)?.use { stream ->
+            val buffer = ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val read = stream.read(chunk)
+                if (read < 0) break
+                total += read
+                if (total > maxBytes) throw IOException("Sidecar exceeds size limit")
+                buffer.write(chunk, 0, read)
+            }
+            buffer.toByteArray()
+        } ?: throw IOException("Sidecar could not be opened")
     }
 
     private fun walk(treeUri: Uri, cancelled: AtomicBoolean): Map<String, Any?> {
@@ -212,6 +217,7 @@ class SafDocumentScanner(
         }
 
         val documents = ArrayList<Map<String, String?>>()
+        val cueSheets = ArrayList<Map<String, Any?>>()
         // The covers this walk extracts or reuses; see SafArtworkCache.
         val artwork = SafArtworkCache(File(context.cacheDir, ARTWORK_CACHE_DIR))
         var filesVisited = 0
@@ -221,13 +227,13 @@ class SafDocumentScanner(
         // access at all), not a skippable subtree — surfacing it keeps a dead
         // root from looking like a successful empty scan that wipes the catalog.
         var isRoot = true
-        val queue = ArrayDeque<String>()
-        queue.add(DocumentsContract.getTreeDocumentId(treeUri))
+        val queue = ArrayDeque<Pair<String, String>>()
+        queue.add(DocumentsContract.getTreeDocumentId(treeUri) to "")
         while (queue.isNotEmpty()) {
             // Checked here and once more per entry below, so a superseded walk
             // stops within one file's work rather than one folder's.
             if (cancelled.get()) throw ScanSuperseded()
-            val parentDocId = queue.poll()
+            val (parentDocId, parentRelativePath) = queue.poll()
             val childrenUri =
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
             try {
@@ -275,15 +281,34 @@ class SafDocumentScanner(
                         val mime = c.getString(2)
                         val sizeBytes = if (c.isNull(3)) null else c.getLong(3)
                         val lastModifiedMs = if (c.isNull(4)) null else c.getLong(4)
+                        val relativePath = if (parentRelativePath.isEmpty()) {
+                            name
+                        } else {
+                            "$parentRelativePath/$name"
+                        }
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                            queue.add(docId)
+                            queue.add(docId to relativePath)
                         } else {
                             filesVisited++
-                            if (isAudio(mime, name)) {
-                                val docUri = DocumentsContract.buildDocumentUriUsingTree(
-                                    treeUri,
-                                    docId,
-                                )
+                            val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                                treeUri,
+                                docId,
+                            )
+                            if (name.endsWith(".cue", ignoreCase = true)) {
+                                try {
+                                    cueSheets.add(
+                                        mapOf(
+                                            "uri" to docUri.toString(),
+                                            "relativePath" to relativePath,
+                                            "bytes" to readBytes(docUri, MAX_CUE_BYTES),
+                                            "sizeBytes" to sizeBytes,
+                                            "modifiedAtMs" to lastModifiedMs,
+                                        ),
+                                    )
+                                } catch (e: IOException) {
+                                    readFailures++
+                                }
+                            } else if (isAudio(mime, name)) {
                                 // Read the file's audio tags (and cache its
                                 // embedded cover art) so a local track indexes
                                 // with a real title/artist/album/duration and
@@ -302,6 +327,7 @@ class SafDocumentScanner(
                                     mapOf(
                                         "uri" to docUri.toString(),
                                         "name" to name,
+                                        "relativePath" to relativePath,
                                         "mime" to mime,
                                         "title" to metadata["title"],
                                         "artist" to metadata["artist"],
@@ -343,6 +369,7 @@ class SafDocumentScanner(
         }
         return mapOf(
             "documents" to documents,
+            "cueSheets" to cueSheets,
             "filesVisited" to filesVisited,
             "foldersVisited" to foldersVisited,
             "readFailures" to readFailures,
@@ -520,5 +547,6 @@ class SafDocumentScanner(
         // lyrics are a few KB; a larger match is more likely a wrong document
         // than lyrics, so it's ignored (-> "no lyrics") rather than loaded.
         private const val MAX_SIDECAR_BYTES = 1 * 1024 * 1024
+        private const val MAX_CUE_BYTES = 1 * 1024 * 1024
     }
 }

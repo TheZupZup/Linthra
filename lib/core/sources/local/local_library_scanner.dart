@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import '../../models/local_file_stamp.dart';
 import '../../models/track.dart';
 import 'audio_file_scanner.dart';
+import 'cue_track_uri.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
 import 'local_catalog_reconciliation.dart';
@@ -468,7 +469,7 @@ class LocalLibraryScanner {
       if (root == null) continue;
       bool gone;
       try {
-        gone = await isGone(uri, root);
+        gone = await isGone(CueTrackUri.audioPath(uri), root);
       } catch (_) {
         gone = false;
       }

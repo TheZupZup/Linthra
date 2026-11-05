@@ -335,6 +335,8 @@ Map<String, dynamic> logicalTrackToJson(Track track) {
     if (track.albumArtistName != null) 'albumArtist': track.albumArtistName,
     'durationMs': track.duration.inMilliseconds,
     if (track.trackNumber != null) 'trackNumber': track.trackNumber,
+    if (track.cueStart != null) 'cueStartMs': track.cueStart!.inMilliseconds,
+    if (track.cueEnd != null) 'cueEndMs': track.cueEnd!.inMilliseconds,
     if (track.artworkUri != null && isPersistableArtworkUri(track.artworkUri!))
       'artwork': track.artworkUri.toString(),
   };
@@ -356,6 +358,8 @@ Track? logicalTrackFromJson(Map<String, dynamic> json) {
       : Duration.zero;
 
   final Object? trackNumber = json['trackNumber'];
+  final Object? cueStartMs = json['cueStartMs'];
+  final Object? cueEndMs = json['cueEndMs'];
   final Object? artwork = json['artwork'];
   Uri? artworkUri;
   if (artwork is String && artwork.isNotEmpty) {
@@ -379,6 +383,12 @@ Track? logicalTrackFromJson(Map<String, dynamic> json) {
     albumArtistName: text(json['albumArtist']),
     duration: duration,
     trackNumber: trackNumber is int ? trackNumber : null,
+    cueStart: cueStartMs is int && cueStartMs >= 0
+        ? Duration(milliseconds: cueStartMs)
+        : null,
+    cueEnd: cueEndMs is int && cueEndMs >= 0
+        ? Duration(milliseconds: cueEndMs)
+        : null,
     artworkUri: artworkUri,
   );
 }

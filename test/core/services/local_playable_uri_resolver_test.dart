@@ -4,6 +4,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/local_playable_uri_resolver.dart';
 import 'package:linthra/core/services/playable_uri_resolver.dart';
 import 'package:linthra/core/services/reachability.dart';
+import 'package:linthra/core/sources/local/cue_track_uri.dart';
 
 import '../../support/fake_local_file_presence.dart';
 
@@ -38,6 +39,23 @@ void main() {
       // Compare parsed URIs (not strings) so the assertion doesn't depend on
       // Dart's percent-encoding normalization of the content URI.
       expect(resolved.uri, Uri.parse(raw));
+      expect(resolved.source, PlaybackSource.localFile);
+    });
+
+    test('strips a CUE track identity before opening a SAF document', () async {
+      const audioUri =
+          'content://documents/document/primary%3AMusic%2Fdisc.flac';
+      final String cueTrackUri = CueTrackUri.forTrack(
+        audioPath: audioUri,
+        cuePath: 'content://documents/document/primary%3AMusic%2Fdisc.cue',
+        trackNumber: 2,
+      );
+
+      final resolved = await resolver.resolve(
+        Track(id: cueTrackUri, title: 'Two', uri: cueTrackUri),
+      );
+
+      expect(resolved.uri, Uri.parse(audioUri));
       expect(resolved.source, PlaybackSource.localFile);
     });
 
