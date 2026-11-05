@@ -324,6 +324,8 @@ class ArtworkDiskCache {
   /// [maxBytes] again, leaving some room so the next writes don't trim at
   /// once. Never throws.
   Future<void> trim() async {
+    // An explicit trim already satisfies the first-use cleanup.
+    _trimmedAtFirstUse = true;
     try {
       if (!await _directory.exists()) return;
       final List<(File, FileStat)> covers = <(File, FileStat)>[];
