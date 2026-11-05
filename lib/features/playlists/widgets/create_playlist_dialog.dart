@@ -110,7 +110,9 @@ class _PlaylistEditDialogState extends State<_PlaylistEditDialog> {
     Navigator.of(context).pop(
       (
         name: name,
-        description: description.isEmpty ? null : description,
+        description: widget.initialName == null && description.isEmpty
+            ? null
+            : description,
         source: _target,
       ),
     );
