@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/dimens.dart';
 import '../../app/external_link_launcher_provider.dart';
+import '../../core/models/github_device_authorization.dart';
+import '../../core/models/github_sponsor_status.dart';
+import 'github_sponsor_controller.dart';
+import 'github_sponsor_unlock_dialog.dart';
 import 'support_action.dart';
 import 'support_actions_provider.dart';
 
@@ -18,6 +22,9 @@ class SupportScreen extends ConsumerWidget {
     final List<SupportAction> actions = ref.watch(supportActionsProvider);
     final bool hasActions = actions.isNotEmpty;
 
+    final SupportDistribution distribution =
+        ref.watch(supportDistributionProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Support Linthra')),
       body: ListView(
@@ -31,6 +38,10 @@ class SupportScreen extends ConsumerWidget {
               onOpenLink: (SupportAction action) =>
                   _openLink(context, ref, action),
             ),
+          ],
+          if (distribution == SupportDistribution.play) ...<Widget>[
+            const _PlayGitHubAccountCard(),
+            const SizedBox(height: AppSpacing.md),
           ],
           const SizedBox(height: AppSpacing.md),
           const _CoreFeaturesNote(),
@@ -307,5 +318,113 @@ class _LonelyMaintainerNote extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _PlayGitHubAccountCard extends ConsumerWidget {
+  const _PlayGitHubAccountCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sponsor = ref.watch(githubSponsorControllerProvider);
+    final status = sponsor.valueOrNull;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'GitHub Sponsor account',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            const Text(
+              'Already a GitHub Sponsor? Connect your account '
+              'to verify your sponsorship.',
+            ),
+            if (status?.hasActiveMonthlySponsorship == true)
+              const Text('Monthly sponsorship verified.'),
+            if (status?.connected != true)
+              FilledButton.icon(
+                key: const Key('support-connect-github'),
+                onPressed: sponsor.isLoading ||
+                        status?.access == GitHubSponsorAccess.checking ||
+                        status?.access == GitHubSponsorAccess.unavailable
+                    ? null
+                    : () => _connectGitHub(context, ref),
+                icon: const Icon(Icons.login),
+                label: const Text('Connect GitHub'),
+              )
+            else
+              Wrap(
+                spacing: AppSpacing.sm,
+                children: <Widget>[
+                  OutlinedButton.icon(
+                    key: const Key('support-refresh-github'),
+                    onPressed: sponsor.isLoading ||
+                            status?.access == GitHubSponsorAccess.checking
+                        ? null
+                        : () => ref
+                            .read(githubSponsorControllerProvider.notifier)
+                            .refresh(),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Check again'),
+                  ),
+                  TextButton.icon(
+                    key: const Key('support-disconnect-github'),
+                    onPressed: sponsor.isLoading ||
+                            status?.access == GitHubSponsorAccess.checking
+                        ? null
+                        : () => ref
+                            .read(githubSponsorControllerProvider.notifier)
+                            .disconnect(),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Disconnect GitHub'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _connectGitHub(BuildContext context, WidgetRef ref) async {
+    final GitHubSponsorController controller =
+        ref.read(githubSponsorControllerProvider.notifier);
+
+    try {
+      final GitHubDeviceAuthorization authorization =
+          await controller.beginAuthorization();
+
+      if (!context.mounted) {
+        controller.cancelAuthorization();
+        return;
+      }
+
+      final bool? verified = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => GitHubSponsorUnlockDialog(
+          authorization: authorization,
+        ),
+      );
+
+      if (verified != true) {
+        controller.cancelAuthorization();
+      }
+    } on Object {
+      if (!context.mounted) return;
+
+      final String message =
+          ref.read(githubSponsorControllerProvider).valueOrNull?.message ??
+              'Could not start GitHub authorization.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
   }
 }

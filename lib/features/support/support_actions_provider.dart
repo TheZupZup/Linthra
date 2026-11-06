@@ -119,6 +119,10 @@ List<SupportAction> supportActionsFor(SupportDistribution distribution) {
   ];
 
   if (distribution == SupportDistribution.play) {
+    actions.removeWhere(
+      (action) =>
+          action.id == 'github-sponsors' || action.id == 'supporter-model',
+    );
     actions.add(
       const SupportAction(
         id: 'play-supporter',

@@ -151,8 +151,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       // can suspend Dart timers while the app is backgrounded, so a GitHub
       // Sponsor build catches up here if its last successful verification is
       // older than the controller's revalidation interval.
-      if (ref.read(supportDistributionProvider) ==
-          SupportDistribution.githubRelease) {
+      if (ref.read(supportDistributionProvider).supportsGithubSponsors) {
         unawaited(
           ref
               .read(githubSponsorControllerProvider.notifier)

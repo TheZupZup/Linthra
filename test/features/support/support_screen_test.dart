@@ -50,6 +50,7 @@ Future<_FakeLinkLauncher> _pump(
   WidgetTester tester, {
   bool launchResult = true,
   List<SupportAction> actions = _actions,
+  SupportDistribution distribution = SupportDistribution.fdroid,
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
   tester.view.physicalSize = const Size(1000, 2400);
@@ -60,6 +61,7 @@ Future<_FakeLinkLauncher> _pump(
     ProviderScope(
       overrides: <Override>[
         externalLinkLauncherProvider.overrideWithValue(launcher),
+        supportDistributionProvider.overrideWithValue(distribution),
         supportActionsProvider.overrideWithValue(actions),
       ],
       child: const MaterialApp(home: SupportScreen()),
@@ -71,6 +73,33 @@ Future<_FakeLinkLauncher> _pump(
 
 void main() {
   group('SupportScreen', () {
+    testWidgets('Play shows GitHub Sponsor connection', (tester) async {
+      await _pump(
+        tester,
+        distribution: SupportDistribution.play,
+      );
+
+      expect(find.text('GitHub Sponsor account'), findsOneWidget);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('F-Droid does not show GitHub Sponsor connection',
+        (tester) async {
+      await _pump(
+        tester,
+        distribution: SupportDistribution.fdroid,
+      );
+
+      expect(find.text('GitHub Sponsor account'), findsNothing);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsNothing,
+      );
+    });
+
     testWidgets('explains the dedicated GitHub Sponsor cosmetic model',
         (tester) async {
       await _pump(tester);
