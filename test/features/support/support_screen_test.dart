@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/features/support/github_sponsor_config.dart';
 import 'package:linthra/features/support/support_action.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/support/support_screen.dart';
@@ -51,6 +52,7 @@ Future<_FakeLinkLauncher> _pump(
   bool launchResult = true,
   List<SupportAction> actions = _actions,
   SupportDistribution distribution = SupportDistribution.fdroid,
+  List<Override> extraOverrides = const <Override>[],
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
   tester.view.physicalSize = const Size(1000, 2400);
@@ -62,6 +64,7 @@ Future<_FakeLinkLauncher> _pump(
       overrides: <Override>[
         externalLinkLauncherProvider.overrideWithValue(launcher),
         supportDistributionProvider.overrideWithValue(distribution),
+        ...extraOverrides,
         supportActionsProvider.overrideWithValue(actions),
       ],
       child: const MaterialApp(home: SupportScreen()),
@@ -72,6 +75,27 @@ Future<_FakeLinkLauncher> _pump(
 }
 
 void main() {
+  testWidgets('Play explains when GitHub verification is unavailable',
+      (tester) async {
+    await _pump(
+      tester,
+      distribution: SupportDistribution.play,
+      extraOverrides: <Override>[
+        githubSponsorConfigProvider.overrideWithValue(
+          const GitHubSponsorConfig(
+            oauthClientId: '',
+            sponsorableLogin: 'TheZupZup',
+          ),
+        ),
+      ],
+    );
+
+    expect(
+      find.text('GitHub sponsor verification is not configured in this APK.'),
+      findsOneWidget,
+    );
+  });
+
   group('SupportScreen', () {
     testWidgets('Play shows GitHub Sponsor connection', (tester) async {
       await _pump(

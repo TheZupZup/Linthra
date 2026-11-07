@@ -346,6 +346,13 @@ class _PlayGitHubAccountCard extends ConsumerWidget {
             ),
             if (status?.hasActiveMonthlySponsorship == true)
               const Text('Monthly sponsorship verified.'),
+            if (status?.message != null) ...<Widget>[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                status!.message!,
+                key: const Key('support-github-status-message'),
+              ),
+            ],
             if (status?.connected != true)
               FilledButton.icon(
                 key: const Key('support-connect-github'),
