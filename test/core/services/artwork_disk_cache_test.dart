@@ -198,21 +198,28 @@ void main() {
     late List<int>? Function(Uri url) fetch;
     late String? server;
     late DateTime now;
+    late List<ArtworkDiskCache> caches;
 
-    ArtworkDiskCache build({int maxBytes = 1 << 20}) => ArtworkDiskCache(
-          directory: dir,
-          resolveFetchUrl: (Uri key) =>
-              Uri.parse('https://$server.example/cover/${key.path}'),
-          serverOf: (Uri key) => key.isScheme('subsonic-cover') ? server : '',
-          fetch: (Uri url) async {
-            fetchedUrls.add(url);
-            return fetch(url);
-          },
-          maxBytes: maxBytes,
-          now: () => now,
-        );
+    ArtworkDiskCache build({int maxBytes = 1 << 20}) {
+      final ArtworkDiskCache cache = ArtworkDiskCache(
+        directory: dir,
+        resolveFetchUrl: (Uri key) =>
+            Uri.parse('https://$server.example/cover/${key.path}'),
+        serverOf: (Uri key) => key.isScheme('subsonic-cover') ? server : '',
+        fetch: (Uri url) async {
+          fetchedUrls.add(url);
+          return fetch(url);
+        },
+        maxBytes: maxBytes,
+        now: () => now,
+      );
+
+      caches.add(cache);
+      return cache;
+    }
 
     setUp(() async {
+      caches = <ArtworkDiskCache>[];
       dir = await Directory.systemTemp.createTemp('artwork_disk_cache_739');
       fetchedUrls = <Uri>[];
       fetch = (Uri url) => <int>[..._cover, ...utf8.encode(url.host)];
@@ -221,7 +228,13 @@ void main() {
     });
 
     tearDown(() async {
-      if (await dir.exists()) await dir.delete(recursive: true);
+      for (final ArtworkDiskCache cache in caches) {
+        await cache.waitForIdle();
+      }
+
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
     });
 
     final Uri al12 = Uri.parse('subsonic-cover:al-12');

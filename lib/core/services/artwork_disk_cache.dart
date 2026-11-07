@@ -320,6 +320,16 @@ class ArtworkDiskCache {
     }
   }
 
+  /// Wait until background cache operations are finished.
+  Future<void> waitForIdle() async {
+    while (_warming.isNotEmpty || _trimming != null) {
+      await Future.wait(<Future<void>>[
+        ..._warming.values,
+        if (_trimming != null) _trimming!,
+      ]);
+    }
+  }
+
   /// Removes the covers fetched longest ago until the cache is within
   /// [maxBytes] again, leaving some room so the next writes don't trim at
   /// once. Never throws.
