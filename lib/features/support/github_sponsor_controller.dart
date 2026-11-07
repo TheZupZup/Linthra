@@ -54,7 +54,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
 
     final SupportDistribution distribution =
         ref.watch(supportDistributionProvider);
-    if (distribution != SupportDistribution.githubRelease) {
+    if (!distribution.supportsGithubSponsors) {
       return GitHubSponsorStatus.unavailable;
     }
 
@@ -258,8 +258,7 @@ class GitHubSponsorController extends AsyncNotifier<GitHubSponsorStatus> {
   /// The periodic timer normally does this. The app also calls this on resume
   /// because Android may suspend Dart timers while Linthra is backgrounded.
   Future<void> revalidateIfStale({DateTime? now}) async {
-    if (ref.read(supportDistributionProvider) !=
-        SupportDistribution.githubRelease) {
+    if (!ref.read(supportDistributionProvider).supportsGithubSponsors) {
       return;
     }
     if (state.valueOrNull?.hasActiveMonthlySponsorship != true) {

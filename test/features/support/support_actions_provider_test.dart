@@ -90,12 +90,7 @@ void main() {
 
       expect(
         actions.map((SupportAction action) => action.id),
-        <String>[
-          'github-sponsors',
-          'supporter-model',
-          'source-code',
-          'play-supporter',
-        ],
+        <String>['source-code', 'play-supporter'],
       );
       final SupportAction playSeat = actions.last;
       expect(playSeat.kind, SupportActionKind.comingSoon);
