@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/data/repositories/github_sponsor_token_store_provider.dart';
+import 'package:linthra/data/repositories/in_memory_github_sponsor_token_store.dart';
+import 'package:linthra/data/services/github_sponsor_client_provider.dart';
+import 'package:linthra/features/support/github_sponsor_config.dart';
 import 'package:linthra/features/support/support_action.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/support/support_screen.dart';
@@ -50,6 +56,8 @@ Future<_FakeLinkLauncher> _pump(
   WidgetTester tester, {
   bool launchResult = true,
   List<SupportAction> actions = _actions,
+  SupportDistribution distribution = SupportDistribution.fdroid,
+  List<Override> extraOverrides = const <Override>[],
 }) async {
   final _FakeLinkLauncher launcher = _FakeLinkLauncher(result: launchResult);
   tester.view.physicalSize = const Size(1000, 2400);
@@ -60,6 +68,8 @@ Future<_FakeLinkLauncher> _pump(
     ProviderScope(
       overrides: <Override>[
         externalLinkLauncherProvider.overrideWithValue(launcher),
+        supportDistributionProvider.overrideWithValue(distribution),
+        ...extraOverrides,
         supportActionsProvider.overrideWithValue(actions),
       ],
       child: const MaterialApp(home: SupportScreen()),
@@ -70,7 +80,104 @@ Future<_FakeLinkLauncher> _pump(
 }
 
 void main() {
+  testWidgets('Play explains when GitHub verification is unavailable',
+      (tester) async {
+    await _pump(
+      tester,
+      distribution: SupportDistribution.play,
+      extraOverrides: <Override>[
+        githubSponsorConfigProvider.overrideWithValue(
+          const GitHubSponsorConfig(
+            oauthClientId: '',
+            sponsorableLogin: 'TheZupZup',
+          ),
+        ),
+      ],
+    );
+
+    expect(
+      find.text('GitHub sponsor verification is not configured in this APK.'),
+      findsOneWidget,
+    );
+  });
+
   group('SupportScreen', () {
+    testWidgets('Play disconnects a saved GitHub account', (tester) async {
+      final tokenStore = InMemoryGitHubSponsorTokenStore('test-token');
+
+      final client = MockClient((_) async {
+        return http.Response(
+          '{"data":{"viewer":{"login":"tester"},'
+          '"user":{"sponsorshipForViewerAsSponsor":null}}}',
+          200,
+        );
+      });
+
+      addTearDown(client.close);
+
+      await _pump(
+        tester,
+        distribution: SupportDistribution.play,
+        extraOverrides: <Override>[
+          githubSponsorConfigProvider.overrideWithValue(
+            const GitHubSponsorConfig(
+              oauthClientId: 'test-client',
+              sponsorableLogin: 'TheZupZup',
+            ),
+          ),
+          githubSponsorTokenStoreProvider.overrideWithValue(tokenStore),
+          githubSponsorHttpClientProvider.overrideWithValue(client),
+        ],
+      );
+
+      expect(
+        find.text(
+          'This GitHub account does not have an active monthly sponsorship.',
+        ),
+        findsOneWidget,
+      );
+
+      final disconnect = find.byKey(const Key('support-disconnect-github'));
+
+      await tester.ensureVisible(disconnect);
+      await tester.tap(disconnect);
+      await tester.pumpAndSettle();
+
+      expect(await tokenStore.read(), isNull);
+      expect(disconnect, findsNothing);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Play shows GitHub Sponsor connection', (tester) async {
+      await _pump(
+        tester,
+        distribution: SupportDistribution.play,
+      );
+
+      expect(find.text('GitHub Sponsor account'), findsOneWidget);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('F-Droid does not show GitHub Sponsor connection',
+        (tester) async {
+      await _pump(
+        tester,
+        distribution: SupportDistribution.fdroid,
+      );
+
+      expect(find.text('GitHub Sponsor account'), findsNothing);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsNothing,
+      );
+    });
+
     testWidgets('explains the dedicated GitHub Sponsor cosmetic model',
         (tester) async {
       await _pump(tester);
