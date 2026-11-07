@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
+import 'package:linthra/data/repositories/github_sponsor_token_store_provider.dart';
+import 'package:linthra/data/repositories/in_memory_github_sponsor_token_store.dart';
+import 'package:linthra/data/services/github_sponsor_client_provider.dart';
 import 'package:linthra/features/support/github_sponsor_config.dart';
 import 'package:linthra/features/support/support_action.dart';
 import 'package:linthra/features/support/support_actions_provider.dart';
@@ -97,6 +102,55 @@ void main() {
   });
 
   group('SupportScreen', () {
+    testWidgets('Play disconnects a saved GitHub account', (tester) async {
+      final tokenStore = InMemoryGitHubSponsorTokenStore('test-token');
+
+      final client = MockClient((_) async {
+        return http.Response(
+          '{"data":{"viewer":{"login":"tester"},'
+          '"user":{"sponsorshipForViewerAsSponsor":null}}}',
+          200,
+        );
+      });
+
+      addTearDown(client.close);
+
+      await _pump(
+        tester,
+        distribution: SupportDistribution.play,
+        extraOverrides: <Override>[
+          githubSponsorConfigProvider.overrideWithValue(
+            const GitHubSponsorConfig(
+              oauthClientId: 'test-client',
+              sponsorableLogin: 'TheZupZup',
+            ),
+          ),
+          githubSponsorTokenStoreProvider.overrideWithValue(tokenStore),
+          githubSponsorHttpClientProvider.overrideWithValue(client),
+        ],
+      );
+
+      expect(
+        find.text(
+          'This GitHub account does not have an active monthly sponsorship.',
+        ),
+        findsOneWidget,
+      );
+
+      final disconnect = find.byKey(const Key('support-disconnect-github'));
+
+      await tester.ensureVisible(disconnect);
+      await tester.tap(disconnect);
+      await tester.pumpAndSettle();
+
+      expect(await tokenStore.read(), isNull);
+      expect(disconnect, findsNothing);
+      expect(
+        find.byKey(const Key('support-connect-github')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('Play shows GitHub Sponsor connection', (tester) async {
       await _pump(
         tester,
