@@ -3053,7 +3053,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       _engineSourceGeneration = generation;
       _engineUri = resolved.uri;
       _abandonedSourceGeneration = null;
-      _openedAttempt = await _handOver(resolved.uri, generation);
+      _openedAttempt = await _handOver(resolved.uri, generation, candidate);
     } catch (error) {
       _forgetReportsWhileOpening(generation);
       // Resolved (and, for streams, probed) OK but the engine couldn't open
@@ -3093,11 +3093,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// about this source, and the engine is free again by then, so it is handed
   /// over once more. An open cut short by the controller itself (a newer
   /// source, a stop, a cast taking over) is left to that.
-  Future<int> _handOver(Uri uri, int generation) async {
+  Future<int> _handOver(Uri uri, int generation, Track track) async {
     _timeAsleepAtHandOver = _sleepWatcher?.timeAsleep();
     int attempt = ++_sourceAttempt;
     try {
-      await _openInEngine(uri, attempt);
+      await _openInEngine(uri, attempt, track);
     } catch (error) {
       if (!engineCutOpenShort(error) ||
           attempt != _sourceAttempt ||
@@ -3107,7 +3107,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
         rethrow;
       }
       attempt = ++_sourceAttempt;
-      await _openInEngine(uri, attempt);
+      await _openInEngine(uri, attempt, track);
     }
     return attempt;
   }
@@ -3124,8 +3124,21 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// as that idle would have said had a load not been in flight. The engine
   /// is paused then, so an open that answers after all can't start sound
   /// under the failure, unless a newer source has gone in since.
-  Future<void> _openInEngine(Uri uri, int attempt) {
-    final Future<Duration?> opening = _player.setUrl(uri.toString());
+  Future<void> _openInEngine(Uri uri, int attempt, Track track) {
+    final Duration? start = track.cueStart;
+    final Duration? end = track.cueEnd;
+    final Future<Duration?> opening;
+    if (start != null || end != null) {
+      opening = _player.setAudioSource(
+        ClippingAudioSource(
+          child: AudioSource.uri(uri),
+          start: start,
+          end: end,
+        ),
+      );
+    } else {
+      opening = _player.setUrl(uri.toString());
+    }
     if (!engineReportsFailureAsIdle) return opening;
     return opening.timeout(_engineOpenTimeout, onTimeout: () {
       if (_sourceAttempt == attempt) unawaited(_player.pause());

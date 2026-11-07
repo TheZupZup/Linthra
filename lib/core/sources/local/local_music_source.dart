@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 import '../../catalog/library_grouping.dart';
 import '../../models/album.dart';
@@ -10,6 +13,8 @@ import '../../services/music_source.dart';
 import 'android_media_library.dart';
 import 'audio_file_scanner.dart';
 import 'audio_file_types.dart';
+import 'cue_sheet.dart';
+import 'cue_track_uri.dart';
 import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'local_audio_metadata.dart';
@@ -218,12 +223,63 @@ class LocalMusicSource implements MusicSource {
     bool isDeviceLibrary = false,
   }) {
     final List<Track> tracks = <Track>[];
-    for (final SafAudioDocument document in result.documents) {
-      if (AudioFileTypes.isSupportedDocument(
-        document.name,
-        document.mimeType,
-      )) {
+    if (isContentUri && !isDeviceLibrary && result.cueSheets.isNotEmpty) {
+      final Map<String, SafAudioDocument> audioByRelativePath =
+          <String, SafAudioDocument>{
+        for (final SafAudioDocument document in result.documents)
+          if (AudioFileTypes.isSupportedDocument(
+            document.name,
+            document.mimeType,
+          ))
+            p.normalize(document.relativePath ?? document.name): document,
+      };
+      final Set<String> cueBackedAudioUris = <String>{};
+      for (final SafCueSheet cueSheet in result.cueSheets) {
+        for (final CueSheetTrack cueTrack
+            in CueSheet.parse(cueSheet.relativePath, cueSheet.contents)) {
+          final SafAudioDocument? audio =
+              audioByRelativePath[p.normalize(cueTrack.audioPath)];
+          if (audio == null) continue;
+          cueBackedAudioUris.add(audio.uri);
+          tracks.add(
+            LocalTrackMapper.fromCueTrack(
+              CueSheetTrack(
+                number: cueTrack.number,
+                audioPath: audio.uri,
+                start: cueTrack.start,
+                end: cueTrack.end,
+                title: cueTrack.title,
+                performer: cueTrack.performer,
+                album: cueTrack.album,
+                albumPerformer: cueTrack.albumPerformer,
+              ),
+              cuePath: cueSheet.uri,
+              metadata: audio.metadata,
+              scanRoot: '',
+              cueSheetSizeBytes: cueSheet.sizeBytes,
+              cueSheetModifiedAtMs: cueSheet.modifiedAtMs,
+            ),
+          );
+        }
+      }
+      for (final SafAudioDocument document in result.documents) {
+        if (cueBackedAudioUris.contains(document.uri) ||
+            !AudioFileTypes.isSupportedDocument(
+              document.name,
+              document.mimeType,
+            )) {
+          continue;
+        }
         tracks.add(LocalTrackMapper.fromSafDocument(document));
+      }
+    } else {
+      for (final SafAudioDocument document in result.documents) {
+        if (AudioFileTypes.isSupportedDocument(
+          document.name,
+          document.mimeType,
+        )) {
+          tracks.add(LocalTrackMapper.fromSafDocument(document));
+        }
       }
     }
     final int candidates = result.documents.length;
@@ -280,11 +336,140 @@ class LocalMusicSource implements MusicSource {
     final List<Track> tracks = <Track>[];
     final Map<String, LocalFileStamp> stamps = <String, LocalFileStamp>{};
     final Set<String> vanished = <String>{};
+    final Map<String, List<({String cuePath, CueSheetTrack track})>>
+        cueTracksByAudio =
+        <String, List<({String cuePath, CueSheetTrack track})>>{};
+    final Map<String, LocalFileStamp?> cueSheetStamps =
+        <String, LocalFileStamp?>{};
+    final Set<String> audioPaths = <String>{
+      for (final String path in files)
+        if (AudioFileTypes.isSupported(path)) p.normalize(path),
+    };
+    for (final String cuePath in files.where(
+      (String path) => p.extension(path).toLowerCase() == '.cue',
+    )) {
+      try {
+        cueSheetStamps[cuePath] = await _statReader.stamp(cuePath);
+        final String contents = CueSheet.decode(
+          await File(cuePath).readAsBytes().timeout(_stallLimit),
+        );
+        for (final CueSheetTrack cueTrack
+            in CueSheet.parse(cuePath, contents)) {
+          final String audioPath = p.normalize(cueTrack.audioPath);
+          if (!audioPaths.contains(audioPath)) continue;
+          cueTracksByAudio
+              .putIfAbsent(
+            audioPath,
+            () => <({String cuePath, CueSheetTrack track})>[],
+          )
+              .add((cuePath: cuePath, track: cueTrack));
+        }
+      } on FileSystemException {
+        // An unreadable or stale cue sheet must not make its audio file
+        // disappear from the library.
+        continue;
+      } on TimeoutException {
+        continue;
+      } on FormatException {
+        continue;
+      }
+    }
     int reused = 0;
     for (final String path in files) {
       if (!AudioFileTypes.isSupported(path)) continue;
       final LocalFileStamp? stamp = await _statReader.stamp(path);
       if (stamp != null) stamps[path] = stamp;
+
+      final List<({String cuePath, CueSheetTrack track})> cueEntries =
+          cueTracksByAudio[p.normalize(path)] ??
+              const <({String cuePath, CueSheetTrack track})>[];
+      if (cueEntries.isNotEmpty) {
+        stamps.remove(path);
+        final List<({String cuePath, CueSheetTrack track, String uri})>
+            identified = <({String cuePath, CueSheetTrack track, String uri})>[
+          for (final ({String cuePath, CueSheetTrack track}) entry
+              in cueEntries)
+            (
+              cuePath: entry.cuePath,
+              track: entry.track,
+              uri: CueTrackUri.forTrack(
+                audioPath: path,
+                cuePath: entry.cuePath,
+                trackNumber: entry.track.number,
+              ),
+            ),
+        ];
+        final bool canReuse = !_readUnchanged &&
+            stamp != null &&
+            cueEntries
+                .every((entry) => cueSheetStamps[entry.cuePath] != null) &&
+            identified.every((entry) {
+              final StampedTrack? indexed = _alreadyIndexed[entry.uri];
+              final LocalFileStamp? cueStamp = cueSheetStamps[entry.cuePath];
+              return indexed != null &&
+                  !stamp.differsFrom(indexed.stamp) &&
+                  cueStamp != null &&
+                  indexed.track.cueSheetSizeBytes == cueStamp.sizeBytes &&
+                  indexed.track.cueSheetModifiedAtMs == cueStamp.modifiedAtMs &&
+                  !_missingArtwork.contains(indexed.track.artworkUri);
+            });
+        if (canReuse) {
+          for (final entry in identified) {
+            tracks.add(_alreadyIndexed[entry.uri]!.track);
+            stamps[entry.uri] = stamp;
+            reused++;
+          }
+          continue;
+        }
+
+        LocalMetadataRead read;
+        try {
+          read = await _readTags(path).timeout(_stallLimit);
+        } on TimeoutException {
+          if (!isContentUri) {
+            final LocalRootFault? gone =
+                await _presence.inspect(folder).timeout(
+                      _stallLimit,
+                      onTimeout: () => LocalRootFault.unavailable,
+                    );
+            if (gone != null) throw interruptedScanException(folder, gone);
+          }
+          read = (metadata: null, failed: true);
+        }
+        final bool unchanged = stamp != null &&
+            identified.every((entry) {
+              final StampedTrack? indexed = _alreadyIndexed[entry.uri];
+              final LocalFileStamp? cueStamp = cueSheetStamps[entry.cuePath];
+              return indexed != null &&
+                  !stamp.differsFrom(indexed.stamp) &&
+                  cueStamp != null &&
+                  indexed.track.cueSheetSizeBytes == cueStamp.sizeBytes &&
+                  indexed.track.cueSheetModifiedAtMs == cueStamp.modifiedAtMs;
+            });
+        if (read.failed && unchanged) {
+          for (final entry in identified) {
+            tracks.add(_alreadyIndexed[entry.uri]!.track);
+            if (!_readUnchanged) stamps[entry.uri] = stamp;
+            reused++;
+          }
+          continue;
+        }
+        for (final entry in identified) {
+          final Track track = LocalTrackMapper.fromCueTrack(
+            entry.track,
+            cuePath: entry.cuePath,
+            metadata: read.metadata,
+            scanRoot: folder,
+            cueSheetSizeBytes: cueSheetStamps[entry.cuePath]?.sizeBytes,
+            cueSheetModifiedAtMs: cueSheetStamps[entry.cuePath]?.modifiedAtMs,
+          );
+          tracks.add(track);
+          if (stamp != null && !read.failed) {
+            stamps[track.uri] = stamp;
+          }
+        }
+        continue;
+      }
 
       final StampedTrack? indexed = _alreadyIndexed[path];
       if (!_readUnchanged &&

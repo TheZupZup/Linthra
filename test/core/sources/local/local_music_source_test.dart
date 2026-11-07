@@ -1,10 +1,16 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
+import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_music_source.dart';
+import 'package:linthra/core/sources/local/method_channel_saf_document_lister.dart';
 import 'package:linthra/core/sources/local/saf_document_lister.dart';
 
 import 'fake_saf_document_lister.dart';
@@ -57,6 +63,15 @@ class _FakeMetadataReader implements LocalMetadataReader {
   }
 }
 
+class _FakeStatReader implements LocalFileStatReader {
+  _FakeStatReader(this._byPath);
+
+  final Map<String, LocalFileStamp> _byPath;
+
+  @override
+  Future<LocalFileStamp?> stamp(String path) async => _byPath[path];
+}
+
 void main() {
   group('LocalMusicSource', () {
     test('identifies itself as the local source', () {
@@ -100,6 +115,110 @@ void main() {
         'Track Three',
       ]);
       expect(scanner.requestedFolder, '/music');
+    });
+
+    test('imports CUE tracks and suppresses their backing audio file',
+        () async {
+      final Directory folder =
+          await Directory.systemTemp.createTemp('linthra-cue-test-');
+      addTearDown(() => folder.delete(recursive: true));
+      final String cuePath = '${folder.path}/album.cue';
+      final String audioPath = '${folder.path}/album.flac';
+      await File(cuePath).writeAsString('''
+PERFORMER "Album Artist"
+TITLE "Cue Album"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "First"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second"
+    PERFORMER "Guest"
+    INDEX 01 03:15:00
+''');
+      final LocalMusicSource source = LocalMusicSource(
+        folderPath: folder.path,
+        scanner: _FakeScanner(<String>[audioPath, cuePath]),
+        metadataReader: _FakeMetadataReader(<String, LocalAudioMetadata>{
+          audioPath: const LocalAudioMetadata(duration: Duration(minutes: 8)),
+        }),
+      );
+
+      final List<Track> tracks = await source.fetchTracks();
+
+      expect(tracks, hasLength(2));
+      expect(tracks.map((Track track) => track.title), <String>[
+        'First',
+        'Second',
+      ]);
+      expect(tracks.map((Track track) => track.trackNumber), <int?>[1, 2]);
+      expect(tracks.map((Track track) => track.artistName), <String?>[
+        'Album Artist',
+        'Guest',
+      ]);
+      expect(tracks.map((Track track) => track.albumName), <String?>[
+        'Cue Album',
+        'Cue Album',
+      ]);
+      expect(tracks[0].duration, const Duration(minutes: 3, seconds: 15));
+      expect(tracks[0].cueStart, Duration.zero);
+      expect(
+        tracks[0].cueEnd,
+        const Duration(minutes: 3, seconds: 15),
+      );
+      expect(tracks[1].cueStart, const Duration(minutes: 3, seconds: 15));
+      expect(tracks[1].cueEnd, const Duration(minutes: 8));
+      expect(tracks[1].duration, const Duration(minutes: 4, seconds: 45));
+      expect(tracks[0].uri, isNot(tracks[1].uri));
+      expect(await source.resolvePlayableUri(tracks[0]), Uri.file(audioPath));
+      expect(tracks.any((Track track) => track.uri == audioPath), isFalse);
+    });
+
+    test('refreshes cue metadata when its sheet changes but audio does not',
+        () async {
+      final Directory folder =
+          await Directory.systemTemp.createTemp('linthra-cue-refresh-');
+      addTearDown(() => folder.delete(recursive: true));
+      final String cuePath = '${folder.path}/album.cue';
+      final String audioPath = '${folder.path}/album.flac';
+      Future<void> writeCue(String title) => File(cuePath).writeAsString('''
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "$title"
+    INDEX 01 00:00:00
+''');
+      await writeCue('Original');
+      const LocalFileStamp audioStamp =
+          LocalFileStamp(sizeBytes: 100, modifiedAtMs: 1);
+      final _FakeStatReader statReader =
+          _FakeStatReader(<String, LocalFileStamp>{
+        audioPath: audioStamp,
+        cuePath: const LocalFileStamp(sizeBytes: 50, modifiedAtMs: 1),
+      });
+      LocalMusicSource source = LocalMusicSource(
+        folderPath: folder.path,
+        scanner: _FakeScanner(<String>[audioPath, cuePath]),
+        metadataReader:
+            _FakeMetadataReader(const <String, LocalAudioMetadata>{}),
+        statReader: statReader,
+      );
+      final Track original = (await source.fetchTracks()).single;
+
+      await writeCue('Updated');
+      statReader._byPath[cuePath] =
+          const LocalFileStamp(sizeBytes: 50, modifiedAtMs: 2);
+      source = LocalMusicSource(
+        folderPath: folder.path,
+        scanner: _FakeScanner(<String>[audioPath, cuePath]),
+        metadataReader:
+            _FakeMetadataReader(const <String, LocalAudioMetadata>{}),
+        statReader: statReader,
+        alreadyIndexed: <String, StampedTrack>{
+          original.uri: StampedTrack(track: original, stamp: audioStamp),
+        },
+      );
+
+      expect((await source.fetchTracks()).single.title, 'Updated');
     });
 
     test('maps each kept file to a track uri', () async {
@@ -218,6 +337,121 @@ void main() {
         'Two',
       ]);
       expect(tracks.first.uri, 'content://doc/1');
+    });
+
+    test('splits SAF audio documents using neighboring CUE sheets', () async {
+      final saf = FakeSafDocumentLister(
+        documents: const <SafAudioDocument>[
+          SafAudioDocument(
+            uri: 'content://doc/album.flac',
+            name: 'album.flac',
+            relativePath: 'Artist/Album/album.flac',
+            metadata: LocalAudioMetadata(
+              duration: Duration(minutes: 8),
+              artist: 'Audio Artist',
+              album: 'Audio Album',
+            ),
+          ),
+          SafAudioDocument(
+            uri: 'content://doc/other.mp3',
+            name: 'other.mp3',
+            relativePath: 'Artist/Album/other.mp3',
+          ),
+        ],
+        cueSheets: const <SafCueSheet>[
+          SafCueSheet(
+            uri: 'content://doc/album.cue',
+            relativePath: 'Artist/Album/album.cue',
+            contents: '''
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "Opening"
+    PERFORMER "Cue Artist"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Ending"
+    INDEX 01 03:00:00
+''',
+            sizeBytes: 123,
+            modifiedAtMs: 456,
+          ),
+        ],
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        scanner: _FakeScanner(const <String>[]),
+        safDocumentLister: saf,
+      );
+
+      final tracks = await source.fetchTracks();
+
+      expect(tracks.map((track) => track.title).toList(), <String>[
+        'Opening',
+        'Ending',
+        'other',
+      ]);
+      expect(
+          tracks.take(2).map((track) => track.uri),
+          everyElement(
+            startsWith('content://doc/album.flac#linthra-cue='),
+          ));
+      expect(tracks.first.artistName, 'Cue Artist');
+      expect(tracks.first.albumName, 'Audio Album');
+      expect(tracks.first.cueStart, Duration.zero);
+      expect(tracks.first.cueEnd, const Duration(minutes: 3));
+      expect(tracks[1].cueStart, const Duration(minutes: 3));
+      expect(tracks[1].cueEnd, const Duration(minutes: 8));
+      expect(tracks.first.cueSheetSizeBytes, 123);
+      expect(tracks.first.cueSheetModifiedAtMs, 456);
+    });
+
+    test('matches Cyrillic SAF names against Windows-1251 CUE references',
+        () async {
+      final result = MethodChannelSafDocumentLister.parseScanResult(
+        <Object?, Object?>{
+          'documents': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://opaque/audio',
+              'name': '\u0410\u043b\u044c\u0431\u043e\u043c.flac',
+              'relativePath': 'album/\u0410\u043b\u044c\u0431\u043e\u043c.flac',
+              'durationMs': 600000,
+            },
+          ],
+          'cueSheets': <Object?>[
+            <Object?, Object?>{
+              'uri': 'content://opaque/cue',
+              'relativePath': 'album/disc.cue',
+              'bytes': Uint8List.fromList(<int>[
+                ...'FILE "'.codeUnits,
+                0xc0,
+                0xeb,
+                0xfc,
+                0xe1,
+                0xee,
+                0xec,
+                ...'.flac" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n'
+                        'TRACK 02 AUDIO\nINDEX 01 03:00:00\n'
+                    .codeUnits,
+              ]),
+            },
+          ],
+        },
+      );
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        safDocumentLister: FakeSafDocumentLister(
+          documents: result.documents,
+          cueSheets: result.cueSheets,
+        ),
+      );
+
+      final tracks = await source.fetchTracks();
+
+      expect(tracks, hasLength(2));
+      expect(tracks.map((track) => track.uri),
+          everyElement(startsWith('content://opaque/audio#linthra-cue=')));
+      expect(tracks.first.duration, const Duration(minutes: 3));
+      expect(tracks.last.duration, const Duration(minutes: 7));
     });
 
     test('carries a document\'s embedded cover art onto the track', () async {

@@ -98,6 +98,24 @@ void main() {
       expect(loaded.toJson().toString(), isNot(contains('token')));
     });
 
+    test('round-trips CUE segment positions', () {
+      const Track cueTrack = Track(
+        id: '/music/album.flac#linthra-cue=%2Fmusic%2Falbum.cue:2',
+        title: 'Second',
+        uri: '/music/album.flac#linthra-cue=%2Fmusic%2Falbum.cue:2',
+        duration: Duration(minutes: 4, seconds: 45),
+        trackNumber: 2,
+        cueStart: Duration(minutes: 3, seconds: 15),
+        cueEnd: Duration(minutes: 8),
+      );
+
+      final Track? restored =
+          logicalTrackFromJson(logicalTrackToJson(cueTrack));
+
+      expect(restored?.cueStart, const Duration(minutes: 3, seconds: 15));
+      expect(restored?.cueEnd, const Duration(minutes: 8));
+    });
+
     test('fromPlayback refuses a queue that includes a stream URL', () {
       const Track poisoned = Track(
         id: 'bad',

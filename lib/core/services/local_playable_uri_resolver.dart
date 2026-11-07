@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../models/playback_source.dart';
 import '../models/track.dart';
+import '../sources/local/cue_track_uri.dart';
 import 'playable_uri_resolver.dart';
 import 'playback_diagnostics.dart';
 
@@ -108,10 +109,11 @@ class LocalPlayableUriResolver implements PlayableUriResolver {
   /// (an Android SAF document) is opened as-is; everything else is treated as a
   /// filesystem path and wrapped as a `file://` URI.
   static Uri playableUriFor(String trackUri) {
-    final Uri? parsed = Uri.tryParse(trackUri);
+    final String sourceUri = CueTrackUri.audioPath(trackUri);
+    final Uri? parsed = Uri.tryParse(sourceUri);
     if (parsed != null && parsed.scheme.toLowerCase() == 'content') {
       return parsed;
     }
-    return Uri.file(trackUri);
+    return Uri.file(sourceUri);
   }
 }

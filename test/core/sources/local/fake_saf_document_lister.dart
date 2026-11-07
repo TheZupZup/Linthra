@@ -13,6 +13,7 @@ import 'package:linthra/core/sources/local/saf_document_lister.dart';
 class FakeSafDocumentLister implements SafDocumentLister {
   FakeSafDocumentLister({
     this.documents = const <SafAudioDocument>[],
+    this.cueSheets = const <SafCueSheet>[],
     int? filesVisited,
     this.foldersVisited = 0,
     this.readFailures = 0,
@@ -21,6 +22,7 @@ class FakeSafDocumentLister implements SafDocumentLister {
   }) : _filesVisited = filesVisited;
 
   List<SafAudioDocument> documents;
+  final List<SafCueSheet> cueSheets;
   final int? _filesVisited;
   final int foldersVisited;
   int readFailures;
@@ -43,6 +45,7 @@ class FakeSafDocumentLister implements SafDocumentLister {
     }
     return SafScanResult(
       documents: documents,
+      cueSheets: cueSheets,
       filesVisited: filesVisited,
       foldersVisited: foldersVisited,
       readFailures: readFailures,

@@ -28,8 +28,14 @@ abstract final class AudioFileTypes {
     if (ext.isEmpty) {
       return false;
     }
+
     return supportedExtensions.contains(ext.substring(1));
   }
+
+  /// Whether [path] is a CUE sidecar that can change how neighboring audio
+  /// files are represented in the local library.
+  static bool isCueSheet(String path) =>
+      p.extension(path).toLowerCase() == '.cue';
 
   /// Whether [mimeType] denotes audio content (an `audio/*` type), regardless of
   /// the file name. Lets the scanner keep a file the platform recognized by

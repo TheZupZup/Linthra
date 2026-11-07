@@ -11,8 +11,8 @@ There are three equivalent entry points; they all end up at the same place:
 - **Folders ▸ Add folder**: the folder-shaped one, and where the folders you
   already configured are listed. The **+** in the header opens the picker; with
   nothing configured yet, the empty state offers the same **Add folder**.
-- **Settings ▸ Local music** — the primary home, grouped with the other music
-  sources (Jellyfin, Navidrome / Subsonic). Choose a folder, **Rescan** it after
+- **Settings ▸ Connections ▸ Local music** — the primary home, grouped with the
+  other music sources (Jellyfin, Navidrome / Subsonic). Choose a folder, **Rescan** it after
   you add files, **Add a folder** (desktop) or **Change** it (Android), remove a
   single folder with the ✕ beside it, or **Forget** the whole local source.
 - **Library ▸ (empty state) ▸ Select / Change folder** — the same pick-and-scan
@@ -35,8 +35,8 @@ covers more than audio) and only asks once you choose it.
 ## Several folders (desktop)
 
 On Linux a library is often spread around — an internal music folder, an
-external drive, a NAS mount — so **Settings ▸ Local music** takes as many folders
-as you like and scans them as one library. Android keeps a single selection: its
+external drive, a NAS mount — so **Settings ▸ Connections ▸ Local music** takes
+as many folders as you like and scans them as one library. Android keeps a single selection: its
 local access is one Storage Access Framework grant (or the device-wide MediaStore
 mode) at a time.
 
@@ -67,8 +67,8 @@ unavailable, and that is not the same thing as deleted.**
 
 What that means while the drive is out:
 
-- **The folder stays configured.** It keeps its place in Settings ▸ Local music.
-  Nothing removes it but you.
+- **The folder stays configured.** It keeps its place in
+  Settings ▸ Connections ▸ Local music. Nothing removes it but you.
 - **Its music stays indexed.** The tracks it contributed stay in the library and
   keep their play counts, hearts and "added on" dates. A rescan while the drive
   is away refreshes the folders it *can* read and leaves that folder's tracks
@@ -189,6 +189,13 @@ Local tracks index like a real source, not a flat file list:
   back on its own, so a half-tagged file still gets the best of both. A file with
   nothing to go on still folds into **Unknown Album / Artist** (see
   [library.md](./library.md)).
+- **CUE sheets split a single audio file** into the tracks described by a
+  neighboring `.cue` file. Track titles, performers, numbers, and `INDEX 01`
+  positions are used for the library and playback; the referenced audio file
+  is not also added as one whole track. This works on Linux and for Android
+  folders selected through the folder picker. Android's device-wide **All
+  music** MediaStore view does not currently read CUE sheets. Both UTF-8 and
+  legacy Windows-1251 CUE sheets are supported, including Cyrillic file names.
 - **Embedded cover art is shown.** During the scan, a file's embedded album art
   (ID3 `APIC`, FLAC picture, MP4 cover, …) is read through the same content
   resolver and the same SAF grant as the tags — no extra permission — and cached
@@ -457,7 +464,7 @@ These three are easy to confuse but are distinct:
 
 | Concept | What it is | Where |
 | --- | --- | --- |
-| **Local music** | Music files that already live on the device, SD card or computer, played in place from a folder you chose in the system chooser (SAF on Android, the desktop/portal chooser on Linux). Linthra never moves or copies them. | Settings ▸ Local music |
+| **Local music** | Music files that already live on the device, SD card or computer, played in place from a folder you chose in the system chooser (SAF on Android, the desktop/portal chooser on Linux). Linthra never moves or copies them. | Settings ▸ Connections ▸ Local music |
 | **Offline downloads** | Copies Linthra makes of **server** tracks (Jellyfin / Subsonic) so they play without a network. You choose what to download. | The download action / Settings ▸ Offline |
 | **Cache** | Linthra-managed **temporary** storage (e.g. streamed/pre-cached audio), bounded by a size limit and reclaimable at any time. | Settings ▸ Cache — see [offline-cache.md](./offline-cache.md) |
 

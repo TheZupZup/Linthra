@@ -16,6 +16,10 @@ class Track {
     this.albumArtistName,
     this.duration = Duration.zero,
     this.trackNumber,
+    this.cueStart,
+    this.cueEnd,
+    this.cueSheetSizeBytes,
+    this.cueSheetModifiedAtMs,
     this.discNumber,
     this.serverAddedAt,
     this.artworkUri,
@@ -48,6 +52,16 @@ class Track {
 
   final Duration duration;
   final int? trackNumber;
+
+  /// Start and end positions for a track indexed inside a single audio file by
+  /// a CUE sheet. Null for ordinary files and remote tracks.
+  final Duration? cueStart;
+  final Duration? cueEnd;
+
+  /// On-disk stamp of the CUE sheet that produced this track, used to refresh
+  /// its metadata when the sheet changes even if the audio file does not.
+  final int? cueSheetSizeBytes;
+  final int? cueSheetModifiedAtMs;
 
   /// The 1-based disc this track sits on in a multi-disc release, when the
   /// source reported a trustworthy one. Null for a single-disc album, for a
@@ -91,6 +105,10 @@ class Track {
     String? albumArtistName,
     Duration? duration,
     int? trackNumber,
+    Duration? cueStart,
+    Duration? cueEnd,
+    int? cueSheetSizeBytes,
+    int? cueSheetModifiedAtMs,
     int? discNumber,
     DateTime? serverAddedAt,
     Uri? artworkUri,
@@ -106,6 +124,10 @@ class Track {
       albumArtistName: albumArtistName ?? this.albumArtistName,
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
+      cueStart: cueStart ?? this.cueStart,
+      cueEnd: cueEnd ?? this.cueEnd,
+      cueSheetSizeBytes: cueSheetSizeBytes ?? this.cueSheetSizeBytes,
+      cueSheetModifiedAtMs: cueSheetModifiedAtMs ?? this.cueSheetModifiedAtMs,
       discNumber: discNumber ?? this.discNumber,
       serverAddedAt: serverAddedAt ?? this.serverAddedAt,
       artworkUri: artworkUri ?? this.artworkUri,
