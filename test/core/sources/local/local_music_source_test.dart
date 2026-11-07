@@ -174,6 +174,36 @@ FILE "album.flac" WAVE
       expect(tracks.any((Track track) => track.uri == audioPath), isFalse);
     });
 
+    test('matches a Windows-style CUE path during filesystem scans', () async {
+      final folder = await Directory.systemTemp.createTemp('linthra-cue-path-');
+      addTearDown(() => folder.delete(recursive: true));
+      final cuePath = '${folder.path}/album.cue';
+      final audioPath = '${folder.path}/CD1/album.flac';
+      await File(cuePath).writeAsString(r'''
+TITLE Album Title
+PERFORMER Album Artist
+FILE "CD1\album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE First Song
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE Second Song
+    INDEX 01 01:00:00
+''');
+      final source = LocalMusicSource(
+        folderPath: folder.path,
+        scanner: _FakeScanner(<String>[audioPath, cuePath]),
+      );
+
+      final tracks = await source.fetchTracks();
+      expect(tracks.map((track) => track.title), ['First Song', 'Second Song']);
+      expect(tracks.first.albumName, 'Album Title');
+      expect(tracks.first.artistName, 'Album Artist');
+      expect(
+          await source.resolvePlayableUri(tracks.first), Uri.file(audioPath));
+      expect(tracks.first.cueEnd, const Duration(minutes: 1));
+    });
+
     test('refreshes cue metadata when its sheet changes but audio does not',
         () async {
       final Directory folder =
@@ -403,6 +433,46 @@ FILE "album.flac" WAVE
       expect(tracks[1].cueEnd, const Duration(minutes: 8));
       expect(tracks.first.cueSheetSizeBytes, 123);
       expect(tracks.first.cueSheetModifiedAtMs, 456);
+    });
+
+    test('matches Windows-style CUE paths to nested SAF documents', () async {
+      final source = LocalMusicSource(
+        folderPath: _safFolder,
+        safDocumentLister: FakeSafDocumentLister(
+          documents: const <SafAudioDocument>[
+            SafAudioDocument(
+              uri: 'content://opaque/audio',
+              name: 'album.flac',
+              relativePath: 'Artist/Album/CD1/album.flac',
+            ),
+          ],
+          cueSheets: const <SafCueSheet>[
+            SafCueSheet(
+              uri: 'content://opaque/cue',
+              relativePath: 'Artist/Album/disc.cue',
+              contents: r'''
+TITLE Album Title
+PERFORMER Album Artist
+FILE "CD1\album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE First Song
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE Second Song
+    INDEX 01 01:00:00
+''',
+            ),
+          ],
+        ),
+      );
+
+      final tracks = await source.fetchTracks();
+      expect(tracks.map((track) => track.title), ['First Song', 'Second Song']);
+      expect(tracks.first.albumName, 'Album Title');
+      expect(tracks.first.artistName, 'Album Artist');
+      expect(
+          tracks.first.uri, startsWith('content://opaque/audio#linthra-cue='));
+      expect(tracks.first.cueEnd, const Duration(minutes: 1));
     });
 
     test('matches Cyrillic SAF names against Windows-1251 CUE references',

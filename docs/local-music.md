@@ -195,7 +195,8 @@ Local tracks index like a real source, not a flat file list:
   is not also added as one whole track. This works on Linux and for Android
   folders selected through the folder picker. Android's device-wide **All
   music** MediaStore view does not currently read CUE sheets. Both UTF-8 and
-  legacy Windows-1251 CUE sheets are supported, including Cyrillic file names.
+  legacy Windows-1251 CUE sheets are supported, including Cyrillic file names;
+  Windows-style path separators and unquoted titles and performers are accepted.
 - **Embedded cover art is shown.** During the scan, a file's embedded album art
   (ID3 `APIC`, FLAC picture, MP4 cover, …) is read through the same content
   resolver and the same SAF grant as the tags — no extra permission — and cached

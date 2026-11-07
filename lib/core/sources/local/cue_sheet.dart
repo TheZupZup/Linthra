@@ -159,7 +159,8 @@ abstract final class CueSheet {
       ).firstMatch(line);
       if (file != null) {
         finishTrack();
-        final String name = file.group(1) ?? file.group(2)!;
+        final String name =
+            (file.group(1) ?? file.group(2)!).replaceAll('\\', '/');
         currentAudioPath = p.normalize(p.join(directory, name));
         continue;
       }
@@ -188,21 +189,21 @@ abstract final class CueSheet {
         }
         continue;
       }
-      final RegExpMatch? title = _quotedValue('TITLE', line);
+      final String? title = _value('TITLE', line);
       if (title != null) {
         if (trackNumber == null) {
-          album = title.group(1);
+          album = title;
         } else {
-          trackTitle = title.group(1);
+          trackTitle = title;
         }
         continue;
       }
-      final RegExpMatch? performer = _quotedValue('PERFORMER', line);
+      final String? performer = _value('PERFORMER', line);
       if (performer != null) {
         if (trackNumber == null) {
-          albumPerformer = performer.group(1);
+          albumPerformer = performer;
         } else {
-          trackPerformer = performer.group(1);
+          trackPerformer = performer;
         }
       }
     }
@@ -237,8 +238,11 @@ abstract final class CueSheet {
     return List<CueSheetTrack>.unmodifiable(bounded);
   }
 
-  static RegExpMatch? _quotedValue(String directive, String line) => RegExp(
-        '^${RegExp.escape(directive)}\\s+"(.*)"\\s*\$',
-        caseSensitive: false,
-      ).firstMatch(line);
+  static String? _value(String directive, String line) {
+    final RegExpMatch? match = RegExp(
+      '^${RegExp.escape(directive)}\\s+(?:"([^"]*)"|([^"].*))\\s*\$',
+      caseSensitive: false,
+    ).firstMatch(line);
+    return match?.group(1) ?? match?.group(2)?.trimRight();
+  }
 }

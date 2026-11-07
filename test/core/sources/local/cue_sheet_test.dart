@@ -4,6 +4,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/sources/local/cue_sheet.dart';
 
 void main() {
+  test('handles Windows separators and quoted or unquoted metadata', () {
+    final tracks = CueSheet.parse('/music/album/disc.cue', r'''
+PERFORMER Album Artist
+TITLE Album Title
+FILE "CD1\album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE First Song
+    PERFORMER Guest Artist
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second Song"
+    INDEX 01 02:00:00
+''');
+
+    expect(tracks, hasLength(2));
+    expect(tracks.first.audioPath, '/music/album/CD1/album.flac');
+    expect(tracks.first.album, 'Album Title');
+    expect(tracks.first.albumPerformer, 'Album Artist');
+    expect(tracks.first.title, 'First Song');
+    expect(tracks.first.performer, 'Guest Artist');
+    expect(tracks.last.title, 'Second Song');
+    expect(tracks.first.end, const Duration(minutes: 2));
+  });
+
   test('decodes UTF-8 Cyrillic without changing file names or metadata', () {
     const String source =
         'FILE "\u0410\u043b\u044c\u0431\u043e\u043c.flac" WAVE\n'
