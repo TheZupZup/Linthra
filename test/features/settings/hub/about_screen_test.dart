@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
-import 'package:linthra/app/routes.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
 import 'package:linthra/core/services/share_service.dart';
 import 'package:linthra/data/repositories/share_service_provider.dart';
 import 'package:linthra/features/settings/about/whats_new_section.dart';
 import 'package:linthra/features/settings/hub/about_screen.dart';
-import 'package:linthra/features/support/support_actions_provider.dart';
 
 class _FakeLinkLauncher implements ExternalLinkLauncher {
   _FakeLinkLauncher({this.result = true});
@@ -208,85 +205,14 @@ void main() {
       expect(find.text("Couldn't open the link."), findsOneWidget);
     });
 
-    testWidgets('offers a "Support Linthra" entry', (tester) async {
+    testWidgets('keeps support options in Settings, not inside About',
+        (tester) async {
       await _pump(tester);
 
-      expect(find.text('Support Linthra'), findsOneWidget);
-      expect(
-        find.text('Free and open source — support is optional'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets(
-        'hides the "Support Linthra" entry when support links are disabled',
-        (tester) async {
-      // A links-disabled build (LINTHRA_SUPPORT_LINKS=off): the donation entry
-      // point must disappear, while the help/contact "Support" card stays.
-      tester.view.physicalSize = const Size(1000, 2000);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: <Override>[
-            externalLinkLauncherProvider.overrideWithValue(_FakeLinkLauncher()),
-            supportLinksEnabledProvider.overrideWithValue(false),
-          ],
-          child: const MaterialApp(home: AboutScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // The donation entry is gone...
       expect(find.text('Support Linthra'), findsNothing);
-      expect(
-        find.text('Free and open source — support is optional'),
-        findsNothing,
-      );
-      // ...but the help/contact "Support" card is unaffected.
       expect(find.text('Report a bug'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
     });
 
-    testWidgets('tapping "Support Linthra" opens the support screen',
-        (tester) async {
-      final _FakeLinkLauncher launcher = _FakeLinkLauncher();
-      // A tall surface so the support card (mid-page) is laid out and hittable.
-      tester.view.physicalSize = const Size(1000, 2000);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      // A minimal router so the tap can be proven to push the support route,
-      // standing in the real SupportScreen with a marker leaf.
-      final GoRouter router = GoRouter(
-        initialLocation: AppRoutes.settingsAbout,
-        routes: <RouteBase>[
-          GoRoute(
-            path: AppRoutes.settingsAbout,
-            builder: (_, __) => const AboutScreen(),
-          ),
-          GoRoute(
-            path: AppRoutes.settingsSupport,
-            builder: (_, __) => const Scaffold(body: Text('SUPPORT_PAGE')),
-          ),
-        ],
-      );
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: <Override>[
-            externalLinkLauncherProvider.overrideWithValue(launcher),
-          ],
-          child: MaterialApp.router(routerConfig: router),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Support Linthra'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('SUPPORT_PAGE'), findsOneWidget);
-    });
   });
 }
