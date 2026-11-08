@@ -23,6 +23,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool showSupport = ref.watch(supportLinksEnabledProvider);
+    final categories = settingsCategories(context, showSupport: showSupport);
     // Beside the sidebar on a wide window the categories are already on
     // screen, so the hub's own page is just the empty pane (#753).
     if (SettingsPanesScope.isSplit(context)) {
@@ -44,8 +45,7 @@ class SettingsScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(AppSpacing.md),
           children: <Widget>[
             const SettingsBrandHeader(),
-            for (final SettingsCategory category
-                in settingsCategories(context, showSupport: showSupport)) ...<Widget>[
+            for (final SettingsCategory category in categories) ...<Widget>[
               const SizedBox(height: AppSpacing.md),
               SettingsCategoryTile(
                 icon: category.icon,
