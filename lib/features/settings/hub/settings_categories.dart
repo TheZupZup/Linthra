@@ -30,12 +30,15 @@ class SettingsCategory {
   final bool opensPage;
 
   /// Pages reached from inside this category's own page, which keep it
-  /// selected in the sidebar while they are open (Support from About, say).
+  /// selected in the sidebar while they are open (Audiobooks from Connections).
   final List<String> pagesWithin;
 }
 
 /// The hub's categories, top to bottom.
-List<SettingsCategory> settingsCategories(BuildContext context) {
+List<SettingsCategory> settingsCategories(
+  BuildContext context, {
+  required bool showSupport,
+}) {
   return <SettingsCategory>[
     const SettingsCategory(
       icon: Icons.hub_outlined,
@@ -86,10 +89,16 @@ List<SettingsCategory> settingsCategories(BuildContext context) {
     const SettingsCategory(
       icon: Icons.info_outline,
       title: 'About',
-      subtitle: 'Version, support, and project links',
+      subtitle: 'Version, help, and project links',
       route: AppRoutes.settingsAbout,
-      pagesWithin: <String>[AppRoutes.settingsSupport],
     ),
+    if (showSupport)
+      const SettingsCategory(
+        icon: Icons.favorite_outline,
+        title: 'Support Linthra',
+        subtitle: 'Free and open source — support is optional',
+        route: AppRoutes.settingsSupport,
+      ),
   ];
 }
 

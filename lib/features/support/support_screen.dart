@@ -45,10 +45,6 @@ class SupportScreen extends ConsumerWidget {
           ],
           const SizedBox(height: AppSpacing.md),
           const _CoreFeaturesNote(),
-          if (hasActions) ...<Widget>[
-            const SizedBox(height: AppSpacing.md),
-            const _LonelyMaintainerNote(),
-          ],
         ],
       ),
     );
@@ -274,49 +270,6 @@ class _CoreFeaturesNote extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LonelyMaintainerNote extends StatelessWidget {
-  const _LonelyMaintainerNote();
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color faint = theme.colorScheme.onSurface.withValues(alpha: 0.5);
-
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.primary.withValues(alpha: 0.05),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              "I'm lonely… I'm so lonely… I got nobody 🥺",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: faint,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Nobody to help me keep Linthra alive except you.',
-              style: theme.textTheme.bodySmall?.copyWith(color: faint),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'No pressure. Just support if you want to help this lonely '
-              'maintainer build something cool. ❤️',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

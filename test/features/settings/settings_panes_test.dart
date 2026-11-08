@@ -10,6 +10,7 @@ import 'package:linthra/features/settings/hub/settings_detail_scaffold.dart';
 import 'package:linthra/features/settings/settings_panes.dart';
 import 'package:linthra/features/settings/settings_screen.dart';
 import 'package:linthra/features/shell/home_shell.dart';
+import 'package:linthra/features/support/support_actions_provider.dart';
 
 import '../player/fake_playback_controller.dart';
 
@@ -120,20 +121,8 @@ GoRouter _router({String initialLocation = AppRoutes.settings}) {
                       leaf('downloads', 'Offline & downloads'),
                       leaf('appearance', 'App icon & branding'),
                       leaf('diagnostics', 'Diagnostics & support'),
-                      leaf(
-                        'about',
-                        'About',
-                        children: <Widget>[
-                          Builder(
-                            builder: (BuildContext context) => TextButton(
-                              onPressed: () =>
-                                  context.push(AppRoutes.settingsSupport),
-                              child: const Text('Support Linthra'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      leaf('support', 'Support'),
+                      leaf('about', 'About'),
+                      leaf('support', 'Support Linthra'),
                       leaf('report-bug', 'Report a bug'),
                     ],
                   ),
@@ -151,6 +140,7 @@ Future<GoRouter> _pump(
   WidgetTester tester, {
   Size size = _wide,
   String initialLocation = AppRoutes.settings,
+  bool showSupport = true,
 }) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = size;
@@ -161,6 +151,7 @@ Future<GoRouter> _pump(
     ProviderScope(
       overrides: <Override>[
         playbackControllerProvider.overrideWithValue(FakePlaybackController()),
+        supportLinksEnabledProvider.overrideWithValue(showSupport),
       ],
       child: MaterialApp.router(routerConfig: router),
     ),
@@ -216,6 +207,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Connections'), findsOneWidget);
     });
+
+    testWidgets('opens Support from Settings', (tester) async {
+      await _pump(tester, size: _narrow);
+
+      await tester.tap(find.text('Support Linthra'));
+      await tester.pumpAndSettle();
+      expect(_openPage(tester), 'Support Linthra');
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Support Linthra'), findsOneWidget);
+    });
+
+    testWidgets('hides Support when disabled', (tester) async {
+      await _pump(tester, size: _narrow, showSupport: false);
+
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Support Linthra'), findsNothing);
+
+      await _resize(tester, _wide);
+      expect(_inSidebar('About'), findsOneWidget);
+      expect(_inSidebar('Support Linthra'), findsNothing);
+    });
   });
 
   group('an expanded window', () {
@@ -232,6 +247,7 @@ void main() {
         'Welcome tour',
         'Diagnostics & support',
         'About',
+        'Support Linthra',
       ]) {
         expect(_inSidebar(title), findsOneWidget, reason: title);
       }
@@ -277,22 +293,14 @@ void main() {
       expect(_selected(tester), isNull);
     });
 
-    testWidgets('a page opened from a category stays in the pane',
-        (tester) async {
+    testWidgets('Support Linthra opens as its own category', (tester) async {
       await _pump(tester);
-      await tester.tap(_inSidebar('About'));
+      await tester.tap(_inSidebar('Support Linthra'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Support Linthra'));
-      await tester.pumpAndSettle();
-
-      expect(_sidebar, findsOneWidget);
-      expect(_openPage(tester), 'Support');
-      expect(_selected(tester), 'About');
-      // A page inside a category does go back, to the category.
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle();
-      expect(_openPage(tester), 'About');
+      expect(_openPage(tester), 'Support Linthra');
+      expect(_selected(tester), 'Support Linthra');
+      expect(find.byType(BackButton), findsNothing);
     });
 
     testWidgets('Back from a nested page goes to its category, not Library',
@@ -330,11 +338,11 @@ void main() {
       expect(_selected(tester), 'Diagnostics & support');
     });
 
-    testWidgets('a deep link to a page inside one', (tester) async {
+    testWidgets('Support deep link selects its category', (tester) async {
       await _pump(tester, initialLocation: AppRoutes.settingsSupport);
 
-      expect(_openPage(tester), 'Support');
-      expect(_selected(tester), 'About');
+      expect(_openPage(tester), 'Support Linthra');
+      expect(_selected(tester), 'Support Linthra');
     });
 
     testWidgets('a row on another screen', (tester) async {
@@ -374,18 +382,15 @@ void main() {
       expect(find.text('music.example'), findsOneWidget);
     });
 
-    testWidgets('a page pushed while narrow is beside the sidebar once wide',
-        (tester) async {
+    testWidgets('Support survives resizing', (tester) async {
       await _pump(tester, size: _narrow);
-      await tester.tap(find.text('About'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Support Linthra'));
       await tester.pumpAndSettle();
 
       await _resize(tester, _wide);
 
-      expect(_openPage(tester), 'Support');
-      expect(_selected(tester), 'About');
+      expect(_openPage(tester), 'Support Linthra');
+      expect(_selected(tester), 'Support Linthra');
     });
 
     testWidgets('the hub comes back as the list when the pane goes', (
@@ -445,7 +450,7 @@ void main() {
       await tester.tap(_inSidebar('Connections'));
       await tester.pumpAndSettle();
 
-      Focus.of(tester.element(_inSidebar('About'))).requestFocus();
+      Focus.of(tester.element(_inSidebar('Support Linthra'))).requestFocus();
       await tester.pump();
       // Past the last sidebar row, the next stop is in the page beside it.
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
@@ -516,12 +521,15 @@ void main() {
         MaterialApp(
           home: Builder(
             builder: (BuildContext context) {
-              categories = settingsCategories(context);
+              categories = settingsCategories(context, showSupport: true);
               return const SizedBox.shrink();
             },
           ),
         ),
       );
+      expect(categories[categories.length - 2].title, 'About');
+      expect(categories.last.title, 'Support Linthra');
+
       String? pick(List<String> stack) =>
           selectedSettingsCategory(categories, stack)?.title;
 
@@ -539,10 +547,10 @@ void main() {
         ]),
         'Appearance',
       );
-      // On its own, Support belongs to About.
+      // On its own, Support is a separate Settings category.
       expect(
         pick(<String>[AppRoutes.settings, AppRoutes.settingsSupport]),
-        'About',
+        'Support Linthra',
       );
       expect(
         pick(<String>[AppRoutes.settings, AppRoutes.audiobooks]),

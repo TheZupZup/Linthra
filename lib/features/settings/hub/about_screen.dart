@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
-import '../../../app/routes.dart';
 import '../../../core/app_info.dart';
 import '../../../data/repositories/share_service_provider.dart';
 import '../../appearance/selected_logo_mark.dart';
-import '../../support/support_actions_provider.dart';
 import '../about/support_section.dart';
 import '../about/whats_new_section.dart';
 import 'settings_detail_scaffold.dart';
@@ -46,11 +43,6 @@ class AboutScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The "Support Linthra" entry hides itself in a links-disabled build
-    // (LINTHRA_SUPPORT_LINKS=off), so a channel that forbids in-app donation
-    // links has no entry point. It is the only support-aware bit of this page;
-    // everything else (help/contact, links) is unaffected.
-    final bool showSupport = ref.watch(supportLinksEnabledProvider);
     // "Share Linthra" only appears where a native share sheet exists (Android);
     // off it, the row is simply omitted rather than offering an action that
     // can't run.
@@ -64,12 +56,6 @@ class AboutScreen extends ConsumerWidget {
         const SizedBox(height: AppSpacing.md),
         const WhatsNewSection(),
         const SizedBox(height: AppSpacing.md),
-        if (showSupport) ...<Widget>[
-          _SupportLinthraCard(
-            onTap: () => context.push(AppRoutes.settingsSupport),
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
         const SupportSection(),
         const SizedBox(height: AppSpacing.md),
         _CommunityCard(
@@ -213,39 +199,6 @@ class _InfoRow extends StatelessWidget {
       trailing: Text(
         value,
         style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-      ),
-    );
-  }
-}
-
-/// A call-to-action that opens the "Support Linthra" screen.
-///
-/// Linthra is free and open source; supporting it is optional, so this is an
-/// invitation, not a gate — every core feature works without it. It is distinct
-/// from the "Support" (help/contact) card below: this one is about supporting
-/// the project, that one is about getting help.
-class _SupportLinthraCard extends StatelessWidget {
-  const _SupportLinthraCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    return Card(
-      child: ListTile(
-        leading: Icon(
-          Icons.favorite_outline,
-          color: theme.colorScheme.primary,
-        ),
-        title: const Text('Support Linthra'),
-        subtitle: Text(
-          'Free and open source — support is optional',
-          style: theme.textTheme.bodySmall?.copyWith(color: muted),
-        ),
-        trailing: Icon(Icons.chevron_right, color: muted),
-        onTap: onTap,
       ),
     );
   }
