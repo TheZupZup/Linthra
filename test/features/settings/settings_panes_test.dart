@@ -531,12 +531,8 @@ void main() {
           ),
         ),
       );
-      expect(
-        categories.map((category) => category.title).toList().sublist(
-          categories.length - 2,
-        ),
-        <String>['About', 'Support Linthra'],
-      );
+      expect(categories[categories.length - 2].title, 'About');
+      expect(categories.last.title, 'Support Linthra');
 
       String? pick(List<String> stack) =>
           selectedSettingsCategory(categories, stack)?.title;
