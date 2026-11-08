@@ -207,6 +207,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Connections'), findsOneWidget);
     });
+
+    testWidgets('Support Linthra opens from the Settings hub',
+        (tester) async {
+      await _pump(tester, size: _narrow);
+
+      await tester.tap(find.text('Support Linthra'));
+      await tester.pumpAndSettle();
+      expect(_openPage(tester), 'Support Linthra');
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Support Linthra'), findsOneWidget);
+    });
+
+    testWidgets('hides Support Linthra when support links are disabled',
+        (tester) async {
+      await _pump(tester, size: _narrow, showSupport: false);
+
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Support Linthra'), findsNothing);
+
+      await _resize(tester, _wide);
+      expect(_inSidebar('About'), findsOneWidget);
+      expect(_inSidebar('Support Linthra'), findsNothing);
+    });
   });
 
   group('an expanded window', () {
@@ -505,6 +531,13 @@ void main() {
           ),
         ),
       );
+      expect(
+        categories.map((category) => category.title).toList().sublist(
+          categories.length - 2,
+        ),
+        <String>['About', 'Support Linthra'],
+      );
+
       String? pick(List<String> stack) =>
           selectedSettingsCategory(categories, stack)?.title;
 
