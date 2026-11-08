@@ -44,11 +44,887 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$COMMAND_BODY" =~ ^/publish-stable\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          # GitHub comments can include trailing CRLF from the editor.
+          # Ignore only trailing line endings; keep the command syntax strict.
+          command_body="$COMMAND_BODY"
+          while [[ "$command_body" == *
+
+          pr_json="$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json mergedAt,mergeCommit,url)"
+          merged_at="$(jq -r '.mergedAt // empty' <<<"$pr_json")"
+          target_sha="$(jq -r '.mergeCommit.oid // empty' <<<"$pr_json")"
+          pr_url="$(jq -r '.url' <<<"$pr_json")"
+
+          if [ -z "$merged_at" ] || [ -z "$target_sha" ]; then
+            echo "::error::PR #$PR_NUMBER must be merged before publishing."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the merged release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Verify version and release notes
+        id: verify
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(awk '/^version: / {print $2; exit}' pubspec.yaml)"
+          version_name="${version%%+*}"
+          expected_tag="v$version_name"
+          notes_file="docs/release-notes/$RELEASE_TAG.md"
+
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "::error::Requested tag $RELEASE_TAG does not match pubspec.yaml ($expected_tag)."
+            exit 1
+          fi
+          if ! grep -Fq "_devVersionName = '$version_name'" lib/core/app_info.dart; then
+            echo "::error::AppInfo does not match pubspec.yaml version $version_name."
+            exit 1
+          fi
+          if [ ! -f "$notes_file" ]; then
+            echo "::error::Missing release notes: $notes_file"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $RELEASE_TAG already exists; stable tags are immutable."
+            exit 1
+          fi
+
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag and GitHub Release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          NOTES_FILE: ${{ steps.verify.outputs.notes_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "Linthra $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Linthra $RELEASE_TAG" \
+            --notes-file "$NOTES_FILE" \
+            --verify-tag
+
+      - name: Dispatch official signed Android build
+        id: dispatch
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow android-release-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          # --ref selects which copy of the workflow file runs; what it builds
+          # is decided by release_tag, which that workflow checks out. That is
+          # what makes the digests recorded below attributable to the tagged
+          # commit rather than to main's tip at dispatch time.
+          gh workflow run android-release-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f signed=true \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow android-release-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The signed Android build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for official signed build
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      # Same before/after gh run list pattern as the Android dispatch above,
+      # applied to linux-desktop-build.yml. This tag was already pushed and
+      # the Release already created by the "Create annotated tag and GitHub
+      # Release" step, both done with this job's own GITHUB_TOKEN — which is
+      # exactly why a plain push/release event can't be relied on to start
+      # the Linux workflow (GITHUB_TOKEN-authored events generally don't
+      # trigger new runs; workflow_dispatch is the documented exception), so
+      # this explicitly dispatches it instead.
+      - name: Dispatch Linux release build
+        id: dispatch-linux
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/linux-runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow linux-desktop-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          gh workflow run linux-desktop-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow linux-desktop-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The Linux release build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Linux release build
+        env:
+          RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      # Third and last of the dispatched builds, and the same before/after
+      # `gh run list` pattern as the two above. This one produces the
+      # standalone `.flatpak` bundle (#618): a single file a Linux user can
+      # install from the Release with a software centre or `flatpak install`,
+      # instead of extracting the native tarball and installing its runtime
+      # dependencies by hand. flatpak-build.yml checks out the exact tag,
+      # verifies the release metadata at it, builds and launches the package,
+      # exports the bundle and attaches it — see docs/release-process.md §4b.
+      - name: Dispatch Flatpak release build
+        id: dispatch-flatpak
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/flatpak-runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow flatpak-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          gh workflow run flatpak-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow flatpak-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The Flatpak release build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Flatpak release build
+        env:
+          RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      - name: Verify every public Release asset
+        id: assets
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          PR_URL: ${{ steps.release.outputs.pr_url }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_json="$RUNNER_TEMP/release.json"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json url,assets > "$release_json"
+
+          # The Flatpak bundle's name is derived by the same helper the build
+          # used, so this list and the artifact can never disagree about how a
+          # version is spelled.
+          flatpak_bundle="$(python3 scripts/flatpak_bundle.py name \
+            --tag "$RELEASE_TAG" --arch x86_64)"
+
+          required=(
+            "linthra-$RELEASE_TAG-release-signed.apk"
+            "linthra-$RELEASE_TAG-release-signed.aab"
+            "linthra-$RELEASE_TAG-armeabi-v7a-release-signed.apk"
+            "linthra-$RELEASE_TAG-arm64-v8a-release-signed.apk"
+            "linthra-$RELEASE_TAG-x86_64-release-signed.apk"
+            "Linthra-$RELEASE_TAG-linux-x64.tar.gz"
+            "$flatpak_bundle"
+          )
+
+          missing=()
+          for asset in "${required[@]}"; do
+            if ! jq -e --arg name "$asset" \
+              '.assets[] | select(.name == $name)' \
+              "$release_json" >/dev/null; then
+              missing+=("$asset")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf '::error::Missing Release asset: %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+          # Deliberately no summary yet: "published and verified" is written by
+          # the containment step below, once the bytes have actually been
+          # checked. A banner here would survive a failed check and leave the
+          # security record claiming a verification that did not happen.
+          echo "release_url=$(jq -r '.url' "$release_json")" >> "$GITHUB_OUTPUT"
+          printf 'Present on the Release:\n'
+          printf '  %s\n' "${required[@]}"
+
+      # Reading the published .flatpak means unpacking an OSTree static delta,
+      # which the verifier below shells out to flatpak/ostree for. Neither
+      # installs anything, and no Flatpak installation is touched.
+      - name: Install bundle inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
+          sudo apt-get install -y --no-install-recommends flatpak ostree
+
+      # The assets exist — this asks what is inside them. Casting is withheld
+      # from shipped builds while a reported security issue is resolved
+      # (lib/core/services/cast/cast_containment.dart), and the check that
+      # matters for a release is not "the tree was contained when CI ran" but
+      # "the file a user downloads is". So this pulls the published assets back
+      # down and reads the compiled Dart inside each one, at the reviewed commit
+      # this job checked out.
+      #
+      # It also records every asset's SHA-256 in the job summary, so the release
+      # has an auditable list of exactly which bytes were verified. The script
+      # fails closed and its limits are in its docstring — it is evidence about
+      # the shipped artifact, not a proof that the binary cannot cast.
+      - name: Verify the published artifacts carry the Cast containment
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          RELEASE_URL: ${{ steps.assets.outputs.release_url }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
+          PR_URL: ${{ steps.release.outputs.pr_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assets="$RUNNER_TEMP/release-assets"
+          record="$RUNNER_TEMP/containment-record.json"
+          rm -rf "$assets"
+          mkdir -p "$assets"
+
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$assets" \
+            --clobber
+
+          python3 scripts/verify_release_containment.py \
+            --json "$record" \
+            "$assets"/*.apk "$assets"/*.aab "$assets"/*.tar.gz "$assets"/*.flatpak
+
+          # Only now, with the shipped bytes checked, does the run claim the
+          # release is verified.
+          {
+            echo "## ✅ $RELEASE_TAG published and verified"
+            echo
+            echo "Release PR: $PR_URL"
+            echo "Tagged commit: \`$TARGET_SHA\`"
+            echo "Signed Android build: $RUN_URL"
+            echo "Linux release build: $LINUX_RUN_URL"
+            echo "Flatpak release build: $FLATPAK_RUN_URL"
+            echo "Release: $RELEASE_URL"
+            echo
+            echo "### Cast containment verified in the published artifacts"
+            echo
+            echo "Built from \`$TARGET_SHA\`."
+            echo
+            echo '| Asset | Bytes | SHA-256 |'
+            echo '| --- | --- | --- |'
+            jq -r '.[] | "| `\(.artifact)` | \(.bytes) | `\(.sha256)` |"' "$record"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report publication failure
+        if: ${{ failure() }}
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '## ❌ Stable release publication failed'
+            echo
+            if [ -n "$RUN_URL" ]; then
+              echo "Signed Android build: $RUN_URL"
+            fi
+            if [ -n "$LINUX_RUN_URL" ]; then
+              echo "Linux release build: $LINUX_RUN_URL"
+            fi
+            if [ -n "$FLATPAK_RUN_URL" ]; then
+              echo "Flatpak release build: $FLATPAK_RUN_URL"
+            fi
+            echo
+            if [ -n "$RUN_ID" ]; then
+              echo 'Failed Android build log tail (if it failed):'
+              echo '```text'
+              gh run view "$RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+            if [ -n "$LINUX_RUN_ID" ]; then
+              echo 'Failed Linux build log tail (if it failed):'
+              echo '```text'
+              gh run view "$LINUX_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+            if [ -n "$FLATPAK_RUN_ID" ]; then
+              echo 'Failed Flatpak build log tail (if it failed):'
+              echo '```text'
+              gh run view "$FLATPAK_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+\r' || "$command_body" == *
+
+          pr_json="$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json mergedAt,mergeCommit,url)"
+          merged_at="$(jq -r '.mergedAt // empty' <<<"$pr_json")"
+          target_sha="$(jq -r '.mergeCommit.oid // empty' <<<"$pr_json")"
+          pr_url="$(jq -r '.url' <<<"$pr_json")"
+
+          if [ -z "$merged_at" ] || [ -z "$target_sha" ]; then
+            echo "::error::PR #$PR_NUMBER must be merged before publishing."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the merged release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Verify version and release notes
+        id: verify
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(awk '/^version: / {print $2; exit}' pubspec.yaml)"
+          version_name="${version%%+*}"
+          expected_tag="v$version_name"
+          notes_file="docs/release-notes/$RELEASE_TAG.md"
+
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "::error::Requested tag $RELEASE_TAG does not match pubspec.yaml ($expected_tag)."
+            exit 1
+          fi
+          if ! grep -Fq "_devVersionName = '$version_name'" lib/core/app_info.dart; then
+            echo "::error::AppInfo does not match pubspec.yaml version $version_name."
+            exit 1
+          fi
+          if [ ! -f "$notes_file" ]; then
+            echo "::error::Missing release notes: $notes_file"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $RELEASE_TAG already exists; stable tags are immutable."
+            exit 1
+          fi
+
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag and GitHub Release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          NOTES_FILE: ${{ steps.verify.outputs.notes_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "Linthra $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Linthra $RELEASE_TAG" \
+            --notes-file "$NOTES_FILE" \
+            --verify-tag
+
+      - name: Dispatch official signed Android build
+        id: dispatch
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow android-release-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          # --ref selects which copy of the workflow file runs; what it builds
+          # is decided by release_tag, which that workflow checks out. That is
+          # what makes the digests recorded below attributable to the tagged
+          # commit rather than to main's tip at dispatch time.
+          gh workflow run android-release-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f signed=true \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow android-release-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The signed Android build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for official signed build
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      # Same before/after gh run list pattern as the Android dispatch above,
+      # applied to linux-desktop-build.yml. This tag was already pushed and
+      # the Release already created by the "Create annotated tag and GitHub
+      # Release" step, both done with this job's own GITHUB_TOKEN — which is
+      # exactly why a plain push/release event can't be relied on to start
+      # the Linux workflow (GITHUB_TOKEN-authored events generally don't
+      # trigger new runs; workflow_dispatch is the documented exception), so
+      # this explicitly dispatches it instead.
+      - name: Dispatch Linux release build
+        id: dispatch-linux
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/linux-runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow linux-desktop-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          gh workflow run linux-desktop-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow linux-desktop-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The Linux release build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Linux release build
+        env:
+          RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      # Third and last of the dispatched builds, and the same before/after
+      # `gh run list` pattern as the two above. This one produces the
+      # standalone `.flatpak` bundle (#618): a single file a Linux user can
+      # install from the Release with a software centre or `flatpak install`,
+      # instead of extracting the native tarball and installing its runtime
+      # dependencies by hand. flatpak-build.yml checks out the exact tag,
+      # verifies the release metadata at it, builds and launches the package,
+      # exports the bundle and attaches it — see docs/release-process.md §4b.
+      - name: Dispatch Flatpak release build
+        id: dispatch-flatpak
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          before="$RUNNER_TEMP/flatpak-runs-before.txt"
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow flatpak-build.yml \
+            --event workflow_dispatch \
+            --limit 30 \
+            --json databaseId \
+            --jq '.[].databaseId' > "$before"
+
+          gh workflow run flatpak-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f release_tag="$RELEASE_TAG"
+
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 30); do
+            candidate="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow flatpak-build.yml \
+              --event workflow_dispatch \
+              --limit 10 \
+              --json databaseId,url \
+              --jq '.[0] | [.databaseId, .url] | @tsv')"
+            candidate_id="${candidate%%$'\t'*}"
+            candidate_url="${candidate#*$'\t'}"
+            if [ -n "$candidate_id" ] && ! grep -qx "$candidate_id" "$before"; then
+              run_id="$candidate_id"
+              run_url="$candidate_url"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::error::The Flatpak release build did not appear."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Flatpak release build
+        env:
+          RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      - name: Verify every public Release asset
+        id: assets
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          PR_URL: ${{ steps.release.outputs.pr_url }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_json="$RUNNER_TEMP/release.json"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json url,assets > "$release_json"
+
+          # The Flatpak bundle's name is derived by the same helper the build
+          # used, so this list and the artifact can never disagree about how a
+          # version is spelled.
+          flatpak_bundle="$(python3 scripts/flatpak_bundle.py name \
+            --tag "$RELEASE_TAG" --arch x86_64)"
+
+          required=(
+            "linthra-$RELEASE_TAG-release-signed.apk"
+            "linthra-$RELEASE_TAG-release-signed.aab"
+            "linthra-$RELEASE_TAG-armeabi-v7a-release-signed.apk"
+            "linthra-$RELEASE_TAG-arm64-v8a-release-signed.apk"
+            "linthra-$RELEASE_TAG-x86_64-release-signed.apk"
+            "Linthra-$RELEASE_TAG-linux-x64.tar.gz"
+            "$flatpak_bundle"
+          )
+
+          missing=()
+          for asset in "${required[@]}"; do
+            if ! jq -e --arg name "$asset" \
+              '.assets[] | select(.name == $name)' \
+              "$release_json" >/dev/null; then
+              missing+=("$asset")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf '::error::Missing Release asset: %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+          # Deliberately no summary yet: "published and verified" is written by
+          # the containment step below, once the bytes have actually been
+          # checked. A banner here would survive a failed check and leave the
+          # security record claiming a verification that did not happen.
+          echo "release_url=$(jq -r '.url' "$release_json")" >> "$GITHUB_OUTPUT"
+          printf 'Present on the Release:\n'
+          printf '  %s\n' "${required[@]}"
+
+      # Reading the published .flatpak means unpacking an OSTree static delta,
+      # which the verifier below shells out to flatpak/ostree for. Neither
+      # installs anything, and no Flatpak installation is touched.
+      - name: Install bundle inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
+          sudo apt-get install -y --no-install-recommends flatpak ostree
+
+      # The assets exist — this asks what is inside them. Casting is withheld
+      # from shipped builds while a reported security issue is resolved
+      # (lib/core/services/cast/cast_containment.dart), and the check that
+      # matters for a release is not "the tree was contained when CI ran" but
+      # "the file a user downloads is". So this pulls the published assets back
+      # down and reads the compiled Dart inside each one, at the reviewed commit
+      # this job checked out.
+      #
+      # It also records every asset's SHA-256 in the job summary, so the release
+      # has an auditable list of exactly which bytes were verified. The script
+      # fails closed and its limits are in its docstring — it is evidence about
+      # the shipped artifact, not a proof that the binary cannot cast.
+      - name: Verify the published artifacts carry the Cast containment
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          RELEASE_URL: ${{ steps.assets.outputs.release_url }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
+          PR_URL: ${{ steps.release.outputs.pr_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assets="$RUNNER_TEMP/release-assets"
+          record="$RUNNER_TEMP/containment-record.json"
+          rm -rf "$assets"
+          mkdir -p "$assets"
+
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$assets" \
+            --clobber
+
+          python3 scripts/verify_release_containment.py \
+            --json "$record" \
+            "$assets"/*.apk "$assets"/*.aab "$assets"/*.tar.gz "$assets"/*.flatpak
+
+          # Only now, with the shipped bytes checked, does the run claim the
+          # release is verified.
+          {
+            echo "## ✅ $RELEASE_TAG published and verified"
+            echo
+            echo "Release PR: $PR_URL"
+            echo "Tagged commit: \`$TARGET_SHA\`"
+            echo "Signed Android build: $RUN_URL"
+            echo "Linux release build: $LINUX_RUN_URL"
+            echo "Flatpak release build: $FLATPAK_RUN_URL"
+            echo "Release: $RELEASE_URL"
+            echo
+            echo "### Cast containment verified in the published artifacts"
+            echo
+            echo "Built from \`$TARGET_SHA\`."
+            echo
+            echo '| Asset | Bytes | SHA-256 |'
+            echo '| --- | --- | --- |'
+            jq -r '.[] | "| `\(.artifact)` | \(.bytes) | `\(.sha256)` |"' "$record"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report publication failure
+        if: ${{ failure() }}
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          LINUX_RUN_ID: ${{ steps.dispatch-linux.outputs.run_id }}
+          LINUX_RUN_URL: ${{ steps.dispatch-linux.outputs.run_url }}
+          FLATPAK_RUN_ID: ${{ steps.dispatch-flatpak.outputs.run_id }}
+          FLATPAK_RUN_URL: ${{ steps.dispatch-flatpak.outputs.run_url }}
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '## ❌ Stable release publication failed'
+            echo
+            if [ -n "$RUN_URL" ]; then
+              echo "Signed Android build: $RUN_URL"
+            fi
+            if [ -n "$LINUX_RUN_URL" ]; then
+              echo "Linux release build: $LINUX_RUN_URL"
+            fi
+            if [ -n "$FLATPAK_RUN_URL" ]; then
+              echo "Flatpak release build: $FLATPAK_RUN_URL"
+            fi
+            echo
+            if [ -n "$RUN_ID" ]; then
+              echo 'Failed Android build log tail (if it failed):'
+              echo '```text'
+              gh run view "$RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+            if [ -n "$LINUX_RUN_ID" ]; then
+              echo 'Failed Linux build log tail (if it failed):'
+              echo '```text'
+              gh run view "$LINUX_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+            if [ -n "$FLATPAK_RUN_ID" ]; then
+              echo 'Failed Flatpak build log tail (if it failed):'
+              echo '```text'
+              gh run view "$FLATPAK_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log-failed 2>&1 | tail -n 100
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+\n' ]]; do
+            command_body="${command_body%?}"
+          done
+          if [[ ! "$command_body" =~ ^/publish-stable\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Use exactly: /publish-stable vX.Y.Z"
             exit 1
           fi
-          tag="${COMMAND_BODY#'/publish-stable '}"
+          tag="${command_body#'/publish-stable '}"
 
           pr_json="$(gh pr view "$PR_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \
