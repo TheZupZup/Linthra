@@ -213,6 +213,5 @@ void main() {
       expect(find.text('Report a bug'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
     });
-
   });
 }
