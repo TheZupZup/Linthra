@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../../shared/focus/focus_ring.dart';
 import '../../shared/layout/adaptive_layout.dart';
+import '../support/support_actions_provider.dart';
 import 'hub/settings_categories.dart';
 import 'settings_screen.dart';
 
@@ -19,8 +21,8 @@ const double settingsSidebarWidth = 280;
 ///
 /// On an expanded window the categories sit in a sidebar and the navigator is
 /// the pane beside them, the way GNOME Settings and KDE System Settings lay
-/// out. A page that another one opens (Audiobooks from Connections, Support
-/// from About) pushes inside that pane; dialogs, server sign-ins among them,
+/// out. A page that another one opens (Audiobooks from Connections, for example)
+/// pushes inside that pane; dialogs, server sign-ins among them,
 /// stay modal over the window. Narrower than that, the navigator is the whole
 /// page and the hub's own list of categories is its first page, exactly as on
 /// a phone.
@@ -28,7 +30,7 @@ const double settingsSidebarWidth = 280;
 /// The navigator keeps its place in the tree across the breakpoint, so
 /// resizing never rebuilds it: the open page, its scroll position and whatever
 /// is typed into it all survive, like the Library's panes.
-class SettingsPanes extends StatelessWidget {
+class SettingsPanes extends ConsumerWidget {
   const SettingsPanes({
     required this.navigatorKey,
     required this.child,
@@ -63,8 +65,11 @@ class SettingsPanes extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final List<SettingsCategory> categories = settingsCategories(context);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final List<SettingsCategory> categories = settingsCategories(
+      context,
+      showSupport: ref.watch(supportLinksEnabledProvider),
+    );
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool split = windowSizeClassFor(constraints.maxWidth)
@@ -137,7 +142,7 @@ class SettingsPanesScope extends InheritedWidget {
   /// Whether the page at [context] is a category's own page shown beside the
   /// sidebar. Back from there would only blank the pane, and the sidebar is
   /// already the way to every other category, so such a page offers no Back.
-  /// A page opened from inside one (Support from About) still does.
+  /// A page opened from inside one (Audiobooks from Connections) still does.
   static bool isSidebarPage(BuildContext context) {
     final SettingsPanesScope? scope =
         context.dependOnInheritedWidgetOfExactType<SettingsPanesScope>();
