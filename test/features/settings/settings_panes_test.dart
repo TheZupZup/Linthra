@@ -9,8 +9,8 @@ import 'package:linthra/features/settings/hub/settings_categories.dart';
 import 'package:linthra/features/settings/hub/settings_detail_scaffold.dart';
 import 'package:linthra/features/settings/settings_panes.dart';
 import 'package:linthra/features/settings/settings_screen.dart';
-import 'package:linthra/features/support/support_actions_provider.dart';
 import 'package:linthra/features/shell/home_shell.dart';
+import 'package:linthra/features/support/support_actions_provider.dart';
 
 import '../player/fake_playback_controller.dart';
 
