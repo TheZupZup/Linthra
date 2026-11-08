@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/dimens.dart';
@@ -6,6 +7,7 @@ import '../../core/app_info.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/pane_layout.dart';
 import '../appearance/selected_logo_mark.dart';
+import '../support/support_actions_provider.dart';
 import 'hub/settings_categories.dart';
 import 'hub/settings_category_tile.dart';
 import 'settings_panes.dart';
@@ -15,11 +17,12 @@ import 'settings_panes.dart';
 /// Cache & data, …) where the existing setting cards live, unchanged. Grouping
 /// the options this way is the whole point — it reorganises Settings to feel
 /// like a modern app, without changing what any setting does.
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool showSupport = ref.watch(supportLinksEnabledProvider);
     // Beside the sidebar on a wide window the categories are already on
     // screen, so the hub's own page is just the empty pane (#753).
     if (SettingsPanesScope.isSplit(context)) {
@@ -42,7 +45,7 @@ class SettingsScreen extends StatelessWidget {
           children: <Widget>[
             const SettingsBrandHeader(),
             for (final SettingsCategory category
-                in settingsCategories(context)) ...<Widget>[
+                in settingsCategories(context, showSupport: showSupport)) ...<Widget>[
               const SizedBox(height: AppSpacing.md),
               SettingsCategoryTile(
                 icon: category.icon,
