@@ -208,8 +208,7 @@ void main() {
       expect(find.text('Connections'), findsOneWidget);
     });
 
-    testWidgets('Support Linthra opens from the Settings hub',
-        (tester) async {
+    testWidgets('opens Support from Settings', (tester) async {
       await _pump(tester, size: _narrow);
 
       await tester.tap(find.text('Support Linthra'));
@@ -222,8 +221,7 @@ void main() {
       expect(find.text('Support Linthra'), findsOneWidget);
     });
 
-    testWidgets('hides Support Linthra when support links are disabled',
-        (tester) async {
+    testWidgets('hides Support when disabled', (tester) async {
       await _pump(tester, size: _narrow, showSupport: false);
 
       expect(find.text('About'), findsOneWidget);
@@ -340,8 +338,7 @@ void main() {
       expect(_selected(tester), 'Diagnostics & support');
     });
 
-    testWidgets('a deep link to Support selects its own category',
-        (tester) async {
+    testWidgets('Support deep link selects its category', (tester) async {
       await _pump(tester, initialLocation: AppRoutes.settingsSupport);
 
       expect(_openPage(tester), 'Support Linthra');
@@ -385,8 +382,7 @@ void main() {
       expect(find.text('music.example'), findsOneWidget);
     });
 
-    testWidgets('Support remains selected when the layout expands',
-        (tester) async {
+    testWidgets('Support survives resizing', (tester) async {
       await _pump(tester, size: _narrow);
       await tester.tap(find.text('Support Linthra'));
       await tester.pumpAndSettle();
