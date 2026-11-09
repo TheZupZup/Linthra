@@ -5,6 +5,7 @@ import '../models/persisted_playback_session.dart';
 import '../models/playback_state.dart';
 import '../models/track.dart';
 import '../repositories/playback_session_store.dart';
+import '../sources/local/cue_track_uri.dart';
 import '../sources/music_provider.dart';
 import 'local_playback_controller.dart';
 
@@ -361,7 +362,7 @@ class PlaybackSessionPersistence {
     if (!isLogicalTrackUri(track.uri)) return false;
     final MusicProvider provider = MusicProviders.forTrackUri(track.uri);
     if (identical(provider, MusicProviders.local)) {
-      return _localFileExists(track.uri);
+      return _localFileExists(CueTrackUri.audioPath(track.uri));
     }
     final String? Function(MusicProvider provider)? accountOf =
         _remoteAccountOf;

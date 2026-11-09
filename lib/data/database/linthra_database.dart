@@ -28,6 +28,8 @@ part 'linthra_database.g.dart';
 ///    a local scan can tell an unchanged file from a changed one with a
 ///    `stat` instead of re-parsing its tags. Purely additive; see
 ///    [_addLocalFileStampColumns] for why this is worth a migration at all.
+/// * **v7**: nullable CUE segment positions and sheet stamps, so split
+///    tracks keep their playback ranges and refresh when their sheet changes.
 @DriftDatabase(tables: [Tracks])
 class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase() : super(_openConnection());
@@ -37,7 +39,7 @@ class LinthraDatabase extends _$LinthraDatabase {
   LinthraDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -81,6 +83,12 @@ class LinthraDatabase extends _$LinthraDatabase {
           // Add the server date without deleting existing tracks.
           if (from < 6 && from >= 2) {
             await _addColumnUnlessPresent(m, tracks.serverAddedAt);
+          }
+          if (from < 7 && from >= 2) {
+            await _addColumnUnlessPresent(m, tracks.cueStartMs);
+            await _addColumnUnlessPresent(m, tracks.cueEndMs);
+            await _addColumnUnlessPresent(m, tracks.cueSheetSizeBytes);
+            await _addColumnUnlessPresent(m, tracks.cueSheetModifiedAtMs);
           }
         },
       );

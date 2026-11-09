@@ -1,6 +1,8 @@
 import 'package:path/path.dart' as p;
 
 import '../../models/track.dart';
+import 'cue_sheet.dart';
+import 'cue_track_uri.dart';
 import 'local_audio_metadata.dart';
 import 'saf_document_lister.dart';
 
@@ -31,6 +33,61 @@ abstract final class LocalTrackMapper {
       uri: document.uri,
       nameWithoutExtension: p.basenameWithoutExtension(document.name),
       metadata: document.metadata,
+    );
+  }
+
+  static Track fromCueTrack(
+    CueSheetTrack cueTrack, {
+    required String cuePath,
+    required LocalAudioMetadata? metadata,
+    required String scanRoot,
+    int? cueSheetSizeBytes,
+    int? cueSheetModifiedAtMs,
+  }) {
+    final String uri = CueTrackUri.forTrack(
+      audioPath: cueTrack.audioPath,
+      cuePath: cuePath,
+      trackNumber: cueTrack.number,
+    );
+    final Duration? possibleEnd = cueTrack.end ?? metadata?.duration;
+    final Duration? end = possibleEnd != null && possibleEnd > cueTrack.start
+        ? possibleEnd
+        : null;
+    final Duration duration = end == null || end <= cueTrack.start
+        ? Duration.zero
+        : end - cueTrack.start;
+    return Track(
+      id: uri,
+      uri: uri,
+      title: _firstNonBlank(<String?>[
+            cueTrack.title,
+            'Track ${cueTrack.number.toString().padLeft(2, '0')}',
+          ]) ??
+          'Track ${cueTrack.number}',
+      artistName: _firstNonBlank(<String?>[
+        cueTrack.performer,
+        cueTrack.albumPerformer,
+        metadata?.albumArtist,
+        metadata?.artist,
+        _folderNamesFor(cueTrack.audioPath, scanRoot).artist,
+      ]),
+      albumName: _firstNonBlank(<String?>[
+        cueTrack.album,
+        metadata?.album,
+        _folderNamesFor(cueTrack.audioPath, scanRoot).album,
+      ]),
+      albumId: _blankToNull(metadata?.albumId),
+      albumArtistName: _firstNonBlank(<String?>[
+        cueTrack.albumPerformer,
+        metadata?.albumArtist,
+      ]),
+      trackNumber: cueTrack.number,
+      duration: duration,
+      cueStart: cueTrack.start,
+      cueEnd: end,
+      cueSheetSizeBytes: cueSheetSizeBytes,
+      cueSheetModifiedAtMs: cueSheetModifiedAtMs,
+      artworkUri: metadata?.artworkUri,
     );
   }
 

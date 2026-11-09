@@ -336,7 +336,8 @@ class _LocalFoldersSection extends StatelessWidget {
               0,
             ),
             child: Text(
-              'Rescan, remove or forget these in Settings ▸ Local music.',
+              'Rescan, remove or forget these in '
+              'Settings ▸ Connections ▸ Local music.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
