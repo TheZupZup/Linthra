@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/dimens.dart';
 import '../../../app/external_link_launcher_provider.dart';
+import '../../../app/routes.dart';
 import '../../../core/app_info.dart';
 import '../../../data/repositories/share_service_provider.dart';
 import '../../appearance/selected_logo_mark.dart';
@@ -55,6 +57,16 @@ class AboutScreen extends ConsumerWidget {
         const _BuildInfoCard(),
         const SizedBox(height: AppSpacing.md),
         const WhatsNewSection(),
+        const SizedBox(height: AppSpacing.md),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.auto_awesome_outlined),
+            title: const Text('Welcome tour'),
+            subtitle: const Text('Replay the Linthra introduction'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.onboardingReplay),
+          ),
+        ),
         const SizedBox(height: AppSpacing.md),
         const SupportSection(),
         const SizedBox(height: AppSpacing.md),
