@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:linthra/app/routes.dart';
 import 'package:linthra/app/external_link_launcher_provider.dart';
 import 'package:linthra/core/app_info.dart';
 import 'package:linthra/core/services/external_link_launcher.dart';
@@ -114,6 +116,41 @@ void main() {
       expect(find.text('Version ${AppInfo.version}'), findsOneWidget);
       // The static highlights are shown verbatim.
       expect(find.text(WhatsNewSection.releaseNotes.first), findsOneWidget);
+    });
+
+    testWidgets('can replay the welcome tour from About', (tester) async {
+      final GoRouter router = GoRouter(
+        initialLocation: AppRoutes.settingsAbout,
+        routes: <RouteBase>[
+          GoRoute(
+            path: AppRoutes.settingsAbout,
+            builder: (_, __) => const AboutScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.onboarding,
+            builder: (_, __) => const Scaffold(body: Text('WELCOME_TOUR')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      tester.view.physicalSize = const Size(1000, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            shareServiceProvider.overrideWithValue(_FakeShareService()),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Welcome tour'));
+      await tester.pumpAndSettle();
+      expect(find.text('WELCOME_TOUR'), findsOneWidget);
     });
 
     testWidgets('does not show the tester checklist', (tester) async {
