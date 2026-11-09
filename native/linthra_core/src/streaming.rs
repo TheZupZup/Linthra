@@ -18,6 +18,11 @@ impl ByteRange {
         self.end_inclusive - self.start + 1
     }
 
+    /// Returns the offset where the next chunk should start.
+    pub fn next_offset(self) -> Option<u64> {
+        self.end_inclusive.checked_add(1)
+    }
+
     pub fn http_header_value(self) -> String {
         format!("bytes={}-{}", self.start, self.end_inclusive)
     }
@@ -55,6 +60,20 @@ pub fn plan_http_range(
 #[cfg(test)]
 mod tests {
     use super::{plan_http_range, ByteRange};
+
+    #[test]
+    fn next_offset_starts_after_current_chunk() {
+        let range = plan_http_range(0, 1024, Some(5000)).unwrap();
+
+        assert_eq!(range.next_offset(), Some(1024));
+    }
+
+    #[test]
+    fn next_offset_handles_integer_overflow() {
+        let range = plan_http_range(u64::MAX - 1, 256, None).unwrap();
+
+        assert_eq!(range.next_offset(), None);
+    }
 
     #[test]
     fn requests_only_one_chunk_of_a_large_track() {
