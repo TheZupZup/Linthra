@@ -121,7 +121,19 @@ GoRouter _router({String initialLocation = AppRoutes.settings}) {
                       leaf('downloads', 'Offline & downloads'),
                       leaf('appearance', 'App icon & branding'),
                       leaf('diagnostics', 'Diagnostics & support'),
-                      leaf('about', 'About'),
+                      leaf(
+                        'about',
+                        'About',
+                        children: <Widget>[
+                          Builder(
+                            builder: (BuildContext context) => TextButton(
+                              onPressed: () =>
+                                  context.push(AppRoutes.onboardingReplay),
+                              child: const Text('Welcome tour'),
+                            ),
+                          ),
+                        ],
+                      ),
                       leaf('support', 'Support Linthra'),
                       leaf('report-bug', 'Report a bug'),
                     ],
@@ -244,12 +256,20 @@ void main() {
         'Cache & data',
         'Offline & downloads',
         'Appearance',
-        'Welcome tour',
         'Diagnostics & support',
         'About',
         'Support Linthra',
       ]) {
         expect(_inSidebar(title), findsOneWidget, reason: title);
+      }
+      expect(_inSidebar('Welcome tour'), findsNothing);
+      for (final String section in <String>[
+        'MUSIC & LIBRARY',
+        'STORAGE & OFFLINE',
+        'PERSONALIZATION',
+        'ABOUT & HELP',
+      ]) {
+        expect(_inSidebar(section), findsOneWidget);
       }
       expect(find.text('Pick a category to see its settings.'), findsOneWidget);
       expect(_selected(tester), isNull);
@@ -320,10 +340,12 @@ void main() {
       expect(find.text('LIBRARY'), findsNothing);
     });
 
-    testWidgets('the welcome tour still opens over the app', (tester) async {
+    testWidgets('the welcome tour opens from About', (tester) async {
       await _pump(tester);
 
-      await tester.tap(_inSidebar('Welcome tour'));
+      await tester.tap(_inSidebar('About'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Welcome tour'));
       await tester.pumpAndSettle();
 
       expect(find.text('TOUR'), findsOneWidget);
@@ -529,6 +551,17 @@ void main() {
       );
       expect(categories[categories.length - 2].title, 'About');
       expect(categories.last.title, 'Support Linthra');
+      expect(categories.last.prominent, isTrue);
+      expect(
+        categories
+            .where((category) => category.section == SettingsSection.aboutHelp)
+            .length,
+        3,
+      );
+      expect(
+        categories.any((category) => category.title == 'Welcome tour'),
+        isFalse,
+      );
 
       String? pick(List<String> stack) =>
           selectedSettingsCategory(categories, stack)?.title;

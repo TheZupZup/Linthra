@@ -3,11 +3,19 @@ import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../network/metered_network_wording.dart';
 
-/// One category of the Settings hub.
-///
-/// The hub lists these as cards on a phone, and a wide window lists them again
-/// as the sidebar beside the open page (#753). Both read this one list, so the
-/// two can never disagree about what Settings holds or where a row goes.
+/// The same Settings sections on phones and in the desktop sidebar.
+enum SettingsSection {
+  musicLibrary('Music & library'),
+  storageOffline('Storage & offline'),
+  personalization('Personalization'),
+  aboutHelp('About & help');
+
+  const SettingsSection(this.title);
+
+  final String title;
+}
+
+/// One destination in Settings. Presentation belongs to the hub and sidebar.
 @immutable
 class SettingsCategory {
   const SettingsCategory({
@@ -15,6 +23,8 @@ class SettingsCategory {
     required this.title,
     required this.subtitle,
     required this.route,
+    required this.section,
+    this.prominent = false,
     this.opensPage = true,
     this.pagesWithin = const <String>[],
   });
@@ -23,18 +33,19 @@ class SettingsCategory {
   final String title;
   final String subtitle;
   final String route;
+  final SettingsSection section;
 
-  /// Whether [route] is a settings page, shown beside the sidebar on a wide
-  /// window. The welcome tour is not: it runs full screen over the whole app,
-  /// so its row starts it rather than selecting anything.
+  /// Support is a separate callout, not another row inside About & help.
+  final bool prominent;
+
+  /// Non-page destinations (if any) open outside the Settings pane.
   final bool opensPage;
 
-  /// Pages reached from inside this category's own page, which keep it
-  /// selected in the sidebar while they are open (Audiobooks from Connections).
+  /// Child routes which keep their parent category selected in the sidebar.
   final List<String> pagesWithin;
 }
 
-/// The hub's categories, top to bottom.
+/// One source of truth for mobile Settings and the Linux sidebar.
 List<SettingsCategory> settingsCategories(
   BuildContext context, {
   required bool showSupport,
@@ -46,6 +57,7 @@ List<SettingsCategory> settingsCategories(
       subtitle: 'Jellyfin, Plex, Navidrome/Subsonic, local files, '
           'Audiobookshelf',
       route: AppRoutes.settingsConnections,
+      section: SettingsSection.musicLibrary,
       pagesWithin: <String>[AppRoutes.audiobooks],
     ),
     const SettingsCategory(
@@ -53,37 +65,35 @@ List<SettingsCategory> settingsCategories(
       title: 'Music & playback',
       subtitle: 'Default source and playback behaviour',
       route: AppRoutes.settingsPlayback,
+      section: SettingsSection.musicLibrary,
     ),
     const SettingsCategory(
       icon: Icons.sd_storage_outlined,
       title: 'Cache & data',
       subtitle: 'Smart pre-cache and cache size',
       route: AppRoutes.settingsCache,
+      section: SettingsSection.storageOffline,
     ),
     SettingsCategory(
       icon: Icons.download_outlined,
       title: 'Offline & downloads',
       subtitle: MeteredNetworkWording.of(context).hubSubtitle,
       route: AppRoutes.settingsDownloads,
+      section: SettingsSection.storageOffline,
     ),
     const SettingsCategory(
       icon: Icons.palette_outlined,
       title: 'Appearance',
       subtitle: 'App icon and in-app branding',
       route: AppRoutes.settingsAppearance,
-    ),
-    const SettingsCategory(
-      icon: Icons.auto_awesome_outlined,
-      title: 'Welcome tour',
-      subtitle: 'Replay the Linthra introduction and music-source guide',
-      route: AppRoutes.onboardingReplay,
-      opensPage: false,
+      section: SettingsSection.personalization,
     ),
     const SettingsCategory(
       icon: Icons.help_outline,
       title: 'Diagnostics & support',
       subtitle: 'Report a bug, copy diagnostics',
       route: AppRoutes.settingsDiagnostics,
+      section: SettingsSection.aboutHelp,
       pagesWithin: <String>[AppRoutes.reportBug],
     ),
     const SettingsCategory(
@@ -91,23 +101,21 @@ List<SettingsCategory> settingsCategories(
       title: 'About',
       subtitle: 'Version, help, and project links',
       route: AppRoutes.settingsAbout,
+      section: SettingsSection.aboutHelp,
     ),
     if (showSupport)
       const SettingsCategory(
         icon: Icons.favorite_outline,
         title: 'Support Linthra',
-        subtitle: 'Free and open source — support is optional',
+        subtitle: 'Help keep Linthra free and open source',
         route: AppRoutes.settingsSupport,
+        section: SettingsSection.aboutHelp,
+        prominent: true,
       ),
   ];
 }
 
-/// The category that a stack of settings pages belongs to, bottom page first.
-///
-/// The first category page in the stack decides it, so Support opened from
-/// Appearance's theme card keeps Appearance selected. A stack with no category
-/// page in it (a deep link straight to Support) falls back to the category
-/// that page normally lives in. Null when only the hub is open.
+/// Choose the active sidebar category from the navigator's route stack.
 SettingsCategory? selectedSettingsCategory(
   List<SettingsCategory> categories,
   Iterable<String> stack,
