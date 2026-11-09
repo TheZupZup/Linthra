@@ -245,28 +245,63 @@ class _SettingsSidebarState extends State<SettingsSidebar> {
     context.go(category.route);
   }
 
+  Widget _categoryRow(SettingsCategory category) {
+    final Color primary = Theme.of(context).colorScheme.primary;
+    return FocusRing(
+      child: ListTile(
+        focusNode: _focusFor(category),
+        leading: Icon(
+          category.icon,
+          color: category.prominent ? primary : null,
+        ),
+        title: Text(category.title),
+        selected: category == widget.selected,
+        selectedTileColor: primary.withValues(alpha: 0.08),
+        tileColor: category.prominent ? primary.withValues(alpha: 0.06) : null,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          side: category.prominent
+              ? BorderSide(color: primary.withValues(alpha: 0.5))
+              : BorderSide.none,
+        ),
+        onTap: () => _open(category),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final Color primary = Theme.of(context).colorScheme.primary;
     return Material(
       child: ListView(
         key: const Key('settings_sidebar'),
         padding: const EdgeInsets.all(AppSpacing.sm),
         children: <Widget>[
           const SettingsBrandHeader(),
-          const SizedBox(height: AppSpacing.sm),
-          for (final SettingsCategory category in widget.categories)
-            FocusRing(
-              child: ListTile(
-                focusNode: _focusFor(category),
-                leading: Icon(category.icon),
-                title: Text(category.title),
-                selected: category == widget.selected,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
+          for (final SettingsSection section in SettingsSection.values) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.xs,
+              ),
+              child: Text(
+                section.title.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: primary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
                 ),
-                onTap: () => _open(category),
               ),
             ),
+            for (final SettingsCategory category in widget.categories)
+              if (category.section == section && !category.prominent)
+                _categoryRow(category),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          for (final SettingsCategory category in widget.categories)
+            if (category.prominent) _categoryRow(category),
         ],
       ),
     );
