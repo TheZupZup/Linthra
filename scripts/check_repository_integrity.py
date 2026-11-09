@@ -102,7 +102,7 @@ _EXTERNAL_BLOCKED_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
         "GitHub composite actions are maintainer-controlled",
     ),
     (
-        re.compile(r"^(?:scripts|tool|tools)/"),
+        re.compile(r"^(?:scripts|tools)/|^tool/(?!linux_audio_backend_smoke\.dart$)"),
         "repository automation scripts are maintainer-controlled",
     ),
     (

@@ -171,6 +171,31 @@ class RepositoryIntegrityTest(unittest.TestCase):
         findings = self.scan(self.commit())
         self.assertEqual(findings, [])
 
+    def test_external_linux_audio_smoke_is_allowed(self) -> None:
+        path = self.repo / "tool" / "linux_audio_backend_smoke.dart"
+        path.parent.mkdir(parents=True)
+        path.write_text("void main() {}\n", encoding="utf-8")
+
+        self.assertEqual(self.scan(self.commit()), [])
+
+    def test_other_tool_scripts_remain_blocked(self) -> None:
+        path = self.repo / "tool" / "version_from_tag.dart"
+        path.parent.mkdir(parents=True)
+        path.write_text("void main() {}\n", encoding="utf-8")
+
+        findings = self.scan(self.commit())
+        self.assertTrue(any(f.path == "tool/version_from_tag.dart" for f in findings))
+
+    def test_dangerous_smoke_content_remains_blocked(self) -> None:
+        path = self.repo / "tool" / "linux_audio_backend_smoke.dart"
+        path.parent.mkdir(parents=True)
+        path.write_text(ASSET_EXECUTION_PAYLOAD, encoding="utf-8")
+
+        findings = self.scan(self.commit())
+        self.assertTrue(
+            any("asset file as executable" in f.reason for f in findings)
+        )
+
     def test_external_vscode_change_is_blocked(self) -> None:
         path = self.repo / ".vscode" / "tasks.json"
         path.parent.mkdir()
