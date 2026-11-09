@@ -278,7 +278,8 @@ class _SettingsSidebarState extends State<SettingsSidebar> {
         padding: const EdgeInsets.all(AppSpacing.sm),
         children: <Widget>[
           const SettingsBrandHeader(),
-          for (final SettingsSection section in SettingsSection.values) ...<Widget>[
+          for (final SettingsSection section
+              in SettingsSection.values) ...<Widget>[
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md,
@@ -289,10 +290,10 @@ class _SettingsSidebarState extends State<SettingsSidebar> {
               child: Text(
                 section.title.toUpperCase(),
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: primary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
+                      color: primary,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
               ),
             ),
             for (final SettingsCategory category in widget.categories)

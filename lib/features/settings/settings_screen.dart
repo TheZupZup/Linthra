@@ -83,10 +83,10 @@ class _SettingsGroup extends StatelessWidget {
             child: Text(
               section.title.toUpperCase(),
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1,
-              ),
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1,
+                  ),
             ),
           ),
           Card(
@@ -156,16 +156,16 @@ class _SupportCard extends StatelessWidget {
                     Text(
                       'Support Linthra',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
                       'Help keep Linthra free and open source. '
                       'Support is always optional.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: muted,
-                      ),
+                            color: muted,
+                          ),
                     ),
                   ],
                 ),
