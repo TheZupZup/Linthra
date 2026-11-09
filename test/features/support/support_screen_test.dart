@@ -204,15 +204,16 @@ void main() {
       expect(find.textContaining('GitHub Sponsor APK only'), findsOneWidget);
     });
 
-    testWidgets('keeps the playful note secondary', (tester) async {
+    testWidgets('does not show the old personal support message',
+        (tester) async {
       await _pump(tester);
 
-      expect(find.textContaining("I'm lonely"), findsOneWidget);
+      expect(find.textContaining("I'm lonely"), findsNothing);
       expect(
         find.textContaining('keep Linthra alive except you'),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(find.textContaining('No pressure'), findsOneWidget);
+      expect(find.textContaining('No pressure'), findsNothing);
     });
 
     testWidgets('renders every configured action', (tester) async {

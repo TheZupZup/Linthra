@@ -44,11 +44,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$COMMAND_BODY" =~ ^/publish-stable\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          # GitHub comments can include trailing CRLF from the editor.
+          # Ignore only trailing line endings; keep the command syntax strict.
+          command_body="$COMMAND_BODY"
+          while [[ "$command_body" == *$'\r' || "$command_body" == *$'\n' ]]; do
+            command_body="${command_body%?}"
+          done
+          if [[ ! "$command_body" =~ ^/publish-stable\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Use exactly: /publish-stable vX.Y.Z"
             exit 1
           fi
-          tag="${COMMAND_BODY#'/publish-stable '}"
+          tag="${command_body#'/publish-stable '}"
 
           pr_json="$(gh pr view "$PR_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \

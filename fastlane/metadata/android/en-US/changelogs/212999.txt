@@ -1,0 +1,7 @@
+Linthra 0.2.12
+
+- Improved music library sorting and server-added date handling.
+- Fixed clearing playlist descriptions.
+- Improved artwork cache cleanup reliability.
+- Android: added support for user-installed CA certificates.
+- Added GitHub Sponsor verification support for Play builds. Pro access remains unchanged.
