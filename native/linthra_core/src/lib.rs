@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod normalize;
+pub mod streaming;
 
 use normalize::normalized_tokens;
 
