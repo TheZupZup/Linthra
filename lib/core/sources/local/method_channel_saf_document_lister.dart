@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'cue_sheet.dart';
 import 'folder_scan_exception.dart';
 import 'local_audio_metadata.dart';
 import 'local_root_fault.dart';
@@ -83,6 +84,7 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
               SafAudioDocument(
                 uri: uri,
                 name: name,
+                relativePath: _nonEmptyString(entry['relativePath']),
                 mimeType: mime is String ? mime : null,
                 metadata: parseMetadata(entry),
               ),
@@ -91,11 +93,39 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
         }
       }
     }
+    final List<SafCueSheet> cueSheets = <SafCueSheet>[];
+    final Object? rawCueSheets = result['cueSheets'];
+    if (rawCueSheets is List) {
+      for (final Object? entry in rawCueSheets) {
+        if (entry is! Map) continue;
+        final Object? uri = entry['uri'];
+        final Object? relativePath = entry['relativePath'];
+        final Object? bytes = entry['bytes'];
+        final Object? contents =
+            bytes is List<int> ? CueSheet.decode(bytes) : entry['contents'];
+        if (uri is! String ||
+            uri.isEmpty ||
+            relativePath is! String ||
+            contents is! String) {
+          continue;
+        }
+        cueSheets.add(
+          SafCueSheet(
+            uri: uri,
+            relativePath: relativePath,
+            contents: contents,
+            sizeBytes: _integer(entry['sizeBytes']),
+            modifiedAtMs: _integer(entry['modifiedAtMs']),
+          ),
+        );
+      }
+    }
     final Object? filesVisited = result['filesVisited'];
     final Object? foldersVisited = result['foldersVisited'];
     final Object? readFailures = result['readFailures'];
     return SafScanResult(
       documents: documents,
+      cueSheets: cueSheets,
       // Fall back to the document count if the native side is an older build
       // that didn't report a visited total, so the scan still works.
       filesVisited: filesVisited is int ? filesVisited : documents.length,
@@ -156,6 +186,15 @@ class MethodChannelSafDocumentLister implements SafDocumentLister {
     if (value is! String) return null;
     final String trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static String? _nonEmptyString(Object? value) =>
+      value is String && value.isNotEmpty ? value : null;
+
+  static int? _integer(Object? value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 
   /// The leading integer of a track field, which a tagger may store as `"3"` or

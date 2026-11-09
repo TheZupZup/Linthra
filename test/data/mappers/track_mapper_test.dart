@@ -110,6 +110,41 @@ void main() {
       expect(restored.artistName, 'Main Artist feat. Guest');
     });
 
+    test('CUE segment positions survive the catalog mapper round-trip', () {
+      const Track track = Track(
+        id: '/music/album.flac#linthra-cue=%2Fmusic%2Falbum.cue:2',
+        title: 'Second',
+        uri: '/music/album.flac#linthra-cue=%2Fmusic%2Falbum.cue:2',
+        duration: Duration(minutes: 4, seconds: 45),
+        trackNumber: 2,
+        cueStart: Duration(minutes: 3, seconds: 15),
+        cueEnd: Duration(minutes: 8),
+        cueSheetSizeBytes: 512,
+        cueSheetModifiedAtMs: 1700000000000,
+      );
+
+      final TracksCompanion companion = trackToCompanion(track, 'local');
+      final TrackRow row = TrackRow(
+        id: track.id,
+        sourceId: 'local',
+        title: track.title,
+        uri: track.uri,
+        durationMs: track.duration.inMilliseconds,
+        trackNumber: track.trackNumber,
+        cueStartMs: companion.cueStartMs.value,
+        cueEndMs: companion.cueEndMs.value,
+        cueSheetSizeBytes: companion.cueSheetSizeBytes.value,
+        cueSheetModifiedAtMs: companion.cueSheetModifiedAtMs.value,
+      );
+
+      final Track restored = trackFromRow(row);
+
+      expect(restored.cueStart, track.cueStart);
+      expect(restored.cueEnd, track.cueEnd);
+      expect(restored.cueSheetSizeBytes, 512);
+      expect(restored.cueSheetModifiedAtMs, 1700000000000);
+    });
+
     test('a track with neither field stores and reads back nulls', () {
       final companion = trackToCompanion(
         const Track(id: '/music/a.mp3', title: 'A', uri: '/music/a.mp3'),

@@ -67,6 +67,30 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<int> trackNumber = GeneratedColumn<int>(
       'track_number', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _cueStartMsMeta =
+      const VerificationMeta('cueStartMs');
+  @override
+  late final GeneratedColumn<int> cueStartMs = GeneratedColumn<int>(
+      'cue_start_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _cueEndMsMeta =
+      const VerificationMeta('cueEndMs');
+  @override
+  late final GeneratedColumn<int> cueEndMs = GeneratedColumn<int>(
+      'cue_end_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _cueSheetSizeBytesMeta =
+      const VerificationMeta('cueSheetSizeBytes');
+  @override
+  late final GeneratedColumn<int> cueSheetSizeBytes = GeneratedColumn<int>(
+      'cue_sheet_size_bytes', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _cueSheetModifiedAtMsMeta =
+      const VerificationMeta('cueSheetModifiedAtMs');
+  @override
+  late final GeneratedColumn<int> cueSheetModifiedAtMs = GeneratedColumn<int>(
+      'cue_sheet_modified_at_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _artworkUriMeta =
       const VerificationMeta('artworkUri');
   @override
@@ -103,6 +127,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         albumArtistName,
         durationMs,
         trackNumber,
+        cueStartMs,
+        cueEndMs,
+        cueSheetSizeBytes,
+        cueSheetModifiedAtMs,
         artworkUri,
         fileSizeBytes,
         fileModifiedAtMs,
@@ -173,6 +201,28 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           trackNumber.isAcceptableOrUnknown(
               data['track_number']!, _trackNumberMeta));
     }
+    if (data.containsKey('cue_start_ms')) {
+      context.handle(
+          _cueStartMsMeta,
+          cueStartMs.isAcceptableOrUnknown(
+              data['cue_start_ms']!, _cueStartMsMeta));
+    }
+    if (data.containsKey('cue_end_ms')) {
+      context.handle(_cueEndMsMeta,
+          cueEndMs.isAcceptableOrUnknown(data['cue_end_ms']!, _cueEndMsMeta));
+    }
+    if (data.containsKey('cue_sheet_size_bytes')) {
+      context.handle(
+          _cueSheetSizeBytesMeta,
+          cueSheetSizeBytes.isAcceptableOrUnknown(
+              data['cue_sheet_size_bytes']!, _cueSheetSizeBytesMeta));
+    }
+    if (data.containsKey('cue_sheet_modified_at_ms')) {
+      context.handle(
+          _cueSheetModifiedAtMsMeta,
+          cueSheetModifiedAtMs.isAcceptableOrUnknown(
+              data['cue_sheet_modified_at_ms']!, _cueSheetModifiedAtMsMeta));
+    }
     if (data.containsKey('artwork_uri')) {
       context.handle(
           _artworkUriMeta,
@@ -226,6 +276,14 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}duration_ms'])!,
       trackNumber: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}track_number']),
+      cueStartMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}cue_start_ms']),
+      cueEndMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}cue_end_ms']),
+      cueSheetSizeBytes: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}cue_sheet_size_bytes']),
+      cueSheetModifiedAtMs: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}cue_sheet_modified_at_ms']),
       artworkUri: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}artwork_uri']),
       fileSizeBytes: attachedDatabase.typeMapping
@@ -263,6 +321,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   final String? albumArtistName;
   final int durationMs;
   final int? trackNumber;
+  final int? cueStartMs;
+  final int? cueEndMs;
+  final int? cueSheetSizeBytes;
+  final int? cueSheetModifiedAtMs;
   final String? artworkUri;
 
   /// The source file's length in bytes the last time its tags were parsed, and
@@ -295,6 +357,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.albumArtistName,
       required this.durationMs,
       this.trackNumber,
+      this.cueStartMs,
+      this.cueEndMs,
+      this.cueSheetSizeBytes,
+      this.cueSheetModifiedAtMs,
       this.artworkUri,
       this.fileSizeBytes,
       this.fileModifiedAtMs,
@@ -321,6 +387,18 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     map['duration_ms'] = Variable<int>(durationMs);
     if (!nullToAbsent || trackNumber != null) {
       map['track_number'] = Variable<int>(trackNumber);
+    }
+    if (!nullToAbsent || cueStartMs != null) {
+      map['cue_start_ms'] = Variable<int>(cueStartMs);
+    }
+    if (!nullToAbsent || cueEndMs != null) {
+      map['cue_end_ms'] = Variable<int>(cueEndMs);
+    }
+    if (!nullToAbsent || cueSheetSizeBytes != null) {
+      map['cue_sheet_size_bytes'] = Variable<int>(cueSheetSizeBytes);
+    }
+    if (!nullToAbsent || cueSheetModifiedAtMs != null) {
+      map['cue_sheet_modified_at_ms'] = Variable<int>(cueSheetModifiedAtMs);
     }
     if (!nullToAbsent || artworkUri != null) {
       map['artwork_uri'] = Variable<String>(artworkUri);
@@ -359,6 +437,18 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       trackNumber: trackNumber == null && nullToAbsent
           ? const Value.absent()
           : Value(trackNumber),
+      cueStartMs: cueStartMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cueStartMs),
+      cueEndMs: cueEndMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cueEndMs),
+      cueSheetSizeBytes: cueSheetSizeBytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cueSheetSizeBytes),
+      cueSheetModifiedAtMs: cueSheetModifiedAtMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cueSheetModifiedAtMs),
       artworkUri: artworkUri == null && nullToAbsent
           ? const Value.absent()
           : Value(artworkUri),
@@ -388,6 +478,11 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       albumArtistName: serializer.fromJson<String?>(json['albumArtistName']),
       durationMs: serializer.fromJson<int>(json['durationMs']),
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
+      cueStartMs: serializer.fromJson<int?>(json['cueStartMs']),
+      cueEndMs: serializer.fromJson<int?>(json['cueEndMs']),
+      cueSheetSizeBytes: serializer.fromJson<int?>(json['cueSheetSizeBytes']),
+      cueSheetModifiedAtMs:
+          serializer.fromJson<int?>(json['cueSheetModifiedAtMs']),
       artworkUri: serializer.fromJson<String?>(json['artworkUri']),
       fileSizeBytes: serializer.fromJson<int?>(json['fileSizeBytes']),
       fileModifiedAtMs: serializer.fromJson<int?>(json['fileModifiedAtMs']),
@@ -408,6 +503,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'albumArtistName': serializer.toJson<String?>(albumArtistName),
       'durationMs': serializer.toJson<int>(durationMs),
       'trackNumber': serializer.toJson<int?>(trackNumber),
+      'cueStartMs': serializer.toJson<int?>(cueStartMs),
+      'cueEndMs': serializer.toJson<int?>(cueEndMs),
+      'cueSheetSizeBytes': serializer.toJson<int?>(cueSheetSizeBytes),
+      'cueSheetModifiedAtMs': serializer.toJson<int?>(cueSheetModifiedAtMs),
       'artworkUri': serializer.toJson<String?>(artworkUri),
       'fileSizeBytes': serializer.toJson<int?>(fileSizeBytes),
       'fileModifiedAtMs': serializer.toJson<int?>(fileModifiedAtMs),
@@ -426,6 +525,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<String?> albumArtistName = const Value.absent(),
           int? durationMs,
           Value<int?> trackNumber = const Value.absent(),
+          Value<int?> cueStartMs = const Value.absent(),
+          Value<int?> cueEndMs = const Value.absent(),
+          Value<int?> cueSheetSizeBytes = const Value.absent(),
+          Value<int?> cueSheetModifiedAtMs = const Value.absent(),
           Value<String?> artworkUri = const Value.absent(),
           Value<int?> fileSizeBytes = const Value.absent(),
           Value<int?> fileModifiedAtMs = const Value.absent(),
@@ -443,6 +546,14 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
             : this.albumArtistName,
         durationMs: durationMs ?? this.durationMs,
         trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
+        cueStartMs: cueStartMs.present ? cueStartMs.value : this.cueStartMs,
+        cueEndMs: cueEndMs.present ? cueEndMs.value : this.cueEndMs,
+        cueSheetSizeBytes: cueSheetSizeBytes.present
+            ? cueSheetSizeBytes.value
+            : this.cueSheetSizeBytes,
+        cueSheetModifiedAtMs: cueSheetModifiedAtMs.present
+            ? cueSheetModifiedAtMs.value
+            : this.cueSheetModifiedAtMs,
         artworkUri: artworkUri.present ? artworkUri.value : this.artworkUri,
         fileSizeBytes:
             fileSizeBytes.present ? fileSizeBytes.value : this.fileSizeBytes,
@@ -469,6 +580,15 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           data.durationMs.present ? data.durationMs.value : this.durationMs,
       trackNumber:
           data.trackNumber.present ? data.trackNumber.value : this.trackNumber,
+      cueStartMs:
+          data.cueStartMs.present ? data.cueStartMs.value : this.cueStartMs,
+      cueEndMs: data.cueEndMs.present ? data.cueEndMs.value : this.cueEndMs,
+      cueSheetSizeBytes: data.cueSheetSizeBytes.present
+          ? data.cueSheetSizeBytes.value
+          : this.cueSheetSizeBytes,
+      cueSheetModifiedAtMs: data.cueSheetModifiedAtMs.present
+          ? data.cueSheetModifiedAtMs.value
+          : this.cueSheetModifiedAtMs,
       artworkUri:
           data.artworkUri.present ? data.artworkUri.value : this.artworkUri,
       fileSizeBytes: data.fileSizeBytes.present
@@ -496,6 +616,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('albumArtistName: $albumArtistName, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
+          ..write('cueStartMs: $cueStartMs, ')
+          ..write('cueEndMs: $cueEndMs, ')
+          ..write('cueSheetSizeBytes: $cueSheetSizeBytes, ')
+          ..write('cueSheetModifiedAtMs: $cueSheetModifiedAtMs, ')
           ..write('artworkUri: $artworkUri, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('fileModifiedAtMs: $fileModifiedAtMs, ')
@@ -516,6 +640,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       albumArtistName,
       durationMs,
       trackNumber,
+      cueStartMs,
+      cueEndMs,
+      cueSheetSizeBytes,
+      cueSheetModifiedAtMs,
       artworkUri,
       fileSizeBytes,
       fileModifiedAtMs,
@@ -534,6 +662,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.albumArtistName == this.albumArtistName &&
           other.durationMs == this.durationMs &&
           other.trackNumber == this.trackNumber &&
+          other.cueStartMs == this.cueStartMs &&
+          other.cueEndMs == this.cueEndMs &&
+          other.cueSheetSizeBytes == this.cueSheetSizeBytes &&
+          other.cueSheetModifiedAtMs == this.cueSheetModifiedAtMs &&
           other.artworkUri == this.artworkUri &&
           other.fileSizeBytes == this.fileSizeBytes &&
           other.fileModifiedAtMs == this.fileModifiedAtMs &&
@@ -551,6 +683,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<String?> albumArtistName;
   final Value<int> durationMs;
   final Value<int?> trackNumber;
+  final Value<int?> cueStartMs;
+  final Value<int?> cueEndMs;
+  final Value<int?> cueSheetSizeBytes;
+  final Value<int?> cueSheetModifiedAtMs;
   final Value<String?> artworkUri;
   final Value<int?> fileSizeBytes;
   final Value<int?> fileModifiedAtMs;
@@ -567,6 +703,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.albumArtistName = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
+    this.cueStartMs = const Value.absent(),
+    this.cueEndMs = const Value.absent(),
+    this.cueSheetSizeBytes = const Value.absent(),
+    this.cueSheetModifiedAtMs = const Value.absent(),
     this.artworkUri = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.fileModifiedAtMs = const Value.absent(),
@@ -584,6 +724,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.albumArtistName = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
+    this.cueStartMs = const Value.absent(),
+    this.cueEndMs = const Value.absent(),
+    this.cueSheetSizeBytes = const Value.absent(),
+    this.cueSheetModifiedAtMs = const Value.absent(),
     this.artworkUri = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.fileModifiedAtMs = const Value.absent(),
@@ -604,6 +748,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<String>? albumArtistName,
     Expression<int>? durationMs,
     Expression<int>? trackNumber,
+    Expression<int>? cueStartMs,
+    Expression<int>? cueEndMs,
+    Expression<int>? cueSheetSizeBytes,
+    Expression<int>? cueSheetModifiedAtMs,
     Expression<String>? artworkUri,
     Expression<int>? fileSizeBytes,
     Expression<int>? fileModifiedAtMs,
@@ -621,6 +769,11 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (albumArtistName != null) 'album_artist_name': albumArtistName,
       if (durationMs != null) 'duration_ms': durationMs,
       if (trackNumber != null) 'track_number': trackNumber,
+      if (cueStartMs != null) 'cue_start_ms': cueStartMs,
+      if (cueEndMs != null) 'cue_end_ms': cueEndMs,
+      if (cueSheetSizeBytes != null) 'cue_sheet_size_bytes': cueSheetSizeBytes,
+      if (cueSheetModifiedAtMs != null)
+        'cue_sheet_modified_at_ms': cueSheetModifiedAtMs,
       if (artworkUri != null) 'artwork_uri': artworkUri,
       if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
       if (fileModifiedAtMs != null) 'file_modified_at_ms': fileModifiedAtMs,
@@ -640,6 +793,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<String?>? albumArtistName,
       Value<int>? durationMs,
       Value<int?>? trackNumber,
+      Value<int?>? cueStartMs,
+      Value<int?>? cueEndMs,
+      Value<int?>? cueSheetSizeBytes,
+      Value<int?>? cueSheetModifiedAtMs,
       Value<String?>? artworkUri,
       Value<int?>? fileSizeBytes,
       Value<int?>? fileModifiedAtMs,
@@ -656,6 +813,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       albumArtistName: albumArtistName ?? this.albumArtistName,
       durationMs: durationMs ?? this.durationMs,
       trackNumber: trackNumber ?? this.trackNumber,
+      cueStartMs: cueStartMs ?? this.cueStartMs,
+      cueEndMs: cueEndMs ?? this.cueEndMs,
+      cueSheetSizeBytes: cueSheetSizeBytes ?? this.cueSheetSizeBytes,
+      cueSheetModifiedAtMs: cueSheetModifiedAtMs ?? this.cueSheetModifiedAtMs,
       artworkUri: artworkUri ?? this.artworkUri,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       fileModifiedAtMs: fileModifiedAtMs ?? this.fileModifiedAtMs,
@@ -697,6 +858,19 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (trackNumber.present) {
       map['track_number'] = Variable<int>(trackNumber.value);
     }
+    if (cueStartMs.present) {
+      map['cue_start_ms'] = Variable<int>(cueStartMs.value);
+    }
+    if (cueEndMs.present) {
+      map['cue_end_ms'] = Variable<int>(cueEndMs.value);
+    }
+    if (cueSheetSizeBytes.present) {
+      map['cue_sheet_size_bytes'] = Variable<int>(cueSheetSizeBytes.value);
+    }
+    if (cueSheetModifiedAtMs.present) {
+      map['cue_sheet_modified_at_ms'] =
+          Variable<int>(cueSheetModifiedAtMs.value);
+    }
     if (artworkUri.present) {
       map['artwork_uri'] = Variable<String>(artworkUri.value);
     }
@@ -728,6 +902,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('albumArtistName: $albumArtistName, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
+          ..write('cueStartMs: $cueStartMs, ')
+          ..write('cueEndMs: $cueEndMs, ')
+          ..write('cueSheetSizeBytes: $cueSheetSizeBytes, ')
+          ..write('cueSheetModifiedAtMs: $cueSheetModifiedAtMs, ')
           ..write('artworkUri: $artworkUri, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('fileModifiedAtMs: $fileModifiedAtMs, ')
@@ -762,6 +940,10 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<String?> albumArtistName,
   Value<int> durationMs,
   Value<int?> trackNumber,
+  Value<int?> cueStartMs,
+  Value<int?> cueEndMs,
+  Value<int?> cueSheetSizeBytes,
+  Value<int?> cueSheetModifiedAtMs,
   Value<String?> artworkUri,
   Value<int?> fileSizeBytes,
   Value<int?> fileModifiedAtMs,
@@ -779,6 +961,10 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<String?> albumArtistName,
   Value<int> durationMs,
   Value<int?> trackNumber,
+  Value<int?> cueStartMs,
+  Value<int?> cueEndMs,
+  Value<int?> cueSheetSizeBytes,
+  Value<int?> cueSheetModifiedAtMs,
   Value<String?> artworkUri,
   Value<int?> fileSizeBytes,
   Value<int?> fileModifiedAtMs,
@@ -825,6 +1011,20 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<int> get trackNumber => $composableBuilder(
       column: $table.trackNumber, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get cueStartMs => $composableBuilder(
+      column: $table.cueStartMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get cueEndMs => $composableBuilder(
+      column: $table.cueEndMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get cueSheetSizeBytes => $composableBuilder(
+      column: $table.cueSheetSizeBytes,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get cueSheetModifiedAtMs => $composableBuilder(
+      column: $table.cueSheetModifiedAtMs,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => ColumnFilters(column));
@@ -879,6 +1079,20 @@ class $$TracksTableOrderingComposer
 
   ColumnOrderings<int> get trackNumber => $composableBuilder(
       column: $table.trackNumber, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get cueStartMs => $composableBuilder(
+      column: $table.cueStartMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get cueEndMs => $composableBuilder(
+      column: $table.cueEndMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get cueSheetSizeBytes => $composableBuilder(
+      column: $table.cueSheetSizeBytes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get cueSheetModifiedAtMs => $composableBuilder(
+      column: $table.cueSheetModifiedAtMs,
+      builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => ColumnOrderings(column));
@@ -935,6 +1149,18 @@ class $$TracksTableAnnotationComposer
   GeneratedColumn<int> get trackNumber => $composableBuilder(
       column: $table.trackNumber, builder: (column) => column);
 
+  GeneratedColumn<int> get cueStartMs => $composableBuilder(
+      column: $table.cueStartMs, builder: (column) => column);
+
+  GeneratedColumn<int> get cueEndMs =>
+      $composableBuilder(column: $table.cueEndMs, builder: (column) => column);
+
+  GeneratedColumn<int> get cueSheetSizeBytes => $composableBuilder(
+      column: $table.cueSheetSizeBytes, builder: (column) => column);
+
+  GeneratedColumn<int> get cueSheetModifiedAtMs => $composableBuilder(
+      column: $table.cueSheetModifiedAtMs, builder: (column) => column);
+
   GeneratedColumn<String> get artworkUri => $composableBuilder(
       column: $table.artworkUri, builder: (column) => column);
 
@@ -981,6 +1207,10 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> albumArtistName = const Value.absent(),
             Value<int> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
+            Value<int?> cueStartMs = const Value.absent(),
+            Value<int?> cueEndMs = const Value.absent(),
+            Value<int?> cueSheetSizeBytes = const Value.absent(),
+            Value<int?> cueSheetModifiedAtMs = const Value.absent(),
             Value<String?> artworkUri = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<int?> fileModifiedAtMs = const Value.absent(),
@@ -998,6 +1228,10 @@ class $$TracksTableTableManager extends RootTableManager<
             albumArtistName: albumArtistName,
             durationMs: durationMs,
             trackNumber: trackNumber,
+            cueStartMs: cueStartMs,
+            cueEndMs: cueEndMs,
+            cueSheetSizeBytes: cueSheetSizeBytes,
+            cueSheetModifiedAtMs: cueSheetModifiedAtMs,
             artworkUri: artworkUri,
             fileSizeBytes: fileSizeBytes,
             fileModifiedAtMs: fileModifiedAtMs,
@@ -1015,6 +1249,10 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> albumArtistName = const Value.absent(),
             Value<int> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
+            Value<int?> cueStartMs = const Value.absent(),
+            Value<int?> cueEndMs = const Value.absent(),
+            Value<int?> cueSheetSizeBytes = const Value.absent(),
+            Value<int?> cueSheetModifiedAtMs = const Value.absent(),
             Value<String?> artworkUri = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<int?> fileModifiedAtMs = const Value.absent(),
@@ -1032,6 +1270,10 @@ class $$TracksTableTableManager extends RootTableManager<
             albumArtistName: albumArtistName,
             durationMs: durationMs,
             trackNumber: trackNumber,
+            cueStartMs: cueStartMs,
+            cueEndMs: cueEndMs,
+            cueSheetSizeBytes: cueSheetSizeBytes,
+            cueSheetModifiedAtMs: cueSheetModifiedAtMs,
             artworkUri: artworkUri,
             fileSizeBytes: fileSizeBytes,
             fileModifiedAtMs: fileModifiedAtMs,

@@ -185,7 +185,7 @@ class LocalLibraryWatcher {
         !extension.contains(_letter)) {
       return true;
     }
-    return AudioFileTypes.isSupported(name);
+    return AudioFileTypes.isSupported(name) || AudioFileTypes.isCueSheet(name);
   }
 
   static final RegExp _letter = RegExp('[A-Za-z]');

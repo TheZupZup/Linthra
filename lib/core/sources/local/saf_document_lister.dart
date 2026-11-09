@@ -20,6 +20,7 @@ class SafAudioDocument {
   const SafAudioDocument({
     required this.uri,
     required this.name,
+    this.relativePath,
     this.mimeType,
     this.metadata,
   });
@@ -31,6 +32,12 @@ class SafAudioDocument {
   /// The document's display name, including its extension (e.g. `Song.flac`).
   final String name;
 
+  /// The path below the selected tree, using `/` separators.
+  ///
+  /// This lets CUE `FILE` entries be matched to audio documents without
+  /// attempting to derive a filesystem path from an opaque content URI.
+  final String? relativePath;
+
   /// The provider-reported MIME type (e.g. `audio/flac`), or null when the
   /// provider did not expose one.
   final String? mimeType;
@@ -38,6 +45,23 @@ class SafAudioDocument {
   /// The audio tags the native side read for this document, or null when none
   /// were available. See the class doc — purely a hint over the name fallback.
   final LocalAudioMetadata? metadata;
+}
+
+/// A decoded CUE document discovered in the selected SAF tree.
+class SafCueSheet {
+  const SafCueSheet({
+    required this.uri,
+    required this.relativePath,
+    required this.contents,
+    this.sizeBytes,
+    this.modifiedAtMs,
+  });
+
+  final String uri;
+  final String relativePath;
+  final String contents;
+  final int? sizeBytes;
+  final int? modifiedAtMs;
 }
 
 /// The result of walking an Android SAF tree: the audio documents found plus
@@ -52,12 +76,14 @@ class SafAudioDocument {
 class SafScanResult {
   const SafScanResult({
     this.documents = const <SafAudioDocument>[],
+    this.cueSheets = const <SafCueSheet>[],
     this.filesVisited = 0,
     this.foldersVisited = 0,
     this.readFailures = 0,
   });
 
   final List<SafAudioDocument> documents;
+  final List<SafCueSheet> cueSheets;
   final int filesVisited;
   final int foldersVisited;
   final int readFailures;

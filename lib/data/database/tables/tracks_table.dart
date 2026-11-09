@@ -48,6 +48,10 @@ class Tracks extends Table {
   TextColumn get albumArtistName => text().nullable()();
   IntColumn get durationMs => integer().withDefault(const Constant(0))();
   IntColumn get trackNumber => integer().nullable()();
+  IntColumn get cueStartMs => integer().nullable()();
+  IntColumn get cueEndMs => integer().nullable()();
+  IntColumn get cueSheetSizeBytes => integer().nullable()();
+  IntColumn get cueSheetModifiedAtMs => integer().nullable()();
   TextColumn get artworkUri => text().nullable()();
 
   /// The source file's length in bytes the last time its tags were parsed, and

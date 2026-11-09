@@ -5,6 +5,7 @@
 // lifecycle against a generated local fixture:
 //
 //   initialize -> load -> play -> pause -> seek -> stop -> dispose
+//   CUE segment playback -> relative seek -> automatic and manual transitions
 //
 // It runs in two places, from the same source (#446):
 //
@@ -33,6 +34,7 @@ import 'package:linthra/core/models/playback_source.dart';
 import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/linux_playback_controller.dart';
+import 'package:linthra/core/sources/local/cue_track_uri.dart';
 
 /// How long the generated fixture plays for.
 ///
@@ -101,6 +103,8 @@ Future<void> main() async {
       stdout.writeln('--- cycle $cycle/${config.cycles} ---');
       await _exerciseLifecycle(config, audioFile.path);
     }
+    stdout.writeln('--- CUE segments ---');
+    await _exerciseCueSegments(audioFile.path);
     stdout.writeln('--- a file libmpv cannot play ---');
     await _exerciseUnplayableFile(directory.path);
     stdout.writeln('PASS: Linux native audio lifecycle smoke passed.');
@@ -118,6 +122,103 @@ Future<void> main() async {
     }
   }
   exit(result);
+}
+
+/// Exercises the real just_audio/media_kit/libmpv clip and queue path.
+Future<void> _exerciseCueSegments(String path) async {
+  Track segment(String id, int number, Duration start, Duration end) => Track(
+        id: id,
+        title: id,
+        uri: CueTrackUri.forTrack(
+          audioPath: path,
+          cuePath: '$path.cue',
+          trackNumber: number,
+        ),
+        cueStart: start,
+        cueEnd: end,
+        duration: end - start,
+      );
+  final first = segment(
+    'cue-first',
+    1,
+    const Duration(milliseconds: 500),
+    const Duration(milliseconds: 2500),
+  );
+  final second = segment(
+    'cue-second',
+    2,
+    const Duration(milliseconds: 2500),
+    const Duration(milliseconds: 4500),
+  );
+  final controller = LinuxPlaybackController();
+  try {
+    await controller.playTracks(<Track>[first, second]).timeout(_stepTimeout);
+    await _waitFor(
+      controller,
+      (state) =>
+          state.currentTrack?.id == first.id &&
+          state.status == PlaybackStatus.playing &&
+          state.position > Duration.zero &&
+          (state.duration - const Duration(seconds: 2)).abs() <
+              _positionTolerance,
+      'cue: first segment did not play with its clipped duration',
+    );
+    await controller.pause();
+    await controller.seek(const Duration(milliseconds: 1300));
+    await _waitFor(
+      controller,
+      (state) =>
+          (state.position - const Duration(milliseconds: 1300)).abs() <
+          const Duration(milliseconds: 400),
+      'cue: seek did not land at the segment-relative position',
+    );
+    final Stopwatch transition = Stopwatch()..start();
+    await controller.play();
+    await _waitFor(
+      controller,
+      (state) =>
+          state.currentTrack?.id == second.id &&
+          state.status == PlaybackStatus.playing &&
+          state.position > Duration.zero,
+      'cue: playback did not advance to the second segment at the boundary',
+    );
+    if (transition.elapsed > const Duration(seconds: 3)) {
+      throw StateError('cue: first segment played beyond its end boundary.');
+    }
+    if (controller.state.position >= const Duration(seconds: 2)) {
+      throw StateError('cue: second segment did not start at its beginning.');
+    }
+    await controller.skipToPrevious().timeout(_stepTimeout);
+    await _waitFor(
+      controller,
+      (state) =>
+          state.currentTrack?.id == first.id &&
+          state.status == PlaybackStatus.playing &&
+          state.position < const Duration(seconds: 1),
+      'cue: previous did not restart the first segment',
+    );
+    await controller.skipToNext().timeout(_stepTimeout);
+    await _waitFor(
+      controller,
+      (state) =>
+          state.currentTrack?.id == second.id &&
+          state.status == PlaybackStatus.playing &&
+          state.position < const Duration(seconds: 1),
+      'cue: next did not start the second segment',
+    );
+    await controller.seek(const Duration(milliseconds: 1500));
+    final Stopwatch finish = Stopwatch()..start();
+    await _waitFor(
+      controller,
+      (state) => state.status == PlaybackStatus.completed,
+      'cue: final segment did not complete at its end boundary',
+    );
+    if (finish.elapsed > const Duration(seconds: 3)) {
+      throw StateError('cue: final segment played beyond its end boundary.');
+    }
+  } finally {
+    await controller.dispose();
+  }
 }
 
 /// One full pass: initialize, load, play, pause, seek, stop, dispose.

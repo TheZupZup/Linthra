@@ -224,6 +224,16 @@ void main() {
       expect(refreshes.count, 1);
     });
 
+    test('a CUE sheet change refreshes the library', () async {
+      final watcher = build();
+      await watcher.syncRoots(<String>['/music']);
+
+      fs.emit('/music', '/music/Artist/Album/album.cue');
+      await refreshes.next;
+
+      expect(refreshes.count, 1);
+    });
+
     test('changes in either folder refresh the one library', () async {
       final watcher = build();
       await watcher.syncRoots(<String>['/music', '/media/usb']);
@@ -260,7 +270,6 @@ void main() {
         '/music/Album/cover.jpg',
         '/music/Album/album.nfo',
         '/music/Album/rip.log',
-        '/music/Album/album.cue',
         '/music/Album/.track.flac.swp',
         '/music/Album/lyrics.lrc',
       ]) {

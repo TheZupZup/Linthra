@@ -11,6 +11,7 @@ import 'package:linthra/core/models/playback_state.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/services/just_audio_playback_controller.dart';
 import 'package:linthra/core/services/local_playable_uri_resolver.dart';
+import 'package:linthra/core/sources/local/cue_track_uri.dart';
 
 import '../../support/fake_local_file_presence.dart';
 
@@ -18,6 +19,7 @@ import '../../support/fake_local_file_presence.dart';
 /// can only have come from the resolver refusing a missing file.
 class _FakePlayer extends Fake implements AudioPlayer {
   final List<String> setUrlCalls = <String>[];
+  final List<AudioSource> setAudioSourceCalls = <AudioSource>[];
 
   @override
   Stream<PlayerState> get playerStateStream =>
@@ -39,6 +41,17 @@ class _FakePlayer extends Fake implements AudioPlayer {
     dynamic tag,
   }) async {
     setUrlCalls.add(url);
+    return const Duration(minutes: 3);
+  }
+
+  @override
+  Future<Duration?> setAudioSource(
+    AudioSource source, {
+    bool preload = true,
+    int? initialIndex,
+    Duration? initialPosition,
+  }) async {
+    setAudioSourceCalls.add(source);
     return const Duration(minutes: 3);
   }
 
@@ -87,6 +100,34 @@ void main() {
   });
 
   group('a local file that vanished mid-queue', () {
+    test('a CUE track plays only its indexed segment of the backing file',
+        () async {
+      const String audioPath = '/music/album.flac';
+      final String uri = CueTrackUri.forTrack(
+        audioPath: audioPath,
+        cuePath: '/music/album.cue',
+        trackNumber: 2,
+      );
+      final Track cueTrack = Track(
+        id: uri,
+        title: 'Second',
+        uri: uri,
+        duration: const Duration(minutes: 1),
+        cueStart: const Duration(minutes: 2),
+        cueEnd: const Duration(minutes: 3),
+      );
+
+      await controller.playTracks(<Track>[cueTrack]);
+
+      expect(player.setUrlCalls, isEmpty);
+      expect(player.setAudioSourceCalls, hasLength(1));
+      final ClippingAudioSource source =
+          player.setAudioSourceCalls.single as ClippingAudioSource;
+      expect(source.start, const Duration(minutes: 2));
+      expect(source.end, const Duration(minutes: 3));
+      expect(source.child.uri, Uri.file(audioPath));
+    });
+
     test('the queue is left exactly as it was', () async {
       await controller.playTracks(
         <Track>[first, second, third],

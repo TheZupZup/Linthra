@@ -21,6 +21,11 @@ Track trackFromRow(TrackRow row) {
     albumArtistName: row.albumArtistName,
     duration: Duration(milliseconds: row.durationMs),
     trackNumber: row.trackNumber,
+    cueStart:
+        row.cueStartMs == null ? null : Duration(milliseconds: row.cueStartMs!),
+    cueEnd: row.cueEndMs == null ? null : Duration(milliseconds: row.cueEndMs!),
+    cueSheetSizeBytes: row.cueSheetSizeBytes,
+    cueSheetModifiedAtMs: row.cueSheetModifiedAtMs,
     serverAddedAt: row.serverAddedAt,
     artworkUri: row.artworkUri == null ? null : Uri.tryParse(row.artworkUri!),
   );
@@ -67,6 +72,10 @@ TracksCompanion trackToCompanion(
     albumArtistName: Value(track.albumArtistName),
     durationMs: Value(track.duration.inMilliseconds),
     trackNumber: Value(track.trackNumber),
+    cueStartMs: Value(track.cueStart?.inMilliseconds),
+    cueEndMs: Value(track.cueEnd?.inMilliseconds),
+    cueSheetSizeBytes: Value(track.cueSheetSizeBytes),
+    cueSheetModifiedAtMs: Value(track.cueSheetModifiedAtMs),
     artworkUri: Value(track.artworkUri?.toString()),
     fileSizeBytes: Value(stamp?.sizeBytes),
     fileModifiedAtMs: Value(stamp?.modifiedAtMs),

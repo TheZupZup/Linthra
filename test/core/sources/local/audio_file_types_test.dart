@@ -24,6 +24,11 @@ void main() {
       expect(AudioFileTypes.isSupported('track.OpUs'), isTrue);
     });
 
+    test('does not classify CUE sheets as playable audio', () {
+      expect(AudioFileTypes.isSupported('album.cue'), isFalse);
+      expect(AudioFileTypes.isCueSheet('album.CUE'), isTrue);
+    });
+
     test('matches files inside nested directories', () {
       expect(
         AudioFileTypes.isSupported('/music/Artist/Album/01 - Track.flac'),

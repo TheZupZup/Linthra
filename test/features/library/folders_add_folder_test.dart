@@ -135,6 +135,22 @@ Future<void> _settleWithSnackBar(WidgetTester tester) async {
 /// and shows the result.
 void main() {
   group('Folders ▸ Add folder', () {
+    testWidgets('names the Connections page in local folder instructions',
+        (tester) async {
+      await _pump(
+        tester,
+        picker: FakeFolderPickerService(),
+        folderRepo:
+            InMemorySelectedMusicFolderRepository(initialFolder: '/music'),
+      );
+
+      expect(
+        find.text('Rescan, remove or forget these in '
+            'Settings ▸ Connections ▸ Local music.'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('the header offers it, and says so out loud', (tester) async {
       final SemanticsHandle semantics = tester.ensureSemantics();
       await _pump(
