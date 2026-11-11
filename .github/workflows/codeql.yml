@@ -48,7 +48,7 @@ jobs:
         - language: c-cpp
           build-mode: none
         - language: java-kotlin
-          build-mode: autobuild
+          build-mode: manual
         - language: javascript-typescript
           build-mode: none
         - language: python
@@ -66,6 +66,19 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+
+    # The Gradle settings require Flutter's generated android/local.properties.
+    # Set up the same pinned toolchains used by the working Android APK CI.
+    - name: Set up Java for Kotlin
+      if: matrix.language == 'java-kotlin'
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version-file: .java-version
+
+    - name: Set up Flutter for Kotlin
+      if: matrix.language == 'java-kotlin'
+      uses: ./.github/actions/setup-flutter
 
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`
@@ -86,22 +99,14 @@ jobs:
         # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
         # queries: security-extended,security-and-quality
 
-    # If the analyze step fails for one of the languages you are analyzing with
-    # "We were unable to automatically build your code", modify the matrix above
-    # to set the build mode to "manual" for that language. Then modify this step
-    # to build your code.
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-    - name: Run manual build steps
-      if: matrix.build-mode == 'manual'
-      shell: bash
+    # Kotlin needs a compiled build. Running Gradle directly misses the
+    # local.properties Flutter generates and fails in android/settings.gradle.
+    # Build through Flutter so CodeQL can trace the actual Kotlin compilation.
+    - name: Build Android for Java/Kotlin analysis
+      if: matrix.language == 'java-kotlin'
       run: |
-        echo 'If you are using a "manual" build mode for one or more of the' \
-          'languages you are analyzing, replace this with the commands to build' \
-          'your code, for example:'
-        echo '  make bootstrap'
-        echo '  make release'
-        exit 1
+        flutter pub get --enforce-lockfile
+        flutter build apk --debug --no-pub
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
