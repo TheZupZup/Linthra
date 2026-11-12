@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/routes.dart';
 import '../../app/shortcuts/shortcut_action.dart';
 import '../../app/shortcuts/shortcut_surface.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/focus/focus_handoff.dart';
 import '../player/mini_player.dart';
 import '../player/widgets/queue_side_panel.dart';
@@ -249,6 +250,23 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     GoRouter.of(context).go(AppRoutes.settingsConnections);
   }
 
+  /// Translate displayed labels without changing branch identities.
+  String _navigationLabel(BuildContext context, int index) {
+    final AppLocalizations? l10n = AppLocalizations.of(context);
+    if (l10n == null) {
+      return HomeShell._destinations[index].label;
+    }
+
+    return switch (index) {
+      0 => l10n.navigationLibrary,
+      1 => l10n.navigationFolders,
+      2 => l10n.navigationPlaylists,
+      3 => l10n.navigationDownloads,
+      4 => l10n.navigationSettings,
+      _ => HomeShell._destinations[index].label,
+    };
+  }
+
   /// The rail, wrapped in the drag spring so a track dragged out of the
   /// library can reach the Playlists tab (#389).
   Widget _buildNavigationRail() {
@@ -306,7 +324,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       return NavigationRailDestination(
         icon: destination.icon,
         selectedIcon: destination.selectedIcon,
-        label: Text(destination.label),
+        label: Text(_navigationLabel(context, index)),
       );
     }
     final Color accent = Theme.of(context).colorScheme.primary;
@@ -314,7 +332,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     return NavigationRailDestination(
       icon: marker,
       selectedIcon: marker,
-      label: Text(destination.label, style: TextStyle(color: accent)),
+      label: Text(_navigationLabel(context, index),
+          style: TextStyle(color: accent)),
     );
   }
 
@@ -351,13 +370,19 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   }) {
     final NavigationDestination destination = HomeShell._destinations[index];
     final bool marked = dragHovering && index == HomeShell.playlistsBranchIndex;
-    if (!marked) return destination;
+    if (!marked) {
+      return NavigationDestination(
+        icon: destination.icon,
+        selectedIcon: destination.selectedIcon,
+        label: _navigationLabel(context, index),
+      );
+    }
     final Color accent = Theme.of(context).colorScheme.primary;
     final Icon marker = Icon(Icons.playlist_add, color: accent);
     return NavigationDestination(
       icon: marker,
       selectedIcon: marker,
-      label: destination.label,
+      label: _navigationLabel(context, index),
     );
   }
 
