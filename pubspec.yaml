@@ -148,6 +148,9 @@ dependencies:
   # keeps reading its tags in the native SAF walk and never loads this. See
   # docs/dependency-license-audit.md §3.
   audio_metadata_reader: ^1.8.0
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
 dependency_overrides:
   # Patched locally so headless Linux smoke tests can set libmpv `ao=alsa`
@@ -187,4 +190,5 @@ dev_dependencies:
   analyzer: ^8.1.0
 
 flutter:
+  generate: true
   uses-material-design: true

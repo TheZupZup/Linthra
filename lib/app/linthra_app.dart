@@ -3,6 +3,7 @@ import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:linthra/l10n/app_localizations.dart';
 
 import '../core/app_info.dart';
 import '../core/lifecycle/app_visibility.dart';
@@ -241,6 +242,8 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
     if (onboardingBootstrap.isLoading) {
       return MaterialApp(
         title: AppInfo.name,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         debugShowCheckedModeBanner: false,
         theme: lightTheme,
         darkTheme: darkTheme,
@@ -258,6 +261,8 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
 
     return MaterialApp.router(
       title: AppInfo.name,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: lightTheme,
       darkTheme: darkTheme,

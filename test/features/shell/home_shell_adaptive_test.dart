@@ -7,6 +7,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/features/player/mini_player.dart';
 import 'package:linthra/features/player/player_providers.dart';
 import 'package:linthra/features/shell/home_shell.dart';
+import 'package:linthra/l10n/app_localizations.dart';
 
 import '../player/fake_playback_controller.dart';
 
@@ -93,6 +94,7 @@ Future<void> _pumpShell(
   WidgetTester tester, {
   required TargetPlatform platform,
   required Size size,
+  Locale locale = const Locale('en'),
   PlaybackState playback = PlaybackState.idle,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -115,6 +117,9 @@ Future<void> _pumpShell(
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: platform),
+        locale: locale,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         routerConfig: _router(rootKey, branchKeys),
       ),
     ),
@@ -265,4 +270,33 @@ void main() {
       expect(find.text('Library screen'), findsOneWidget);
     },
   );
+
+  testWidgets('French navigation labels on Linux', (tester) async {
+    await _pumpShell(
+      tester,
+      platform: TargetPlatform.linux,
+      size: const Size(1280, 720),
+      locale: const Locale('fr'),
+    );
+
+    final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+    expect((rail.destinations[0].label as Text).data, 'Bibliothèque');
+    expect((rail.destinations[4].label as Text).data, 'Paramètres');
+  });
+
+  testWidgets('Brazilian Portuguese navigation labels on Android',
+      (tester) async {
+    await _pumpShell(
+      tester,
+      platform: TargetPlatform.android,
+      size: const Size(390, 844),
+      locale: const Locale('pt', 'BR'),
+    );
+
+    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    final destinations = bar.destinations.cast<NavigationDestination>();
+
+    expect(destinations[0].label, 'Biblioteca');
+    expect(destinations[4].label, 'Configurações');
+  });
 }
