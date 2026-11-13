@@ -6,6 +6,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriver
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -13,6 +14,7 @@ import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * Android's device-wide local-music integration.
@@ -158,6 +160,8 @@ class AndroidMediaLibraryChannel(private val activity: Activity) {
                 MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.TRACK,
                 MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.DATE_MODIFIED,
             ),
         )
         // Android 10 is where EXTERNAL_CONTENT_URI became an aggregate over
@@ -169,6 +173,12 @@ class AndroidMediaLibraryChannel(private val activity: Activity) {
             projection.add(MediaStore.Audio.Media.VOLUME_NAME)
         }
         val documents = ArrayList<Map<String, Any?>>()
+
+        ///Reuse the artwork cache used by the Andoid folder scanner.
+        val artwork =SafArtworkCache(
+            File(context.cacheDir, "linthra_local_artwork"),
+        )
+
         val cursor = context.contentResolver.query(
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
             projection.toTypedArray(),
@@ -186,6 +196,8 @@ class AndroidMediaLibraryChannel(private val activity: Activity) {
             val albumIdIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val trackIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
             val durationIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val modifiedIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
             val volumeIndex = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 cursor.getColumnIndex(MediaStore.Audio.Media.VOLUME_NAME)
             } else {
