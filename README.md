@@ -7,7 +7,7 @@
 [![Latest release](https://img.shields.io/github/v/release/TheZupZup/Linthra?label=release&color=7C5CFF)](https://github.com/TheZupZup/Linthra/releases/latest)
 [![Releases](https://img.shields.io/badge/download-releases-blue.svg)](https://github.com/thezupzup/linthra/releases)
 
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="75">](https://f-droid.org/packages/io.github.thezupzup.linthra/)
+[![Get it on Google Play](https://img.shields.io/badge/Get_it_on-Google_Play-34A853?logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=io.github.thezupzup.linthra)
 
 
 ![Linthra](fastlane/metadata/android/en-US/images/featureGraphic.png)
@@ -72,20 +72,19 @@ with no account, the F-Droid build is yours, free, for good.
 
 ## Install
 
-New versions land on
-[GitHub Releases](https://github.com/thezupzup/linthra/releases) first, as
-signed Android APKs, a native Linux x64 archive (since v0.2.2) and, from the
-next stable release, an installable Linux `.flatpak` bundle. The
-latest stable release is available on GitHub. Linthra is also on
-[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/); F-Droid
-builds may arrive a bit later while their build and review process runs. Not on
-Google Play yet.
+**Android (recommended):** [Install Linthra on Google Play](https://play.google.com/store/apps/details?id=io.github.thezupzup.linthra)
+for automatic Store updates. Google Play reviews can take longer than GitHub releases.
 
-> **Don't mix Android install sources.** GitHub APKs and F-Droid builds are
-> signed with different keys and can't update each other. Pick one and stick
-> with it.
+**Direct downloads:** [GitHub Releases](https://github.com/TheZupZup/Linthra/releases/latest)
+has the latest official signed Android APKs and Linux builds.
+[F-Droid](https://f-droid.org/packages/io.github.thezupzup.linthra/) remains
+an alternative; its builds and updates may arrive later.
 
-To install from GitHub Releases and get Android updates, use
+> **Don't mix Android install sources.** Play, GitHub, and F-Droid packages
+> may use different signing keys. Switching sources can require a reinstall;
+> stick with one source for updates.
+
+To install the GitHub APK and get updates outside Google Play, use
 [Obtainium](https://github.com/ImranR98/Obtainium):
 
 1. Install Obtainium.
