@@ -161,6 +161,11 @@ can offer clear permission for in-app display and local caching, with terms
 compatible with an open-source, privacy-first player. If you'd like to discuss
 an integration, contact [support@linthra.ca](mailto:support@linthra.ca).
 
+We plan to support authorized artwork APIs when agreements are in place.
+These integrations would include per-provider expiration and revocation controls
+and removal of artwork cached under an expired or revoked permission, without
+interrupting music playback. This is not implemented yet.
+
 See the [artwork and copyright policy](./docs/library.md#album-artwork-and-copyright).
 
 ## Contributing
