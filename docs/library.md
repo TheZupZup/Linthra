@@ -38,6 +38,20 @@ tracks. Includes **Play all** and **Shuffle all**, which queue only that
 artist's tracks. The Albums section is shown when the artist has more than one
 album; a single-album artist just lists its songs.
 
+
+### Album artwork and copyright
+
+Linthra respects the work of artists, designers, and copyright holders.
+
+Album artwork is displayed from the user's local music files or connected music servers, including Jellyfin, Plex, and Subsonic-compatible services.
+
+Linthra does not independently search public artwork databases to download missing commercial album covers. We also do not bundle third-party commercial album artwork with the application.
+
+This is an intentional choice. We want to provide a reliable music player while respecting content ownership and keeping users in control of their libraries.
+
+Artwork displayed through Linthra remains subject to the rights of its respective owners.
+
+
 ## Search
 
 A single search box sits above the tabs and filters whatever tab is active:
