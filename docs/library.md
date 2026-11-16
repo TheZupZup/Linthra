@@ -43,14 +43,38 @@ album; a single-album artist just lists its songs.
 
 Linthra respects the work of artists, designers, and copyright holders.
 
-Album artwork is displayed from the user's local music files or connected music servers, including Jellyfin, Plex, and Subsonic-compatible services.
+Album artwork comes from the user's local music files or connected music servers,
+including Jellyfin, Plex, and Subsonic-compatible services. Remote artwork may
+be cached locally so it doesn't need to be fetched on every app launch.
 
-Linthra does not independently search public artwork databases to download missing commercial album covers. We also do not bundle third-party commercial album artwork with the application.
+Linthra does not independently search public artwork databases for missing
+commercial album covers, and we do not bundle third-party commercial album
+artwork with the app. Artwork remains subject to the rights of its owners.
 
-This is an intentional choice. We want to provide a reliable music player while respecting content ownership and keeping users in control of their libraries.
+We're open to official artwork integrations, but only under a signed written
+contract with the rights holder or authorized provider, reviewed by legal
+counsel before the integration is enabled. The contract must explicitly cover
+in-app display and local caching, permitted use, duration, expiration,
+revocation and deletion requirements, and terms compatible with Linthra's
+open-source license and privacy principles. Interested providers can contact
+[support@linthra.ca](mailto:support@linthra.ca).
 
-Artwork displayed through Linthra remains subject to the rights of its respective owners.
+#### Planned official artwork integrations
 
+After a signed contract has been reviewed and accepted, we plan to add
+provider-specific artwork integrations under its permitted terms.
+Each integration should enforce its agreed expiration date, support revocation,
+stop new requests when access ends, and remove artwork cached under that
+permission as required by the agreement. Revoking an artwork source must never
+stop music playback or remove the user's own files or embedded cover art.
+
+Credentials and permissions would be disabled or removed, not code from an
+installed app. Offline devices cannot receive an immediate remote revocation,
+so access must also fail closed when its locally known permission expires.
+
+These controls are a future design, not features in current releases. In
+particular, the existing artwork cache does not guarantee immediate deletion
+when a music server is disconnected.
 
 ## Search
 
