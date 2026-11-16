@@ -114,7 +114,8 @@ impl LibraryIndex {
         // cheap, then subsequent common terms only retain scores for candidates
         // that already survived the selective terms.
         let mut planned_terms: Vec<(String, usize)> = terms
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|term| {
                 let estimated_postings = self.estimated_postings(&term);
                 (term, estimated_postings)
@@ -181,32 +182,43 @@ impl LibraryIndex {
             });
         }
 
-        let mut ranked: Vec<(usize, u32)> = candidates.unwrap_or_default().into_iter().collect();
-        ranked.sort_unstable_by(|(left_index, left_score), (right_index, right_score)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .title
-                        .cmp(&self.tracks[*right_index].title)
-                })
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .id
-                        .cmp(&self.tracks[*right_index].id)
-                })
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .provider
-                        .cmp(&self.tracks[*right_index].provider)
-                })
-                .then_with(|| left_index.cmp(right_index))
-        });
+        // Derive title relevance once per candidate, not during comparisons.
+        let mut ranked: Vec<(usize, u32, u8)> = candidates
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(index, score)| {
+                (index, score, title_match_rank(&self.tracks[index].title, &terms))
+            })
+            .collect();
+        ranked.sort_unstable_by(
+            |(left_index, left_score, left_title_rank),
+             (right_index, right_score, right_title_rank)| {
+                right_title_rank
+                    .cmp(left_title_rank)
+                    .then_with(|| right_score.cmp(left_score))
+                    .then_with(|| {
+                        self.tracks[*left_index]
+                            .title
+                            .cmp(&self.tracks[*right_index].title)
+                    })
+                    .then_with(|| {
+                        self.tracks[*left_index]
+                            .id
+                            .cmp(&self.tracks[*right_index].id)
+                    })
+                    .then_with(|| {
+                        self.tracks[*left_index]
+                            .provider
+                            .cmp(&self.tracks[*right_index].provider)
+                    })
+                    .then_with(|| left_index.cmp(right_index))
+            },
+        );
         ranked.truncate(limit);
 
         ranked
             .into_iter()
-            .map(|(track_index, score)| SearchHit {
+            .map(|(track_index, score, _)| SearchHit {
                 track: &self.tracks[track_index],
                 score,
             })
@@ -223,6 +235,36 @@ impl LibraryIndex {
         }
         count
     }
+}
+
+/// Prioritize song titles over metadata-only matches, without changing which
+/// tracks match the index. Normalize the title the same way as the query.
+fn title_match_rank(title: &str, query_terms: &[String]) -> u8 {
+    let title_terms = normalized_tokens(title);
+    if title_terms.as_slice() == query_terms {
+        return 5; // Full title
+    }
+    if title_terms.starts_with(query_terms) {
+        return 4; // Starts with the query words
+    }
+    if title_terms
+        .windows(query_terms.len())
+        .any(|words| words == query_terms)
+    {
+        return 3; // Phrase later in the title
+    }
+    let matches_title = |term: &String| {
+        title_terms
+            .iter()
+            .any(|title_term| title_term.starts_with(term.as_str()))
+    };
+    if query_terms.iter().all(matches_title) {
+        return 2; // All words in the title, in any order
+    }
+    if query_terms.iter().any(matches_title) {
+        return 1; // Some words in the title
+    }
+    0 // Artist, album or provider only
 }
 
 fn index_field(
@@ -281,6 +323,47 @@ mod tests {
         let hits = index.search("metallica master", 10);
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].track.id, "1");
+    }
+
+    #[test]
+    fn exact_title_beats_an_earlier_alphabetical_partial_title() {
+        let index = LibraryIndex::build(vec![
+            TrackRecord::new("partial", "A Halo Tribute", "", "", None, "local"),
+            TrackRecord::new("exact", "Halo", "", "", None, "local"),
+            TrackRecord::new("prefix", "Halo (Live)", "", "", None, "local"),
+            TrackRecord::new("metadata", "Other Song", "Halo", "Halo", None, "local"),
+        ]);
+
+        assert_eq!(
+            ids(&index.search("halo", 10)),
+            ["exact", "prefix", "partial", "metadata"]
+        );
+        assert_eq!(ids(&index.search("HALO", 1)), ["exact"]);
+    }
+
+    #[test]
+    fn a_full_phrase_beats_a_later_phrase_and_reordered_words() {
+        let index = LibraryIndex::build(vec![
+            TrackRecord::new("reordered", "Silence of Sound", "", "", None, "local"),
+            TrackRecord::new("phrase", "The Sound of Silence", "", "", None, "local"),
+            TrackRecord::new("prefix", "Sound of Silence Live", "", "", None, "local"),
+            TrackRecord::new("exact", "Sound of Silence", "", "", None, "local"),
+        ]);
+
+        assert_eq!(
+            ids(&index.search("sound of silence", 10)),
+            ["exact", "prefix", "phrase", "reordered"]
+        );
+    }
+
+    #[test]
+    fn title_ranking_keeps_accent_insensitive_results_stable() {
+        let index = LibraryIndex::build(vec![
+            TrackRecord::new("live", "Jóga Live", "", "", None, "local"),
+            TrackRecord::new("exact", "Jóga", "", "", None, "local"),
+        ]);
+        assert_eq!(ids(&index.search("joga", 10)), ["exact", "live"]);
+        assert_eq!(ids(&index.search("JÓGA", 10)), ["exact", "live"]);
     }
 
     #[test]
