@@ -51,23 +51,25 @@ Linthra does not independently search public artwork databases for missing
 commercial album covers, and we do not bundle third-party commercial album
 artwork with the app. Artwork remains subject to the rights of its owners.
 
-We're open to official artwork integrations when the rights holder or provider
-can grant clear permission for in-app display and local caching, with terms
-compatible with an open-source, privacy-first player. Interested providers
-can contact [support@linthra.ca](mailto:support@linthra.ca).
+We're open to official artwork integrations, but only under a signed written
+contract with the rights holder or authorized provider, reviewed by legal
+counsel before the integration is enabled. The contract must explicitly cover
+in-app display and local caching, permitted use, duration, expiration,
+revocation and deletion requirements, and terms compatible with Linthra's
+open-source license and privacy principles. Interested providers can contact
+[support@linthra.ca](mailto:support@linthra.ca).
 
 #### Planned official artwork integrations
 
-If an agreement is signed with a rights holder or authorized provider, we plan
-to add provider-specific artwork integrations with clear permission terms.
+After a signed contract has been reviewed and accepted, we plan to add
+provider-specific artwork integrations under its permitted terms.
 Each integration should enforce its agreed expiration date, support revocation,
 stop new requests when access ends, and remove artwork cached under that
 permission as required by the agreement. Revoking an artwork source must never
 stop music playback or remove the user's own files or embedded cover art.
 
 Credentials and permissions would be disabled or removed, not code from an
-installed app. Agreements and retention rules would be reviewed before
-integration. Offline devices cannot receive an immediate remote revocation,
+installed app. Offline devices cannot receive an immediate remote revocation,
 so access must also fail closed when its locally known permission expires.
 
 These controls are a future design, not features in current releases. In
