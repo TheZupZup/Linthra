@@ -81,6 +81,27 @@ jobs:
             exit 0
           fi
 
+          # Only repair failed CI pushes from the current main commit.
+          if [[ "$event_name" != "push" || "$head_branch" != "main" ]]; then
+            echo "Skipping CI run outside main."
+            exit 0
+          fi
+
+          expected_workflow_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml" --jq '.id')"
+          run_workflow_id="$(jq -r '.workflow_id // empty' <<<"$run_json")"
+
+          if [[ -z "$expected_workflow_id" || "$run_workflow_id" != "$expected_workflow_id" ]]; then
+            echo "Skipping unexpected CI workflow."
+            exit 0
+          fi
+
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+
+          if [[ "$head_sha" != "$current_main_sha" ]]; then
+            echo "Skipping stale CI run."
+            exit 0
+          fi
+
           # A dependency update that breaks CI has to stay broken. The red is
           # the whole signal — it says this bump needs a human — and a repair
           # commit would paper over which update broke what. This runs before
@@ -381,6 +402,9 @@ jobs:
     # happens.
     if: >-
       ${{ needs.fix.outputs.ready == 'true'
+      && needs.fix.outputs.target_branch == 'main'
+      && needs.fix.outputs.base_branch == 'main'
+      && needs.fix.outputs.source_pr == ''
       && !startsWith(needs.fix.outputs.target_branch, 'dependabot/')
       && !startsWith(needs.fix.outputs.target_branch, 'deps/')
       && !startsWith(needs.fix.outputs.target_branch, 'toolchain/') }}

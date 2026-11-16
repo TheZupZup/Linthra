@@ -87,6 +87,9 @@ jobs:
       - name: Scan for secrets and private data
         run: ./scripts/check_secrets.sh
 
+      - name: Test Flutter CI fixer trust boundaries
+        run: python3 test/tooling/flutter_ci_fixer_trust_test.py
+
       # PRIVACY.md says Linthra carries no third-party advertising trackers and
       # reports nothing home. This is the part of that promise a stranger can
       # re-run (#504): it reads the committed dependency files Linthra ships

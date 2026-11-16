@@ -4,11 +4,11 @@ Linthra has a guarded Codex-based repair workflow for failed **Flutter checks** 
 
 ## What it does
 
-When the `CI` workflow completes with a failure, the fixer inspects the run and only continues when the failing job is exactly `Flutter checks` and the source branch belongs to this repository.
+When `CI` fails, the fixer accepts only a failed push to the current `main` commit from this repository. It verifies the source workflow and requires the failing job to be `Flutter checks`.
 
-For pull requests, the fixer diagnoses and verifies against the exact synthetic merge revision that failed in GitHub Actions, while tracking the raw PR head separately for safe publication. If either the PR head or its base branch has advanced since the failed run, the fixer stops instead of applying stale logs to newer code.
+Pull-request runs, forks, other branches, and stale commits are skipped.
 
-For a same-repository pull request, a validated fix is committed back to that PR branch. For a failed push to `main`, the fixer opens a dedicated `codex/ci-fix-*` pull request. It never merges automatically.
+A validated fix is published in a dedicated `codex/ci-fix-*` pull request. The fixer never commits directly to `main` or merges automatically.
 
 The agent gets at most two repair attempts. A patch is published only after all of these pass on the runner:
 
@@ -35,7 +35,7 @@ If `OPENAI_API_KEY` is absent, the fixer safely no-ops with a notice. If a repai
 
 ## Safety boundaries
 
-The fixer skips fork PRs and refuses to process its own `codex/ci-fix-*` branches, preventing an automatic repair loop.
+The fixer only accepts CI pushes to the current `main` commit. It rejects pull-request runs and refuses to process its own `codex/ci-fix-*` branches, preventing an automatic repair loop.
 
 The Codex job itself only receives read permissions. It cannot push. The publication credential is available only in the separate publish job after a patch has passed the full local verification gate.
 
@@ -53,8 +53,8 @@ New files are marked intent-to-add before each secret scan so generated files ar
 
 The prompt also forbids deleting/skipping tests, weakening assertions, blanket ignores, telemetry, version bumps, releases, and unrelated refactors.
 
-If the source PR head or base branch moves while the fixer is working, publication is aborted instead of pushing a stale patch. The validated patch is applied to the raw PR head without force; if it no longer applies cleanly, publication fails safely.
+Before publication, the fixer verifies that the target branch still points to the commit it repaired. If `main` has moved, publication is aborted instead of applying a stale patch. The repair is proposed through a separate pull request.
 
 ## Manual retry
 
-The workflow also supports `workflow_dispatch`. Open **Actions → Flutter CI fixer → Run workflow** and provide the numeric ID of a failed `CI` run. The same trust, stale-state, validation, and publication rules apply.
+The workflow also supports `workflow_dispatch`. Open **Actions → Flutter CI fixer → Run workflow** and provide the numeric ID of a failed `CI` run. Only a failed push to the current `main` commit can qualify; old runs and pull-request runs are skipped.
