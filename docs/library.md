@@ -43,14 +43,21 @@ album; a single-album artist just lists its songs.
 
 Linthra respects the work of artists, designers, and copyright holders.
 
-Album artwork is displayed from the user's local music files or connected music servers, including Jellyfin, Plex, and Subsonic-compatible services.
+Album artwork comes from the user's local music files or connected music servers,
+including Jellyfin, Plex, and Subsonic-compatible services. Remote artwork may
+be cached locally so it doesn't need to be fetched on every app launch.
 
-Linthra does not independently search public artwork databases to download missing commercial album covers. We also do not bundle third-party commercial album artwork with the application.
+Linthra does not independently search public artwork databases for missing
+commercial album covers, and we do not bundle third-party commercial album
+artwork with the app. Artwork remains subject to the rights of its owners.
 
-This is an intentional choice. We want to provide a reliable music player while respecting content ownership and keeping users in control of their libraries.
+We're open to official artwork integrations when the rights holder or provider
+can grant clear permission for in-app display and local caching, with terms
+compatible with an open-source, privacy-first player. Interested providers
+can contact [support@linthra.ca](mailto:support@linthra.ca).
 
-Artwork displayed through Linthra remains subject to the rights of its respective owners.
-
+This is a description of current artwork sources, not a claim that artwork
+cache entries are deleted immediately when a server is disconnected.
 
 ## Search
 
