@@ -56,8 +56,23 @@ can grant clear permission for in-app display and local caching, with terms
 compatible with an open-source, privacy-first player. Interested providers
 can contact [support@linthra.ca](mailto:support@linthra.ca).
 
-This is a description of current artwork sources, not a claim that artwork
-cache entries are deleted immediately when a server is disconnected.
+#### Planned official artwork integrations
+
+If an agreement is signed with a rights holder or authorized provider, we plan
+to add provider-specific artwork integrations with clear permission terms.
+Each integration should enforce its agreed expiration date, support revocation,
+stop new requests when access ends, and remove artwork cached under that
+permission as required by the agreement. Revoking an artwork source must never
+stop music playback or remove the user's own files or embedded cover art.
+
+Credentials and permissions would be disabled or removed, not code from an
+installed app. Agreements and retention rules would be reviewed before
+integration. Offline devices cannot receive an immediate remote revocation,
+so access must also fail closed when its locally known permission expires.
+
+These controls are a future design, not features in current releases. In
+particular, the existing artwork cache does not guarantee immediate deletion
+when a music server is disconnected.
 
 ## Search
 
