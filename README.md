@@ -150,6 +150,19 @@ Linthra does not send telemetry or analytics.
 
 Details are in [PRIVACY.md](./PRIVACY.md) and the provider docs.
 
+## Album artwork
+
+Linthra displays artwork from your local music files and the music servers you
+choose to connect. It does not search public artwork databases for missing
+commercial covers or bundle third-party commercial album artwork with the app.
+
+We're open to working with rights holders and official artwork providers who
+can offer clear permission for in-app display and local caching, with terms
+compatible with an open-source, privacy-first player. If you'd like to discuss
+an integration, contact [support@linthra.ca](mailto:support@linthra.ca).
+
+See the [artwork and copyright policy](./docs/library.md#album-artwork-and-copyright).
+
 ## Contributing
 
 Testing against your own server, screenshots, and doc fixes are useful
