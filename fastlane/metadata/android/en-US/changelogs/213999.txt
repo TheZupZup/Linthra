@@ -1,0 +1,6 @@
+Linthra 0.2.13
+
+- Added support for local CUE sheet tracks.
+- Reorganized Settings for easier navigation.
+- Added initial French and Portuguese navigation translations.
+- Improved stability and security checks.
