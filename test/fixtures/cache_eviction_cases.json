@@ -1,0 +1,1344 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "empty cache, nothing incoming",
+      "cached": [],
+      "incomingBytes": 0,
+      "maxBytes": 0,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": []
+      }
+    },
+    {
+      "name": "room left, nothing evicted",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": null,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 1000,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": []
+      }
+    },
+    {
+      "name": "exact fit at the limit",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": null,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": null,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 300,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": []
+      }
+    },
+    {
+      "name": "least recently used goes first",
+      "cached": [
+        {
+          "id": "old",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "new",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "input order does not matter",
+      "cached": [
+        {
+          "id": "new",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "old",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "never played counts as oldest",
+      "cached": [
+        {
+          "id": "played",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "never",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": null,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "evicts several until it fits",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "c",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 3,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 200,
+      "maxBytes": 300,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "name": "stops as soon as it fits",
+      "cached": [
+        {
+          "id": "big",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 300,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "small",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 350,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "greedy in LRU order, not smallest set",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 50,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 200,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 200,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "name": "access tie broken by oldest cachedAt",
+      "cached": [
+        {
+          "id": "x",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 2,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "y",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 1,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "access tie, null cachedAt counts as oldest",
+      "cached": [
+        {
+          "id": "x",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 1,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "y",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "full tie broken by track id",
+      "cached": [
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 5,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 5,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "track id tie break uses UTF-16 code unit order",
+      "cached": [
+        {
+          "id": "\uffff",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 5,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "\ud83d\ude00",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 5,
+          "cachedAt": 5,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "preloaded goes before an older user download",
+      "cached": [
+        {
+          "id": "user",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "pre",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 9,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": true
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "preloaded first, then user downloads by LRU",
+      "cached": [
+        {
+          "id": "pre",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 9,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": true
+        },
+        {
+          "id": "u1",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "u2",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 200,
+      "maxBytes": 300,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "name": "only preloaded never touches a user download",
+      "cached": [
+        {
+          "id": "user",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "pre",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 9,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": true
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": true,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "only preloaded refuses when preloads are not enough",
+      "cached": [
+        {
+          "id": "user",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "pre",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 9,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": true
+        }
+      ],
+      "incomingBytes": 200,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": true,
+      "incomingKey": null,
+      "expect": {
+        "fits": false,
+        "evict": []
+      }
+    },
+    {
+      "name": "pinned preload is never evicted",
+      "cached": [
+        {
+          "id": "p",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": true,
+          "preloaded": true
+        },
+        {
+          "id": "q",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": true
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": true,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "pinned is never evicted",
+      "cached": [
+        {
+          "id": "pinned",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": true,
+          "preloaded": false
+        },
+        {
+          "id": "other",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "protect key is never evicted",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": {
+        "source": "jellyfin",
+        "id": "a"
+      },
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "protect keys are never evicted",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "c",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 3,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 350,
+      "protectKey": null,
+      "protectKeys": [
+        {
+          "source": "jellyfin",
+          "id": "a"
+        },
+        {
+          "source": "jellyfin",
+          "id": "b"
+        }
+      ],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          2
+        ]
+      }
+    },
+    {
+      "name": "protect key and protect keys combine",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "c",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 3,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 350,
+      "protectKey": {
+        "source": "jellyfin",
+        "id": "a"
+      },
+      "protectKeys": [
+        {
+          "source": "jellyfin",
+          "id": "b"
+        }
+      ],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          2
+        ]
+      }
+    },
+    {
+      "name": "everything evictable is protected",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [
+        {
+          "source": "jellyfin",
+          "id": "a"
+        },
+        {
+          "source": "jellyfin",
+          "id": "b"
+        }
+      ],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": false,
+        "evict": []
+      }
+    },
+    {
+      "name": "protecting one provider leaves a same id on another",
+      "cached": [
+        {
+          "id": "101",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "101",
+          "source": "subsonic",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": {
+        "source": "jellyfin",
+        "id": "101"
+      },
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "source-less key is distinct from a provider key",
+      "cached": [
+        {
+          "id": "a",
+          "source": null,
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": {
+        "source": null,
+        "id": "a"
+      },
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "unmanaged entry is never evicted",
+      "cached": [
+        {
+          "id": "local",
+          "source": "file",
+          "managed": false,
+          "size": 0,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "remote",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 150,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "unmanaged entry with a size still counts toward the budget",
+      "cached": [
+        {
+          "id": "local",
+          "source": "jellyfin",
+          "managed": false,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "remote",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "zero-byte managed entry is never evicted",
+      "cached": [
+        {
+          "id": "z",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 0,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 150,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "incoming larger than the limit, empty cache",
+      "cached": [],
+      "incomingBytes": 1001,
+      "maxBytes": 1000,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": false,
+        "evict": []
+      }
+    },
+    {
+      "name": "incoming larger than the limit evicts nothing",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 2000,
+      "maxBytes": 1000,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": false,
+        "evict": []
+      }
+    },
+    {
+      "name": "not enough even after evicting everything",
+      "cached": [
+        {
+          "id": "pinned",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 200,
+          "accessed": null,
+          "cachedAt": null,
+          "pinned": true,
+          "preloaded": false
+        },
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 100,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": false,
+        "evict": []
+      }
+    },
+    {
+      "name": "re-download skips its own copy",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 150,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": {
+        "source": "jellyfin",
+        "id": "a"
+      },
+      "expect": {
+        "fits": true,
+        "evict": []
+      }
+    },
+    {
+      "name": "re-download never evicts its own copy",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 200,
+      "maxBytes": 250,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": {
+        "source": "jellyfin",
+        "id": "a"
+      },
+      "expect": {
+        "fits": true,
+        "evict": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "re-download only skips its own provider",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "a",
+          "source": "subsonic",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 150,
+      "maxBytes": 200,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": {
+        "source": "subsonic",
+        "id": "a"
+      },
+      "expect": {
+        "fits": true,
+        "evict": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "already over budget with nothing incoming",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 100,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 0,
+      "maxBytes": 150,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "sizes past 32 bits",
+      "cached": [
+        {
+          "id": "a",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 5000000000,
+          "accessed": 1,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        },
+        {
+          "id": "b",
+          "source": "jellyfin",
+          "managed": true,
+          "size": 5000000000,
+          "accessed": 2,
+          "cachedAt": null,
+          "pinned": false,
+          "preloaded": false
+        }
+      ],
+      "incomingBytes": 5000000000,
+      "maxBytes": 12000000000,
+      "protectKey": null,
+      "protectKeys": [],
+      "onlyPreloaded": false,
+      "incomingKey": null,
+      "expect": {
+        "fits": true,
+        "evict": [
+          0
+        ]
+      }
+    }
+  ]
+}
