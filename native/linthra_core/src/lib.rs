@@ -5,7 +5,7 @@
 //! thousands of Dart objects for every query. The public API is platform-neutral
 //! so Android/iOS/desktop bindings can be added later without changing the core.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 pub mod ffi;
 mod normalize;
@@ -109,11 +109,11 @@ impl LibraryIndex {
         }
 
         // Evaluate the rarest query token first. A common token such as
-        // "album" can have a posting for every track in a 200k catalog; making
-        // a 200k-entry HashMap for that before seeing a selective token such as
-        // "199421" wastes both CPU and memory. Counting posting lengths is
-        // cheap, then subsequent common terms only retain scores for candidates
-        // that already survived the selective terms.
+        // "album" can have a posting for every track in a 200k catalog;
+        // collecting 200k candidates for that before seeing a selective token
+        // such as "199421" wastes both CPU and memory. Counting posting lengths
+        // is cheap, then subsequent common terms only keep the candidates that
+        // already survived the selective terms.
         let mut planned_terms: Vec<(String, usize)> = terms
             .into_iter()
             .map(|term| {
@@ -126,13 +126,24 @@ impl LibraryIndex {
         }
         planned_terms.sort_unstable_by_key(|(_, count)| *count);
 
-        let mut candidates: Option<HashMap<usize, u32>> = None;
+        // Scratch indexed by track rather than hash maps: a broad term ("m")
+        // matches the whole catalog, and then hashing every posting was most
+        // of the query. A dense lookup is one load, at the cost of clearing
+        // three catalog-sized arrays per query.
+        let track_count = self.tracks.len();
+        // How many terms each track has matched so far. A track is still a
+        // candidate for the term in round `r` only if it matched all `r`
+        // earlier ones, so elimination needs no separate set.
+        let mut matched: Vec<u32> = vec![0; track_count];
+        // The best score of the current term per track (several of its
+        // fields, or several tokens sharing the prefix, can match).
+        let mut best_for_term: Vec<u16> = vec![0; track_count];
+        let mut total: Vec<u32> = vec![0; track_count];
+        let mut survivors: Vec<usize> = Vec::new();
 
-        for (term, _) in planned_terms {
-            let mut best_for_term: HashMap<usize, u16> = match &candidates {
-                Some(current) => HashMap::with_capacity(current.len()),
-                None => HashMap::new(),
-            };
+        for (round, (term, _)) in planned_terms.into_iter().enumerate() {
+            let round = round as u32;
+            let mut next: Vec<usize> = Vec::with_capacity(survivors.len());
 
             for (token, token_postings) in self.postings.range(term.clone()..) {
                 if !token.starts_with(&term) {
@@ -140,49 +151,34 @@ impl LibraryIndex {
                 }
                 let exact_bonus: u16 = if token == &term { 3 } else { 0 };
                 for posting in token_postings {
-                    // After the first (most selective) term, never materialize
-                    // scores for tracks that have already been eliminated.
-                    if let Some(current) = &candidates {
-                        if !current.contains_key(&posting.track_index) {
-                            continue;
-                        }
-                    }
-
+                    let track = posting.track_index;
                     let score = posting.weight.saturating_add(exact_bonus);
-                    best_for_term
-                        .entry(posting.track_index)
-                        .and_modify(|best| *best = (*best).max(score))
-                        .or_insert(score);
+                    if matched[track] == round {
+                        // This term's first hit on a track that matched every
+                        // earlier term.
+                        matched[track] = round + 1;
+                        best_for_term[track] = score;
+                        next.push(track);
+                    } else if matched[track] == round + 1 {
+                        best_for_term[track] = best_for_term[track].max(score);
+                    }
+                    // Otherwise it missed an earlier term and is out.
                 }
             }
 
-            if best_for_term.is_empty() {
+            if next.is_empty() {
                 return Vec::new();
             }
-
-            candidates = Some(match candidates {
-                None => best_for_term
-                    .into_iter()
-                    .map(|(index, score)| (index, u32::from(score)))
-                    .collect(),
-                Some(mut current) => {
-                    current.retain(|index, total| {
-                        if let Some(score) = best_for_term.get(index) {
-                            *total += u32::from(*score);
-                            true
-                        } else {
-                            false
-                        }
-                    });
-                    if current.is_empty() {
-                        return Vec::new();
-                    }
-                    current
-                }
-            });
+            for &track in &next {
+                total[track] += u32::from(best_for_term[track]);
+            }
+            survivors = next;
         }
 
-        let mut ranked: Vec<(usize, u32)> = candidates.unwrap_or_default().into_iter().collect();
+        let mut ranked: Vec<(usize, u32)> = survivors
+            .into_iter()
+            .map(|track| (track, total[track]))
+            .collect();
         // A total order (the track index breaks the last tie), so selecting
         // the best `limit` and sorting only those gives exactly what sorting
         // everything and truncating would. A broad query ("m" while typing)
@@ -506,6 +502,117 @@ mod tests {
                     "query {query:?}, limit {limit}"
                 );
             }
+        }
+    }
+
+    /// The search spelled out track by track, with no index: every query
+    /// term must prefix-match a token of some field (AND); a term scores the
+    /// best field it matches, that field's weight plus 3 when a token equals
+    /// the term exactly; a track's score is the sum over the query's terms.
+    fn reference_scores(tracks: &[TrackRecord], query: &str) -> Vec<(usize, u32)> {
+        let terms = crate::normalize::normalized_tokens(query);
+        let mut scored = Vec::new();
+        if terms.is_empty() {
+            return scored;
+        }
+        'tracks: for (index, track) in tracks.iter().enumerate() {
+            let mut fields: Vec<(&str, u32)> = vec![
+                (&track.title, 12),
+                (&track.artist, 8),
+                (&track.album, 5),
+                (&track.provider, 2),
+            ];
+            if let Some(album_artist) = &track.album_artist {
+                fields.push((album_artist, 6));
+            }
+            let mut total = 0u32;
+            for term in &terms {
+                let best = fields
+                    .iter()
+                    .filter_map(|(value, weight)| {
+                        let tokens = crate::normalize::normalized_tokens(value);
+                        if tokens.iter().any(|token| token == term) {
+                            Some(weight + 3)
+                        } else if tokens.iter().any(|token| token.starts_with(term.as_str())) {
+                            Some(*weight)
+                        } else {
+                            None
+                        }
+                    })
+                    .max();
+                match best {
+                    Some(score) => total += score,
+                    None => continue 'tracks,
+                }
+            }
+            scored.push((index, total));
+        }
+        scored
+    }
+
+    /// The index has to find exactly the tracks the reference finds, with
+    /// the same scores, whatever data structure it scores them in.
+    #[test]
+    fn the_index_scores_exactly_like_the_reference() {
+        let titles = ["Echo", "Echo Chamber", "Lake", "Echoes", "Björk's Echo"];
+        let tracks: Vec<TrackRecord> = (0..300)
+            .map(|i| {
+                TrackRecord::new(
+                    format!("id-{i}"),
+                    titles[i % titles.len()],
+                    if i % 5 == 0 {
+                        "Echo Artist"
+                    } else {
+                        "Other Björk"
+                    },
+                    if i % 3 == 0 {
+                        "Echo Album"
+                    } else {
+                        "Album Lake"
+                    },
+                    if i % 4 == 0 {
+                        Some("Echo".to_owned())
+                    } else {
+                        None
+                    },
+                    ["local", "jellyfin", "navidrome"][i % 3],
+                )
+            })
+            .collect();
+        let index = LibraryIndex::build(tracks.clone());
+        let queries = [
+            "echo",
+            "e",
+            "ech",
+            "echo echo",
+            "echo album",
+            "album echo lake",
+            "bjork",
+            "BJÖRK echo",
+            "lake jellyfin",
+            "o",
+            "nothing",
+            "echo nothing",
+        ];
+        for query in queries {
+            let mut from_index: Vec<(usize, u32)> = index
+                .search(query, usize::MAX)
+                .iter()
+                .map(|hit| {
+                    let position = tracks
+                        .iter()
+                        .zip(index.tracks.iter())
+                        .position(|(_, indexed)| std::ptr::eq(indexed, hit.track))
+                        .expect("a hit is a track of the index");
+                    (position, hit.score)
+                })
+                .collect();
+            from_index.sort_unstable();
+            assert_eq!(
+                from_index,
+                reference_scores(&tracks, query),
+                "query {query:?}"
+            );
         }
     }
 
