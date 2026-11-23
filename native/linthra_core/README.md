@@ -12,7 +12,24 @@
 - deterministic ranking
 - synthetic 200,000-track regression benchmark
 
-The crate is intentionally **not wired into Flutter yet**. The core is being benchmarked and stabilized behind a small API first; the later FFI binding can then be reviewed independently without mixing Android packaging risk into the indexing algorithm.
+## How Flutter uses it
+
+The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
+
+- `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
+- `src/ffi.rs` is the C ABI. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
+- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`.
+
+The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux build has no `cc` to link with, or the Rust standard library for the target isn't installed, the hook skips the library and `LinthraCore.isAvailable` is false, so every caller has to keep a Dart fallback. A cargo build that starts and fails does fail the app build.
+
+| Target | What the hook needs |
+| --- | --- |
+| Linux (x64, arm64) | `cargo`, `rustc` and a C linker (`cc`) |
+| Android | the same, plus `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`; the hook links with the NDK's clang |
+
+`cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
+
+Not covered yet: the Flatpak (it needs the `rust-stable` SDK extension) and F-Droid (its recipe needs Rust). Both currently ship without the Rust core and use the Dart fallback.
 
 ## Run it
 

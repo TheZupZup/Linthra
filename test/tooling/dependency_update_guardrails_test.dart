@@ -309,6 +309,10 @@ void main() {
       // path_provider_foundation's Objective-C runtime: its hook builds only
       // for iOS and macOS, and returns at once for Android and Linux.
       'objective_c': 'no-op outside iOS/macOS',
+      // Linthra's own hook (hook/build.dart): compiles native/linthra_core
+      // with `cargo --locked --offline`, a crate with no dependencies, and
+      // downloads nothing. Without Rust it skips and the app uses Dart.
+      'linthra': 'builds native/linthra_core from source, offline',
     };
 
     test('no resolved package ships a build hook nobody reviewed', () {
