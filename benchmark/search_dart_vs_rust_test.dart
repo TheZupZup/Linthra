@@ -140,8 +140,8 @@ void main() {
             'catalog change')
         ..writeln()
         ..writeln('query                    Dart ms  Rust50 ms RustAll ms'
-            '  x(50)  Dart hits  Rust hits')
-        ..writeln('-' * 92);
+            ' Match ms  x(50)  Dart hits  Rust hits')
+        ..writeln('-' * 102);
 
       int dartTotal = 0;
       int rustTotal = 0;
@@ -157,21 +157,25 @@ void main() {
         final int rustAll = _medianMicros(() {
           rustHits = index.search(query, limit: _trackCount).length;
         });
+        final int rustMatch = _medianMicros(() {
+          index.matchPositions(query);
+        });
         dartTotal += dart;
         rustTotal += rust50;
         final String speedup =
             rust50 == 0 ? '   inf' : (dart / rust50).toStringAsFixed(0);
         report.writeln('${query.padRight(22)} ${_ms(dart)}  ${_ms(rust50)}  '
-            '${_ms(rustAll)} ${speedup.padLeft(6)}x '
+            '${_ms(rustAll)} ${_ms(rustMatch)} ${speedup.padLeft(6)}x '
             '${'$dartHits'.padLeft(10)} ${'$rustHits'.padLeft(10)}');
       }
 
       final double perQuerySaved =
           (dartTotal - rustTotal) / _queries.length / 1000;
       report
-        ..writeln('-' * 92)
-        ..writeln('Dart ms: filterTracks, every match. Rust50: top 50 ranked, '
-            'what the UI shows. RustAll: every match.')
+        ..writeln('-' * 102)
+        ..writeln('Dart ms: filterTracks, every match. Rust50: top 50 ranked. '
+            'RustAll: every match, ranked. Match: every match, unranked '
+            'positions, what the Library filter uses.')
         ..writeln('x(50): how many times faster Rust50 is than Dart.')
         ..writeln(perQuerySaved > 0
             ? 'The index build pays for itself after '

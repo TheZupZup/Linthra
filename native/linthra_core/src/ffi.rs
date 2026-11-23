@@ -25,7 +25,7 @@ use std::ptr;
 use crate::{LibraryIndex, TrackRecord};
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;
@@ -43,6 +43,13 @@ pub struct IndexBuilder {
 /// can read each id without copying the whole list in one call.
 pub struct SearchResults {
     ids: Vec<CString>,
+}
+
+/// The positions (in the order tracks were added to the builder) of every
+/// track a query matches, ascending. One contiguous array, so Dart copies it
+/// in a single read however many tracks match.
+pub struct MatchResults {
+    positions: Vec<u32>,
 }
 
 /// Returns [ABI_VERSION].
@@ -253,6 +260,82 @@ pub unsafe extern "C" fn linthra_search_results_free(results: *mut SearchResults
     }
 }
 
+/// Every track of `index` that `query` matches (see [LibraryIndex::matching]),
+/// as positions in the order the tracks were added, ascending and unranked.
+/// Returns null when `index` or `query` is null, `query` is not valid UTF-8,
+/// or the index holds more tracks than a `u32` can number; no match is a
+/// non-null, empty list.
+///
+/// # Safety
+///
+/// `index` must be null or a live pointer from [linthra_index_builder_finish].
+/// `query` must be null or point to a NUL-terminated string that stays valid
+/// for the call.
+#[no_mangle]
+pub unsafe extern "C" fn linthra_index_match(
+    index: *const LibraryIndex,
+    query: *const c_char,
+) -> *mut MatchResults {
+    let Some(index) = index.as_ref() else {
+        return ptr::null_mut();
+    };
+    if query.is_null() || u32::try_from(index.len()).is_err() {
+        return ptr::null_mut();
+    }
+    let Ok(query) = utf8(query) else {
+        return ptr::null_mut();
+    };
+    let positions = index
+        .matching(&query)
+        .into_iter()
+        // Every position is below the track count, which fits in a u32.
+        .map(|position| position as u32)
+        .collect();
+    Box::into_raw(Box::new(MatchResults { positions }))
+}
+
+/// Number of positions in `results`, or 0 when `results` is null.
+///
+/// # Safety
+///
+/// `results` must be null or a live pointer from [linthra_index_match].
+#[no_mangle]
+pub unsafe extern "C" fn linthra_match_results_len(results: *const MatchResults) -> usize {
+    results
+        .as_ref()
+        .map_or(0, |results| results.positions.len())
+}
+
+/// The positions themselves, [linthra_match_results_len] of them, or null
+/// when `results` is null. The array belongs to `results` and stays valid
+/// until [linthra_match_results_free].
+///
+/// # Safety
+///
+/// `results` must be null or a live pointer from [linthra_index_match].
+#[no_mangle]
+pub unsafe extern "C" fn linthra_match_results_positions(
+    results: *const MatchResults,
+) -> *const u32 {
+    results
+        .as_ref()
+        .map_or(ptr::null(), |results| results.positions.as_ptr())
+}
+
+/// Frees match results. Null is a no-op.
+///
+/// # Safety
+///
+/// `results` must be null or a pointer from [linthra_index_match] that has not
+/// been freed yet. It and the array read from it must not be used again
+/// afterwards.
+#[no_mangle]
+pub unsafe extern "C" fn linthra_match_results_free(results: *mut MatchResults) {
+    if !results.is_null() {
+        drop(Box::from_raw(results));
+    }
+}
+
 /// Copies a non-null C string, or fails with [STATUS_INVALID_UTF8].
 ///
 /// # Safety
@@ -455,6 +538,51 @@ mod tests {
             assert_eq!(linthra_index_len(ptr::null()), 0);
             assert_eq!(linthra_search_results_len(ptr::null()), 0);
             assert!(linthra_search_results_id(ptr::null(), 0).is_null());
+            linthra_match_results_free(ptr::null_mut());
+            assert_eq!(linthra_match_results_len(ptr::null()), 0);
+            assert!(linthra_match_results_positions(ptr::null()).is_null());
+        }
+    }
+
+    /// Runs a match through the C ABI and returns the positions.
+    fn match_positions(index: *const LibraryIndex, query: &str) -> Vec<u32> {
+        let query = c(query);
+        unsafe {
+            let results = linthra_index_match(index, query.as_ptr());
+            assert!(!results.is_null());
+            let len = linthra_match_results_len(results);
+            let positions = if len == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(linthra_match_results_positions(results), len).to_vec()
+            };
+            linthra_match_results_free(results);
+            positions
+        }
+    }
+
+    #[test]
+    fn matches_come_back_as_ascending_build_positions() {
+        let index = sample_index();
+        // jf:1 and nd:2 are both Björk, added first and second.
+        assert_eq!(match_positions(index, "bjork"), vec![0, 1]);
+        assert_eq!(match_positions(index, "motorhead"), vec![2]);
+        assert_eq!(match_positions(index, "homogenic hunter"), vec![1]);
+        assert!(match_positions(index, "").is_empty());
+        assert!(match_positions(index, "nothing like this").is_empty());
+        unsafe { linthra_index_free(index) };
+    }
+
+    #[test]
+    fn match_refuses_null_and_invalid_arguments() {
+        let index = sample_index();
+        let text = c("bjork");
+        let invalid: [u8; 2] = [0xff, 0];
+        unsafe {
+            assert!(linthra_index_match(ptr::null(), text.as_ptr()).is_null());
+            assert!(linthra_index_match(index, ptr::null()).is_null());
+            assert!(linthra_index_match(index, invalid.as_ptr().cast()).is_null());
+            linthra_index_free(index);
         }
     }
 

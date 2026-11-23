@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -13,7 +14,7 @@ import 'linthra_core_ffi.dart';
 abstract final class LinthraCore {
   /// The C ABI version this Dart code was written against. Must match
   /// `ABI_VERSION` in native/linthra_core/src/ffi.rs.
-  static const int abiVersion = 1;
+  static const int abiVersion = 2;
 
   static bool? _available;
 
@@ -141,6 +142,36 @@ final class NativeSearchIndex implements Finalizable {
       );
     } finally {
       linthraSearchResultsFree(results);
+    }
+  }
+
+  /// The positions, in the order the records were given to [build], of every
+  /// track [query] matches: ascending and unranked, for filtering a list that
+  /// keeps its own order. Same matching rules as [search]. An empty or
+  /// whitespace-only query matches nothing.
+  ///
+  /// Throws a [StateError] after [dispose].
+  Uint32List matchPositions(String query) {
+    if (_disposed) {
+      throw StateError(
+          'NativeSearchIndex.matchPositions called after dispose()');
+    }
+    final Pointer<LinthraMatchResults> results = using(
+      (Arena arena) =>
+          linthraIndexMatch(_index, query.toNativeUtf8(allocator: arena)),
+    );
+    // Null only for a null index or query, invalid UTF-8, or a catalog past
+    // u32: none can happen here.
+    if (results.address == 0) return Uint32List(0);
+    try {
+      final int count = linthraMatchResultsLen(results);
+      if (count == 0) return Uint32List(0);
+      // One copy out of native memory, before the results are freed.
+      return Uint32List.fromList(
+        linthraMatchResultsPositions(results).asTypedList(count),
+      );
+    } finally {
+      linthraMatchResultsFree(results);
     }
   }
 
