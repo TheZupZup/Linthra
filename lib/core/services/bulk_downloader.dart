@@ -31,6 +31,9 @@ import '../repositories/download_store.dart';
 ///    what keeps a batch stoppable.
 ///  - **A stop that means stop.** Cancellation and a full cache both end the
 ///    batch, and the tracks it never reached are never requested.
+///  - **A batch never evicts itself.** Its songs are protected from each
+///    other's evictions, so a collection bigger than the cache stops as out of
+///    space instead of downloading everything and keeping only the end.
 ///
 /// Stopping a batch never deletes anything: requests already handed to the
 /// repository (at most [maxOutstanding]) finish normally and stay offline, since
@@ -89,6 +92,13 @@ class BulkDownloader {
     final List<String> uniqueKeys = <String>[
       for (final Track track in unique) CachedTrack.cacheKeyForTrack(track),
     ];
+    // No song in the batch may be evicted to make room for another one:
+    // otherwise a collection bigger than the cache is fetched in full while
+    // each song pushes out the ones before it, and the batch never learns it
+    // ran out of space. Protected, a full cache refuses the next song, and
+    // the refusal streak below ends the batch. Downloads from outside the
+    // batch can still make room, as before.
+    final Set<String> batchKeys = uniqueKeys.toSet();
 
     // What is already offline is never requested again, so an existing download
     // is left exactly as it is.
@@ -127,7 +137,7 @@ class BulkDownloader {
         final Track track = pending[next++];
         try {
           final DownloadRequestOutcome outcome =
-              await repository.requestDownload(track);
+              await repository.requestDownload(track, protectKeys: batchKeys);
           if (outcome != DownloadRequestOutcome.started) {
             summary = summary.copyWith(
               waitingForNetwork: summary.waitingForNetwork + 1,
