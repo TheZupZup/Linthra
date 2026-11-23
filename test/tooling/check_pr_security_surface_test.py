@@ -431,6 +431,50 @@ class NativeAndCargoPaths(ScannerTestCase):
             self.build({}, {"native/linthra_core/README.md": "# notes\n"})
         )
 
+    def test_dart_build_hooks(self):
+        """hook/build.dart runs on every Flutter build and test."""
+        for path in ("hook/build.dart", "hook/link.dart"):
+            with self.subTest(path):
+                self.assertSensitive(self.build({}, {path: "void main() {}\n"}))
+
+
+class ReviewedNativeBridgeLocations(ScannerTestCase):
+    """The Rust bridge's process and FFI use is reviewed in two places only."""
+
+    RUN_CARGO = f"void main() {{\n  {PROCESS_RUN}('cargo', <String>['build']);\n}}\n"
+    IMPORT_FFI = f"import '{DART_FFI}';\n"
+
+    def test_build_hook_may_run_a_process_with_review(self):
+        self.assertSensitive(self.build({}, {"hook/build.dart": self.RUN_CARGO}))
+
+    def test_process_execution_stays_blocked_elsewhere(self):
+        for path in ("hook/link.dart", "hook/src/build.dart", "lib/core/native/run.dart"):
+            with self.subTest(path):
+                self.assertBlocked(self.build({}, {path: self.RUN_CARGO}))
+
+    def test_native_bindings_may_use_ffi_with_review(self):
+        for path in (
+            "lib/core/native/linthra_core_ffi.dart",
+            "lib/core/native/linthra_core.dart",
+        ):
+            with self.subTest(path):
+                self.assertSensitive(self.build({}, {path: self.IMPORT_FFI}))
+
+    def test_ffi_stays_blocked_elsewhere(self):
+        for path in (
+            "lib/core/native/deeper/bindings.dart",
+            "lib/core/services/player.dart",
+            "hook/build.dart",
+            "test/core/native/linthra_core_test.dart",
+        ):
+            with self.subTest(path):
+                self.assertBlocked(self.build({}, {path: self.IMPORT_FFI}))
+
+    def test_every_reviewed_location_names_a_blocked_rule(self):
+        """A renamed rule must not leave its exception silently unused."""
+        reasons = {reason for _, reason in scanner.BLOCKED_ADDITION_RULES}
+        self.assertLessEqual(set(scanner.BLOCKED_RULE_REVIEWED_PATHS), reasons)
+
 
 class BlockedAdditions(ScannerTestCase):
     def test_direct_process_run(self):

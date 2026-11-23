@@ -41,7 +41,8 @@ lives in `scripts/check_pr_security_surface.py`; its tests are
   `res/xml/` security and privacy policy and the Kotlin shipped in the APK,
   the analyzer configuration, licence text, release signing material and the
   F-Droid build recipe under `metadata/`,
-  native code under `linux/` and `native/` with its CMake build files, or to
+  native code under `linux/` and `native/` with its CMake build files, the Dart
+  build hooks under `hook/`, or to
   auth/network/persistence code — and added behaviour such as new network
   clients, filesystem writes or database migrations — require **TheZupZup to
   have approved the exact current HEAD**. Pushing a new commit changes the
@@ -61,6 +62,14 @@ lives in `scripts/check_pr_security_surface.py`; its tests are
   download-and-execute shell patterns are not bypassable by approval. If
   Linthra genuinely needs one of these, it should land as its own
   maintainer-controlled change, not inside an unrelated contributor PR.
+- **Two reviewed exceptions, for the Rust core's bridge.** Process execution
+  in `hook/build.dart` (the build hook runs cargo) and FFI in the direct
+  children of `lib/core/native/` (the bindings themselves) are reported as
+  sensitive instead of blocked, so an external PR there still needs the owner's
+  approval of its HEAD. The same constructs anywhere else, including
+  `hook/link.dart` or a subdirectory of `lib/core/native/`, stay blocked. The
+  list is `BLOCKED_RULE_REVIEWED_PATHS` in the scanner; adding to it is itself
+  a change to the guard.
 - **The scanner comes from the trusted base.** The workflow reads
   `scripts/check_pr_security_surface.py` out of the PR's base commit, so a PR
   cannot weaken the classifier in the same change it is trying to pass.
