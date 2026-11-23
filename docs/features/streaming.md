@@ -140,7 +140,7 @@ anything actually plays.
 **The queue stays put.** A retry re-plays the same queue entry. A source switch
 *replaces* that entry with the copy that works, using the same ordered
 candidates the automatic runtime fallback uses (see
-[playback-source-strategy.md](playback-source-strategy.md)), so the song keeps
+[playback-source-strategy.md](../playback-source-strategy.md)), so the song keeps
 its one place in the queue instead of being added again. Skip advances exactly
 one track.
 

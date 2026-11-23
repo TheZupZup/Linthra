@@ -153,4 +153,4 @@ people paste into issues.
   policy this smoke defends, and the manual portal pass
 - [Flatpak audio playback smoke](audio-smoke.md), the sibling smoke, and
   the derived manifest both share
-- [local-music.md](../../local-music.md), the feature itself
+- [local-music.md](../../features/local-music.md), the feature itself

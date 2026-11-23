@@ -2,7 +2,7 @@
 """Checks a built artifact for the Cast security containment.
 
 Casting is withheld from shipped builds while a reported security issue is
-resolved (see lib/core/services/cast/cast_containment.dart and docs/cast.md).
+resolved (see lib/core/services/cast/cast_containment.dart and docs/features/cast.md).
 `scripts/check_cast_containment.py` looks at the *source tree*; this script looks
 at the *artifact a user installs* — an APK, an AAB, the Linux tarball, or the
 Linux `.flatpak` bundle — and asks whether the compiled Dart in it looks like a

@@ -20,7 +20,7 @@ import 'package:flutter/material.dart';
 /// **There is deliberately no perpetual animation here.** A wave that drifts
 /// forever would repaint the full width of the bar on every frame, on the
 /// screen users leave open the longest — the opposite of what a low-end phone
-/// wants, and something `docs/battery.md` rules out for the rest of the UI. The
+/// wants, and something `docs/features/battery.md` rules out for the rest of the UI. The
 /// only motion is a one-shot ease when [active] flips: the wave swells to full
 /// [amplitude] while progress is advancing and settles back to a calmer,
 /// shallower wave at rest. That transition takes [transitionDuration], then the

@@ -1,7 +1,7 @@
 # How casting could actually work again (the hardened design)
 
 Casting is switched off in shipped builds while a reported security issue is
-resolved ([cast.md](cast.md#temporary-containment)).
+resolved ([cast.md](features/cast.md#temporary-containment)).
 [cast-receiver-trust.md](cast-receiver-trust.md) states the rule the app
 enforces: no verified identity, no session, no media. This page is the answer to
 the next question, the one that decides whether the feature ever comes back:

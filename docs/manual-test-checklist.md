@@ -39,7 +39,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   never starts a second local stream.
 - ☐ Screen-off / lock-screen playback survives a 5-minute screen-off for local,
   streaming, cached, and cast playback. See the dedicated checklist and battery
-  troubleshooting in [background-playback.md](background-playback.md).
+  troubleshooting in [background-playback.md](features/background-playback.md).
 
 ## 2. Library
 
@@ -178,7 +178,7 @@ playback.
 
 ## 4. Cast / Chromecast
 
-**Casting is currently contained** (see [cast.md](cast.md#temporary-containment)),
+**Casting is currently contained** (see [cast.md](features/cast.md#temporary-containment)),
 so a shipped build has one pass, and it is the one that matters for the security
 maintenance release. Run it on a **real Android device and a real iPhone**, with a
 Chromecast powered on and on the same Wi-Fi:
@@ -216,7 +216,7 @@ Run it in this order (a streamed track is required — local files can't cast):
 7. ☐ Receiver **app branding**: with the *default* media receiver the device
    shows "Default Media Receiver" / the cast device name, **not** a Linthra
    name/logo. This is expected — true app branding needs a custom receiver app
-   (see [cast.md](cast.md#receiver-app-name--logo-branding)). Do **not** fail the
+   (see [cast.md](features/cast.md#receiver-app-name--logo-branding)). Do **not** fail the
    pass on this.
 8. ☐ **Skip to next** track.
 9. ☐ The receiver's metadata (title/artist/album/artwork/duration) **updates** to
@@ -467,7 +467,7 @@ cache's knowledge survives a restart; it never holds a URL or token.
 ### TalkBack
 
 The full pass, with the setup steps and what is worth failing on, is in
-[accessibility.md](./accessibility.md#real-device-talkback-smoke-checklist).
+[accessibility.md](features/accessibility.md#real-device-talkback-smoke-checklist).
 The short version, for a release pass:
 
 - ☐ Every destination, row and icon-only button announces something.
@@ -480,7 +480,7 @@ The short version, for a release pass:
 
 The full pass — window title, rail destinations, library rows, Now Playing,
 dialogs, connection forms, and keyboard-only traversal — is in
-[accessibility.md](./accessibility.md#linux-orca-smoke-checklist).
+[accessibility.md](features/accessibility.md#linux-orca-smoke-checklist).
 Use Orca. Native `flutter run -d linux` first; a silent Flatpak is a
 sandbox issue, not a missing label.
 

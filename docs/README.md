@@ -22,23 +22,23 @@ The full index of Linthra's docs. New to the project? Start with the
 
 | Topic | Doc |
 | --- | --- |
-| Library browsing & search | [library.md](./library.md) |
-| Local music (on-device folders) | [local-music.md](./local-music.md) |
+| Library browsing & search | [library.md](features/library.md) |
+| Local music (on-device folders) | [local-music.md](features/local-music.md) |
 | Optical media detection (Linux) | [optical-media.md](./optical-media.md) |
 | Music providers (overview) | [Music providers](servers/overview.md) |
 | Jellyfin setup | [jellyfin.md](servers/jellyfin.md) · [compatibility](servers/jellyfin-compatibility.md) · [sync](servers/jellyfin-sync.md) |
 | Plex setup | [plex.md](servers/plex.md) |
 | WebDAV / NAS provider (design) | [webdav.md](./webdav.md) |
-| Streaming, buffering & recovery | [streaming.md](./streaming.md) |
-| Queue / Up Next | [queue.md](./queue.md) |
-| Offline cache & downloads | [offline-cache.md](./offline-cache.md) |
-| Cast / Chromecast | [cast.md](./cast.md) · [receiver trust](./cast-receiver-trust.md) · [hardened design](./cast-hardened-design.md) · [what a handoff delegates](./cast-media-access.md) · [client design](./cast-client-design.md) |
-| Remote control (drive Linthra from another app) | [remote-control.md](./remote-control.md) |
-| Android Auto | [android-auto.md](./android-auto.md) |
-| Playlists & safe removal | [playlists-and-delete.md](./playlists-and-delete.md) |
-| Smart mixes (automatic playlists) | [smart-mixes.md](./smart-mixes.md) |
-| Backup & restore (file format) | [backup-restore-format.md](./backup-restore-format.md) |
-| Battery usage | [battery.md](./battery.md) · [playback audit](audits/battery-playback.md) |
+| Streaming, buffering & recovery | [streaming.md](features/streaming.md) |
+| Queue / Up Next | [queue.md](features/queue.md) |
+| Offline cache & downloads | [offline-cache.md](features/offline-cache.md) |
+| Cast / Chromecast | [cast.md](features/cast.md) · [receiver trust](./cast-receiver-trust.md) · [hardened design](./cast-hardened-design.md) · [what a handoff delegates](./cast-media-access.md) · [client design](./cast-client-design.md) |
+| Remote control (drive Linthra from another app) | [remote-control.md](features/remote-control.md) |
+| Android Auto | [android-auto.md](features/android-auto.md) |
+| Playlists & safe removal | [playlists-and-delete.md](features/playlists-and-delete.md) |
+| Smart mixes (automatic playlists) | [smart-mixes.md](features/smart-mixes.md) |
+| Backup & restore (file format) | [backup-restore-format.md](features/backup-restore-format.md) |
+| Battery usage | [battery.md](features/battery.md) · [playback audit](audits/battery-playback.md) |
 | App icon & branding (in-app + real Android launcher icon) | [app-icon-branding.md](./app-icon-branding.md) |
 
 ## Quality & releases
@@ -47,7 +47,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
-| Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](./accessibility.md) |
+| Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](features/accessibility.md) |
 | GNOME & KDE Plasma compatibility matrix | [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |

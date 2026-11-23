@@ -113,7 +113,7 @@ engine is hidden behind `PlaybackController`.
   the now-playing screen / mini-player / lyrics follow the receiver's
   position/play-state, while the queue stays owned locally and track changes are
   mirrored onto the receiver. This is what fixes Cast desync. See
-  [architecture.md](architecture.md#the-single-playback-seam-local--cast).
+  [architecture.md](../architecture.md#the-single-playback-seam-local--cast).
 
 ## Temporary containment
 
@@ -154,7 +154,7 @@ question — is the safeguard in the file people actually install? — so
 APK/AAB/tarball, and the release workflows run it before an artifact is uploaded
 and again on the published assets. The shipped `v0.2.6` artifacts and their
 SHA-256 digests are recorded in
-[release-artifact-verification.md](distribution/release-artifact-verification.md).
+[release-artifact-verification.md](../distribution/release-artifact-verification.md).
 
 In the app, the cast button stays visible but muted and the sheet says casting is
 temporarily unavailable — it does not claim the platform is unsupported, which
@@ -171,12 +171,12 @@ an additional layer, not a substitute for it.
 The trust model, the contract already in the tree (`CastReceiverAuthenticator`
 and the fail-closed `TrustGatedCastTransport`), the implementation options and
 the test matrix are in
-[cast-receiver-trust.md](cast-receiver-trust.md), and the concrete design for
+[cast-receiver-trust.md](../cast-receiver-trust.md), and the concrete design for
 what a real receiver check would have to do (the Cast device-authentication
 exchange, the pinned trust anchors, per-device pinning, and where the
 cryptography would come from) is in
-[cast-hardened-design.md](cast-hardened-design.md). What a handoff delegates to a
-receiver, per server, is in [cast-media-access.md](cast-media-access.md).
+[cast-hardened-design.md](../cast-hardened-design.md). What a handoff delegates to a
+receiver, per server, is in [cast-media-access.md](../cast-media-access.md).
 
 The reviewed restoration updates `CastContainment`, the production wiring, the
 transport guards, and `scripts/check_cast_containment.py` in one pull request.
@@ -220,7 +220,7 @@ token-free `jellyfin:<id>` / `subsonic:<id>`, so the minted URL never lands in
 
 What each server would otherwise force a handoff to carry, and how the relay is
 guarded (exposure, token lifetime, what it relays back, what it costs), is in
-[cast-media-access.md](cast-media-access.md). The relay does not replace
+[cast-media-access.md](../cast-media-access.md). The relay does not replace
 receiver authentication: casting stays contained until that lands.
 
 ## Resilience while casting

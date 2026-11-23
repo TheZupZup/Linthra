@@ -12,7 +12,7 @@ import '../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 /// Preserves Jellyfin's established sync shape: membership changes are pushed
 /// **incrementally** (add/remove of bare item ids), while rename and reorder
 /// stay local-only (a refresh re-adopts the server name/order) — see
-/// docs/playlists-and-delete.md. A Jellyfin playlist can only hold Jellyfin
+/// docs/features/playlists-and-delete.md. A Jellyfin playlist can only hold Jellyfin
 /// items, so non-`jellyfin:` uris are dropped at the request boundary. The
 /// session (with its token) is read lazily and never logged; failures surface as
 /// a friendly, secret-free [RemoteSyncException].

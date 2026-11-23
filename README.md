@@ -117,7 +117,7 @@ install routes and native development.
 Notes:
 
 - Android Auto only shows sideloaded media apps after a one-time developer
-  toggle. See [docs/android-auto.md](./docs/android-auto.md).
+  toggle. See [docs/features/android-auto.md](docs/features/android-auto.md).
 - To build from source, see
   [docs/development.md](./docs/development.md).
 
@@ -125,7 +125,7 @@ Notes:
 
 | Source | Status |
 | --- | --- |
-| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) ([docs](./docs/local-music.md)) |
+| **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) ([docs](docs/features/local-music.md)) |
 | **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites ([docs](docs/servers/jellyfin.md)) |
 | **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites, two-way sync ([docs](docs/servers/overview.md)) |
 | **Plex** | ✅ Browse, stream & cache from your own Plex Media Server ([docs](docs/servers/plex.md)) |
@@ -168,7 +168,7 @@ These integrations would include per-provider expiration and revocation controls
 and removal of artwork cached under an expired or revoked permission, without
 interrupting music playback. This is not implemented yet.
 
-See the [artwork and copyright policy](./docs/library.md#album-artwork-and-copyright).
+See the [artwork and copyright policy](docs/features/library.md#album-artwork-and-copyright).
 
 ## Contributing
 

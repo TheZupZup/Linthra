@@ -1,6 +1,6 @@
 # The in-repo Cast client (design)
 
-Casting is contained in shipped builds ([cast.md](cast.md#temporary-containment),
+Casting is contained in shipped builds ([cast.md](features/cast.md#temporary-containment),
 [#572](https://github.com/TheZupZup/Linthra/issues/572),
 [#575](https://github.com/TheZupZup/Linthra/issues/575)). This page is the
 design for the transport that replaces the `cast` package: how a connection

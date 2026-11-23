@@ -68,7 +68,7 @@ automated, so they are only as current as that review.
 - **The native libraries have no networking.** `native/` (Rust and C++)
   declares no network crates or libraries and makes no network calls.
 - **Casting sends nothing.** Casting is switched off in shipped builds (see
-  [cast.md](docs/cast.md)), so there is no Cast discovery or Cast traffic at
+  [cast.md](docs/features/cast.md)), so there is no Cast discovery or Cast traffic at
   all. The release artifact check above confirms the Cast code is absent from
   the compiled app.
 - **Links are links.** The project, privacy policy, sponsor and bug report links

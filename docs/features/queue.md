@@ -5,8 +5,8 @@ building a playlist every time. This page covers the queue model, the actions,
 how it behaves with shuffle/repeat/Cast/Android Auto, and the known limits.
 
 The queue is owned by a single `PlaybackController` (see
-[docs/architecture.md](./architecture.md) and
-[docs/background-playback.md](./background-playback.md)). Every surface reads
+[docs/architecture.md](../architecture.md) and
+[docs/features/background-playback.md](background-playback.md)). Every surface reads
 from and edits the **same** queue: mini-player, Now Playing, the Queue sheet,
 the desktop queue column, Cast, and the Android Auto media session. There is
 never a second copy.
@@ -259,7 +259,7 @@ The song playing at that moment goes too: playback stops and the queue lands,
 stopped, on the next song left (Play starts it). Local files and other
 providers' songs stay where they were. On Linux the saved session records whose
 songs it holds, so a restart under another account leaves them out as well
-(see [Crash-safe playback restore](linux-desktop.md#crash-safe-playback-restore)).
+(see [Crash-safe playback restore](../linux-desktop.md#crash-safe-playback-restore)).
 
 ## Save queue as playlist
 
@@ -288,7 +288,7 @@ output (local engine vs. a Cast receiver) is routed underneath it:
   current track and whether a next/previous exists; editing the queue in the app
   is reflected there without starting duplicate playback.
 
-See [docs/cast.md](./cast.md) and [docs/android-auto.md](./android-auto.md) for
+See [docs/features/cast.md](cast.md) and [docs/features/android-auto.md](android-auto.md) for
 the routing details.
 
 ## Security

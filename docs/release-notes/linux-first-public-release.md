@@ -100,7 +100,7 @@ tests, and neither is exercised inside the packaged Flatpak on every build: the
 local-library check above scans, reads and plays, but never changes a file
 underneath a running app. A sandbox is exactly where filesystem watching can
 behave differently, so treat a manual rescan as the reliable path for now. See
-[local-music.md](../local-music.md) for what is and is not watched.
+[local-music.md](../features/local-music.md) for what is and is not watched.
 
 **Nothing posts a desktop notification yet**, which is why the package asks for
 no notification permission.
@@ -135,7 +135,7 @@ placeholders.
 
 ## See also
 
-- [local-music.md](../local-music.md), how local libraries work
+- [local-music.md](../features/local-music.md), how local libraries work
 - [Flatpak filesystem sandbox audit](../audits/flatpak-filesystem.md), the sandbox filesystem policy
 - [linux-desktop.md](../linux-desktop.md), the Linux build itself
 - [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md), building the Flatpak locally

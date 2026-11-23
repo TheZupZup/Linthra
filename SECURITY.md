@@ -59,7 +59,7 @@ Anything that breaks Linthra's own promises:
 - credential handling: stored server credentials, encrypted-at-rest storage, the
   GitHub sponsor OAuth device flow
 - leaking secrets into logs, diagnostics, bug reports, or the backup file
-  (see [docs/backup-restore-format.md](./docs/backup-restore-format.md))
+  (see [docs/features/backup-restore-format.md](docs/features/backup-restore-format.md))
 - authenticated stream URLs escaping where they should not
 - the Flatpak sandbox: escapes, or permissions broader than the app needs
   (see [docs/audits/flatpak-filesystem.md](docs/audits/flatpak-filesystem.md))

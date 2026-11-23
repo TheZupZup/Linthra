@@ -25,7 +25,7 @@ void main() {
       // A settable flag would be a second production path with none of the
       // review restoring casting requires. If this fails, casting was restored
       // — which must happen in a reviewed change that also authenticates the
-      // receiver (see docs/cast.md), together with scripts/check_cast_containment.py.
+      // receiver (see docs/features/cast.md), together with scripts/check_cast_containment.py.
       expect(CastContainment.isActive, isTrue);
     });
 

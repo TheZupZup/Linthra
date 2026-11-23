@@ -9,7 +9,7 @@ distributed binary" has to be checked against the binary.
 This page is how that check is run, what it is worth, and the record of the
 releases it has been run on. The safeguard in question is the Cast security
 containment — casting is withheld from shipped builds while a reported security
-issue is resolved. See [cast.md](../cast.md#temporary-containment); the report
+issue is resolved. See [cast.md](../features/cast.md#temporary-containment); the report
 itself stays in the private advisory.
 
 ## The check

@@ -15,7 +15,7 @@ import '../../models/cast_media.dart';
 /// the default receiver can display; the receiver's own app name and logo are
 /// fixed by the receiver application and **cannot** be set from a sender, so true
 /// "Linthra" branding on the device would require shipping a custom Cast receiver
-/// app (out of scope). See docs/cast.md.
+/// app (out of scope). See docs/features/cast.md.
 ///
 /// Security: `contentId` is the one field that legitimately carries the
 /// authenticated stream URL — the receiver fetches the bytes itself, so the

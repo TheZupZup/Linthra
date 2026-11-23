@@ -117,8 +117,8 @@ URLs ahead of a skip (credential-free keys in memory, plus a durable
 credential-free on-disk index that never stores the URL) is described in
 [remote-playback-cache.md](remote-playback-cache.md). The UI entry point that
 wires all of this is `lib/features/player/player_providers.dart`. Deeper dives:
-[streaming.md](streaming.md), [background-playback.md](background-playback.md),
-[queue.md](queue.md).
+[streaming.md](features/streaming.md), [background-playback.md](features/background-playback.md),
+[queue.md](features/queue.md).
 
 ## Cast / Chromecast
 
@@ -149,7 +149,7 @@ never logged, never persisted. `CastMedia.toString()` deliberately redacts the
 URL down to `scheme://host/path` so it's safe to interpolate into a log line.
 Subsonic cover-art URLs embed the credential, so Subsonic artwork is
 intentionally *omitted* from the cast payload rather than leaked. Full picture:
-[cast.md](cast.md).
+[cast.md](features/cast.md).
 
 ## Providers (where your music comes from)
 
@@ -190,7 +190,7 @@ providers.
 SQLite cache (`lib/data/database/`, Drift). The library/sync controllers in
 `features/` drive that. The UI then reads the catalog, never the server. More:
 [Music providers](servers/overview.md), [jellyfin.md](servers/jellyfin.md),
-[streaming.md](streaming.md).
+[streaming.md](features/streaming.md).
 
 ## Offline cache & downloads
 
@@ -232,7 +232,7 @@ and *what* gets evicted.
   The cache file name is derived from the **non-secret track id** (sanitized so
   an odd id can't escape the directory), never from a token or URL.
 
-Deeper dive (including the eviction policy): [offline-cache.md](offline-cache.md).
+Deeper dive (including the eviction policy): [offline-cache.md](features/offline-cache.md).
 
 ## Library
 
@@ -261,8 +261,8 @@ reads the local catalog through `MusicLibraryRepository`
 
 Reusable list rows (`widgets/track_tile.dart`, `album_tile.dart`,
 `artist_tile.dart`, `alphabet_track_list.dart`) keep these screens consistent.
-More: [library.md](library.md), [playlists-and-delete.md](playlists-and-delete.md),
-[smart-mixes.md](smart-mixes.md).
+More: [library.md](features/library.md), [playlists-and-delete.md](features/playlists-and-delete.md),
+[smart-mixes.md](features/smart-mixes.md).
 
 ## Diagnostics & "Report a bug"
 

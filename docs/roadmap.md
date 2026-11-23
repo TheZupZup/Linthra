@@ -38,7 +38,7 @@ changes.
 - ✅ Battery tradeoff documented (in the PR and in code): keeping the media
   service foreground across a pause holds a `PARTIAL_WAKE_LOCK` only while
   *paused-not-stopped*; active playback and the stopped state are unaffected. See
-  [docs/battery.md](./battery.md).
+  [docs/features/battery.md](features/battery.md).
 - ✅ CI green — Flutter checks, Build debug APK, and the Secret & privacy scan all
   passed on the merged commit.
 - ✅ Real-device acceptance confirmed (text app keeps sound, voice start/stop
@@ -63,13 +63,13 @@ Focus areas, with the existing issues they map to:
 - **Audio-focus regressions** — ✅ the #244 behaviour is guarded by the
   deterministic focus tests, and the **battery-optimal follow-up** has landed
   (`stopForegroundOnPause: true`, with the service held only across a
-  transient-focus pause). See [docs/battery.md](./battery.md) → *Playback service
+  transient-focus pause). See [docs/features/battery.md](features/battery.md) → *Playback service
   & wake locks*.
 - **Screen-lock playback** — no pause/mute on a brief screen-off focus blip.
 - **Android Auto sanity** — real head-unit and Desktop-Head-Unit passes
   ([#82](https://github.com/thezupzup/linthra/issues/82)).
 - **Offline cache reliability** — eviction, "keep offline" pinning, and
-  Wi-Fi/mobile-data gating behave predictably ([docs/offline-cache.md](./offline-cache.md)).
+  Wi-Fi/mobile-data gating behave predictably ([docs/features/offline-cache.md](features/offline-cache.md)).
 - **Provider fallback reliability** — building on cached provider-reachability
   (#241), make an offline server fall back fast and correctly; finish
   provider-aware identity so favorites / play history / playlists never collide
@@ -111,7 +111,7 @@ file needs no encryption — but it *does* list your server addresses, so it's
 The format is the deliverable: a small, documented, versioned JSON document that
 Android exports/imports today and that **Linthra Desktop (Phase 4)** and **Linthra
 Connect (Phase 3)** both understand. Full spec:
-**[docs/backup-restore-format.md](./backup-restore-format.md).**
+**[docs/features/backup-restore-format.md](features/backup-restore-format.md).**
 
 ## Phase 3 — Linthra Connect foundation (optional)
 

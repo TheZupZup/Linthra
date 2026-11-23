@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/thezupzup/linthra/blob/main/docs/servers/jellyfin-compatibility.md
     about: Connection, Cloudflare, and "how to report without leaking secrets" notes.
   - name: Android Auto troubleshooting
-    url: https://github.com/thezupzup/linthra/blob/main/docs/android-auto.md
+    url: https://github.com/thezupzup/linthra/blob/main/docs/features/android-auto.md
     about: Why a sideloaded build may not appear, and how to test on a head unit.

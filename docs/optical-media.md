@@ -550,7 +550,7 @@ circumvention, Blu-ray video, and burning.
 
 - [flatpak-permissions.md](audits/flatpak-permissions.md) — every permission
   Linthra asks for, and the ones it refuses
-- [local-music.md](./local-music.md) — the ordinary local-file path, which is
+- [local-music.md](features/local-music.md) — the ordinary local-file path, which is
   what a *data* disc of audio files would eventually reuse
 - [linux-desktop.md](./linux-desktop.md) — building and running the Linux
   desktop build

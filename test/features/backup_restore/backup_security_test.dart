@@ -12,7 +12,7 @@ import 'package:linthra/features/backup_restore/backup_validation.dart';
 /// (Jellyfin access token, Subsonic salt+token, Plex token, any password) and
 /// the device-/session-specific ids and version strings the spec excludes on
 /// purpose (they are re-derived at re-auth and carrying them would let one
-/// device impersonate another). See docs/backup-restore-format.md → Security.
+/// device impersonate another). See docs/features/backup-restore-format.md → Security.
 const Set<String> _forbiddenKeys = <String>{
   'accessToken',
   'token',

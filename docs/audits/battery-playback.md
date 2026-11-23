@@ -2,7 +2,7 @@
 
 This is the report for issue #344 ("Investigate high battery drain during normal
 playback"). It is a read-through of everything that runs while music is playing,
-checked against what [docs/battery.md](../battery.md) claims, plus the focused
+checked against what [docs/features/battery.md](../features/battery.md) claims, plus the focused
 fixes the read-through justified and the measurements behind them.
 
 **Scope:** the work the app does *around* the audio, in both listening shapes
@@ -11,7 +11,7 @@ left open. Audio quality, gapless, background playback, Android Auto and
 streaming behaviour are untouched by everything here; nothing was disabled to
 make a number look better.
 
-> **Bottom line.** Most of what `docs/battery.md` describes is real and holds up:
+> **Bottom line.** Most of what `docs/features/battery.md` describes is real and holds up:
 > the foreground service and wake locks follow playback, the position flush is
 > coalesced and self-cancelling and the UI surfaces are properly isolated from
 > it. Two things did not match the document, and both ran for the *whole* length
@@ -46,7 +46,7 @@ make a number look better.
   `.repeat(`, and every `.listen(` on the playback stream.
 - Read the Android side for the refresh-rate and lifecycle behaviour
   (`MainActivity.kt`, `DisplayRefreshRate.kt`).
-- Checked each claim in `docs/battery.md` against the code, which is what turned
+- Checked each claim in `docs/features/battery.md` against the code, which is what turned
   up findings 1 and 2 — the document was describing an intent the code had
   drifted from.
 - Measured the per-tick cost with a new harness,
@@ -75,10 +75,10 @@ is watched by the active library, so in practice it never was.
 That is the opposite of what the app is built to do everywhere else, and it is
 worst exactly where it hurts: `audio_service` deliberately keeps the process and
 the Flutter isolate alive during screen-off playback (see the foreground-service
-section of `docs/battery.md`), so this timer kept firing for the entire session.
+section of `docs/features/battery.md`), so this timer kept firing for the entire session.
 **About 80 authenticated round-trips an hour, refreshing a library nobody could
 see** — and on mobile data, 80 chances an hour to pull the radio out of idle.
-`docs/battery.md` claimed "No background polling, heartbeats, or keep-alives".
+`docs/features/battery.md` claimed "No background polling, heartbeats, or keep-alives".
 
 **Fix.** The poll now follows app visibility. `AppVisibility`
 (`lib/core/lifecycle/app_visibility.dart`) is a small signal published by the
@@ -200,7 +200,7 @@ Checked because the issue asks specifically about the open Now Playing screen:
   screen; the artwork and metadata around it do not.
 
 Nothing here needed changing. These are already covered by the throttle tests
-listed in `docs/battery.md`.
+listed in `docs/features/battery.md`.
 
 ## 5. Refresh rate while the app is open
 
@@ -219,7 +219,7 @@ otherwise have dropped to an idle rate. It is only paid while the app is on
 screen (a screen-off session is unaffected, which is the case the issue is
 mostly about), and releasing the pin when nothing is animating risks a stutter
 on the first flick of a scroll. Left alone deliberately; recorded under "possible
-future work" in `docs/battery.md` so the next person measuring has the context.
+future work" in `docs/features/battery.md` so the next person measuring has the context.
 
 ## 6. Server playback reports
 
@@ -232,7 +232,7 @@ playback path, throttled by `PlaybackReportingService.progressInterval`, and a
 local or cached track sends nothing at all. It also rides a radio the stream is
 already keeping busy, so its marginal cost is small.
 
-`docs/battery.md` said "no extra network calls per tick", which is true but
+`docs/features/battery.md` said "no extra network calls per tick", which is true but
 skipped past this; it now names the 10 s report explicitly. No code change:
 lengthening the interval risks servers timing the session out, which is a
 correctness regression for a feature people use.
