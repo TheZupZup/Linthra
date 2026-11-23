@@ -14,7 +14,7 @@ import 'plex_api.dart';
 /// [toArtist], 9 → [toAlbum], 10 → [toTrack]**, matching the `type=` filter
 /// the source lists each kind with.
 ///
-/// Two deliberate choices (see docs/plex.md → Token safety rules):
+/// Two deliberate choices (see docs/servers/plex.md → Token safety rules):
 ///  - A track's [Track.uri] is the opaque `plex:<ratingKey>`, NOT a playable
 ///    URL. The playable URL needs the `Part` path *and* carries the
 ///    `X-Plex-Token` in its query, so `PlexMusicSource.resolvePlayableUri`

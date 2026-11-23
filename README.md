@@ -126,9 +126,9 @@ Notes:
 | Source | Status |
 | --- | --- |
 | **Local files** | ✅ Scan a folder, play directly (SAF, no broad permission) ([docs](./docs/local-music.md)) |
-| **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites ([docs](./docs/jellyfin.md)) |
-| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites, two-way sync ([docs](./docs/providers.md)) |
-| **Plex** | ✅ Browse, stream & cache from your own Plex Media Server ([docs](./docs/plex.md)) |
+| **Jellyfin** | ✅ Stream, cache, cast, playlists & favorites ([docs](docs/servers/jellyfin.md)) |
+| **Navidrome / Subsonic** | ✅ Stream, cache, cast, lyrics, playlists & favorites, two-way sync ([docs](docs/servers/overview.md)) |
+| **Plex** | ✅ Browse, stream & cache from your own Plex Media Server ([docs](docs/servers/plex.md)) |
 | **WebDAV / NAS** | 📝 Designed, not built yet: the implementation-ready design is in [webdav.md](./docs/webdav.md), behind the same `MusicSource` interface |
 
 ## Privacy

@@ -13,12 +13,12 @@ many people already run for their own music. A Plex `MusicSource` lets those
 users play their library in Linthra the same way Jellyfin and Navidrome/Subsonic
 users already can. Plex Media Server is the user's **own** server, not a closed
 streaming service, so it fits Linthra's "music you own or host yourself" stance
-(see [providers.md → Non-goals](providers.md)).
+(see [Music providers → Non-goals](overview.md)).
 
 This design slots **behind the existing `MusicSource` seam**
 (`lib/core/services/music_source.dart`) and the capability model
 (`lib/core/sources/music_provider.dart`) described in
-[architecture.md](architecture.md) and [providers.md](providers.md), without
+[architecture.md](../architecture.md) and [Music providers](overview.md), without
 changing any existing provider path.
 
 ## Scope — phase 1 (read-only)
@@ -169,7 +169,7 @@ provide one; the account token itself is never persisted anywhere.
 ## Token safety rules
 
 These follow the existing non-negotiables documented in
-[providers.md](providers.md) and enforced for Jellyfin/Subsonic — Plex adds one
+[Music providers](overview.md) and enforced for Jellyfin/Subsonic — Plex adds one
 extra concern (the token rides in **query params** for stream/art URLs).
 
 - **Store only the token** (prefer the server-scoped `accessToken`), encrypted
@@ -335,7 +335,7 @@ dropped and can never stall, stop, or alter playback.
 > controller uses to drive it, so Linthra appears in the dashboard but does not
 > yet react to remote play/pause/skip commands. Receiving those commands is the
 > separate **Plex Companion** protocol, designed in
-> [docs/plex-remote-control.md](plex-remote-control.md).
+> [docs/servers/plex-remote-control.md](plex-remote-control.md).
 
 ### How Plex sees a player
 
@@ -446,7 +446,7 @@ lib/core/repositories/plex_session_store.dart
 lib/data/repositories/secure_plex_session_store.dart
 lib/data/repositories/in_memory_plex_session_store.dart
 lib/features/settings/plex/  # section + controller + state + providers
-docs/plex.md
+docs/servers/plex.md
 ```
 
 ## Tests to add (mirrors the Jellyfin/Subsonic layout)
@@ -487,7 +487,7 @@ overrides.
 
 Small, incremental, each independently reviewable:
 
-1. **Design doc** — this `docs/plex.md` (endpoints, auth choice, token-scope
+1. **Design doc** — this `docs/servers/plex.md` (endpoints, auth choice, token-scope
    rule, capability matrix). **No code wiring.** ← *this PR*
 2. **DTOs + endpoints** — `plex_api.dart`, `plex_endpoints.dart`, fully
    unit-tested, no UI, no wiring.
@@ -502,7 +502,7 @@ Small, incremental, each independently reviewable:
 6. **Library selection + settings UI** — section discovery/picker,
    `plex_settings_section/controller/state`, Riverpod providers + tests.
 7. **Cover art** — `plex-thumb:` reference resolver at render time; update the
-   [providers.md](providers.md) provider matrix to add the Plex row.
+   [Music providers](overview.md) provider matrix to add the Plex row.
 8. **Real-device hardening & phase-1 polish** — the catalog sync
    (`plex_sync_controller`: a *Sync Plex library* action plus an automatic,
    coalesced sync after every committed library-selection change; the sync

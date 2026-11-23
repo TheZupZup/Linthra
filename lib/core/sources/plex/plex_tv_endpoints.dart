@@ -11,7 +11,7 @@
 /// built here, so every one of these URLs is safe to log. The auth-app URL
 /// carries the PIN [authApp]`code` — the *public* half of the handshake, not a
 /// credential (approving it requires the user's own plex.tv browser session).
-/// See docs/plex.md → Authentication.
+/// See docs/servers/plex.md → Authentication.
 abstract final class PlexTvEndpoints {
   /// The plex.tv API origin. The PIN and resources endpoints live here.
   static const String plexTvBaseUrl = 'https://plex.tv';

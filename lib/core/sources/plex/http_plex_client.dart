@@ -15,7 +15,7 @@ import 'plex_exception.dart';
 ///
 /// The only file in the app that talks to a Plex Media Server over HTTP: it sets
 /// the `Accept: application/json` header (Plex defaults to XML — see
-/// docs/plex.md → Risks), the `X-Plex-Token` header, the [PlexClientIdentity]
+/// docs/servers/plex.md → Risks), the `X-Plex-Token` header, the [PlexClientIdentity]
 /// headers, and parses the JSON `MediaContainer` envelope. The token-bearing
 /// stream/art URLs are built elsewhere ([PlexEndpoints]); the API calls here
 /// keep the token in a header, so the URLs they build are token-free and safe to

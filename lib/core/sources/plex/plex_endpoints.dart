@@ -6,7 +6,7 @@ import 'plex_api.dart';
 ///  - the (future) HTTP client, music source, and track mapper never embed raw
 ///    path strings, so a path can't quietly drift between two call sites;
 ///  - the exact set of endpoints Linthra depends on is auditable from this one
-///    file (kept in sync with docs/plex.md);
+///    file (kept in sync with docs/servers/plex.md);
 ///  - the token-bearing stream and cover-art URLs are built by the same pure,
 ///    tested helpers, so the "weave the token into the query, on demand, never
 ///    store it" rule — and the matching redaction — live in a single spot.
@@ -23,7 +23,7 @@ import 'plex_api.dart';
 /// layers, which can't set headers, so they must carry the token as a **query
 /// param** — a bigger leak surface. Those two builders are the *only* place a
 /// token enters a Plex URL, and [redactToken] is the matching guard for any code
-/// that logs one. See docs/plex.md → Token safety rules.
+/// that logs one. See docs/servers/plex.md → Token safety rules.
 abstract final class PlexEndpoints {
   // --- Path templates: the only place these strings are written. ---
   static const String _identityPath = '/identity';

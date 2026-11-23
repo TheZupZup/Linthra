@@ -12,7 +12,7 @@ import '../../models/track.dart';
 ///
 /// Security: a Plex stream URL carries the `X-Plex-Token` in its **query** (the
 /// audio engine can't set headers), so it is minted here on demand, at play
-/// time, and never stored on [track]. See docs/plex.md → Token safety rules.
+/// time, and never stored on [track]. See docs/servers/plex.md → Token safety rules.
 abstract interface class PlexStreamSource {
   /// Confirms the session is still valid and the server reachable. Throws a
   /// `PlexException` (unauthorized / not reachable / …) when it is not.

@@ -14,7 +14,7 @@ docker compose -f tools/dev/navidrome/docker-compose.yml up -d
 #    URL: http://<your-LAN-IP>:4533   user: admin   pass: admin
 ```
 
-See **[docs/navidrome-dev-setup.md](../../../docs/navidrome-dev-setup.md)** for
+See **[docs/servers/navidrome-dev-setup.md](../../../docs/servers/navidrome-dev-setup.md)** for
 the full walkthrough (connecting from an emulator vs. a real device, the HTTP /
 cleartext note, troubleshooting, and the manual test checklist).
 

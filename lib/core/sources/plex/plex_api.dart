@@ -11,14 +11,14 @@
 /// JSON when the client sends `Accept: application/json`. These parsers read
 /// **JSON only**; XML is deliberately unsupported in phase 1 (the future client
 /// sets the `Accept` header and maps a non-JSON body to a clear error). See
-/// docs/plex.md → Risks.
+/// docs/servers/plex.md → Risks.
 ///
 /// **No credentials here.** None of these DTOs carry, parse, or hold an
 /// `X-Plex-Token`. A Plex item's stable identity is its per-server `ratingKey`,
 /// and a track's playable bytes live behind a [PlexPart.key] *path* — neither is
 /// a credential, and the token is woven into a URL only at play/render time by
 /// the URL builders in `plex_endpoints.dart`, never stored on a DTO. See
-/// docs/plex.md → Token safety rules.
+/// docs/servers/plex.md → Token safety rules.
 ///
 /// Only the fields Linthra maps today are kept; the rest of each (large) Plex
 /// payload is ignored.

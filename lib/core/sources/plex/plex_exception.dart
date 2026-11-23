@@ -51,7 +51,7 @@ enum PlexErrorKind {
 /// *query param* for stream/art URLs, so a single leaked URL or error string
 /// would expose the whole token. The factories below intentionally carry only a
 /// status code and a generic, safe explanation — never the request URL, a
-/// header, or a response body. See docs/plex.md → Token safety rules.
+/// header, or a response body. See docs/servers/plex.md → Token safety rules.
 class PlexException implements Exception {
   const PlexException(
     this.message, {

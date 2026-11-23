@@ -2,7 +2,7 @@
 
 Linthra reports its playback to the server that owns the playing track, so it
 appears as an active player in that server's dashboard (see
-[providers.md](providers.md) and [plex.md](plex.md)). This page covers the
+[Music providers](servers/overview.md) and [plex.md](servers/plex.md)). This page covers the
 *other* direction — **receiving** remote play / pause / skip / seek commands so
 another app (or a speaker remote) can drive Linthra.
 
@@ -16,7 +16,7 @@ the app knowing how.
 | Provider | Mechanism | Status |
 | --- | --- | :--- |
 | **Jellyfin** | Outbound **control WebSocket** (`/socket`) — server pushes `Playstate` commands; client registers `SupportsMediaControl`. NAT-friendly. | ✅ Implemented |
-| **Plex** | Inbound **Companion** protocol — GDM discovery + a local HTTP server serving `/player/playback/*`. Needs an inbound socket on-device. | 🔜 Designed — see [plex-remote-control.md](plex-remote-control.md) |
+| **Plex** | Inbound **Companion** protocol — GDM discovery + a local HTTP server serving `/player/playback/*`. Needs an inbound socket on-device. | 🔜 Designed — see [plex-remote-control.md](servers/plex-remote-control.md) |
 | **Navidrome / Subsonic** | — | ❌ Not possible: the Subsonic API has **no** way for a server to push playback commands to a streaming client. Its only remote-control feature is Jukebox mode (a client commanding *server-side* playback — the inverse). |
 | **Local files** | — | ➖ Not applicable: there is no server. External control of local playback is the **system media session** (lock screen, Bluetooth, Android Auto), which Linthra already provides via `audio_service`. |
 
@@ -73,7 +73,7 @@ is contained:
 
 Follow-ups (not done here): exponential reconnect backoff and foreground-gating;
 and the Plex Companion path, whose inbound socket has its own battery profile
-(see [plex-remote-control.md](plex-remote-control.md) → Battery).
+(see [plex-remote-control.md](servers/plex-remote-control.md) → Battery).
 
 ## Security
 

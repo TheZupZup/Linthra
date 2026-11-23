@@ -6,7 +6,7 @@ import 'jellyfin_api.dart';
 ///  - the HTTP client, the music source, and the track mapper never embed raw
 ///    path strings, so a path can't quietly drift between two call sites;
 ///  - the exact set of endpoints Linthra depends on is auditable from this one
-///    file (kept in sync with docs/jellyfin-compatibility.md);
+///    file (kept in sync with docs/servers/jellyfin-compatibility.md);
 ///  - the token-bearing stream and download URLs are built by the same pure,
 ///    tested helpers, so the "weave the token into the query, on demand, never
 ///    store it" rule lives in a single spot.
@@ -47,7 +47,7 @@ abstract final class JellyfinEndpoints {
   /// — off by default — so an `api_key` media URL would arrive unauthenticated
   /// (401) on a stock Jellyfin 12 server while `ApiKey` keeps working. `ApiKey`
   /// has been accepted since well before 10.8, so this is also fully backward
-  /// compatible. See docs/jellyfin-compatibility.md.
+  /// compatible. See docs/servers/jellyfin-compatibility.md.
   static const String apiKeyParam = 'ApiKey';
 
   /// `static=true` asks Jellyfin to serve the original file bytes as-is.

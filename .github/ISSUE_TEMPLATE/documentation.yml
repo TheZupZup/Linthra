@@ -13,7 +13,7 @@ body:
     attributes:
       label: Which doc or page?
       description: A file path or URL is ideal.
-      placeholder: "e.g. docs/jellyfin.md, or the README 'Try it' section"
+      placeholder: "e.g. docs/servers/jellyfin.md, or the README 'Try it' section"
     validations:
       required: true
   - type: textarea

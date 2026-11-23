@@ -38,7 +38,7 @@ so no secret reaches the persisted catalog.
 | WebDAV / NAS          | `webdav`   |   📝   |  📝   | 📝 local  |    ❌     |   📝   |  ❌  |
 
 ✅ implemented · 🔜 planned follow-up · 📝 designed, not built
-([webdav.md](webdav.md)) · ❌ not supported by design · — not applicable.
+([webdav.md](../webdav.md)) · ❌ not supported by design · — not applicable.
 "local" favourites/playlists stay on-device; "synced" ones mirror with the
 server (server is the source of truth on refresh). WebDAV favourites are local
 because a WebDAV share has no per-user state to sync, and WebDAV cast is off
@@ -52,7 +52,7 @@ it **stores** every provider's copy of a song but **displays** one row per
 logical track, and plays the copy from your active/default provider (the server
 you most recently signed into), falling back to another source when that
 provider doesn't have the song. De-duplication is conservative and never deletes
-data. See [unified-library.md](unified-library.md) for the model, the matching
+data. See [unified-library.md](../unified-library.md) for the model, the matching
 rules, and the "Playing from …" source indicator.
 
 ## Local files
@@ -62,7 +62,7 @@ Tracks play from their on-device path. The scan **reads each file's audio tags**
 (title/artist/album/track number/duration) so a local library indexes and groups
 like a server source, falling back cleanly to the file name and
 `…/Artist/Album/Track` folders when a tag is missing — see
-[local-music.md](local-music.md). The chosen folder and the scanned catalog
+[local-music.md](../local-music.md). The chosen folder and the scanned catalog
 survive a restart. No broad storage permission is requested (tags are read
 through the same folder grant). A file's **embedded** cover art is read during
 the same scan and cached privately, so local tracks show their artwork too.
@@ -178,7 +178,7 @@ preserved. A shipped Android network-security config permits cleartext so a LAN
 No production server? A one-command local Navidrome (Docker Compose) and a manual
 test checklist live in
 **[navidrome-dev-setup.md](navidrome-dev-setup.md)** /
-[`tools/dev/navidrome/`](../tools/dev/navidrome/).
+[`tools/dev/navidrome/`](../../tools/dev/navidrome/).
 
 ### Authentication & security (token+salt)
 
@@ -305,13 +305,13 @@ can be added the same way Jellyfin and Subsonic were:
 
 - **WebDAV / NAS** (Nextcloud, Synology, QNAP, plain `mod_dav`): **designed**,
   not built yet. The full implementation-ready design lives in
-  [webdav.md](webdav.md) (issue #86): connection and auth, the app-password
+  [webdav.md](../webdav.md) (issue #86): connection and auth, the app-password
   preference, the self-signed TLS policy, track identity, the directory scan,
   streaming and seeking, artwork, offline downloads, and the proposed capability
   row. See the [summary below](#webdav--nas-designed).
 - **SMB / NAS** (native file share): a different transport with its own auth and
   native dependencies. The identity, scan and capability model in
-  [webdav.md](webdav.md) is reusable for it; the transport is not.
+  [webdav.md](../webdav.md) is reusable for it; the transport is not.
 - **DLNA / UPnP**: discover and play from a media server on the LAN.
 
 Each would implement `MusicSource` (and the narrow stream/download seams),
@@ -321,7 +321,7 @@ credentials are stored securely and never woven into a persisted URI.
 ## WebDAV / NAS (designed)
 
 WebDAV is the next provider on the roadmap and the only one with a settled
-design. It is worth reading [webdav.md](webdav.md) before starting any of it,
+design. It is worth reading [webdav.md](../webdav.md) before starting any of it,
 because a few decisions are not obvious:
 
 - **WebDAV is a file protocol, not a music API.** There is no server-side song

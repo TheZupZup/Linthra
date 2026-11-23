@@ -47,7 +47,7 @@ import 'plex_sync_controller.dart';
 /// [PlexServerChoice]s instead) and are released the moment the flow ends —
 /// connected, cancelled, or failed. Every error message surfaced through the
 /// state comes from a static, token-free [PlexException] factory. See
-/// docs/plex.md → Token safety rules.
+/// docs/servers/plex.md → Token safety rules.
 class PlexSettingsController extends Notifier<PlexSettingsState> {
   PlexSession? _session;
   late final Future<void> _initialLoad;
@@ -1153,7 +1153,7 @@ final plexSettingsControllerProvider =
 /// connected.
 ///
 /// The "register the provider" seam of the Plex plan (issue #178 /
-/// docs/plex.md): the playback router and the render-time artwork resolver
+/// docs/servers/plex.md): the playback router and the render-time artwork resolver
 /// read this, so `plex:<ratingKey>` track URIs and `plex-thumb:` artwork
 /// references resolve end to end once a session exists. With no session it
 /// stays `null` — every `plex:` track fails resolution with a friendly "not

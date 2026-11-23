@@ -6,7 +6,7 @@
 /// "you're on a newer major version we haven't validated yet".
 ///
 /// It must never be used to branch request behavior — the endpoints Linthra
-/// uses (see [JellyfinEndpoints] and docs/jellyfin-compatibility.md) are stable
+/// uses (see [JellyfinEndpoints] and docs/servers/jellyfin-compatibility.md) are stable
 /// across the Jellyfin 10.x line and into Jellyfin 12, so there is no need for
 /// version-sniffing hacks, and adding them would be exactly the kind of fragile
 /// coupling this hardening pass is meant to avoid.

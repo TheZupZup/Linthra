@@ -14,7 +14,7 @@ import 'plex_tv_api.dart';
 /// the account token — where one is needed at all — as the `X-Plex-Token`
 /// **header**, never in a URL. Every failure becomes a `PlexException` whose
 /// message is static and token-free; no token (account or server-scoped) may
-/// ever reach an exception, a log, or any other output. See docs/plex.md →
+/// ever reach an exception, a log, or any other output. See docs/servers/plex.md →
 /// Token safety rules.
 abstract interface class PlexTvClient {
   /// Mints a new sign-in PIN via `POST /api/v2/pins?strong=true`. No token is
