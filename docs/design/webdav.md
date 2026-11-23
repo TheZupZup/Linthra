@@ -7,7 +7,7 @@ is that a contributor can pick up any one of the steps in
 [Suggested PR split](#suggested-pr-split) and implement it without having to
 re-decide anything architectural.
 
-It follows the same shape [plex.md](servers/plex.md) did before Plex was built: settle
+It follows the same shape [plex.md](../servers/plex.md) did before Plex was built: settle
 the auth model, the identity model, and the secret rules on paper first, then
 build in small reviewable pieces.
 
@@ -732,7 +732,7 @@ a defined fallback:
   unsupported for now (consistent with the Linux target already being documented
   as incomplete) while Linux WebDAV **downloads** still work, since the
   downloader does its own HTTP. The capability model cannot express "streams on
-  Android only", so this is documented in [Linux desktop](linux/desktop.md)
+  Android only", so this is documented in [Linux desktop](../linux/desktop.md)
   and surfaced as a typed, friendly playback error on Linux rather than a silent
   failure.
 
@@ -895,7 +895,7 @@ case, and it is the case that decides whether this provider is usable.
 
 ## Credential-safe logs, diagnostics and persistence
 
-The invariant list, stated the way [Music providers](servers/overview.md) states it for the
+The invariant list, stated the way [Music providers](../servers/overview.md) states it for the
 other providers, with the two WebDAV-specific entries called out:
 
 Linthra must:
@@ -1024,14 +1024,14 @@ than by this doc:
    namespaces), entity handling and malformed bodies.
 
 Either way the parse lives behind one seam with its own tests, and
-[Dependency & license audit](audits/dependency-licenses.md) is updated in the same
+[Dependency & license audit](../audits/dependency-licenses.md) is updated in the same
 PR if a declaration is added. Nothing is added for experimentation, and nothing
 is added by this design PR.
 
 ## Proposed file layout
 
 Mirrors the Jellyfin/Subsonic/Plex shape, which is the shape
-[codebase-tour.md](development/codebase-tour.md) explicitly tells a WebDAV contributor to
+[codebase-tour.md](../development/codebase-tour.md) explicitly tells a WebDAV contributor to
 copy.
 
 ```
@@ -1063,7 +1063,7 @@ lib/core/repositories/webdav_session_store.dart
 lib/data/repositories/secure_webdav_session_store.dart
 lib/data/repositories/in_memory_webdav_session_store.dart
 lib/features/settings/webdav/   # section + controller + state + providers
-docs/webdav.md                  # this document
+docs/design/webdav.md                  # this document
 ```
 
 ## Tests to add
@@ -1199,7 +1199,7 @@ Honest list. None of these blocks starting; each has a defined fallback.
 | **Self-signed pinning is new security-sensitive code.** | A bug here could weaken TLS. | Scoped to one client instance for one host, exact fingerprint match only, fails closed on any change, covered by the pinning tests above, and reviewed as its own PR (PR 2). |
 | **v1 has no durations and no real tags**, so the library looks thinner than a Jellyfin one. | Weak first impression; no cross-provider dedupe yet. | PR 5 is the fix and should follow quickly. Consider shipping PRs 2 to 4 behind a settings flag until PR 5 lands if the first impression matters more than early feedback. |
 | **Large-library scan cost** over a slow link. | Long first sync. | Progressive writes, off-isolate parse, skip-unchanged, bounded concurrency, cancellable and resumable. Measure against a 20k-file fixture before PR 3 is called done. |
-| **Server quirk variety** is the long tail (double-encoded `href`s, `Depth` refusals, mis-reported ranges, `octet-stream` for everything). | Works for the author, breaks for a user. | Capture real response bodies from each target family as test fixtures, which is cheap and is what makes the parser trustworthy. A compatibility page like [jellyfin-compatibility.md](servers/jellyfin-compatibility.md) should grow from real reports. |
+| **Server quirk variety** is the long tail (double-encoded `href`s, `Depth` refusals, mis-reported ranges, `octet-stream` for everything). | Works for the author, breaks for a user. | Capture real response bodies from each target family as test fixtures, which is cheap and is what makes the parser trustworthy. A compatibility page like [jellyfin-compatibility.md](../servers/jellyfin-compatibility.md) should grow from real reports. |
 | **Cast stays off permanently.** | A user with a Chromecast cannot cast their NAS music. | Correct and intentional: casting would require a credential in a URL. Documented as a deliberate non-goal, with "download it, then cast from a provider that supports it" as the honest answer. |
 
 ## Notes

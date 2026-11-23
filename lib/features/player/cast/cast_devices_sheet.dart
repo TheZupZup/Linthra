@@ -268,7 +268,7 @@ class _DeviceTileState extends ConsumerState<_DeviceTile> {
   /// cannot see (the next connection trusts whichever receiver answers, exactly
   /// as a first use does), so it is confirmed rather than done on a tap, and
   /// the dialog says what it costs. Nothing in the trust path calls this: see
-  /// [CastReceiverPinStore.forget] and docs/cast-hardened-design.md.
+  /// [CastReceiverPinStore.forget] and docs/design/cast-hardened.md.
   Future<void> _forget() async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     final String name = widget.device.name;

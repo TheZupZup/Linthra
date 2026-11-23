@@ -1,7 +1,7 @@
 # Receiver trust (what has to be true before casting comes back)
 
 Casting is switched off in shipped builds while a reported security issue is
-resolved ([cast.md](features/cast.md#temporary-containment)). This page is the public
+resolved ([cast.md](../features/cast.md#temporary-containment)). This page is the public
 half of what restoring it requires: the trust model, the contract the code
 already enforces, the implementation choices on the table, and the tests that
 have to pass. It tracks
@@ -104,7 +104,7 @@ loaded, and no refusal message carries anything from the handshake.
 ## Choosing an implementation
 
 The restoration needs something that actually performs the handshake.
-[cast-hardened-design.md](cast-hardened-design.md) works that through in detail:
+[How casting could actually work again (the hardened design)](cast-hardened.md) works that through in detail:
 the device-authentication exchange step by step, the two pinned Cast roots with
 their digests, why the current dependency's protocol definitions cannot express
 the modern challenge at all, where the certificate-path validation would come
@@ -121,7 +121,7 @@ Whichever is chosen, the review has to cover: the trust anchors used to validate
 a receiver certificate and how they are updated; protocol compatibility with
 supported devices; the dependency's provenance (publisher, pinning in
 `pubspec.lock`, and — if vendored — placement under `third_party/` with the
-license audit in [Dependency & license audit](audits/dependency-licenses.md));
+license audit in [Dependency & license audit](../audits/dependency-licenses.md));
 and which platforms it actually supports.
 
 ## Tests the restoration has to pass
@@ -154,7 +154,7 @@ Restoring casting is one reviewed change, not a revert. It has to:
 
 - [ ] land the transport that performs the handshake and only returns
       authenticated, `ready` handles (authentication inside the transport, see
-      [cast-client-design.md](cast-client-design.md#contract-changes)), reviewed
+      [The in-repo Cast client (design)](cast-client.md#contract-changes)), reviewed
       in the advisory;
 - [ ] put the trust gate in front of the live transport in the production
       wiring, with no path around it and no runtime flag that skips it;
@@ -166,7 +166,7 @@ Restoring casting is one reviewed change, not a revert. It has to:
 - [ ] replace the device-id keying with trust by certificate fingerprint and a
       first-use confirmation, since the device id comes from unauthenticated
       discovery (see
-      [cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session));
+      [The in-repo Cast client (design)](cast-client.md#binding-to-the-receiver-and-the-session));
 - [ ] flip `CastContainment.isActive` and update the production wiring, the
       transport guards, `scripts/check_cast_containment.py` and
       `scripts/verify_release_containment.py` together — the containment
@@ -179,7 +179,7 @@ Restoring casting is one reviewed change, not a revert. It has to:
 - [ ] offer the reporter a review through the advisory before production
       availability returns;
 - [ ] ship as its own release, separate from the containment release recorded in
-      [release-artifact-verification.md](distribution/release-artifact-verification.md).
+      [release-artifact-verification.md](../distribution/release-artifact-verification.md).
 
 Until every box is ticked, the safeguard stays. A partially reviewed
 restoration, a debug-only bypass, or a "temporarily re-enable to test on a

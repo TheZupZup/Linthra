@@ -28,11 +28,11 @@ The full index of Linthra's docs. New to the project? Start with the
 | Music providers (overview) | [Music providers](servers/overview.md) |
 | Jellyfin setup | [jellyfin.md](servers/jellyfin.md) · [compatibility](servers/jellyfin-compatibility.md) · [sync](servers/jellyfin-sync.md) |
 | Plex setup | [plex.md](servers/plex.md) |
-| WebDAV / NAS provider (design) | [webdav.md](./webdav.md) |
+| WebDAV / NAS provider (design) | [webdav.md](design/webdav.md) |
 | Streaming, buffering & recovery | [streaming.md](features/streaming.md) |
 | Queue / Up Next | [queue.md](features/queue.md) |
 | Offline cache & downloads | [offline-cache.md](features/offline-cache.md) |
-| Cast / Chromecast | [cast.md](features/cast.md) · [receiver trust](./cast-receiver-trust.md) · [hardened design](./cast-hardened-design.md) · [what a handoff delegates](./cast-media-access.md) · [client design](./cast-client-design.md) |
+| Cast / Chromecast | [cast.md](features/cast.md) · [receiver trust](design/cast-receiver-trust.md) · [hardened design](design/cast-hardened.md) · [what a handoff delegates](design/cast-media-access.md) · [client design](design/cast-client.md) |
 | Remote control (drive Linthra from another app) | [remote-control.md](features/remote-control.md) |
 | Android Auto | [android-auto.md](features/android-auto.md) |
 | Playlists & safe removal | [playlists-and-delete.md](features/playlists-and-delete.md) |

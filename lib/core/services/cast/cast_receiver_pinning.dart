@@ -16,7 +16,7 @@ import 'package:flutter/foundation.dart';
 /// used, the fingerprint of the certificate it proved itself with is recorded
 /// against it; every later connection has to present the same one. It is
 /// trust-on-first-use, with all of that model's limits (see
-/// docs/cast-hardened-design.md), and it is still the difference between
+/// docs/design/cast-hardened.md), and it is still the difference between
 /// noticing a swapped receiver and never being able to.
 ///
 /// Fingerprints are not secrets. They are digests of a certificate the device
@@ -54,7 +54,7 @@ abstract interface class CastReceiverPinStore {
 /// This is the default so that the absence of a configured store can never mean
 /// the absence of pinning: the worst case is a shorter memory, not a missing
 /// check. A restored cast feature is expected to supply a persistent store; see
-/// docs/cast-hardened-design.md.
+/// docs/design/cast-hardened.md.
 class InMemoryCastReceiverPinStore implements CastReceiverPinStore {
   InMemoryCastReceiverPinStore();
 

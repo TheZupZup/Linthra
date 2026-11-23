@@ -84,7 +84,7 @@ lib/
   provider supports (`canStream` / `canCache` / `canFavorite` / `canLyrics` /
   `canCast`) so the UI offers only the actions that work. `WebDavMusicSource`
   slots in the same way later: its design (auth, identity, scan, streaming,
-  secrets) is settled in [webdav.md](../webdav.md), and it deliberately reuses the
+  secrets) is settled in [webdav.md](../design/webdav.md), and it deliberately reuses the
   local-file scanner's shape rather than introducing a second library. See
   [Music providers](../servers/overview.md).
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache

@@ -181,7 +181,7 @@ independent protocols, so the duplication is healthy, not accidental. If you're
 adding **WebDAV/NAS**, copy that shape: implement `MusicSource`, declare your
 capabilities, and let the rest of the app stay unchanged. WebDAV already has a
 full design to build against, including its file layout and a PR-by-PR split:
-[webdav.md](../webdav.md). Read it first, because WebDAV has no server-side track
+[webdav.md](../design/webdav.md). Read it first, because WebDAV has no server-side track
 ids and borrows most of its shape from `local/` rather than from the server
 providers.
 
