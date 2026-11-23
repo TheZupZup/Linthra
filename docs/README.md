@@ -1,85 +1,48 @@
 # Linthra documentation
 
-The full index of Linthra's docs. New to the project? Start with the
-[main README](../README.md) for an overview, then
-[CONTRIBUTING.md](../CONTRIBUTING.md) for setup.
+New to the project? Start with the [main README](../README.md) for an
+overview, then [CONTRIBUTING.md](../CONTRIBUTING.md) to set up a build.
 
-## Getting started & contributing
+The docs are grouped by who they are for. Each folder has its own README that
+lists every page in it.
+
+| Folder | What is in it |
+| --- | --- |
+| [features/](features/README.md) | What the app does and how each part behaves: library, queue, offline cache, Android Auto, … |
+| [servers/](servers/README.md) | Connecting Jellyfin, Navidrome / Subsonic and Plex |
+| [linux/](linux/README.md) | The Linux desktop app: building it, GNOME and KDE, scaling, CDs |
+| [development/](development/README.md) | Working on the code: setup, architecture, codebase tour, testing |
+| [distribution/](distribution/README.md) | Releases and stores: signing, F-Droid, Google Play, Flatpak and Flathub |
+| [audits/](audits/README.md) | Privacy, licences, sandbox and repository security, with the evidence |
+| [design/](design/README.md) | Plans for work that has not shipped yet: bringing back Cast, WebDAV, Plex remote control |
+| [release-notes/](release-notes/) | What changed in each release |
+
+## Start here
+
+| If you want to… | Read |
+| --- | --- |
+| Use Linthra with your own server | [Music servers overview](servers/overview.md) |
+| Report a bug | [Reporting a bug](reporting-bugs.md) |
+| Build Linthra yourself | [Setup](development/setup.md) |
+| Find your way around the code | [Codebase tour](development/codebase-tour.md) · [Architecture](development/architecture.md) |
+| Help out | [Contributor roadmap](development/contributor-roadmap.md) · [Contributing by language](development/language-areas.md) |
+| Cut a release | [Release process](distribution/release-process.md) · [Flathub updates](distribution/flatpak/flathub-update-process.md) |
+| See where Linthra is going | [Product roadmap](roadmap.md) |
+
+## Project
 
 | Topic | Doc |
 | --- | --- |
-| Contributing & setup | [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| Development, build & CI | [Development](development/setup.md) |
-| Linux desktop build (experimental) | [Linux desktop](linux/desktop.md) |
-| Flatpak development (Fedora Atomic) | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
-| Codebase tour (where everything lives) | [codebase-tour.md](development/codebase-tour.md) |
-| Architecture & extension points | [architecture.md](development/architecture.md) |
-| Where to help (contributor roadmap) | [contributor-roadmap.md](development/contributor-roadmap.md) |
-| Product roadmap (phased direction) | [roadmap.md](./roadmap.md) |
-| Supporting Linthra (optional supporter model) | [SUPPORT.md](./SUPPORT.md) |
-
-## Features
-
-| Topic | Doc |
-| --- | --- |
-| Library browsing & search | [library.md](features/library.md) |
-| Local music (on-device folders) | [local-music.md](features/local-music.md) |
-| Optical media detection (Linux) | [optical-media.md](linux/optical-media.md) |
-| Music providers (overview) | [Music providers](servers/overview.md) |
-| Jellyfin setup | [jellyfin.md](servers/jellyfin.md) · [compatibility](servers/jellyfin-compatibility.md) · [sync](servers/jellyfin-sync.md) |
-| Plex setup | [plex.md](servers/plex.md) |
-| WebDAV / NAS provider (design) | [webdav.md](design/webdav.md) |
-| Streaming, buffering & recovery | [streaming.md](features/streaming.md) |
-| Queue / Up Next | [queue.md](features/queue.md) |
-| Offline cache & downloads | [offline-cache.md](features/offline-cache.md) |
-| Cast / Chromecast | [cast.md](features/cast.md) · [receiver trust](design/cast-receiver-trust.md) · [hardened design](design/cast-hardened.md) · [what a handoff delegates](design/cast-media-access.md) · [client design](design/cast-client.md) |
-| Remote control (drive Linthra from another app) | [remote-control.md](features/remote-control.md) |
-| Android Auto | [android-auto.md](features/android-auto.md) |
-| Playlists & safe removal | [playlists-and-delete.md](features/playlists-and-delete.md) |
-| Smart mixes (automatic playlists) | [smart-mixes.md](features/smart-mixes.md) |
-| Backup & restore (file format) | [backup-restore-format.md](features/backup-restore-format.md) |
-| Battery usage | [battery.md](features/battery.md) · [playback audit](audits/battery-playback.md) |
-| App icon & branding (in-app + real Android launcher icon) | [app-icon-branding.md](features/app-icon-branding.md) |
-
-## Quality & releases
-
-| Topic | Doc |
-| --- | --- |
-| Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
-| Manual QA checklist | [manual-test-checklist.md](development/manual-test-checklist.md) |
-| Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](features/accessibility.md) |
-| GNOME & KDE Plasma compatibility matrix | [GNOME and KDE Plasma compatibility matrix](linux/compatibility-matrix.md) |
-| Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](linux/hidpi-and-scaling.md) |
+| Supporting Linthra | [SUPPORT.md](SUPPORT.md) |
+| Privacy policy | [privacy-policy.md](privacy-policy.md) |
+| Privacy audit status | [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) |
+| Security policy | [SECURITY.md](../SECURITY.md) |
+| Branding and trademarks | [TRADEMARKS.md](../TRADEMARKS.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
-| Release process & signing | [release-process.md](distribution/release-process.md) · [signing](distribution/release-signing.md) · [artifact verification](distribution/release-artifact-verification.md) |
-| Dependency update bots | [dependency-updates.md](development/dependency-updates.md) |
-| PR security surface guard | [pr-security-guard.md](audits/pr-security-guard.md) |
-| Tracker dependency audit (no ads/analytics/telemetry SDKs) | [Tracker dependency audit](audits/tracker-dependencies.md) |
-| Fixed network destinations (every host the shipped code names) | [network-destinations.md](audits/network-destinations.md) |
-| Privacy audit status (what is checked, and the limits) | [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) |
-| F-Droid readiness | [F-Droid readiness checklist](distribution/f-droid/readiness.md) |
-| Google Play readiness | [Google Play readiness checklist](distribution/google-play/readiness.md) |
-| Flatpak build CI | [Flatpak CI validation](distribution/flatpak/ci.md) |
-| Flatpak audio playback smoke | [Flatpak audio playback smoke](distribution/flatpak/audio-smoke.md) |
-| Flatpak local-library sandbox smoke | [Flatpak local-library sandbox smoke](distribution/flatpak/local-library-smoke.md) |
-| Flatpak sandbox filesystem audit | [Flatpak filesystem sandbox audit](audits/flatpak-filesystem.md) |
-| Flatpak permission audit | [flatpak-permissions.md](audits/flatpak-permissions.md) |
-| Flatpak source pinning & refresh | [Flatpak source pinning](distribution/flatpak/source-pinning.md) |
-| Flathub builder lint | [flathub-builder-lint.md](distribution/flatpak/flathub-builder-lint.md) |
-| Flathub screenshots | [flathub-screenshots.md](distribution/flatpak/flathub-screenshots.md) |
-| Flathub updates (release to published Flatpak) | [flathub-update-process.md](distribution/flatpak/flathub-update-process.md) |
 
-## Licensing & legal
+## Licence
 
-Linthra is **AGPL-3.0-or-later**. Releases up to and including v0.2.4 were
-published under MPL-2.0 and remain under those terms.
-
-| Topic | Doc |
-| --- | --- |
-| Current license (GNU AGPLv3) | [LICENSE](../LICENSE) |
-| Historical license texts | [licenses/](./licenses/README.md) · [MPL-2.0.txt](./licenses/MPL-2.0.txt) |
-| License transition record | [license-transition.md](audits/license-transition.md) |
-| Contributor consent record | [relicensing-consent.md](audits/relicensing-consent.md) |
-| Dependency & license audit | [Dependency & license audit](audits/dependency-licenses.md) |
-| Branding / trademark policy | [TRADEMARKS.md](../TRADEMARKS.md) |
-| Privacy policy | [privacy-policy.md](./privacy-policy.md) |
+Linthra is **AGPL-3.0-or-later** ([LICENSE](../LICENSE)). Releases up to and
+including v0.2.4 were published under MPL-2.0 and remain under those terms;
+the old texts are in [licenses/](licenses/README.md), and the
+[licence transition](audits/license-transition.md) records the change.

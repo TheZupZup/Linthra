@@ -8,7 +8,7 @@
 > or change playback, and it keeps Plex **read-only from the library's
 > perspective** (no playlist or favorites editing). It is the design counterpart
 > to
-> [docs/servers/plex.md → Playback reporting / Now Playing](plex.md#playback-reporting--now-playing-shipped-after-phase-1),
+> [docs/servers/plex.md → Playback reporting / Now Playing](../servers/plex.md#playback-reporting--now-playing-shipped-after-phase-1),
 > which shipped one-way timeline reporting; this is its symmetric follow-up.
 >
 > **Update:** the provider-neutral remote-control seam this design proposes has
@@ -170,7 +170,7 @@ would be worse than today:
 
 So there is **no safe, independently-useful one-PR version**. This matches how
 the Plex provider itself was introduced — a design doc first (this file), then a
-sequence of small PRs (see [docs/servers/plex.md → Suggested PR steps](plex.md#suggested-pr-steps)).
+sequence of small PRs (see [docs/servers/plex.md → Suggested PR steps](../servers/plex.md#suggested-pr-steps)).
 The breakdown below keeps each PR reviewable and never ships a misleading
 half-state.
 
@@ -280,7 +280,7 @@ foreground-service window — it rides the one playback already owns.
 Small, incremental, each independently reviewable, and **none ships a state
 where the server offers controls that don't work**:
 
-1. **Design doc** — this `docs/servers/plex-remote-control.md`. **No code.** ← *this PR*
+1. **Design doc** — this `docs/design/plex-remote-control.md`. **No code.** ← *this PR*
 2. **Neutral command seam (no I/O, no advertisement).** `RemoteCommand` enum +
    `RemoteControlReceiver` / `NoOpRemoteControlReceiver` contract +
    `RemoteControlService` that maps commands → `PlaybackController`. Fully

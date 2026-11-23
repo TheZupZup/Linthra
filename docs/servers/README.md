@@ -26,4 +26,3 @@ overview; each server then has its own page.
 | Document | What it covers |
 | --- | --- |
 | [Plex](plex.md) | The Plex music provider |
-| [Plex remote control](plex-remote-control.md) | Receiving Plex Companion remote-playback commands |
