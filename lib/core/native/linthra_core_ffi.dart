@@ -142,3 +142,76 @@ external Pointer<Uint32> linthraMatchResultsPositions(
   symbol: 'linthra_match_results_free',
 )
 external void linthraMatchResultsFree(Pointer<LinthraMatchResults> results);
+
+/// `EvictionResult` on the Rust side (native/linthra_core/src/ffi/cache_eviction.rs).
+final class LinthraEvictionResult extends Opaque {}
+
+/// The per-entry flags [linthraEvictionPlan] reads, as in
+/// native/linthra_core/src/ffi/cache_eviction.rs.
+abstract final class LinthraEvictionFlag {
+  static const int managed = 1;
+  static const int pinned = 1 << 1;
+  static const int preloaded = 1 << 2;
+  static const int hasLastAccessed = 1 << 3;
+  static const int hasCachedAt = 1 << 4;
+}
+
+@Native<
+    Pointer<LinthraEvictionResult> Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Size,
+      Pointer<Uint32>,
+      Int64,
+      Int64,
+      Bool,
+    )>(symbol: 'linthra_eviction_plan', isLeaf: true)
+external Pointer<LinthraEvictionResult> linthraEvictionPlan(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Int64> sizes,
+  Pointer<Int64> lastAccessed,
+  Pointer<Int64> cachedAt,
+  Pointer<Uint8> flags,
+  int count,
+  Pointer<Uint32> protectSpans,
+  int protectCount,
+  Pointer<Uint32> incomingSpan,
+  int incomingBytes,
+  int maxBytes,
+  bool onlyPreloaded,
+);
+
+@Native<Bool Function(Pointer<LinthraEvictionResult>)>(
+  symbol: 'linthra_eviction_result_fits',
+  isLeaf: true,
+)
+external bool linthraEvictionResultFits(Pointer<LinthraEvictionResult> result);
+
+@Native<Size Function(Pointer<LinthraEvictionResult>)>(
+  symbol: 'linthra_eviction_result_len',
+  isLeaf: true,
+)
+external int linthraEvictionResultLen(Pointer<LinthraEvictionResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraEvictionResult>)>(
+  symbol: 'linthra_eviction_result_indices',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraEvictionResultIndices(
+  Pointer<LinthraEvictionResult> result,
+);
+
+@Native<Void Function(Pointer<LinthraEvictionResult>)>(
+  symbol: 'linthra_eviction_result_free',
+  isLeaf: true,
+)
+external void linthraEvictionResultFree(Pointer<LinthraEvictionResult> result);

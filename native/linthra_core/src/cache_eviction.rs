@@ -27,17 +27,19 @@ use std::collections::HashSet;
 /// A cached track's identity: its provider's URI scheme and its id there. Two
 /// providers can use the same id for different songs, so both halves count. A
 /// track with no scheme has an empty `source`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CacheKey {
-    pub source: String,
-    pub id: String,
+///
+/// Borrowed, so a plan over a large cache copies no strings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CacheKey<'a> {
+    pub source: &'a str,
+    pub id: &'a str,
 }
 
-impl CacheKey {
-    pub fn new(source: Option<&str>, id: &str) -> Self {
+impl<'a> CacheKey<'a> {
+    pub fn new(source: Option<&'a str>, id: &'a str) -> Self {
         Self {
-            source: source.unwrap_or_default().to_owned(),
-            id: id.to_owned(),
+            source: source.unwrap_or_default(),
+            id,
         }
     }
 }
@@ -45,8 +47,8 @@ impl CacheKey {
 /// What the policy needs to know about one cached track. Times are opaque
 /// instants in one unit (the caller picks it); `None` means never.
 #[derive(Clone, Debug)]
-pub struct CachedEntry {
-    pub key: CacheKey,
+pub struct CachedEntry<'a> {
+    pub key: CacheKey<'a>,
     /// Whether Linthra owns the file, so deleting it frees app-managed space.
     pub managed: bool,
     pub size_bytes: i64,
@@ -58,15 +60,15 @@ pub struct CachedEntry {
 
 /// The tracks a download asks the policy to keep, and what it is downloading.
 #[derive(Clone, Debug, Default)]
-pub struct EvictionRequest {
+pub struct EvictionRequest<'a> {
     pub incoming_bytes: i64,
     pub max_bytes: i64,
     /// Never evicted: the track playing and the ones about to play.
-    pub protected: HashSet<CacheKey>,
+    pub protected: HashSet<CacheKey<'a>>,
     /// Only automatic pre-caches may go.
     pub only_preloaded: bool,
     /// The track being downloaded, when it may already have a copy.
-    pub incoming: Option<CacheKey>,
+    pub incoming: Option<CacheKey<'a>>,
 }
 
 /// The policy's answer: indices into the cached entries, in the order to
@@ -163,7 +165,7 @@ fn oldest_first(a: Option<i64>, b: Option<i64>) -> Ordering {
 mod tests {
     use super::*;
 
-    fn entry(id: &str, size: i64, accessed: Option<i64>) -> CachedEntry {
+    fn entry(id: &str, size: i64, accessed: Option<i64>) -> CachedEntry<'_> {
         CachedEntry {
             key: CacheKey::new(Some("jellyfin"), id),
             managed: true,
@@ -206,10 +208,8 @@ mod tests {
     fn ids_compare_by_utf16_code_units() {
         // U+FF5E is one UTF-16 unit; U+1F600 is a surrogate pair starting
         // 0xD83D. UTF-16 puts the emoji first, UTF-8 the other way round.
-        let mut a = entry("\u{FF5E}", 10, None);
-        let mut b = entry("\u{1F600}", 10, None);
-        a.key.source.clear();
-        b.key.source.clear();
+        let a = entry("\u{FF5E}", 10, None);
+        let b = entry("\u{1F600}", 10, None);
         assert_eq!(evict_first(&b, &a), Ordering::Less);
     }
 }
