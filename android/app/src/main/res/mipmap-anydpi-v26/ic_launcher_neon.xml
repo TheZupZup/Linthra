@@ -3,7 +3,7 @@
      Adaptive launcher icon for the "neon" branding variant:
      the shared dark squircle background with this variant's equalizer
      foreground. Selected at runtime via the matching <activity-alias>
-     in AndroidManifest.xml; see docs/app-icon-branding.md. -->
+     in AndroidManifest.xml; see docs/features/app-icon-branding.md. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_neon_foreground" />

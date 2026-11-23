@@ -6,7 +6,7 @@ needed for either. Any other native platform folder (`windows/`, `macos/`, …)
 would be generated locally, and none is a target today.
 
 > Building for the Linux desktop? Start with
-> [Linux desktop](linux/desktop.md) — required native packages, how to run
+> [Linux desktop](../linux/desktop.md) — required native packages, how to run
 > from source, and what is intentionally unsupported so far (playback, most of
 > all). Android is the platform Linthra ships on; Linux is not production-ready
 > yet.
@@ -21,11 +21,11 @@ of repeating the values, so a bump is a one-line edit:
 
 | Tool | Pinned version | Source of truth |
 | ---- | -------------- | --------------- |
-| Flutter SDK | Flutter 3.47.5 (`stable`) | [`.flutter-version`](../.flutter-version) |
-| JDK | JDK 17 (Temurin in CI) | [`.java-version`](../.java-version) |
-| Gradle | Gradle 9.3.1 | [`android/gradle/wrapper/gradle-wrapper.properties`](../android/gradle/wrapper/gradle-wrapper.properties) |
-| Android Gradle Plugin | AGP 9.1.1 | [`android/settings.gradle`](../android/settings.gradle) |
-| Kotlin Gradle plugin | Kotlin 2.4.21 | [`android/settings.gradle`](../android/settings.gradle) |
+| Flutter SDK | Flutter 3.47.5 (`stable`) | [`.flutter-version`](../../.flutter-version) |
+| JDK | JDK 17 (Temurin in CI) | [`.java-version`](../../.java-version) |
+| Gradle | Gradle 9.3.1 | [`android/gradle/wrapper/gradle-wrapper.properties`](../../android/gradle/wrapper/gradle-wrapper.properties) |
+| Android Gradle Plugin | AGP 9.1.1 | [`android/settings.gradle`](../../android/settings.gradle) |
+| Kotlin Gradle plugin | Kotlin 2.4.21 | [`android/settings.gradle`](../../android/settings.gradle) |
 
 `scripts/setup_flutter.sh` and the shared `.github/actions/setup-flutter` action
 both install the Flutter version from `.flutter-version`; every workflow that
@@ -65,7 +65,7 @@ update `PATH` just to run it.
 
 `scripts/verify_linux.sh` is the desktop twin: the same shared checks plus the
 Linux runner configuration check, the native audio lifecycle smoke test, and
-`flutter build linux --release`. See [Linux desktop](linux/desktop.md).
+`flutter build linux --release`. See [Linux desktop](../linux/desktop.md).
 
 ### What `verify_android.sh` does
 
@@ -152,7 +152,7 @@ The repo holds source and the committed `android/` and `linux/` scaffolds only
 - **Dart/Flutter caches and build output** — `.dart_tool/`, `build/`,
   `linux/flutter/ephemeral/`, etc.
 - **The Linux native toolchain** (clang/cmake/ninja/GTK/libsecret) — installed
-  from your distribution; see [Linux desktop](linux/desktop.md).
+  from your distribution; see [Linux desktop](../linux/desktop.md).
 
 CI installs Flutter via the `subosito/flutter-action` GitHub Action rather than
 these scripts, but reads the **same** `.flutter-version` file to decide which
@@ -175,7 +175,7 @@ do not.
 - **Linux build/runtime dependencies missing** — `./scripts/verify_linux.sh`
   names the packages (including the libmpv runtime) it could not find and
   skips only the audio smoke test and the build step;
-  [Linux desktop](linux/desktop.md) lists them per distribution.
+  [Linux desktop](../linux/desktop.md) lists them per distribution.
 - **`dart format` mismatch** — run `dart format .` to apply the formatter, then
   commit the result. CI uses `--set-exit-if-changed`, so unformatted code fails.
   Make sure you're on the pinned Flutter — a newer Dart can reformat differently.
@@ -190,7 +190,7 @@ do not.
 
 You need a working Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set) and a
 JDK that matches the bundled Gradle wrapper — use the pinned **JDK 17** from
-[`.java-version`](../.java-version), the same one CI installs for the Gradle
+[`.java-version`](../../.java-version), the same one CI installs for the Gradle
 9.3.1 / Android Gradle Plugin 9.1.1 the project pins. Run `flutter doctor` to
 confirm your toolchain.
 
@@ -244,7 +244,7 @@ debug-signed preview can never be mistaken for a production release
 (`alpha`/`beta`/`rc`) attach to a GitHub **pre-release** (created if absent);
 stable tags **require release signing** and only attach to a Release you created
 manually. Full versioning/tagging flow is in
-[release-process.md](distribution/release-process.md).
+[release-process.md](../distribution/release-process.md).
 
 ### Versioning
 
@@ -252,7 +252,7 @@ Local `flutter build`/`flutter run` use the `pubspec.yaml` version, and so does
 the in-app **Settings ▸ About** version (`AppInfo.version`). A **tagged** release
 build instead derives the version from the tag and bakes it into both the
 APK/AAB metadata and the in-app display, so they always match — see
-[release-process.md §1](distribution/release-process.md#1-versioning-model).
+[release-process.md §1](../distribution/release-process.md#1-versioning-model).
 
 Preview what a tag maps to, or reproduce a tag build locally:
 
@@ -277,7 +277,7 @@ is present does it sign with the release key; otherwise it falls back to the
 **debug** key so `flutter run --release` still works. **No signing keys or
 secrets are committed.** Required secrets, keystore generation/rotation, and how
 this relates to F-Droid (which signs its own builds) are in
-[release-signing.md](distribution/release-signing.md).
+[release-signing.md](../distribution/release-signing.md).
 
 ## Continuous integration
 
@@ -314,7 +314,7 @@ against the reviewed policy in `scripts/tracker_policy.json`. If it fails on you
 branch, a dependency you added — or something underneath it — matches a known
 advertising, analytics, attribution, telemetry or crash-reporting SDK. The output
 names the dependency, the file it came in through and why it is on the list;
-[Tracker dependency audit](audits/tracker-dependencies.md) covers what the
+[Tracker dependency audit](../audits/tracker-dependencies.md) covers what the
 check does and does not prove, and how to review a finding.
 
 The third one lists every host name and IP address written into the source
@@ -322,7 +322,7 @@ Linthra ships and compares them against `scripts/network_destinations.json`. If
 it fails on your branch, you added a URL or address it has not seen before, or a
 known one in a file where it was not reviewed. Server addresses the user types in
 are never affected, and example names like `music.example.com` never need an
-entry. [network-destinations.md](audits/network-destinations.md) explains how to add
+entry. [network-destinations.md](../audits/network-destinations.md) explains how to add
 one.
 
 ### Python tooling checks (Ruff)
@@ -382,7 +382,7 @@ manifest declares:
   only for the opt-in **All music on this device** mode, requested when the
   user picks it. The legacy one is wider than audio on Android 12 and older.
 
-The full rationale is in [F-Droid readiness checklist](distribution/f-droid/readiness.md#android-permissions).
+The full rationale is in [F-Droid readiness checklist](../distribution/f-droid/readiness.md#android-permissions).
 Picking a folder needs **no** storage permission: it uses the Storage Access
 Framework grant the user picks (see [architecture.md](architecture.md#android-folder-selection-saf)).
 
@@ -395,7 +395,7 @@ foreground service and is visible to Android Auto: the manifest declares the
 `MediaButtonReceiver`, and the `com.google.android.gms.car.application` Android
 Auto media-app meta-data; `MainActivity` extends `AudioServiceActivity`. The
 notification channel id/name are set in `connectMediaSession` (`com.linthra.audio`
-/ "Linthra playback"). See [android-auto.md](features/android-auto.md) for the browse tree
+/ "Linthra playback"). See [android-auto.md](../features/android-auto.md) for the browse tree
 and testing.
 
 ## Manual smoke test on a real Android phone

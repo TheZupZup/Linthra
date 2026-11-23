@@ -1031,7 +1031,7 @@ is added by this design PR.
 ## Proposed file layout
 
 Mirrors the Jellyfin/Subsonic/Plex shape, which is the shape
-[codebase-tour.md](codebase-tour.md) explicitly tells a WebDAV contributor to
+[codebase-tour.md](development/codebase-tour.md) explicitly tells a WebDAV contributor to
 copy.
 
 ```

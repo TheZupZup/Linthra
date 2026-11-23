@@ -32,13 +32,13 @@ Choose Kotlin when Android itself is the feature. Linthra already has native cha
 
 `linux/` is the native entry point of the desktop app: a small GTK application that creates the window, sets Linthra's identity, and hands off to the Flutter engine. It is C++ because that is what the Flutter Linux embedder is; there is no Dart alternative for this layer.
 
-Keep it small. Anything that could live in Dart should — the runner exists to create a correct window and get out of the way, not to hold product logic. Its build configuration (`linux/CMakeLists.txt`) is also where native-dependency decisions land, such as the SQLite pre-fetch seam that keeps the build possible with no network. See [Linux desktop](linux/desktop.md).
+Keep it small. Anything that could live in Dart should — the runner exists to create a correct window and get out of the way, not to hold product logic. Its build configuration (`linux/CMakeLists.txt`) is also where native-dependency decisions land, such as the SQLite pre-fetch seam that keeps the build possible with no network. See [Linux desktop](../linux/desktop.md).
 
 ## Python / tooling
 
 Python should remove repetitive maintainer work or create useful developer fixtures. Linthra already uses Python in release/branding tooling; `tools/large_library/` adds deterministic 200k-track SQLite generation and query benchmarks using only the standard library. `scripts/check_linux_runner.py` is a good shape to copy: a config invariant that no compiler would catch, checked against its real sources of truth, with unit tests beside it.
 
-Ruff lints and format-checks this code on every PR that touches it. Run `ruff check scripts tool tools` and `ruff format --check scripts tool tools` before pushing — those paths are the linted scope, and are what CI passes. The rules are in `ruff.toml` and the setup is described in [development.md](development.md#python-tooling-checks-ruff).
+Ruff lints and format-checks this code on every PR that touches it. Run `ruff check scripts tool tools` and `ruff format --check scripts tool tools` before pushing — those paths are the linted scope, and are what CI passes. The rules are in `ruff.toml` and the setup is described in [Development](setup.md#python-tooling-checks-ruff).
 
 ## SQL / database performance
 

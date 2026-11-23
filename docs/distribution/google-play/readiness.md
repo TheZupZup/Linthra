@@ -216,7 +216,7 @@ internal/closed testing.
    currently requires 36 for new apps and updates. CI reads the level back out
    of the built App Bundle (`scripts/check_android_target_sdk.py`), so a
    release can't silently ship a lower one. Play raises the minimum each year;
-   see [android-17.md](../../android-17.md) for the current state.
+   see [android-17.md](../../development/android-17.md) for the current state.
 6. **Alpha feature maturity.** Tag parsing/artwork, artist/album browse, search,
    playlists, and batch downloads are still planned (see the README roadmap).
    This is fine for closed testing but is a judgment-call blocker for a

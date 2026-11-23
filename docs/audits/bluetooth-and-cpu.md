@@ -249,7 +249,7 @@ request), this PR is intentionally minimal:
 1. **This audit report** (`docs/audits/bluetooth-and-cpu.md`).
 2. **Regression tests** that lock in the Bluetooth-facing invariants the audit
    verified (see §5), so a future change can't silently regress them.
-3. **A manual test checklist** (`docs/manual-test-checklist.md` §3a) for the
+3. **A manual test checklist** (`docs/development/manual-test-checklist.md` §3a) for the
    Bluetooth / LE-audio / car / long-idle behaviour CI cannot exercise.
 
 No runtime/playback code is modified.
@@ -275,6 +275,6 @@ coalescing, and the foreground-service-stays-alive invariants.
 ## 6. Manual test checklist (device-only behaviour)
 
 Bluetooth, LE Audio, car audio, and long-idle wake-ups **cannot** be exercised in
-CI. See `docs/manual-test-checklist.md` §3a ("Bluetooth, wired & LE audio") and the
+CI. See `docs/development/manual-test-checklist.md` §3a ("Bluetooth, wired & LE audio") and the
 screen-off / paused 30-minute CPU checks, plus the existing
 `background-playback.md` screen-off pass.

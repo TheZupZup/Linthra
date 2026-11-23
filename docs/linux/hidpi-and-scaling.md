@@ -127,5 +127,5 @@ release does not need a person to find it again.
 ## Related
 
 - `lib/shared/layout/adaptive_layout.dart`, the size classes and content caps
-- [manual-test-checklist.md](../manual-test-checklist.md), the wider manual pass
+- [manual-test-checklist.md](../development/manual-test-checklist.md), the wider manual pass
 - [Linux desktop](desktop.md), the Linux build and its runner

@@ -30,7 +30,7 @@ have a real reason to be there.
 | **SQL** | SQLite indexes, query plans and large-library performance |
 
 There is a more detailed map in
-[Contributing by language](./docs/language-areas.md).
+[Contributing by language](docs/development/language-areas.md).
 
 ## Setting up the project
 
@@ -64,8 +64,8 @@ so the script is still useful if you only have one of the three. Anything that
 actually fails makes it exit non-zero. `./scripts/doctor.sh` reports what it
 found without running any of it.
 
-More setup details are in [docs/development.md](./docs/development.md), and the
-[codebase tour](./docs/codebase-tour.md) is useful if you want to see where
+More setup details are in [docs/development/setup.md](docs/development/setup.md), and the
+[codebase tour](docs/development/codebase-tour.md) is useful if you want to see where
 things live before touching the code.
 
 For the other areas:
@@ -92,7 +92,7 @@ For the other areas:
   `ruff check scripts tool tools` and `ruff format --check scripts tool tools` —
   the same two commands, with the same paths, that CI runs.
   `verify_native.sh` runs both of them for you. Details are in
-  [docs/development.md](./docs/development.md#python-tooling-checks-ruff).
+  [docs/development/setup.md](docs/development/setup.md#python-tooling-checks-ruff).
 
 ## Before you start
 
@@ -160,7 +160,7 @@ Some bugs only show up on real hardware. If your change touches a real music
 server, Cast, Android Auto, offline playback, or something device-specific and
 you can test it for real, please say what you tested in the PR.
 
-The [manual QA checklist](./docs/manual-test-checklist.md) covers the important
+The [manual QA checklist](docs/development/manual-test-checklist.md) covers the important
 paths. You can also use **Settings → Report a bug** to build a secret-free report
 before opening an issue.
 

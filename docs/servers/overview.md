@@ -52,7 +52,7 @@ it **stores** every provider's copy of a song but **displays** one row per
 logical track, and plays the copy from your active/default provider (the server
 you most recently signed into), falling back to another source when that
 provider doesn't have the song. De-duplication is conservative and never deletes
-data. See [unified-library.md](../unified-library.md) for the model, the matching
+data. See [unified-library.md](../development/unified-library.md) for the model, the matching
 rules, and the "Playing from …" source indicator.
 
 ## Local files

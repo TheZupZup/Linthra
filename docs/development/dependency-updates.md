@@ -9,11 +9,11 @@ Seven things are covered, by four different mechanisms:
 
 | What | Handled by | Cadence | Outcome |
 | --- | --- | --- | --- |
-| GitHub Actions | Dependabot — [`.github/dependabot.yml`](../.github/dependabot.yml) | weekly | PR |
+| GitHub Actions | Dependabot — [`.github/dependabot.yml`](../../.github/dependabot.yml) | weekly | PR |
 | Cargo (`native/linthra_core`) | Dependabot — same file | weekly | PR |
-| Dart / Flutter packages | [`dart-dependency-updates.yml`](../.github/workflows/dart-dependency-updates.yml) | weekly | draft PR |
-| Flutter SDK | [`flutter-sdk-updates.yml`](../.github/workflows/flutter-sdk-updates.yml) | weekly | draft PR, or an issue for a major |
-| Gradle | [`android-toolchain-updates.yml`](../.github/workflows/android-toolchain-updates.yml) | weekly | draft PR, and/or an issue for a major |
+| Dart / Flutter packages | [`dart-dependency-updates.yml`](../../.github/workflows/dart-dependency-updates.yml) | weekly | draft PR |
+| Flutter SDK | [`flutter-sdk-updates.yml`](../../.github/workflows/flutter-sdk-updates.yml) | weekly | draft PR, or an issue for a major |
+| Gradle | [`android-toolchain-updates.yml`](../../.github/workflows/android-toolchain-updates.yml) | weekly | draft PR, and/or an issue for a major |
 | Android Gradle Plugin | same file | weekly | draft PR, and/or an issue for a major |
 | Kotlin Gradle plugin | same file | weekly | draft PR, and/or an issue for a major |
 
@@ -23,7 +23,7 @@ whole Android build at once — issue #362 lists it under the upgrades that stay
 manual, and it still is.
 
 A fifth workflow watches the three scheduled ones rather than any dependency:
-[`update-automation-health.yml`](../.github/workflows/update-automation-health.yml)
+[`update-automation-health.yml`](../../.github/workflows/update-automation-health.yml)
 files an issue when an updater has been failing, because a broken updater and a
 quiet week look identical from the outside. See
 [When the updaters themselves break](#when-the-updaters-themselves-break).
@@ -122,7 +122,7 @@ code. It cannot meet two of Linthra's requirements:
 - **The pinned SDK.** Dependabot's pub updater resolves with its own bare Dart
   SDK and installs no Flutter at all. `pubspec.lock` is committed so the F-Droid
   build resolves the same dependency set we tested
-  ([release-process.md](distribution/release-process.md) §7), which means the lockfile has
+  ([release-process.md](../distribution/release-process.md) §7), which means the lockfile has
   to come from the SDK in `.flutter-version`. The difference is not theoretical:
   resolving with the pinned SDK writes an `sdks:` block into the lockfile that
   names the Flutter line it was resolved against, which a Flutter-less resolver
@@ -195,7 +195,7 @@ The workflow needs one repository Actions secret:
   read/write** and **Pull requests: read/write** on this repository.
 
 This is the same pattern as `CI_FIXER_GITHUB_TOKEN` in
-[flutter-ci-fixer.md](./flutter-ci-fixer.md), and for the same reason: a push or
+[flutter-ci-fixer.md](flutter-ci-fixer.md), and for the same reason: a push or
 a PR made with the workflow's default `GITHUB_TOKEN` does not trigger further
 workflows, so the PR would open with no checks on it. An update PR that runs no
 CI is a broken updater, so the workflow fails loudly rather than opening one —
@@ -233,7 +233,7 @@ Pass `--output-dir DIR` to also write the Markdown summary and the raw
   `./scripts/regenerate_flatpak_sources.sh`. Until that lands, the Flatpak
   source checks are red and name the package they are missing, which is
   another red that is the point rather than something to work around (see
-  [source pinning](distribution/flatpak/source-pinning.md)).
+  [source pinning](../distribution/flatpak/source-pinning.md)).
 - Merge manually when it is green and you are happy with it. Nothing
   auto-merges, by design.
 
@@ -243,7 +243,7 @@ Pass `--output-dir DIR` to also write the Markdown summary and the raw
 
 `.flutter-version`, at the repository root, holds one bare stable version and
 nothing else. It is the single source of truth for the SDK: CI installs from it
-through [`.github/actions/setup-flutter`](../.github/actions/setup-flutter/action.yml),
+through [`.github/actions/setup-flutter`](../../.github/actions/setup-flutter/action.yml),
 contributors install from it through `scripts/setup_flutter.sh`, the Dart
 package updater resolves the lockfile with it, and the F-Droid recipe reads the
 same file. `test/tooling/toolchain_pins_test.dart` fails if a workflow or a
@@ -343,7 +343,7 @@ Exactly one file:
 
 Notably **not** `pubspec.lock`. A new SDK can require the lockfile to be
 re-resolved, but that resolution is what the reproducible F-Droid build depends
-on ([release-process.md](distribution/release-process.md) §7), so it is a human's decision
+on ([release-process.md](../distribution/release-process.md) §7), so it is a human's decision
 in a human's PR — not something an SDK bump drags along.
 
 `scripts/check_dependency_update_files.sh` owns the list. It takes an explicit
@@ -410,13 +410,13 @@ version it is, and why it is intentionally manual:
   formatting change from the newer Dart, or a lockfile that needs re-resolving.
 - Do any migration in a separate PR, and refresh `pubspec.lock` with the new SDK
   there as well — the F-Droid build resolves from the committed lockfile.
-- Re-read [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the
+- Re-read [F-Droid build recipe planning & reproducible-build notes](../distribution/f-droid/build-recipe.md) and the
   reproducibility notes, and update them if the bump changes what a builder must
   install.
 - The Flatpak builds the SDK from the same pin, so the migration PR is also
   where its sources get regenerated (`./scripts/regenerate_flatpak_sources.sh`)
   and the template's Flutter `commit` moves to the one the new tag resolves to.
-  See [source pinning](distribution/flatpak/source-pinning.md).
+  See [source pinning](../distribution/flatpak/source-pinning.md).
 - Merge manually when you are happy with it. Nothing auto-merges, by design.
 
 ### One-time setup
@@ -652,7 +652,7 @@ came from, and why the upgrade is manual:
 - **F-Droid and reproducibility.** The F-Droid builder resolves this toolchain
   offline from these files. A major can change what a builder must provide and
   whether the build still reproduces, and CI cannot prove either. See
-  [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the reproducibility
+  [F-Droid build recipe planning & reproducible-build notes](../distribution/f-droid/build-recipe.md) and the reproducibility
   notes.
 - **The rest of the toolchain.** Gradle, AGP, Kotlin and the JDK move as a
   compatible set.
@@ -674,7 +674,7 @@ bump is the easy part.
   is not the same as supported.
 - Check CI. Red is informative; work out what the new version changed.
 - Do any migration in a separate PR.
-- Re-read [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the
+- Re-read [F-Droid build recipe planning & reproducible-build notes](../distribution/f-droid/build-recipe.md) and the
   reproducibility notes, and update them if the bump changes what a builder must
   install.
 - Merge manually when you are happy with it. Nothing auto-merges, by design.
@@ -718,7 +718,7 @@ behind the stable channel: every weekly run detected the newer release correctly
 and then failed before publishing it, for weeks, until a contributor hit the
 version mismatch on their own machine and reported it from the other end.
 
-[`update-automation-health.yml`](../.github/workflows/update-automation-health.yml)
+[`update-automation-health.yml`](../../.github/workflows/update-automation-health.yml)
 closes that gap. It runs on Mondays, an hour after the last updater, reads the
 recent run history of all three scheduled updaters, and files **one** issue when
 any of them has failed two or more scheduled runs in a row.
@@ -796,7 +796,7 @@ omission waiting to be filled in.
 | What needs manual review? | **everything**, patch and minor included |
 | How are majors handled? | an issue, never a PR — for the SDK, Gradle, AGP and Kotlin alike |
 | How is the Flutter SDK handled? | detect newer stable → draft PR that changes `.flutter-version` and nothing else → full CI → human review → merge |
-| Required repository settings | `DEPENDENCY_UPDATE_TOKEN`, plus the `main` ruleset in [repository-hardening.md](audits/repository-hardening.md) |
+| Required repository settings | `DEPENDENCY_UPDATE_TOKEN`, plus the `main` ruleset in [repository-hardening.md](../audits/repository-hardening.md) |
 | Is "Allow auto-merge" needed? | no — leave it off |
 
 ### Three independent reasons, not one policy
@@ -804,12 +804,12 @@ omission waiting to be filled in.
 Even if an auto-merge workflow were added tomorrow, it could not merge anything
 unattended. Three separate controls each stop it on their own:
 
-1. **Code-owner review.** [`CODEOWNERS`](../.github/CODEOWNERS) is `* @TheZupZup`
+1. **Code-owner review.** [`CODEOWNERS`](../../.github/CODEOWNERS) is `* @TheZupZup`
    — every path, no exceptions — and the required `main` ruleset enables
    *Require review from Code Owners* and *Require approval of the most recent
    reviewable push*. Dependabot cannot approve its own pull request, and
    **Allow GitHub Actions to create and approve pull requests** is deliberately
-   left disabled ([repository-hardening.md](audits/repository-hardening.md)). So a
+   left disabled ([repository-hardening.md](../audits/repository-hardening.md)). So a
    human approval is required on every dependency PR, by configuration.
 
 2. **The security surface guard.** `scripts/check_pr_security_surface.py`

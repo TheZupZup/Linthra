@@ -58,7 +58,8 @@ void main() {
   late final String ci = _read(root, p.join('.github', 'workflows', 'ci.yml'));
   late final String fixer =
       _read(root, p.join('.github', 'workflows', 'flutter-ci-fixer.yml'));
-  late final String docs = _read(root, p.join('docs', 'dependency-updates.md'));
+  late final String docs =
+      _read(root, p.join('docs', 'development', 'dependency-updates.md'));
 
   // The repository's real pin files. Using these rather than a synthetic
   // snippet means the content guard is tested against the thing it actually
@@ -689,7 +690,7 @@ void main() {
       'android/app/build.gradle': 'the app module build logic',
       'LICENSE': 'the license',
       '.github/workflows/ci.yml': 'CI configuration',
-      'docs/dependency-updates.md': 'documentation',
+      'docs/development/dependency-updates.md': 'documentation',
       'scripts/check_dependency_update_files.sh': 'the guard itself',
     };
 
@@ -1500,7 +1501,8 @@ void main() {
           docs.contains(
               'The rest of the toolchain — Gradle, AGP, Kotlin and the JDK — is not automated'),
           isFalse,
-          reason: 'docs/dependency-updates.md still says Gradle, AGP and '
+          reason:
+              'docs/development/dependency-updates.md still says Gradle, AGP and '
               'Kotlin are handled by hand.');
     });
 
@@ -1520,7 +1522,8 @@ void main() {
         'F-Droid',
       ]) {
         expect(docs, contains(required),
-            reason: 'docs/dependency-updates.md must mention "$required".');
+            reason:
+                'docs/development/dependency-updates.md must mention "$required".');
       }
     });
 
@@ -1533,7 +1536,8 @@ void main() {
         '#362',
       ]) {
         expect(docs, contains(required),
-            reason: 'docs/dependency-updates.md must reference $required so '
+            reason:
+                'docs/development/dependency-updates.md must reference $required so '
                 'the five phases are all accounted for.');
       }
     });

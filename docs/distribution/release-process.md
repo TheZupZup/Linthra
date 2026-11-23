@@ -890,7 +890,7 @@ consume our signed artifacts:
 | Secret & privacy scan on PRs & `main` | **Automatic** (`ci.yml`, job `secret-scan`; runs `scripts/check_secrets.sh` — offline, no secrets). |
 | Fastlane changelog exists for the current `versionCode` | **Automatic** on PRs & `main` (`flutter test` ▸ `test/tooling/release_changelog_test.dart`). |
 | Release-bump PR touches only version files | **Automatic** on `release/*` PRs only (`ci.yml`, job `release-bump-guard`; `scripts/check_release_bump_files.sh`). |
-| Dart/Flutter package updates inside the current constraints | **Automatic PR only** (weekly `dart-dependency-updates.yml`); resolves with the pinned SDK, changes only `pubspec.lock`, opens a **draft** PR and never merges. See [dependency-updates.md](../dependency-updates.md). |
+| Dart/Flutter package updates inside the current constraints | **Automatic PR only** (weekly `dart-dependency-updates.yml`); resolves with the pinned SDK, changes only `pubspec.lock`, opens a **draft** PR and never merges. See [dependency-updates.md](../development/dependency-updates.md). |
 | Dependency-update PR touches only `pubspec.lock` | **Automatic** on `deps/*` PRs only (`ci.yml`, job `dependency-guard`; `scripts/check_dependency_update_files.sh`). |
 | Debug APK build + build-output verification | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`; a "Verify build output exists" step rejects a missing/empty APK). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |

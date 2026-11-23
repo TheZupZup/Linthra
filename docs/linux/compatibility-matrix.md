@@ -530,7 +530,7 @@ difference, an upstream bug, or both.
 | Topic | Doc |
 | --- | --- |
 | Linux desktop build, and everything it supports | [Linux desktop](desktop.md) |
-| Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](../manual-test-checklist.md) |
+| Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](../development/manual-test-checklist.md) |
 | HiDPI and fractional scaling | [hidpi-and-scaling.md](hidpi-and-scaling.md) |
 | Flatpak development | [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md) |
 | Flatpak permission audit | [flatpak-permissions.md](../audits/flatpak-permissions.md) |

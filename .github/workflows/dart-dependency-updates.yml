@@ -21,7 +21,7 @@ name: Dart dependency updates
 #     pubspec.yaml, and an automatic update must never do that.
 #
 # So Dependabot keeps GitHub Actions and Cargo (.github/dependabot.yml) and this
-# workflow keeps pub. See docs/dependency-updates.md.
+# workflow keeps pub. See docs/development/dependency-updates.md.
 on:
   schedule:
     # Mondays, early UTC — same weekly cadence as the Dependabot ecosystems.
@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$PUBLISH_TOKEN" ]]; then
-            echo "::error::DEPENDENCY_UPDATE_TOKEN is required to publish the update PR so it runs normal CI. See docs/dependency-updates.md."
+            echo "::error::DEPENDENCY_UPDATE_TOKEN is required to publish the update PR so it runs normal CI. See docs/development/dependency-updates.md."
             exit 1
           fi
 
@@ -224,7 +224,7 @@ jobs:
             echo './scripts/update_dart_dependencies.sh'
             echo '```'
             echo
-            echo "See [docs/dependency-updates.md](docs/dependency-updates.md)."
+            echo "See [docs/development/dependency-updates.md](docs/development/dependency-updates.md)."
           } > "$REPORT_DIR/pr-body.md"
 
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$UPDATE_BRANCH" \

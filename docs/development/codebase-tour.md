@@ -117,8 +117,8 @@ URLs ahead of a skip (credential-free keys in memory, plus a durable
 credential-free on-disk index that never stores the URL) is described in
 [remote-playback-cache.md](remote-playback-cache.md). The UI entry point that
 wires all of this is `lib/features/player/player_providers.dart`. Deeper dives:
-[streaming.md](features/streaming.md), [background-playback.md](features/background-playback.md),
-[queue.md](features/queue.md).
+[streaming.md](../features/streaming.md), [background-playback.md](../features/background-playback.md),
+[queue.md](../features/queue.md).
 
 ## Cast / Chromecast
 
@@ -149,7 +149,7 @@ never logged, never persisted. `CastMedia.toString()` deliberately redacts the
 URL down to `scheme://host/path` so it's safe to interpolate into a log line.
 Subsonic cover-art URLs embed the credential, so Subsonic artwork is
 intentionally *omitted* from the cast payload rather than leaked. Full picture:
-[cast.md](features/cast.md).
+[cast.md](../features/cast.md).
 
 ## Providers (where your music comes from)
 
@@ -181,7 +181,7 @@ independent protocols, so the duplication is healthy, not accidental. If you're
 adding **WebDAV/NAS**, copy that shape: implement `MusicSource`, declare your
 capabilities, and let the rest of the app stay unchanged. WebDAV already has a
 full design to build against, including its file layout and a PR-by-PR split:
-[webdav.md](webdav.md). Read it first, because WebDAV has no server-side track
+[webdav.md](../webdav.md). Read it first, because WebDAV has no server-side track
 ids and borrows most of its shape from `local/` rather than from the server
 providers.
 
@@ -189,8 +189,8 @@ providers.
 `MusicLibraryRepository.upsertCatalog(...)`, which writes them into the local
 SQLite cache (`lib/data/database/`, Drift). The library/sync controllers in
 `features/` drive that. The UI then reads the catalog, never the server. More:
-[Music providers](servers/overview.md), [jellyfin.md](servers/jellyfin.md),
-[streaming.md](features/streaming.md).
+[Music providers](../servers/overview.md), [jellyfin.md](../servers/jellyfin.md),
+[streaming.md](../features/streaming.md).
 
 ## Offline cache & downloads
 
@@ -232,7 +232,7 @@ and *what* gets evicted.
   The cache file name is derived from the **non-secret track id** (sanitized so
   an odd id can't escape the directory), never from a token or URL.
 
-Deeper dive (including the eviction policy): [offline-cache.md](features/offline-cache.md).
+Deeper dive (including the eviction policy): [offline-cache.md](../features/offline-cache.md).
 
 ## Library
 
@@ -261,8 +261,8 @@ reads the local catalog through `MusicLibraryRepository`
 
 Reusable list rows (`widgets/track_tile.dart`, `album_tile.dart`,
 `artist_tile.dart`, `alphabet_track_list.dart`) keep these screens consistent.
-More: [library.md](features/library.md), [playlists-and-delete.md](features/playlists-and-delete.md),
-[smart-mixes.md](features/smart-mixes.md).
+More: [library.md](../features/library.md), [playlists-and-delete.md](../features/playlists-and-delete.md),
+[smart-mixes.md](../features/smart-mixes.md).
 
 ## Diagnostics & "Report a bug"
 
@@ -286,7 +286,7 @@ a bug** — and the whole point is that it's **secret-free by construction.**
 
 **Never included:** tokens, passwords, authenticated/stream URLs, full server
 URLs, raw track ids, track titles, or local file paths. If you add a diagnostic,
-keep it on that side of the line. Details: [reporting-bugs.md](reporting-bugs.md).
+keep it on that side of the line. Details: [reporting-bugs.md](../reporting-bugs.md).
 
 ## Settings
 
@@ -317,7 +317,7 @@ diagnostics — it's worth stating in one place:
 - **The password is used once, then discarded.** Sign-in trades it for a
   session token; the password is never stored. The one opt-in exception is
   Subsonic's legacy sign-in, for servers that refuse tokens (see
-  [Music providers](servers/overview.md)), which keeps it in the encrypted store.
+  [Music providers](../servers/overview.md)), which keeps it in the encrypted store.
 - **Tokens are encrypted at rest** (`flutter_secure_storage`), never written to
   shared preferences, logs, or diagnostics, and never shown on screen.
 - **Authenticated stream URLs are minted on demand** and never persisted — not
@@ -328,16 +328,16 @@ diagnostics — it's worth stating in one place:
 
 If your change touches auth, streaming, Cast, or diagnostics, say so in the PR
 description so reviewers can check this quickly. The same rules are summarized
-for contributors in [CONTRIBUTING.md](../CONTRIBUTING.md#privacy--security).
+for contributors in [CONTRIBUTING.md](../../CONTRIBUTING.md#privacy--security).
 
 ## Where to go next
 
 - [architecture.md](architecture.md) — the layering, the golden rule, and the
   extension points (this is the natural next read).
-- [development.md](development.md) — setup in two commands, the verify script,
+- [Development](setup.md) — setup in two commands, the verify script,
   and how CI runs.
 - The per-feature docs linked throughout, and the table in the
-  [README](../README.md#documentation).
+  [README](../../README.md#documentation).
 
 Found something here that's out of date? Fixing it is a genuinely useful first
 contribution — this map only stays helpful if it tracks the code.

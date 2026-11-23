@@ -76,7 +76,7 @@ there, and their branch guard
 ([`scripts/check_dependency_update_files.sh`](../../../scripts/check_dependency_update_files.sh))
 keeps the derived pins off the bot's branch, so refreshing them is a human's
 own PR. That is the same reasoning as everywhere else in
-[dependency-updates.md](../../dependency-updates.md): a bot moves one pin, a person
+[dependency-updates.md](../../development/dependency-updates.md): a bot moves one pin, a person
 reviews what it implies.
 
 ```bash

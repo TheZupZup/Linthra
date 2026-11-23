@@ -133,7 +133,7 @@ bash ../scripts/flatpak_launch_smoke.sh repo-ci
 Then install it and use it as a person would, because CI cannot: play a local
 file, connect a server you actually run, check that credentials survive a
 restart. The manual list is
-[manual-test-checklist.md](../../manual-test-checklist.md), and the sandbox-specific
+[manual-test-checklist.md](../../development/manual-test-checklist.md), and the sandbox-specific
 notes are in
 [`flatpak/README.md`](../../../flatpak/README.md#network-access-and-endpoint-validation).
 

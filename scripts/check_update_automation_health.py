@@ -2,7 +2,7 @@
 """check_update_automation_health.py — are Linthra's update workflows still working?
 
 Linthra's dependency and toolchain updates are proposed by four mechanisms
-(issue #362, see docs/dependency-updates.md). Three of them are scheduled
+(issue #362, see docs/development/dependency-updates.md). Three of them are scheduled
 workflows in this repository:
 
     .github/workflows/dart-dependency-updates.yml

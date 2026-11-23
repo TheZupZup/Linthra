@@ -9,12 +9,12 @@ The full index of Linthra's docs. New to the project? Start with the
 | Topic | Doc |
 | --- | --- |
 | Contributing & setup | [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| Development, build & CI | [development.md](./development.md) |
+| Development, build & CI | [Development](development/setup.md) |
 | Linux desktop build (experimental) | [Linux desktop](linux/desktop.md) |
 | Flatpak development (Fedora Atomic) | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
-| Codebase tour (where everything lives) | [codebase-tour.md](./codebase-tour.md) |
-| Architecture & extension points | [architecture.md](./architecture.md) |
-| Where to help (contributor roadmap) | [contributor-roadmap.md](./contributor-roadmap.md) |
+| Codebase tour (where everything lives) | [codebase-tour.md](development/codebase-tour.md) |
+| Architecture & extension points | [architecture.md](development/architecture.md) |
+| Where to help (contributor roadmap) | [contributor-roadmap.md](development/contributor-roadmap.md) |
 | Product roadmap (phased direction) | [roadmap.md](./roadmap.md) |
 | Supporting Linthra (optional supporter model) | [SUPPORT.md](./SUPPORT.md) |
 
@@ -39,20 +39,20 @@ The full index of Linthra's docs. New to the project? Start with the
 | Smart mixes (automatic playlists) | [smart-mixes.md](features/smart-mixes.md) |
 | Backup & restore (file format) | [backup-restore-format.md](features/backup-restore-format.md) |
 | Battery usage | [battery.md](features/battery.md) · [playback audit](audits/battery-playback.md) |
-| App icon & branding (in-app + real Android launcher icon) | [app-icon-branding.md](./app-icon-branding.md) |
+| App icon & branding (in-app + real Android launcher icon) | [app-icon-branding.md](features/app-icon-branding.md) |
 
 ## Quality & releases
 
 | Topic | Doc |
 | --- | --- |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
-| Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
+| Manual QA checklist | [manual-test-checklist.md](development/manual-test-checklist.md) |
 | Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](features/accessibility.md) |
 | GNOME & KDE Plasma compatibility matrix | [GNOME and KDE Plasma compatibility matrix](linux/compatibility-matrix.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](linux/hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
 | Release process & signing | [release-process.md](distribution/release-process.md) · [signing](distribution/release-signing.md) · [artifact verification](distribution/release-artifact-verification.md) |
-| Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
+| Dependency update bots | [dependency-updates.md](development/dependency-updates.md) |
 | PR security surface guard | [pr-security-guard.md](audits/pr-security-guard.md) |
 | Tracker dependency audit (no ads/analytics/telemetry SDKs) | [Tracker dependency audit](audits/tracker-dependencies.md) |
 | Fixed network destinations (every host the shipped code names) | [network-destinations.md](audits/network-destinations.md) |

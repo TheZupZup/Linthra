@@ -227,7 +227,7 @@ python3 scripts/check_tracker_dependencies.py --json
   Linthra's own code
 - [Dependency & license audit](dependency-licenses.md) — the other audit
   of the same dependency set, for licensing
-- [dependency-updates.md](../dependency-updates.md) — how dependency bumps reach
+- [dependency-updates.md](../development/dependency-updates.md) — how dependency bumps reach
   the repository in the first place
 - [pr-security-guard.md](pr-security-guard.md) — the security-surface guard on
   pull requests

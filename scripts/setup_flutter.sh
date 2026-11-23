@@ -55,7 +55,7 @@ flutter_download_url() {
   case "$os" in
     Linux)  platform="linux";  ext="tar.xz" ;;
     Darwin) platform="macos";  ext="zip" ;;
-    *) die "unsupported OS '$os' — install Flutter $version manually (see docs/development.md)" ;;
+    *) die "unsupported OS '$os' — install Flutter $version manually (see docs/development/setup.md)" ;;
   esac
 
   local arch_suffix=""

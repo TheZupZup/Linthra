@@ -64,7 +64,7 @@ void main() {
       expect(javaPin, matches(RegExp(r'^\d+(\.\d+)*$')),
           reason: '.java-version must hold exactly the JDK version '
               'actions/setup-java should install (e.g. 17). It is the single '
-              'source of truth for the JDK — see docs/development.md.');
+              'source of truth for the JDK — see docs/development/setup.md.');
     });
 
     test('Gradle, AGP and Kotlin are pinned to exact versions', () {
@@ -268,7 +268,7 @@ const Map<String, Set<String>> _historicalVersions = <String, Set<String>>{
   // needed application changes, which is why the Dart dependency updater is
   // allowed to open red PRs. That sentence is about that past upgrade, so it
   // keeps naming 3.44.7 after the pin moves on.
-  'docs/dependency-updates.md': <String>{'3.44.7'},
+  'docs/development/dependency-updates.md': <String>{'3.44.7'},
 };
 
 /// Asserts every `pattern` match across the scanned files captures [pin].

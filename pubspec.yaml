@@ -34,7 +34,7 @@ dependencies:
   # downloads a precompiled SQLite from GitHub at build time unless told
   # otherwise, beside the one sqlite3_flutter_libs builds from source. The
   # Flatpak builds with the network off and F-Droid builds from source, so
-  # that move needs its own PR. See docs/dependency-updates.md.
+  # that move needs its own PR. See docs/development/dependency-updates.md.
   drift: ">=2.30.0 <2.32.0"
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.4
@@ -42,7 +42,7 @@ dependencies:
   # the jni package's native library into the APK and, as an FFI plugin, into
   # the Linux build (compiled only where the build machine has a JDK). Both need
   # their own review, the reproducible F-Droid build above all, before a
-  # lockfile refresh may pull it in. See docs/dependency-updates.md.
+  # lockfile refresh may pull it in. See docs/development/dependency-updates.md.
   path_provider_android: ">=2.2.17 <2.3.0"
   # Local audio playback engine. Used only by JustAudioPlaybackController in the
   # services layer; the UI depends on the PlaybackController interface, never on

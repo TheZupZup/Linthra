@@ -49,7 +49,7 @@ android {
     // Android 17 (API 37), set here rather than inherited: the pinned Flutter
     // still defaults both to 36. targetSdk 37 is what turns on Android 17's
     // local network permission and background audio rules for Linthra (see
-    // docs/android-17.md); minSdk stays Flutter's, so no device is dropped.
+    // docs/development/android-17.md); minSdk stays Flutter's, so no device is dropped.
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
