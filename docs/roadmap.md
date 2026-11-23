@@ -6,7 +6,7 @@ a set of dated promises: Linthra is early alpha, built by a small group, and the
 order below can shift as real-device testing tells us what actually matters.
 
 For "where an extra pair of hands helps most right now," see the
-[contributor roadmap](./contributor-roadmap.md) — that's the task-level companion
+[contributor roadmap](development/contributor-roadmap.md) — that's the task-level companion
 to this higher-level plan.
 
 ## North star

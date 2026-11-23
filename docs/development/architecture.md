@@ -25,7 +25,7 @@ Android and Linux desktop, from one Flutter codebase; possibly Windows later.
 Android is the platform Linthra ships on. The native Linux target builds and
 launches, and is deliberately incomplete — playback and the desktop UX are still
 being built out. What each platform does and does not have is in
-[Linux desktop](linux/desktop.md).
+[Linux desktop](../linux/desktop.md).
 
 Platform differences live behind interfaces, never in widgets. `HostPlatform`
 (`core/platform/host_platform.dart`) is the platform expressed as a value, so
@@ -84,9 +84,9 @@ lib/
   provider supports (`canStream` / `canCache` / `canFavorite` / `canLyrics` /
   `canCast`) so the UI offers only the actions that work. `WebDavMusicSource`
   slots in the same way later: its design (auth, identity, scan, streaming,
-  secrets) is settled in [webdav.md](webdav.md), and it deliberately reuses the
+  secrets) is settled in [webdav.md](../webdav.md), and it deliberately reuses the
   local-file scanner's shape rather than introducing a second library. See
-  [Music providers](servers/overview.md).
+  [Music providers](../servers/overview.md).
 - **`MusicLibraryRepository`** (`core/repositories/`) — the local SQLite cache
   the UI reads from. Sources *sync into* it; the UI never talks to a source
   directly. This is what keeps the app fast and fully offline.
@@ -98,7 +98,7 @@ lib/
   (`notConfigured` / `checking` / `available` / `unreachable` /
   `authenticationError`), established by a cheap session probe on startup, on app
   resume, on a periodic re-probe while the app is on screen (it stands down
-  while hidden — see [battery.md](features/battery.md)), and from what the playback path
+  while hidden — see [battery.md](../features/battery.md)), and from what the playback path
   already discovered. `selectAvailableTracks` then narrows the stored catalog to the
   *active library* before de-duplication, so an unreachable server's streamed
   tracks drop out of every browse surface at once — while its downloaded copies
@@ -124,14 +124,14 @@ lib/
   per-source resolvers (Jellyfin / Subsonic / local) behind an offline-first
   wrapper that prefers a downloaded copy. Remote URL minting — and the secrets it
   weaves in — lives here, never in the audio layer. See
-  [streaming.md](features/streaming.md).
+  [streaming.md](../features/streaming.md).
 - **`CastService`** (`core/services/cast/cast_service.dart`) — the seam for
   remote playback handoff (Chromecast). The UI renders a `CastState` and drives
   discovery/connection through this interface, never a cast SDK directly. See
-  [cast.md](features/cast.md).
+  [cast.md](../features/cast.md).
 - **`DownloadRepository`** (`core/repositories/`) — enforces the user-initiated,
   mobile-data-respecting download policy in one place. See
-  [offline-cache.md](features/offline-cache.md).
+  [offline-cache.md](../features/offline-cache.md).
 - **`MediaSessionBinding`** (`core/services/media_session_binding.dart`) — the
   platform media session (notification, lock screen, Android Auto), separated
   from playback itself. Android attaches the `audio_service` session;
@@ -188,7 +188,7 @@ the widgets hold no playback logic of their own.
   the wire format are untouched by any of it. Lyrics are shown in place on Now
   Playing — the artwork hero swaps for the lyrics panel — so the transport
   controls stay exactly where they are.
-- **Cast** drives real Chromecast through `CastService`; see [cast.md](features/cast.md).
+- **Cast** drives real Chromecast through `CastService`; see [cast.md](../features/cast.md).
 
 ## Android folder selection (SAF)
 

@@ -5,7 +5,7 @@ building a playlist every time. This page covers the queue model, the actions,
 how it behaves with shuffle/repeat/Cast/Android Auto, and the known limits.
 
 The queue is owned by a single `PlaybackController` (see
-[docs/architecture.md](../architecture.md) and
+[docs/development/architecture.md](../development/architecture.md) and
 [docs/features/background-playback.md](background-playback.md)). Every surface reads
 from and edits the **same** queue: mini-player, Now Playing, the Queue sheet,
 the desktop queue column, Cast, and the Android Auto media session. There is

@@ -119,7 +119,7 @@ Notes:
 - Android Auto only shows sideloaded media apps after a one-time developer
   toggle. See [docs/features/android-auto.md](docs/features/android-auto.md).
 - To build from source, see
-  [docs/development.md](./docs/development.md).
+  [docs/development/setup.md](docs/development/setup.md).
 
 ## Supported sources
 
@@ -174,7 +174,7 @@ See the [artwork and copyright policy](docs/features/library.md#album-artwork-an
 
 Testing against your own server, screenshots, and doc fixes are useful
 contributions, not just code. [CONTRIBUTING.md](./CONTRIBUTING.md) covers
-setup. The [contributor roadmap](./docs/contributor-roadmap.md) lists where
+setup. The [contributor roadmap](docs/development/contributor-roadmap.md) lists where
 help is needed. To support development, see
 [docs/SUPPORT.md](./docs/SUPPORT.md).
 

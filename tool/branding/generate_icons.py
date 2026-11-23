@@ -21,7 +21,7 @@ Outputs (paths relative to the repo root):
   - assets/brand/linthra-play-store-icon-512.png             (512x512)
 
 Optional launcher-icon variants (one per Appearance branding variant; selected
-at runtime via <activity-alias> — see docs/app-icon-branding.md):
+at runtime via <activity-alias> — see docs/features/app-icon-branding.md):
   - android/app/src/main/res/mipmap-*/ic_launcher_<id>.png            (legacy)
   - android/app/src/main/res/mipmap-*/ic_launcher_<id>_foreground.png (adaptive)
   - android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_<id>.xml   (adaptive)
@@ -378,7 +378,7 @@ def _write_adaptive_xml(
         f'     Adaptive launcher icon for the "{variant_id}" branding variant:\n'
         "     the shared dark squircle background with this variant's equalizer\n"
         "     foreground. Selected at runtime via the matching <activity-alias>\n"
-        "     in AndroidManifest.xml; see docs/app-icon-branding.md. -->\n"
+        "     in AndroidManifest.xml; see docs/features/app-icon-branding.md. -->\n"
         '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
         f'    <background android:drawable="{background}" />\n'
         f'    <foreground android:drawable="@mipmap/ic_launcher_{variant_id}_foreground" />\n'

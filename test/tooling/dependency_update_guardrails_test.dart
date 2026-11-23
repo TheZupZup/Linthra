@@ -292,7 +292,7 @@ void main() {
       expect(ffi.difference(reviewed), isEmpty,
           reason: 'a new Linux FFI plugin needs a human review of what it '
               'builds into the desktop bundle and the Flatpak '
-              '(docs/dependency-updates.md, "Held back on purpose")');
+              '(docs/development/dependency-updates.md, "Held back on purpose")');
     });
   });
 
@@ -332,7 +332,7 @@ void main() {
       expect(hooked.difference(reviewed.keys.toSet()), isEmpty,
           reason: 'a package with a native build hook needs a human review '
               'of what it builds or downloads, for the F-Droid build and the '
-              'Flatpak (docs/dependency-updates.md, "Held back on purpose")');
+              'Flatpak (docs/development/dependency-updates.md, "Held back on purpose")');
     });
   });
 

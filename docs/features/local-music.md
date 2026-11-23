@@ -208,7 +208,7 @@ Local tracks index like a real source, not a flat file list:
   and reused on later launches and re-scans rather than re-read every time; if
   the OS reclaims the cache, the next rescan simply re-extracts. (A server copy's
   cover is still used when the same song is also on a server — see
-  [unified-library.md](../unified-library.md).)
+  [unified-library.md](../development/unified-library.md).)
 
 ## How it works (and why it's reliable)
 

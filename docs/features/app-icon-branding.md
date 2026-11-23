@@ -17,8 +17,8 @@ not a failure.)
 
 Linthra's in-app mark — the rounded equalizer bars under a single vertical
 gradient — is drawn in Dart by
-[`LinthraLogoMark`](../lib/shared/widgets/linthra_logo_mark.dart), the twin of
-the launcher/store icon in [`tool/branding/`](../tool/branding). A *variant* is
+[`LinthraLogoMark`](../../lib/features/appearance/linthra_logo_mark.dart), the twin of
+the launcher/store icon in [`tool/branding/`](../../tool/branding). A *variant* is
 just a different **gradient** (top colour first) over a different **bar
 pattern**. Because variants are plain data — no images, no extra assets — the
 whole catalog is `const`, ships in every build, adds no dependencies, and is
@@ -26,7 +26,7 @@ trivially unit-testable.
 
 Every variant keeps the equalizer-bar identity, so Linthra stays recognisable.
 The built-in set (see
-[`app_icon_variant.dart`](../lib/features/appearance/app_icon_variant.dart)):
+[`app_icon_variant.dart`](../../lib/features/appearance/app_icon_variant.dart)):
 
 | id         | Label             | Theme                                    |
 | ---------- | ----------------- | ---------------------------------------- |
@@ -116,7 +116,7 @@ No built-in variant uses `AppIconTier.supporter` today — every variant is `fre
 and shows no badge. The tier exists purely as a *data seam* to prepare for a
 future, **Play-only** PR that may present supporter-tier styles as cosmetic
 supporter rewards behind the Play flavor, in the same spirit as the Play
-supporter purchase reserved in [`docs/SUPPORT.md`](SUPPORT.md). When a variant is
+supporter purchase reserved in [`docs/SUPPORT.md`](../SUPPORT.md). When a variant is
 marked `supporter`, the picker shows it with a neutral **"Preview"** badge — never
 a lock or a price.
 
@@ -237,11 +237,11 @@ byte-for-byte identical (verify with `sha256sum`); only the
 ### Linux / Flatpak icon
 
 The Flatpak installs the **canonical vector source itself** —
-[`tool/branding/linthra_icon.svg`](../tool/branding/linthra_icon.svg), the
+[`tool/branding/linthra_icon.svg`](../../tool/branding/linthra_icon.svg), the
 classic mark that `generate_icons.py` renders the Android assets from — as
 `share/icons/hicolor/scalable/apps/io.github.thezupzup.linthra.svg`, the
 icon-theme name the desktop entry's `Icon=` looks up
-(see [`flatpak/README.md`](../flatpak/README.md) §"Application icon").
+(see [`flatpak/README.md`](../../flatpak/README.md) §"Application icon").
 
 Alongside it, `generate_icons.py` also renders that same mark into
 `linux/packaging/icons/hicolor/<size>x<size>/apps/io.github.thezupzup.linthra.png`
@@ -267,7 +267,7 @@ which F-Droid's reproducible build already produces byte-identically; the classi
 `ic_launcher.*` outputs are unchanged. The new `<activity-alias>` entries add
 manifest lines but no new class of nondeterminism — the per-ABI manifest
 line-number divergence tracked in
-[`docs/distribution/f-droid/reproducibility-arm64.md`](distribution/f-droid/reproducibility-arm64.md) is
+[`docs/distribution/f-droid/reproducibility-arm64.md`](../distribution/f-droid/reproducibility-arm64.md) is
 structural and pre-existing. Always regenerate icons with the tool (never edit
 the PNGs by hand) so determinism holds. No new dependencies, billing, tracking,
 or feature gating are introduced.

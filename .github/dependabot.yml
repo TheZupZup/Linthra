@@ -10,7 +10,7 @@
 # do. .github/workflows/dart-dependency-updates.yml handles pub instead; adding
 # a `pub` entry here fails
 # test/tooling/dependency_update_guardrails_test.dart so the two cannot end up
-# fighting over the same lockfile. See docs/dependency-updates.md.
+# fighting over the same lockfile. See docs/development/dependency-updates.md.
 #
 # Dependabot PRs run the normal CI: ci.yml triggers on `pull_request` with no
 # branch filter, and both it and rust-core.yml declare `permissions:

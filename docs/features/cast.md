@@ -113,7 +113,7 @@ engine is hidden behind `PlaybackController`.
   the now-playing screen / mini-player / lyrics follow the receiver's
   position/play-state, while the queue stays owned locally and track changes are
   mirrored onto the receiver. This is what fixes Cast desync. See
-  [architecture.md](../architecture.md#the-single-playback-seam-local--cast).
+  [architecture.md](../development/architecture.md#the-single-playback-seam-local--cast).
 
 ## Temporary containment
 

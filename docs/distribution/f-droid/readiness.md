@@ -187,7 +187,7 @@ permissions belong to the opt-in **All music on this device** mode.
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | App manifest | The typed foreground-service grant required on Android 14+ (API 34) for a service of type `mediaPlayback`; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | App manifest | Android 13+ (API 33) runtime permission for the media notification and its lock-screen/transport controls to appear; requested once on first launch. Playback still works if denied, just without the notification. |
 | `WAKE_LOCK` | App manifest (also `audio_service` / Media3) | Keep the CPU (and, via the foreground media service, the Wi-Fi radio) awake while audio plays so playback and streaming survive the screen turning off. Held only while the service reports `playing`. |
-| `ACCESS_LOCAL_NETWORK` | App manifest | Android 17 (API 37) runtime permission, in the "Nearby devices" group, without which an app targeting 37 cannot connect to the local network. Linthra asks only when the user tests, signs in to or plays from a server that resolves to a local address (a Jellyfin/Navidrome/Plex box at home, a NAS, a `.local` name), never at launch and never for a server on the internet. Denying it leaves local music and internet servers working. Older Android versions ignore it. See [android-17.md](../../android-17.md). |
+| `ACCESS_LOCAL_NETWORK` | App manifest | Android 17 (API 37) runtime permission, in the "Nearby devices" group, without which an app targeting 37 cannot connect to the local network. Linthra asks only when the user tests, signs in to or plays from a server that resolves to a local address (a Jellyfin/Navidrome/Plex box at home, a NAS, a `.local` name), never at launch and never for a server on the internet. Denying it leaves local music and internet servers working. Older Android versions ignore it. See [android-17.md](../../development/android-17.md). |
 | `CHANGE_WIFI_MULTICAST_STATE` | App manifest (merged from `bonsoir_android`) | Receive multicast Wi-Fi packets for mDNS (`_googlecast._tcp`) Chromecast discovery. An **AOSP** permission (Android `NsdManager`) for local-network discovery only — no internet or storage access. Cast uses **no** Google Play Services / Cast SDK. |
 | `READ_MEDIA_AUDIO` | App manifest | Android 13+ "Music and audio" permission for the optional **All music on this device** mode, which reads MediaStore's audio collection. Requested only after the user chooses that mode, never on launch. |
 | `READ_EXTERNAL_STORAGE` (`maxSdkVersion="32"`) | App manifest | Legacy permission for the same opt-in mode on Android 12 and older; Android 13+ never sees it. The OS grant is wider than audio there (all shared storage on Android 9 and older, shared photos/videos/audio on Android 10 to 12); Linthra only queries MediaStore audio with it. |
@@ -208,7 +208,7 @@ permissions belong to the opt-in **All music on this device** mode.
 - **Folder access needs no permission.** A picked folder (Storage Access
   Framework, `ACTION_OPEN_DOCUMENT_TREE`) is walked through the content
   resolver using only the grant the user gave; see
-  [architecture.md](../../architecture.md#android-folder-selection-saf). The
+  [architecture.md](../../development/architecture.md#android-folder-selection-saf). The
   device-wide mode is a separate, opt-in alternative and the only path that
   asks for `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE`.
 
@@ -366,7 +366,7 @@ now lives at
 F-Droid builds and signs the APK itself, so the build it ships is **not** the one
 tested during development. Before (and after) submission, smoke-test a
 **release** build from the tagged commit on a real device using the full
-[docs/manual-test-checklist.md](../../manual-test-checklist.md). The F-Droid-specific
+[docs/development/manual-test-checklist.md](../../development/manual-test-checklist.md). The F-Droid-specific
 must-pass items:
 
 - [ ] App installs and launches from a clean `flutter build apk --release`

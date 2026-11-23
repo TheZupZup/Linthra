@@ -18,7 +18,7 @@ streaming service, so it fits Linthra's "music you own or host yourself" stance
 This design slots **behind the existing `MusicSource` seam**
 (`lib/core/services/music_source.dart`) and the capability model
 (`lib/core/sources/music_provider.dart`) described in
-[architecture.md](../architecture.md) and [Music providers](overview.md), without
+[architecture.md](../development/architecture.md) and [Music providers](overview.md), without
 changing any existing provider path.
 
 ## Scope — phase 1 (read-only)

@@ -193,7 +193,7 @@ jobs:
             echo "  working, not the token: the update needs a human PR (or a human"
             echo "  decision to keep that package back), not a wider allowlist."
             echo
-            echo "See [docs/dependency-updates.md](docs/dependency-updates.md)."
+            echo "See [docs/development/dependency-updates.md](docs/development/dependency-updates.md)."
             echo
             echo "### What was not done"
             echo

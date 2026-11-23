@@ -43,7 +43,8 @@ void main() {
   late final String ci = _read(root, p.join('.github', 'workflows', 'ci.yml'));
   late final String fixer =
       _read(root, p.join('.github', 'workflows', 'flutter-ci-fixer.yml'));
-  late final String docs = _read(root, p.join('docs', 'dependency-updates.md'));
+  late final String docs =
+      _read(root, p.join('docs', 'development', 'dependency-updates.md'));
 
   setUpAll(() {
     expect(File(checker).existsSync(), isTrue,
@@ -921,7 +922,8 @@ void main() {
     test('it no longer claims Flutter SDK updates are unautomated', () {
       expect(
           docs.contains('the Flutter SDK itself, Gradle, AGP, Kotlin'), isFalse,
-          reason: 'docs/dependency-updates.md still groups the Flutter SDK '
+          reason:
+              'docs/development/dependency-updates.md still groups the Flutter SDK '
               'with the toolchains that are not automated yet.');
     });
 
@@ -936,7 +938,8 @@ void main() {
         'F-Droid',
       ]) {
         expect(docs, contains(required),
-            reason: 'docs/dependency-updates.md must mention "$required".');
+            reason:
+                'docs/development/dependency-updates.md must mention "$required".');
       }
     });
   });

@@ -39,7 +39,7 @@ name: Android toolchain updates
 # that updater owns, comments included. It runs here before a commit exists,
 # and again in ci.yml against the real PR diff.
 #
-# See docs/dependency-updates.md.
+# See docs/development/dependency-updates.md.
 on:
   schedule:
     # Mondays, early UTC — the same weekly cadence as the other updaters, a few
@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$PUBLISH_TOKEN" ]]; then
-            echo "::error::DEPENDENCY_UPDATE_TOKEN is required to publish the $LABEL update PR so it runs normal CI. See docs/dependency-updates.md."
+            echo "::error::DEPENDENCY_UPDATE_TOKEN is required to publish the $LABEL update PR so it runs normal CI. See docs/development/dependency-updates.md."
             exit 1
           fi
 
@@ -344,7 +344,7 @@ jobs:
             echo "- [ ] A human reviewed and merged this. Nothing here auto-merges, ever."
             echo
             echo "Opened by [\`android-toolchain-updates.yml\`](.github/workflows/android-toolchain-updates.yml)"
-            echo "for issue #362. See [docs/dependency-updates.md](docs/dependency-updates.md)."
+            echo "for issue #362. See [docs/development/dependency-updates.md](docs/development/dependency-updates.md)."
             echo
             echo "Reproduce the detection locally:"
             echo

@@ -23,7 +23,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   still shows in Android Auto, and playback/notification stays uninterrupted
   during the switch; the choice survives a restart; switching back to Classic
   works. Full list in
-  [docs/app-icon-branding.md](./app-icon-branding.md#manual-qa-checklist-android).
+  [docs/features/app-icon-branding.md](../features/app-icon-branding.md#manual-qa-checklist-android).
 - ☐ Settings ▸ About shows the **same** version as the installed build and the
   GitHub release tag (guarded by `app_info_version_test.dart`, but eyeball it).
 
@@ -39,7 +39,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
   never starts a second local stream.
 - ☐ Screen-off / lock-screen playback survives a 5-minute screen-off for local,
   streaming, cached, and cast playback. See the dedicated checklist and battery
-  troubleshooting in [background-playback.md](features/background-playback.md).
+  troubleshooting in [background-playback.md](../features/background-playback.md).
 
 ## 2. Library
 
@@ -87,7 +87,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 
 Linthra drives all of this through the **standard Android `MediaSession` + audio
 focus** (`audio_service` + `just_audio`) — there is no custom Bluetooth code (see
-[Audit — Bluetooth, Bluetooth LE / modern-Android compatibility, and CPU efficiency](audits/bluetooth-and-cpu.md)). CI can't exercise a
+[Audit — Bluetooth, Bluetooth LE / modern-Android compatibility, and CPU efficiency](../audits/bluetooth-and-cpu.md)). CI can't exercise a
 real radio/headset/car, so verify on a device. Test what you have; mark the rest
 N/A.
 
@@ -178,7 +178,7 @@ playback.
 
 ## 4. Cast / Chromecast
 
-**Casting is currently contained** (see [cast.md](features/cast.md#temporary-containment)),
+**Casting is currently contained** (see [cast.md](../features/cast.md#temporary-containment)),
 so a shipped build has one pass, and it is the one that matters for the security
 maintenance release. Run it on a **real Android device and a real iPhone**, with a
 Chromecast powered on and on the same Wi-Fi:
@@ -216,7 +216,7 @@ Run it in this order (a streamed track is required — local files can't cast):
 7. ☐ Receiver **app branding**: with the *default* media receiver the device
    shows "Default Media Receiver" / the cast device name, **not** a Linthra
    name/logo. This is expected — true app branding needs a custom receiver app
-   (see [cast.md](features/cast.md#receiver-app-name--logo-branding)). Do **not** fail the
+   (see [cast.md](../features/cast.md#receiver-app-name--logo-branding)). Do **not** fail the
    pass on this.
 8. ☐ **Skip to next** track.
 9. ☐ The receiver's metadata (title/artist/album/artwork/duration) **updates** to
@@ -467,7 +467,7 @@ cache's knowledge survives a restart; it never holds a URL or token.
 ### TalkBack
 
 The full pass, with the setup steps and what is worth failing on, is in
-[accessibility.md](features/accessibility.md#real-device-talkback-smoke-checklist).
+[accessibility.md](../features/accessibility.md#real-device-talkback-smoke-checklist).
 The short version, for a release pass:
 
 - ☐ Every destination, row and icon-only button announces something.
@@ -480,7 +480,7 @@ The short version, for a release pass:
 
 The full pass — window title, rail destinations, library rows, Now Playing,
 dialogs, connection forms, and keyboard-only traversal — is in
-[accessibility.md](features/accessibility.md#linux-orca-smoke-checklist).
+[accessibility.md](../features/accessibility.md#linux-orca-smoke-checklist).
 Use Orca. Native `flutter run -d linux` first; a silent Flatpak is a
 sandbox issue, not a missing label.
 
@@ -494,7 +494,7 @@ sandbox issue, not a missing label.
 Linux ships on two desktops that most users are on, and a build tuned to one of
 them looks fine until the other one breaks after release. The full pass, with a
 copy-paste result sheet, is
-[GNOME and KDE Plasma compatibility matrix](linux/compatibility-matrix.md); it covers
+[GNOME and KDE Plasma compatibility matrix](../linux/compatibility-matrix.md); it covers
 launch, window sizing and maximize/restore, appearance, the file portal, local
 folder selection, notifications, MPRIS, media keys, audio output, secure
 storage, the Flatpak, provider setup, playback and relaunch, on both desktops,
@@ -506,14 +506,14 @@ Wayland first.
   both results and the session facts from the top of that page.
 - ☐ A difference that turns out to belong to the compositor or the portal
   backend gets a row in that page's
-  [differences table](linux/compatibility-matrix.md#differences-linthra-does-not-normalize),
+  [differences table](../linux/compatibility-matrix.md#differences-linthra-does-not-normalize),
   never a branch on which desktop is running.
 
 ### Desktop HiDPI & fractional scaling (Linux)
 
 The scale matrix is covered by widget tests, so this pass is only about what a
 compositor does that Flutter's own layout cannot tell you. The full GNOME/KDE
-steps live in [hidpi-and-scaling.md](linux/hidpi-and-scaling.md); the short version:
+steps live in [hidpi-and-scaling.md](../linux/hidpi-and-scaling.md); the short version:
 
 - ☐ GNOME: Library, an album, an artist and Now Playing at 100 / 125 / 150 /
   175 / 200% display scale: nothing clipped, artwork sharp rather than soft.
@@ -530,7 +530,7 @@ steps live in [hidpi-and-scaling.md](linux/hidpi-and-scaling.md); the short vers
 
 Which surface takes a notch is covered by widget tests; this pass is about how
 it feels against a real mouse and a real touchpad. What each piece does is in
-[Linux desktop](linux/desktop.md#mouse-wheel-and-trackpad).
+[Linux desktop](../linux/desktop.md#mouse-wheel-and-trackpad).
 
 - ☐ Wheel over the Songs list, the Albums and Artists grids, a playlist, the
   queue and Settings: each scrolls at a steady, predictable rate and stops dead
