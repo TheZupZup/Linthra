@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, HashSet};
 
 pub mod ffi;
 mod normalize;
+#[cfg(test)]
+mod shared_cases_test;
 pub mod streaming;
 
 use normalize::normalized_tokens;

@@ -1,0 +1,111 @@
+# Shared library-search cases.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/shared_cases_test.rs (Rust, the reference)
+#   - test/core/catalog/search_shared_cases_test.dart (the Dart fallback)
+# A case both must agree on goes here, not in one side's own tests.
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment
+# line. A field of a lone `-` means "none". Escapes inside a field:
+# \t (tab), \n (newline), \\ (backslash), \u{HEX} (any code point).
+#
+#   T  <text>  <expected tokens, separated by single spaces>
+#      How text is cut into folded tokens, for metadata and queries alike.
+#
+#   R  <id>  <title>  <artist>  <album>  <album artist>  <provider>
+#      A track of the catalog that the M lines below it search. Positions
+#      count R lines from 0, in file order.
+#
+#   M  <query>  <positions of every matching track, ascending>
+#      Every query term must start a token of some field of the track.
+
+# --- Tokens -------------------------------------------------------------
+
+T	Master of Puppets	master of puppets
+T	rock-n-roll!	rock n roll
+T	  spaced   out  	spaced out
+T	-	-
+T	!!! --- ???	-
+T	\u{0301}\u{0308}	-
+T	Beyoncé	beyonce
+T	Björk	bjork
+T	Motörhead	motorhead
+T	Sigur Rós	sigur ros
+T	Mylène Farmer	mylene farmer
+T	Antonín Dvořák	antonin dvorak
+T	Straße	strasse
+T	Encyclopædia	encyclopaedia
+T	Cœur	coeur
+T	Sigurðsson	sigurdsson
+T	Sølvsvin	solvsvin
+T	Mo\u{0308}tley	motley
+T	cafe\u{0301}	cafe
+T	Dvor\u{030C}a\u{0301}k	dvorak
+T	BJÖRK	bjork
+T	ÉCOLE	ecole
+T	Кино	кино
+T	久石 譲	久石 譲
+T	Ωδή	ωδή
+T	한국	한국
+T	Sigur Rós 🎵 (  ) 久石	sigur ros 久石
+T	🎵🎶	-
+T	track\u{0000}name	track name
+T	Track 199421	track 199421
+T	2Pac	2pac
+T	AC/DC	ac dc
+T	Guns N' Roses	guns n roses
+T	tab\there	tab here
+T	line\nbreak	line break
+T	ΣΑΣ	σας
+T	ΣΑ	σα
+T	ΑΣΑ	ασα
+T	ΑΣ1	ας1
+T	ΟΔΥΣΣΕΥΣ ΣΑΣ	οδυσσευς σας
+T	İstanbul	istanbul
+T	Ⅻ	ⅻ
+T	①②	①②
+T	ﬁne	ﬁne
+T	ǅemal	ǆemal
+T	हिन्दी	हिन दी
+
+# --- Matching ------------------------------------------------------------
+
+R	jf:1	Jóga	Björk	Homogenic	-	jellyfin
+R	nd:2	Hunter	Björk	Homogenic	Björk	navidrome
+R	local:3	Ace of Spades	Motörhead	Ace of Spades	-	local
+R	plex:4	Master of Puppets	Metallica	Master of Puppets	Metallica	plex
+R	local:5	Battery	Metallica	Master of Puppets	-	local
+R	jf:6	Master Blaster	Stevie Wonder	Hotter than July	-	jellyfin
+R	nd:7	Café del Mar	Energy 52	Cafe\u{0301} del Mar	-	navidrome
+R	local:8	Track 199421	Artist 421	Album 311	-	local
+
+M	bjork	0 1
+M	BJÖRK	0 1
+M	bj	0 1
+M	homogenic hunter	1
+M	hunter homogenic	1
+M	motorhead	2
+M	metallica	3 4
+M	master	3 4 5
+M	master of	3 4
+M	puppets metallica	3 4
+M	mast blast	5
+M	cafe	6
+M	café	6
+M	cafe\u{0301} mar	6
+M	jellyfin	0 5
+M	navidrome bjork	1
+M	plex	3
+M	local	2 4 7
+M	199421	7
+M	track 1994	7
+M	artist 421	7
+M	421 artist	7
+M	ica	-
+M	puppetz	-
+M	-	-
+M	   	-
+M	!!!	-
+M	bjork metallica	-
+M	ac/dc	-
+M	ace, of: spades!	2
