@@ -7,6 +7,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+pub mod cache_eviction;
+#[cfg(test)]
+mod cache_eviction_cases_test;
 pub mod ffi;
 mod normalize;
 #[cfg(test)]
