@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub mod ffi;
 mod normalize;
 pub mod streaming;
 
