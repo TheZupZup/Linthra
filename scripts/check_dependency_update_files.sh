@@ -22,7 +22,7 @@
 # lockfile refresh has no business editing the toolchain pin, and an SDK bump
 # has no business re-resolving the lockfile — that second resolution is a
 # human's call, because the committed pubspec.lock is what the reproducible
-# F-Droid build resolves from (docs/release-process.md §7). Sharing one list
+# F-Droid build resolves from (docs/distribution/release-process.md §7). Sharing one list
 # would silently give each updater the other's reach.
 #
 # Note the last two kinds: the AGP and Kotlin pins live in the *same file*, so

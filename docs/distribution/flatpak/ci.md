@@ -30,7 +30,7 @@ same job additionally checks out that exact tag, verifies the release metadata
 at it, exports the bundle from the repository it just built, checks the bundle
 against the manifest, and installs and launches *that file*. A separate,
 gated job then attaches it. See
-[release-process.md §4b](./release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
+[release-process.md §4b](../release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
 Nothing about a PR or push run changes.
 
 No `actions/cache` entry is used by this workflow. Correctness therefore does
@@ -45,7 +45,7 @@ same CI job; that option is never used for Flathub or another public remote.
 ## Reproduce the build locally
 
 Install the host tooling first. On Fedora Atomic, the contributor setup in
-[`flatpak-development.md`](./flatpak-development.md) remains the recommended
+[Flatpak development on Fedora Atomic](development.md) remains the recommended
 path. On a distribution with native `flatpak-builder`, the core CI sequence is:
 
 > Two host packages are easy to miss because nothing hard-depends on them, and
@@ -146,7 +146,7 @@ not already there. `flatpak_launch_smoke.sh` never removes app data at all. So
 a data tree you already had, and your permission-store grants, are never
 removed by a smoke. For the commands that *do* delete that data, when you want
 it gone, see
-[flatpak-development.md § Clean and uninstall](./flatpak-development.md#clean-and-uninstall).
+[Flatpak development on Fedora Atomic § Clean and uninstall](development.md#clean-and-uninstall).
 
 ## The audio smoke job beside it
 
@@ -157,7 +157,7 @@ and walks the real playback lifecycle inside the installed sandbox, on the
 libmpv the manifest built rather than one the host happens to have.
 
 That job has its own document:
-[flatpak-audio-smoke.md](./flatpak-audio-smoke.md), including what it
+[Flatpak audio playback smoke](audio-smoke.md), including what it
 deliberately does *not* prove.
 
 The workflow does not replace the stricter offline-source smoke from #442 or the

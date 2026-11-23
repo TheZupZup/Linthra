@@ -14,7 +14,7 @@ running the script locally sees the same workflow the GitHub Action runs.
 
 This script does NOT create a git tag, push anything, build the APK/AAB, or
 publish a GitHub Release. Those steps still happen manually after the
-generated PR is merged. See docs/release-process.md.
+generated PR is merged. See docs/distribution/release-process.md.
 
 Usage:
 
@@ -29,7 +29,7 @@ Drift between all of those (and the release tag) is checked by
 scripts/check_release_metadata_sync.py, which CI runs on every push.
 
 The version-to-versionCode encoding mirrors tool/version_from_tag.dart and
-scripts/release_preflight.sh; see docs/release-process.md §1.
+scripts/release_preflight.sh; see docs/distribution/release-process.md §1.
 """
 
 from __future__ import annotations

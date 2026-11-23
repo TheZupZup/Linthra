@@ -6,7 +6,7 @@ project's licensing accurately. It is a planning/compliance aid.
 
 > **Linthra is _not_ on F-Droid and has _not_ been submitted.** Nothing here
 > publishes or submits anything. This audit records the licensing posture of the
-> code as it stands; see the [F-Droid readiness checklist](./fdroid-readiness.md)
+> code as it stands; see the [F-Droid readiness checklist](distribution/f-droid/readiness.md)
 > for the overall submission status and blockers.
 
 ## 1. Project license
@@ -327,7 +327,7 @@ The same applies to every other third-party notice in the tree.
   `androidx.media:media:1.7.0` and `androidx.core:core` (AndroidX, Apache-2.0).
   Media3's bundled manifest is the source of the merged `ACCESS_NETWORK_STATE`
   permission (it reads connectivity state for adaptive streaming); see the
-  permissions table in [fdroid-readiness.md](./fdroid-readiness.md).
+  permissions table in [F-Droid readiness checklist](distribution/f-droid/readiness.md).
 - **No Google Play Services / Firebase / GMS.** Confirmed by the transitive walk
   (§2): no `com.google.android.gms`, `play-services`, Firebase, or other
   proprietary Google library appears in the resolved dependency tree. The
@@ -411,7 +411,7 @@ implications:
   **not** warrant the `NonFreeNet` anti-feature. This should still be **reviewed
   at submission time** — if any future source defaults to or promotes a non-free
   hosted service, it must be reassessed (the
-  [readiness doc](./fdroid-readiness.md#5-anti-features-review) carries the same
+  [readiness doc](distribution/f-droid/readiness.md#5-anti-features-review) carries the same
   caveat).
 
 ### Reporting a bug (browser hand-off, no auto-send)
@@ -487,11 +487,11 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
 
 ## 10. Related docs
 
-- [docs/fdroid-readiness.md](./fdroid-readiness.md) — overall F-Droid submission
+- [docs/distribution/f-droid/readiness.md](distribution/f-droid/readiness.md) — overall F-Droid submission
   checklist and blockers.
-- [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md) — build recipe and
+- [docs/distribution/f-droid/build-recipe.md](distribution/f-droid/build-recipe.md) — build recipe and
   reproducible-build notes.
-- [docs/release-process.md](./release-process.md) — release/tagging and
+- [docs/distribution/release-process.md](distribution/release-process.md) — release/tagging and
   GitHub-Release process.
-- [docs/release-signing.md](./release-signing.md) — how release builds are
+- [docs/distribution/release-signing.md](distribution/release-signing.md) — how release builds are
   signed.

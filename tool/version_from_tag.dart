@@ -2,7 +2,7 @@
 /// pair.
 ///
 /// `pubspec.yaml` is the single source of truth for what a build actually
-/// ships (see docs/release-process.md §1) — a plain `flutter build` (CI,
+/// ships (see docs/distribution/release-process.md §1) — a plain `flutter build` (CI,
 /// local, and F-Droid alike) reads `versionName`/`versionCode` straight from
 /// it, with no `--build-name`/`--build-number`/`--dart-define` flags.
 ///

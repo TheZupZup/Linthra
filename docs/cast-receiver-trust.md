@@ -179,7 +179,7 @@ Restoring casting is one reviewed change, not a revert. It has to:
 - [ ] offer the reporter a review through the advisory before production
       availability returns;
 - [ ] ship as its own release, separate from the containment release recorded in
-      [release-artifact-verification.md](release-artifact-verification.md).
+      [release-artifact-verification.md](distribution/release-artifact-verification.md).
 
 Until every box is ticked, the safeguard stays. A partially reviewed
 restoration, a debug-only bypass, or a "temporarily re-enable to test on a

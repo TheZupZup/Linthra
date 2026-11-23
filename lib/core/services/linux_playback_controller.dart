@@ -63,7 +63,7 @@ Map<String, String> resolveLinuxMpvProperties(Map<String, String> configured) =>
 /// Whether this process is a Flatpak, where libmpv is bundled in the image.
 ///
 /// Read once from the environment the sandbox always sets
-/// (`docs/flatpak-development.md`). It changes only what a runtime failure
+/// (`docs/distribution/flatpak/development.md`). It changes only what a runtime failure
 /// *advises*: a distribution build plays through the machine's libmpv, so the
 /// fix is the machine's package manager, while a Flatpak never loads the
 /// host's libmpv at all and telling its user to `apt install` something would

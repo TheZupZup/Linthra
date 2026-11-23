@@ -136,7 +136,7 @@ submitted.
 In CI this is the first step of the `Sandbox smokes on the packaged app` job
 in `.github/workflows/flatpak-build.yml`, which runs beside the existing
 build rather than after it, so the wall clock is unchanged. The
-[local-library smoke](./flatpak-local-library-smoke.md) shares the same
+[local-library smoke](local-library-smoke.md) shares the same
 derived manifest and the same build.
 
 Locally, from a clean checkout with `flatpak`, `flatpak-builder`, `xvfb-run`,
@@ -224,8 +224,8 @@ quotes file paths in its own error strings, the sandbox still sees the host's
 
 ## Related
 
-- [flatpak-ci.md](./flatpak-ci.md), what the Flatpak build job proves
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), sandbox
+- [Flatpak CI validation](ci.md), what the Flatpak build job proves
+- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), sandbox
   filesystem policy and its smoke
-- [flatpak-development.md](./flatpak-development.md), building the Flatpak
+- [Flatpak development on Fedora Atomic](development.md), building the Flatpak
   locally

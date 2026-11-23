@@ -4,7 +4,7 @@ import '../../tool/version_from_tag.dart';
 
 /// Specifies tool/version_from_tag.dart — the single source of truth that turns
 /// a `v*` release tag into the `versionName`/`versionCode` baked into a build.
-/// See docs/release-process.md §1.
+/// See docs/distribution/release-process.md §1.
 void main() {
   group('versionFromTag — supported tags', () {
     test('v0.1.0-alpha.16 → 0.1.0-alpha.16 / 100016', () {

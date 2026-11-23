@@ -15,7 +15,7 @@
 // the same metadata reader, the same artwork cache and the same playback
 // controller the app wires up. What this cannot do is press the button in the
 // file chooser: that dialog, and the document-portal grant it mints, stay a
-// manual step (docs/flatpak-local-library-smoke.md). The grant it stands in for
+// manual step (docs/distribution/flatpak/local-library-smoke.md). The grant it stands in for
 // is deliberately narrow: one folder, for one run.
 
 import 'dart:async';

@@ -11,7 +11,7 @@
 # dependency by URL + sha256) — that's the same one-time, declared-source
 # generation step as running `flutter pub get` to produce pubspec.lock itself,
 # not the sandboxed build flatpak-builder later runs offline. See
-# flatpak/README.md and docs/flatpak-source-pinning.md.
+# flatpak/README.md and docs/distribution/flatpak/source-pinning.md.
 #
 # The output is checked before this script exits: scripts/check_flatpak_sources.py
 # re-reads what was just written and refuses a source that is not pinned to a
@@ -105,7 +105,7 @@ info "Running flatpak-flutter"
 rm -rf .flatpak-builder
 
 # Audit what was just generated, offline and against the committed lockfile
-# and Flutter pin. Same check CI runs; docs/flatpak-source-pinning.md lists
+# and Flutter pin. Same check CI runs; docs/distribution/flatpak/source-pinning.md lists
 # what it holds the output to. Run with the venv's python because the check
 # reads YAML and the venv already has flatpak-flutter's pinned PyYAML, so this
 # does not add a system dependency to a script that only needed git+python3.

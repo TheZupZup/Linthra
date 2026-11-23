@@ -10,7 +10,7 @@ claim of availability.
 > published to the production track yet.
 
 For F-Droid the parallel document is
-[docs/fdroid-readiness.md](./fdroid-readiness.md); the two stores share the same
+[docs/distribution/f-droid/readiness.md](../f-droid/readiness.md); the two stores share the same
 identity, version source, and assets but differ on signing and submission.
 
 ## 1. Current status
@@ -19,7 +19,7 @@ identity, version source, and assets but differ on signing and submission.
   (`version: <versionName>+<versionCode>`) in lockstep with the pushed `v*` tag:
   the latest released alpha is `v0.1.0-alpha.30` (versionName `0.1.0-alpha.30`,
   versionCode `100030`). See [§11](#11-versioning-for-play-uploads) and
-  [release-process.md §1](./release-process.md#1-versioning-model) — `pubspec.yaml`
+  [release-process.md §1](../release-process.md#1-versioning-model) — `pubspec.yaml`
   is the source of truth and the tag must match it.
 - **Distribution:** sideloadable pre-release APK/AAB attached to GitHub
   Releases. **Not** on Google Play, **not** on F-Droid; nothing publishes
@@ -34,11 +34,11 @@ identity, version source, and assets but differ on signing and submission.
     so the Play icon is full-bleed, not the F-Droid squircle).
   - A release workflow that already builds an **AAB** (`flutter build appbundle
     --release`) as well as an APK — see
-    [docs/release-process.md](./release-process.md) and
+    [docs/distribution/release-process.md](../release-process.md) and
     `.github/workflows/android-release-build.yml`.
   - Release signing is **wired** (env vars / `android/key.properties`) but the
     real keystore/secrets are **not yet provisioned** — see
-    [docs/release-signing.md](./release-signing.md).
+    [docs/distribution/release-signing.md](../release-signing.md).
   - Fastlane-style listing text (`title.txt`, `short_description.txt`,
     `full_description.txt`, per-`versionCode` changelogs).
 - **Not ready for production.** See
@@ -57,7 +57,7 @@ identity, version source, and assets but differ on signing and submission.
   once an app is created — it can never be changed for that listing, so it must
   be correct at first upload. It already matches the F-Droid plan and the
   GitHub-Release artifacts.
-- License is declared in [`LICENSE`](../LICENSE) (GNU Affero General Public
+- License is declared in [`LICENSE`](../../../LICENSE) (GNU Affero General Public
   License v3.0 or later). Play does not require a specific license, but Linthra
   remains open source. Releases up to and including v0.2.4 were published under
   MPL-2.0 and remain under those terms.
@@ -98,9 +98,9 @@ them.
 - Linthra's release build reads signing material from environment variables or a
   git-ignored `android/key.properties`, falling back to the **debug** key when
   none is present. A secret-free template lives at
-  [`android/key.properties.example`](../android/key.properties.example). Full
+  [`android/key.properties.example`](../../../android/key.properties.example). Full
   details, secret names, and `keytool` generation steps are in
-  [docs/release-signing.md](./release-signing.md).
+  [docs/distribution/release-signing.md](../release-signing.md).
 - For Play, generate a release keystore (see release-signing.md §4) and use it
   as the **upload key**. Keep it backed up; reuse it for every upload.
 - **Debug-signed builds must never be uploaded to Play**, not even to internal
@@ -152,7 +152,7 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
   exceeds Play's "long side ≤ 2× short side" rule, so they must be **cropped**
   before reuse on a Play listing (still the main image to-do for Play). Always
   from a **real** running build, never mockups or upscaled placeholders. Sizes
-  and `adb` capture steps are in [docs/listing-assets.md](./listing-assets.md).
+  and `adb` capture steps are in [docs/distribution/listing-assets.md](../listing-assets.md).
 - The icons and feature graphic are generated deterministically from one source
   design (`tool/branding/`), so the Play and F-Droid copies never drift. The
   **Play app icon is full-bleed** (`assets/brand/linthra-play-store-icon-512.png`)
@@ -164,7 +164,7 @@ reusable copies under `fastlane/metadata/android/en-US/images/`):
 
 Google Play requires a **Data Safety** form for every app. A Linthra-specific
 draft of the likely answers lives in
-[docs/play-store-data-safety.md](./play-store-data-safety.md). Before
+[docs/distribution/google-play/data-safety.md](data-safety.md). Before
 submission:
 
 - [ ] Confirm **no ads** SDK is present (none today).
@@ -184,7 +184,7 @@ submission:
 
 Google Play requires a **privacy policy URL** for the listing (and always for
 apps that handle account/credential data). A draft is in
-[docs/privacy-policy.md](./privacy-policy.md). Before submission:
+[docs/privacy-policy.md](../../privacy-policy.md). Before submission:
 
 - [ ] Review the draft for accuracy against the current build.
 - [ ] Publish it at a **stable public URL** (e.g. GitHub Pages, the repo's
@@ -202,21 +202,21 @@ internal/closed testing.
 
 1. **Play-ratio screenshots** **(closed-testing blocker)** — real captures exist
    for F-Droid (`images/phoneScreenshots/`), but Play needs them cropped to its
-   ≤ 2:1 ratio; see [docs/listing-assets.md](./listing-assets.md).
+   ≤ 2:1 ratio; see [docs/distribution/listing-assets.md](../listing-assets.md).
 2. **Release/upload keystore provisioned** and Play App Signing enrolled
    **(closed-testing blocker)** — see
-   [docs/release-signing.md](./release-signing.md). A debug-signed build cannot
+   [docs/distribution/release-signing.md](../release-signing.md). A debug-signed build cannot
    be uploaded to any track.
 3. **Privacy policy published at a public URL** **(closed-testing blocker)** —
-   draft in [docs/privacy-policy.md](./privacy-policy.md).
+   draft in [docs/privacy-policy.md](../../privacy-policy.md).
 4. **Data Safety form completed** in the Play Console **(closed-testing
-   blocker)** — draft in [docs/play-store-data-safety.md](./play-store-data-safety.md).
+   blocker)** — draft in [docs/distribution/google-play/data-safety.md](data-safety.md).
 5. **Target API level** meets Play's current minimum. Linthra sets
    `targetSdk = 37` (Android 17) explicitly in `android/app/build.gradle`; Play
    currently requires 36 for new apps and updates. CI reads the level back out
    of the built App Bundle (`scripts/check_android_target_sdk.py`), so a
    release can't silently ship a lower one. Play raises the minimum each year;
-   see [android-17.md](./android-17.md) for the current state.
+   see [android-17.md](../../android-17.md) for the current state.
 6. **Alpha feature maturity.** Tag parsing/artwork, artist/album browse, search,
    playlists, and batch downloads are still planned (see the README roadmap).
    This is fine for closed testing but is a judgment-call blocker for a
@@ -252,7 +252,7 @@ Linthra's versioning model supports this safely:
   (e.g. `0.1.0-alpha.16` → `100016`) satisfies Play's strictly-increasing
   requirement by construction. A plain `flutter build appbundle --release` reads
   `versionName`/`versionCode` straight from `pubspec.yaml`. See
-  [release-process.md §1](./release-process.md#1-versioning-model).
+  [release-process.md §1](../release-process.md#1-versioning-model).
 - The in-app About/Settings string (`AppInfo.version` in
   `lib/core/app_info.dart`) mirrors `pubspec.yaml`'s `versionName` via a `const`
   that a CI test (`test/core/app_info_version_test.dart`) **fails the build if it
@@ -261,7 +261,7 @@ Linthra's versioning model supports this safely:
   Play.**
 
 **Per-upload checklist (in addition to
-[release-process.md §3](./release-process.md#3-pre-tag-checklist)):**
+[release-process.md §3](../release-process.md#3-pre-tag-checklist)):**
 
 - [ ] The upload is built from a `vX.Y.Z[-suffix.N]` tag whose `versionName`
       matches `pubspec.yaml`, so `versionName`, `versionCode`, and the in-app
@@ -306,9 +306,9 @@ Notes:
   manifest's `com.google.android.gms.car.application` entry is **only a
   metadata declaration** that tells Android Auto Linthra is a media app
   (pointing at `automotive_app_desc.xml`); it does **not** link the GMS Cast or
-  Car SDK. See [docs/dependency-license-audit.md](./dependency-license-audit.md).
+  Car SDK. See [docs/dependency-license-audit.md](../../dependency-license-audit.md).
 - The same permission rationale, with more F-Droid framing, is in
-  [docs/fdroid-readiness.md §5](./fdroid-readiness.md#5-anti-features-review).
+  [docs/distribution/f-droid/readiness.md §5](../f-droid/readiness.md#5-anti-features-review).
 
 ## 13. Play Console declarations to prepare (category, target audience, app access)
 
@@ -323,7 +323,7 @@ them honestly in the Console. Drafted answers for Linthra:
 - **Tags:** Play allows a few descriptive tags; pick the relevant ones (e.g.
   *music player*, *audio player*) without keyword-stuffing. These are distinct
   from the listing keywords in
-  [play-store-listing.md §6](./play-store-listing.md#6-suggested-keywords).
+  [Google Play store listing (draft) §6](listing.md#6-suggested-keywords).
 - **Contains ads:** **No.** Linthra has no ad SDK and shows no ads (keep this
   consistent with the Data Safety form and listing).
 
@@ -367,7 +367,7 @@ or other access restriction, so a reviewer can reach it.
 
 > A ready-to-paste **App-access instructions** template and a full reviewer
 > walkthrough (local-file testing, what the optional server login means) live in
-> [docs/play-store-review-notes.md](./play-store-review-notes.md).
+> [docs/distribution/google-play/review-notes.md](review-notes.md).
 
 ### Government / financial / health declarations
 
@@ -386,12 +386,12 @@ maintainer.**
 - [ ] Merge the stable release PR(s) to `main`; CI green (analyze, test, format).
 - [ ] Bump `pubspec.yaml` (and `AppInfo._devVersionName`) and create the matching
       release **tag** (`vX.Y.Z[-suffix.N]`) — the version source of truth (§11,
-      [release-process.md §2](./release-process.md#2-tagging)).
+      [release-process.md §2](../release-process.md#2-tagging)).
 - [ ] Verify **versionName / versionCode** in `pubspec.yaml` match the tag and the
       `versionCode` is **strictly greater** than every code ever uploaded to Play,
       on any track (§11). Preview with `dart run tool/version_from_tag.dart vX.Y.Z`.
 - [ ] Build a **release-signed AAB** locally or via the release workflow
-      (§3–§4, [release-signing.md](./release-signing.md)). A **debug-signed**
+      (§3–§4, [release-signing.md](../release-signing.md)). A **debug-signed**
       build must never be uploaded.
 - [ ] **Install and test the release build** on a real device:
   - [ ] app **starts** cleanly;
@@ -403,29 +403,29 @@ maintainer.**
   - [ ] **Android Auto** browse/play works, *if a head unit / DHU is available*.
 - [ ] Verify **no private URLs, usernames, tokens, or local paths** appear in the
       screenshots, the listing copy, this repo's docs, or any pasted logs
-      (§6, [listing-assets.md §6](./listing-assets.md#6-committed-screenshots)).
+      (§6, [listing-assets.md §6](../listing-assets.md#6-committed-screenshots)).
 
 ### In the Play Console
 
 - [ ] **App name** (`Linthra`) and **short description** (§1 of
-      [play-store-listing.md](./play-store-listing.md)).
+      [Google Play store listing (draft)](listing.md)).
 - [ ] **Full description** (paste
       `fastlane/metadata/android/en-US/full_description.txt`).
 - [ ] **App category** — *Music & Audio* (§13).
 - [ ] **Screenshots** — 2–8 phone shots, cropped to Play's ≤ 2:1 ratio
-      ([play-store-listing.md §7](./play-store-listing.md#7-screenshots--recommended-play-order)).
+      ([Google Play store listing (draft) §7](listing.md#7-screenshots--recommended-play-order)).
 - [ ] **App icon** (512×512 full-bleed, `assets/brand/linthra-play-store-icon-512.png`).
 - [ ] **Feature graphic** (1024×500, `images/featureGraphic.png`).
-- [ ] **Privacy policy URL** — publish [privacy-policy.md](./privacy-policy.md)
+- [ ] **Privacy policy URL** — publish [privacy-policy.md](../../privacy-policy.md)
       at a stable public URL and paste it (§8).
 - [ ] **Data Safety** form
-      ([play-store-data-safety.md](./play-store-data-safety.md), §7).
+      ([Google Play Data Safety prep (draft)](data-safety.md), §7).
 - [ ] **Content rating** questionnaire (answer from the shipped build, §9.8).
 - [ ] **Target audience and content** — general audience, not child-directed
       (§13).
 - [ ] **App access** instructions — local-first works with no account; add
       optional throwaway server creds in the Console only
-      ([play-store-review-notes.md](./play-store-review-notes.md), §13).
+      ([Google Play review notes (app access)](review-notes.md), §13).
 - [ ] Upload to **internal testing** first; smoke-test the whole flow end to end.
 - [ ] **Closed / open testing** as required (note the newer-account 12-tester /
       14-day rule, §5).
@@ -440,24 +440,24 @@ maintainer.**
 - [ ] Track user feedback (Play reviews + GitHub issues).
 - [ ] Keep **GitHub Releases aligned** with what is on Play (same tag/version).
 - [ ] Keep the **F-Droid** work separate — F-Droid builds and signs from source
-      on its own infrastructure ([fdroid-readiness.md](./fdroid-readiness.md));
+      on its own infrastructure ([F-Droid readiness checklist](../f-droid/readiness.md));
       a Play upload does not change anything for F-Droid.
 
 ## 15. Related docs
 
-- [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
-- [docs/play-store-listing.md](./play-store-listing.md) — store listing draft.
-- [docs/play-store-review-notes.md](./play-store-review-notes.md) — reviewer /
+- [docs/privacy-policy.md](../../privacy-policy.md) — privacy policy draft.
+- [docs/distribution/google-play/listing.md](listing.md) — store listing draft.
+- [docs/distribution/google-play/review-notes.md](review-notes.md) — reviewer /
   app-access notes.
-- [docs/play-store-data-safety.md](./play-store-data-safety.md) — Data Safety
+- [docs/distribution/google-play/data-safety.md](data-safety.md) — Data Safety
   form prep.
-- [docs/release-process.md](./release-process.md) — versioning, tagging, and the
+- [docs/distribution/release-process.md](../release-process.md) — versioning, tagging, and the
   release-build workflow.
-- [docs/release-signing.md](./release-signing.md) — keystore, CI secrets,
+- [docs/distribution/release-signing.md](../release-signing.md) — keystore, CI secrets,
   rotation, and Play App Signing notes.
-- [docs/listing-assets.md](./listing-assets.md) — icon, feature graphic, and
+- [docs/distribution/listing-assets.md](../listing-assets.md) — icon, feature graphic, and
   screenshot capture.
-- [docs/fdroid-readiness.md](./fdroid-readiness.md) — the parallel F-Droid
+- [docs/distribution/f-droid/readiness.md](../f-droid/readiness.md) — the parallel F-Droid
   checklist.
 </content>
 </invoke>

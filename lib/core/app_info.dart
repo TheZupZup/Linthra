@@ -8,7 +8,7 @@ abstract final class AppInfo {
   /// shown here).
   ///
   /// `pubspec.yaml` is the single source of truth for the version and is kept in
-  /// lockstep with the release tag (see docs/release-process.md §1), so this
+  /// lockstep with the release tag (see docs/distribution/release-process.md §1), so this
   /// constant must match its `versionName`. A plain `flutter build` — local, CI
   /// release, and F-Droid alike — supplies the version from `pubspec.yaml`, so
   /// the in-app version always matches the released APK/AAB without any

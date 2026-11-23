@@ -57,17 +57,17 @@ SMOKES_THAT_REMOVE_APP_DATA = (
 )
 
 DOC_CLAIMS = {
-    "flatpak-audio-smoke.md": (
+    "distribution/flatpak/audio-smoke.md": (
         "never runs `flatpak uninstall --delete-data`",
         "only if that tree was not already there",
         "permission-store grants are never touched",
     ),
-    "flatpak-local-library-smoke.md": (
+    "distribution/flatpak/local-library-smoke.md": (
         "never runs `flatpak uninstall --delete-data`",
         "only if that tree was not already there",
         "Flatpak permission-store grants",
     ),
-    "flatpak-ci.md": (
+    "distribution/flatpak/ci.md": (
         "None of them uses `flatpak uninstall --delete-data`",
         "removes what it created, and nothing else",
         "only when it was not already there",
@@ -78,8 +78,8 @@ DOC_CLAIMS = {
 # describes. Named here so a revert of the prose is as loud as a revert of the
 # code.
 RETIRED_DOC_CLAIMS = {
-    "flatpak-audio-smoke.md": "removes on exit, app data included",
-    "flatpak-local-library-smoke.md": (
+    "distribution/flatpak/audio-smoke.md": "removes on exit, app data included",
+    "distribution/flatpak/local-library-smoke.md": (
         "the installed app and its data) is removed on exit"
     ),
 }
@@ -242,7 +242,7 @@ class DocumentedLocalBehaviour(unittest.TestCase):
     def test_the_uninstall_table_names_the_permission_store(self) -> None:
         # The flag's second reach is the one a data-directory check cannot
         # cover, so the table that documents it has to say so.
-        text = squashed(ROOT / "docs" / "flatpak-development.md")
+        text = squashed(ROOT / "docs" / "distribution" / "flatpak" / "development.md")
         self.assertIn("entries in Flatpak's permission store", text)
         self.assertIn("document-portal grants", text)
 

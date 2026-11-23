@@ -77,7 +77,7 @@ Future<void> main() async {
   //
   // Decode, timing, seeking and the transport are all real; the final hop to
   // hardware is not exercised, and stays a manual check
-  // (docs/flatpak-audio-smoke.md). Set LINTHRA_AUDIO_SMOKE_AO=pulse to hear it.
+  // (docs/distribution/flatpak/audio-smoke.md). Set LINTHRA_AUDIO_SMOKE_AO=pulse to hear it.
   //
   // This is merged into Linthra's production libmpv properties rather than
   // replacing them (see resolveLinuxMpvProperties), so the smoke exercises the

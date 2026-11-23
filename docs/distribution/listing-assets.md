@@ -6,13 +6,13 @@ go in, and how to capture them from a real build.
 
 > **Status:** all three listing-asset types now exist. The real Linthra **app
 > icon and feature graphic** are generated deterministically from one source
-> design by [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
+> design by [`tool/branding/generate_icons.py`](../../tool/branding/generate_icons.py)
 > (vector source: `tool/branding/linthra_icon.svg`) — the same mark the Android
 > launcher icons under `android/app/src/main/res/mipmap-*` use (adaptive +
 > legacy, no longer the default Flutter icon). A set of **eight real phone
 > screenshots**, captured from a running build rather than mocked, now lives
 > under `images/phoneScreenshots/` — described in full in §6. See also
-> [docs/fdroid-readiness.md](./fdroid-readiness.md).
+> [docs/distribution/f-droid/readiness.md](f-droid/readiness.md).
 
 ## 1. Where assets live
 
@@ -90,7 +90,7 @@ Screenshot notes:
   (≈9:20), which is fine for F-Droid and for GitHub embeds. **Google Play** is
   stricter (the longer side may be at most twice the shorter), so these
   full-height captures would need cropping before they could be reused for a Play
-  listing — see [docs/play-store-readiness.md](./play-store-readiness.md).
+  listing — see [docs/distribution/google-play/readiness.md](google-play/readiness.md).
 - Filenames: F-Droid accepts any `.png` / `.jpg` / `.jpeg` name and orders the
   listing by the filename **string** sort. The committed shots use descriptive,
   zero-padded names (`01-now-playing-carefree.png` … `08-favorites.png`) so they
@@ -152,7 +152,7 @@ Both are generated from one source design, so they never drift:
 
 - **Source:** `tool/branding/linthra_icon.svg` is the canonical vector mark
   (four rounded white equalizer bars on the brand violet gradient).
-- **Generator:** [`tool/branding/generate_icons.py`](../tool/branding/generate_icons.py)
+- **Generator:** [`tool/branding/generate_icons.py`](../../tool/branding/generate_icons.py)
   rasterises it (standard library only, no Pillow) into:
   - the legacy launcher icons (`mipmap-*/ic_launcher.png`) and the adaptive
     foreground (`mipmap-*/ic_launcher_foreground.png`);
@@ -160,7 +160,7 @@ Both are generated from one source design, so they never drift:
   - the full-bleed Google Play app icon
     `assets/brand/linthra-play-store-icon-512.png` (512×512) — Play masks its
     own corners, so this one drops the squircle; see
-    [docs/play-store-readiness.md §6](./play-store-readiness.md#6-required-assets).
+    [docs/distribution/google-play/readiness.md §6](google-play/readiness.md#6-required-assets).
   The adaptive background is the vector gradient
   `android/app/src/main/res/drawable/ic_launcher_background.xml`.
 - **Regenerate** after editing the design: `python3 tool/branding/generate_icons.py`
@@ -231,8 +231,8 @@ and re-run the privacy check above.
 
 ## 7. Related docs
 
-- [docs/fdroid-readiness.md](./fdroid-readiness.md) — full F-Droid submission
+- [docs/distribution/f-droid/readiness.md](f-droid/readiness.md) — full F-Droid submission
   checklist (identity, build, dependencies, anti-features, signing, tagging).
-- [docs/fdroid-submission.md](./fdroid-submission.md) — the submission package
+- [docs/distribution/f-droid/submission.md](f-droid/submission.md) — the submission package
   and listing-asset status.
-- [README.md](../README.md) — project overview and the Screenshots section.
+- [README.md](../../README.md) — project overview and the Screenshots section.

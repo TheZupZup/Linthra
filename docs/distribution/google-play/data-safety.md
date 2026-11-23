@@ -4,8 +4,8 @@
 > **Data Safety** form, based on how Linthra behaves today. It has not been
 > legally reviewed. Re-check every answer against the shipped build in the Play
 > Console before submitting, and keep it consistent with
-> [docs/privacy-policy.md](./privacy-policy.md). See
-> [docs/play-store-readiness.md](./play-store-readiness.md).
+> [docs/privacy-policy.md](../../privacy-policy.md). See
+> [docs/distribution/google-play/readiness.md](readiness.md).
 
 ## How to read this
 
@@ -110,7 +110,7 @@ Notes for the form:
   **metadata declaration** that lets Android Auto recognize Linthra as a media
   app (it points at `automotive_app_desc.xml`). It does **not** link the GMS
   Cast/Car SDK and does not collect data.
-- See [docs/dependency-license-audit.md](./dependency-license-audit.md) for the
+- See [docs/dependency-license-audit.md](../../dependency-license-audit.md) for the
   full dependency/anti-feature review.
 
 ## Dependencies relevant to Data Safety
@@ -147,9 +147,9 @@ form (and the privacy policy) must be updated.
 
 ## Related docs
 
-- [docs/privacy-policy.md](./privacy-policy.md) — must stay consistent with this
+- [docs/privacy-policy.md](../../privacy-policy.md) — must stay consistent with this
   form.
-- [docs/play-store-readiness.md](./play-store-readiness.md) — overall readiness.
-- [docs/dependency-license-audit.md](./dependency-license-audit.md) — dependency
+- [docs/distribution/google-play/readiness.md](readiness.md) — overall readiness.
+- [docs/dependency-license-audit.md](../../dependency-license-audit.md) — dependency
   and anti-feature review.
 </content>

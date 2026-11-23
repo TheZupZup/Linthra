@@ -14,7 +14,7 @@ plugins {
 // signing config is found, the release build is left UNSIGNED — F-Droid
 // expects an unsigned release APK so it can sign the artifact with its own
 // key. A build that is not release-signed must not be distributed as a real
-// release. See docs/release-signing.md.
+// release. See docs/distribution/release-signing.md.
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -85,7 +85,7 @@ android {
         // source of truth for the release version, kept in lockstep with the
         // release tag (CI verifies the match before building). A plain
         // `flutter build` — here and on F-Droid — reads both from pubspec.yaml;
-        // no build-time override. See docs/release-process.md §1.
+        // no build-time override. See docs/distribution/release-process.md §1.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

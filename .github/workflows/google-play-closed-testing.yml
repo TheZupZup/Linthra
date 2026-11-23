@@ -5,7 +5,7 @@ name: Google Play Closed Testing
 # separate from the build workflow: the AAB is built once, then reused here.
 #
 # Before Google Play is configured, this workflow exits successfully with a
-# notice. See docs/google-play-publishing.md for the one-time setup.
+# notice. See docs/distribution/google-play/publishing.md for the one-time setup.
 #
 # Safety rules:
 #   * only successful Android Release Build runs for a tagged release are
@@ -84,7 +84,7 @@ jobs:
           echo "tracks=$tracks" >> "$GITHUB_OUTPUT"
 
           if [ "$enabled" != "true" ]; then
-            echo "Google Play upload skipped. Complete docs/google-play-publishing.md to enable it." >> "$GITHUB_STEP_SUMMARY"
+            echo "Google Play upload skipped. Complete docs/distribution/google-play/publishing.md to enable it." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Find release-signed AAB artifact

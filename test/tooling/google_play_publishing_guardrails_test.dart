@@ -12,7 +12,8 @@ void main() {
     workflow = _read(
       p.join(root, '.github', 'workflows', 'google-play-closed-testing.yml'),
     );
-    documentation = _read(p.join(root, 'docs', 'google-play-publishing.md'));
+    documentation = _read(
+        p.join(root, 'docs', 'distribution', 'google-play', 'publishing.md'));
   });
 
   group('Google Play publisher trigger', () {

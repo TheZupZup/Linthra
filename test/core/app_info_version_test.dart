@@ -6,7 +6,7 @@ import 'package:linthra/core/diagnostics/app_diagnostics.dart';
 
 import '../../tool/version_from_tag.dart';
 
-/// Guards the version strategy described in docs/release-process.md §1:
+/// Guards the version strategy described in docs/distribution/release-process.md §1:
 ///
 /// * `pubspec.yaml`'s `version: <name>+<code>` is the single source of truth and
 ///   is kept in lockstep with the release tag. A plain `flutter build` — local,
@@ -46,7 +46,7 @@ void main() {
         pubspec.name,
         reason: 'AppInfo.version (${AppInfo.version}) drifted from '
             'pubspec.yaml (${pubspec.name}). Bump both in the same commit — '
-            'see docs/release-process.md §1.',
+            'see docs/distribution/release-process.md §1.',
       );
     });
 
@@ -66,7 +66,7 @@ void main() {
       // versionCode must be exactly what tool/version_from_tag.dart encodes for
       // the versionName. This keeps the tag, pubspec.yaml, and the F-Droid build
       // (which reads versionName/versionCode straight from pubspec.yaml) in
-      // agreement — see docs/release-process.md §1 & §3.
+      // agreement — see docs/distribution/release-process.md §1 & §3.
       final ({String name, int? code}) pubspec = readPubspecVersion();
       expect(
         pubspec.code,

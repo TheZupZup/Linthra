@@ -11,8 +11,8 @@ import '../../tool/version_from_tag.dart';
 /// that F-Droid depends on, so an innocent-looking edit to a CI workflow, the
 /// Gradle config, `.gitignore`, or the F-Droid metadata can't silently break
 /// the F-Droid build or the binaries it references. Each `group` maps to one
-/// failure mode that the release docs warn about (see docs/release-process.md
-/// and docs/fdroid-build-recipe.md):
+/// failure mode that the release docs warn about (see docs/distribution/release-process.md
+/// and docs/distribution/f-droid/build-recipe.md):
 ///
 ///   1. versionCode encoding stays canonical and monotonic across the repo's
 ///      own files (pubspec.yaml, the Gradle per-ABI override, the F-Droid
@@ -75,7 +75,7 @@ void main() {
             'behind the last F-Droid release ($current → $currentBase). '
             'Android/F-Droid require a strictly non-decreasing versionCode, so '
             'a release built from this pubspec would be rejected. Bump '
-            'pubspec.yaml — see docs/release-process.md §1.',
+            'pubspec.yaml — see docs/distribution/release-process.md §1.',
       );
     });
 
@@ -205,7 +205,7 @@ void main() {
       final File lock = File(p.join(root, 'pubspec.lock'));
       expect(lock.existsSync(), isTrue,
           reason: 'pubspec.lock must be committed so F-Droid resolves the same '
-              'pinned dependency versions. See docs/release-process.md.');
+              'pinned dependency versions. See docs/distribution/release-process.md.');
       expect(lock.lengthSync(), greaterThan(0));
     });
 
@@ -253,7 +253,7 @@ void main() {
 
   group('fdroiddata commit: fields are full 40-char SHAs', () {
     test('every metadata commit: is a 40-hex-digit SHA, not a tag name', () {
-      // docs/release-process.md: a manual fdroiddata Builds entry must pin the
+      // docs/distribution/release-process.md: a manual fdroiddata Builds entry must pin the
       // full 40-character commit SHA behind the tag (git rev-list -n 1 <tag>),
       // never the tag name. (Format only — we deliberately do NOT resolve the
       // SHA against git here, because CI uses shallow clones that won't contain
@@ -269,7 +269,7 @@ void main() {
           isTrue,
           reason: 'commit: "$c" must be a full 40-character lowercase hex SHA, '
               'not a tag name. Resolve it with `git rev-list -n 1 <tag>`. See '
-              'docs/release-process.md.',
+              'docs/distribution/release-process.md.',
         );
       }
     });

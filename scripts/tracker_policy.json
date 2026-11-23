@@ -483,7 +483,7 @@
       "identifier": "com.google.gms.google-services",
       "category": "analytics",
       "vendor": "Google",
-      "rationale": "The google-services plugin processes google-services.json and wires the Firebase/GMS stack into the build. Linthra ships no Google Play Services at all (docs/fdroid-readiness.md), so this appearing is a large change wearing a small diff."
+      "rationale": "The google-services plugin processes google-services.json and wires the Firebase/GMS stack into the build. Linthra ships no Google Play Services at all (docs/distribution/f-droid/readiness.md), so this appearing is a large change wearing a small diff."
     },
     {
       "ecosystem": "gradle-plugin",

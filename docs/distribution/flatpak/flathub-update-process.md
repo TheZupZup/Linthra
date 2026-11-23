@@ -9,20 +9,20 @@ so every command is spelled out.
 
 This page does **not** repeat the Android/F-Droid release steps. Cutting the
 release itself (version bump, tag, GitHub Release) is
-[release-process.md](./release-process.md); this page starts from the tag that
+[release-process.md](../release-process.md); this page starts from the tag that
 already exists and ends at a published Flatpak.
 
 Related pages, each with a different job:
 
-* [flatpak-development.md](./flatpak-development.md): building, installing and
+* [Flatpak development on Fedora Atomic](development.md): building, installing and
   debugging the Flatpak on your own machine.
-* [flatpak-ci.md](./flatpak-ci.md): what the automated Flatpak build proves on
+* [Flatpak CI validation](ci.md): what the automated Flatpak build proves on
   every packaging PR, and how to reproduce it locally.
-* [flathub-builder-lint.md](./flathub-builder-lint.md): Flathub's own submission
+* [flathub-builder-lint.md](flathub-builder-lint.md): Flathub's own submission
   linter, the exact commands, and the exceptions policy.
-* [flatpak-offline-build.md](./flatpak-offline-build.md): why the sandboxed
+* [Flatpak network-independent build audit](offline-build.md): why the sandboxed
   build needs no network, and how that is audited.
-* [`flatpak/README.md`](../flatpak/README.md): what each packaging file is and
+* [`flatpak/README.md`](../../../flatpak/README.md): what each packaging file is and
   why the manifest looks the way it does.
 
 ## Current state
@@ -60,7 +60,7 @@ rather than something that follows `main`.
 
 ### 1.1 Cut the release
 
-Follow [release-process.md §3](./release-process.md#3-pre-tag-checklist). The
+Follow [release-process.md §3](../release-process.md#3-pre-tag-checklist). The
 version bump writes the AppStream release entry along with everything else:
 
 ```sh
@@ -94,7 +94,7 @@ release:
 This needs network access (it pins every dependency by URL and sha256) and
 rewrites `flatpak/io.github.thezupzup.linthra.yml` and `flatpak/generated/`.
 Commit the result in its own PR. Never hand-edit the generated manifest; see
-[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources).
+[`flatpak/README.md`](../../../flatpak/README.md#regenerating-the-pinned-sources).
 
 ### 1.4 Validate the packaging metadata
 
@@ -115,7 +115,7 @@ is stricter, and is step 1.6.
 ### 1.5 Build and smoke-test the Flatpak
 
 The full local sequence is in
-[flatpak-ci.md](./flatpak-ci.md#reproduce-the-build-locally). The short form,
+[Flatpak CI validation](ci.md#reproduce-the-build-locally). The short form,
 from `flatpak/`:
 
 ```sh
@@ -133,9 +133,9 @@ bash ../scripts/flatpak_launch_smoke.sh repo-ci
 Then install it and use it as a person would, because CI cannot: play a local
 file, connect a server you actually run, check that credentials survive a
 restart. The manual list is
-[manual-test-checklist.md](./manual-test-checklist.md), and the sandbox-specific
+[manual-test-checklist.md](../../manual-test-checklist.md), and the sandbox-specific
 notes are in
-[`flatpak/README.md`](../flatpak/README.md#network-access-and-endpoint-validation).
+[`flatpak/README.md`](../../../flatpak/README.md#network-access-and-endpoint-validation).
 
 ### 1.6 Run the Flathub linter
 

@@ -101,7 +101,7 @@ SENSITIVE_PATH_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "release signing material",
     ),
     # metadata/*.yml is the F-Droid build recipe: its Builds entries carry
-    # sudo/prebuild/build commands, and docs/fdroid-submission.md has the
+    # sudo/prebuild/build commands, and docs/distribution/f-droid/submission.md has the
     # maintainer copy it into fdroiddata and run a full build from it. The
     # fastlane changelog and description text beside it really is just text,
     # and stays ordinary.

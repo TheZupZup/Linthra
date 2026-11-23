@@ -12,7 +12,7 @@ name: Dart dependency updates
 #   * It resolves with its own bare Dart SDK and installs no Flutter at all,
 #     while pubspec.lock has to be resolved with the SDK pinned in
 #     .flutter-version — the reproducible F-Droid build resolves from that
-#     committed lockfile (docs/release-process.md §7). The difference is not
+#     committed lockfile (docs/distribution/release-process.md §7). The difference is not
 #     theoretical: a resolution with the pinned SDK writes `flutter: ">=3.44.0"`
 #     into the lockfile's `sdks:` block, which a Flutter-less resolver cannot
 #     arrive at.

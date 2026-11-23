@@ -14,7 +14,7 @@ import 'package:path/path.dart' as p;
 /// this test catches, on every PR, before a tag is ever cut.
 ///
 /// It reads `pubspec.yaml` (the single source of truth for `<name>+<code>`; see
-/// docs/release-process.md §1) and only checks that the matching changelog
+/// docs/distribution/release-process.md §1) and only checks that the matching changelog
 /// exists — it does not assert anything about the body, so refining the wording
 /// in a PR stays friction-free. Sibling coverage:
 /// test/core/app_info_version_test.dart pins that the `versionCode` is the
@@ -41,7 +41,7 @@ void main() {
       reason: 'No Fastlane changelog for the current release versionCode '
           '($code). Add fastlane/metadata/android/en-US/changelogs/$code.txt — '
           'the `Prepare release bump` workflow / scripts/prepare_release_bump.py '
-          'do this automatically. See docs/release-process.md §3.',
+          'do this automatically. See docs/distribution/release-process.md §3.',
     );
     expect(
       changelog.readAsStringSync().trim(),

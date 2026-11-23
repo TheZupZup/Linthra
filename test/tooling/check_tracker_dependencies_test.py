@@ -571,7 +571,7 @@ dependencies {
     def test_a_vendor_named_in_a_comment_is_not_a_dependency(self) -> None:
         gradle = """\
 // We deliberately do not use com.google.firebase:firebase-analytics here;
-/* nor com.google.gms.google-services, see docs/fdroid-readiness.md */
+/* nor com.google.gms.google-services, see docs/distribution/f-droid/readiness.md */
 plugins {
     id "com.android.application"
 }

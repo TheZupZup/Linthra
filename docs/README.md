@@ -11,7 +11,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Contributing & setup | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Development, build & CI | [development.md](./development.md) |
 | Linux desktop build (experimental) | [linux-desktop.md](./linux-desktop.md) |
-| Flatpak development (Fedora Atomic) | [flatpak-development.md](./flatpak-development.md) |
+| Flatpak development (Fedora Atomic) | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
 | Codebase tour (where everything lives) | [codebase-tour.md](./codebase-tour.md) |
 | Architecture & extension points | [architecture.md](./architecture.md) |
 | Where to help (contributor roadmap) | [contributor-roadmap.md](./contributor-roadmap.md) |
@@ -51,23 +51,23 @@ The full index of Linthra's docs. New to the project? Start with the
 | GNOME & KDE Plasma compatibility matrix | [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md) |
 | Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
-| Release process & signing | [release-process.md](./release-process.md) · [signing](./release-signing.md) · [artifact verification](./release-artifact-verification.md) |
+| Release process & signing | [release-process.md](distribution/release-process.md) · [signing](distribution/release-signing.md) · [artifact verification](distribution/release-artifact-verification.md) |
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
 | PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
 | Tracker dependency audit (no ads/analytics/telemetry SDKs) | [tracker-dependency-audit.md](./tracker-dependency-audit.md) |
 | Fixed network destinations (every host the shipped code names) | [network-destinations.md](./network-destinations.md) |
 | Privacy audit status (what is checked, and the limits) | [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) |
-| F-Droid readiness | [fdroid-readiness.md](./fdroid-readiness.md) |
-| Google Play readiness | [play-store-readiness.md](./play-store-readiness.md) |
-| Flatpak build CI | [flatpak-ci.md](./flatpak-ci.md) |
-| Flatpak audio playback smoke | [flatpak-audio-smoke.md](./flatpak-audio-smoke.md) |
-| Flatpak local-library sandbox smoke | [flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md) |
+| F-Droid readiness | [F-Droid readiness checklist](distribution/f-droid/readiness.md) |
+| Google Play readiness | [Google Play readiness checklist](distribution/google-play/readiness.md) |
+| Flatpak build CI | [Flatpak CI validation](distribution/flatpak/ci.md) |
+| Flatpak audio playback smoke | [Flatpak audio playback smoke](distribution/flatpak/audio-smoke.md) |
+| Flatpak local-library sandbox smoke | [Flatpak local-library sandbox smoke](distribution/flatpak/local-library-smoke.md) |
 | Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
 | Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
-| Flatpak source pinning & refresh | [flatpak-source-pinning.md](./flatpak-source-pinning.md) |
-| Flathub builder lint | [flathub-builder-lint.md](./flathub-builder-lint.md) |
-| Flathub screenshots | [flathub-screenshots.md](./flathub-screenshots.md) |
-| Flathub updates (release to published Flatpak) | [flathub-update-process.md](./flathub-update-process.md) |
+| Flatpak source pinning & refresh | [Flatpak source pinning](distribution/flatpak/source-pinning.md) |
+| Flathub builder lint | [flathub-builder-lint.md](distribution/flatpak/flathub-builder-lint.md) |
+| Flathub screenshots | [flathub-screenshots.md](distribution/flatpak/flathub-screenshots.md) |
+| Flathub updates (release to published Flatpak) | [flathub-update-process.md](distribution/flatpak/flathub-update-process.md) |
 
 ## Licensing & legal
 

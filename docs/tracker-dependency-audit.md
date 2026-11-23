@@ -120,7 +120,7 @@ Specifically, this check:
   `com.google.android.gms` artifacts are listed, so this check stays about
   tracking. Keeping Google Play Services out of the build altogether is
   F-Droid's rule, tracked in
-  [fdroid-readiness.md](./fdroid-readiness.md).
+  [F-Droid readiness checklist](distribution/f-droid/readiness.md).
 
 ## Reviewing a finding
 
@@ -231,5 +231,5 @@ python3 scripts/check_tracker_dependencies.py --json
   the repository in the first place
 - [pr-security-guard.md](./pr-security-guard.md) — the security-surface guard on
   pull requests
-- [fdroid-readiness.md](./fdroid-readiness.md) — why Linthra ships no Google Play
+- [F-Droid readiness checklist](distribution/f-droid/readiness.md) — why Linthra ships no Google Play
   Services at all

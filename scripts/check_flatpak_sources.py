@@ -47,7 +47,7 @@ What only this check covers:
 
 6. **What cannot be pinned is written down.** The runtime, the SDK, the SDK
    extension and the app's own checkout are not content-addressed, and cannot
-   be; each needs a row in docs/flatpak-source-pinning.md, and a row cannot
+   be; each needs a row in docs/distribution/flatpak/source-pinning.md, and a row cannot
    outlive the input it explains.
 
 Usage:
@@ -74,7 +74,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path("flatpak/flatpak-flutter.yml")
 MANIFEST = Path("flatpak/io.github.thezupzup.linthra.yml")
 #: Where an input that cannot be pinned has to be explained.
-PIN_DOC = Path("docs/flatpak-source-pinning.md")
+PIN_DOC = Path("docs/distribution/flatpak/source-pinning.md")
 #: The project-wide Flutter pin, and the Dart dependency set.
 FLUTTER_PIN = Path(".flutter-version")
 LOCKFILE = Path("pubspec.lock")
@@ -896,7 +896,7 @@ def main(argv: list[str]) -> int:
         for problem in problems:
             print("FAIL: {}".format(problem), file=sys.stderr)
         print(
-            "\n{} problem(s). See docs/flatpak-source-pinning.md for how the "
+            "\n{} problem(s). See docs/distribution/flatpak/source-pinning.md for how the "
             "pins are produced and refreshed.".format(len(problems)),
             file=sys.stderr,
         )

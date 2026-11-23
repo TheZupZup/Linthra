@@ -267,7 +267,7 @@ which F-Droid's reproducible build already produces byte-identically; the classi
 `ic_launcher.*` outputs are unchanged. The new `<activity-alias>` entries add
 manifest lines but no new class of nondeterminism — the per-ABI manifest
 line-number divergence tracked in
-[`docs/fdroid-reproducibility-arm64.md`](fdroid-reproducibility-arm64.md) is
+[`docs/distribution/f-droid/reproducibility-arm64.md`](distribution/f-droid/reproducibility-arm64.md) is
 structural and pre-existing. Always regenerate icons with the tool (never edit
 the PNGs by hand) so determinism holds. No new dependencies, billing, tracking,
 or feature gating are introduced.

@@ -156,7 +156,7 @@ artwork load, a track plays, a sentinel file and a sibling directory beside that
 folder stay unreadable, the library survives a relaunch, and taking the grant
 away produces the recoverable `folderUnavailable` state from #438 with the
 previously indexed tracks kept. See
-[flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md).
+[Flatpak local-library sandbox smoke](distribution/flatpak/local-library-smoke.md).
 
 What it cannot do is press the button. A FileChooser portal grant is minted only
 by the user's chooser action, and no headless runner can perform it, nor does a

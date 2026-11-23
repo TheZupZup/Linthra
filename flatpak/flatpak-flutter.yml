@@ -105,7 +105,7 @@ finish-args:
   # recoverable storage error and stays signed out rather than falling back to
   # any storage of its own. A user who wants that fallback can grant it
   # themselves with `flatpak override --user`; it is not worth a permission on
-  # every install (docs/flatpak-development.md "Secure credential storage").
+  # every install (docs/distribution/flatpak/development.md "Secure credential storage").
   #
   # Local music folders (#438) need nothing here on purpose. Linthra's Linux
   # runner opens GTK's GtkFileChooserNative, which GTK routes to the
