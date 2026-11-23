@@ -9,6 +9,9 @@ publish = false
 [lib]
 name = "linthra_core"
 path = "src/lib.rs"
+# rlib for the benchmark and the tests, cdylib for the app: hook/build.dart
+# builds the shared library that Dart loads through src/ffi.rs.
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "benchmark_200k"
