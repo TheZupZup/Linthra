@@ -169,7 +169,7 @@ check is cheaper and runs on every PR in the main CI workflow instead
 | Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex/Audiobookshelf server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
 | Secure credentials | none | Sign in, quit, relaunch, and confirm the session survived, which is what proves libsecret's portal-backed store worked with no `--talk-name` |
 | MPRIS | none | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
-| Background running | `test/core/services/portal_background_permission_test.dart`, against a stand-in portal that answers the way xdg-desktop-portal 1.18 does, and which also holds the bus calls to what xdg-dbus-proxy lets out of the sandbox | The desktop's own background monitor, which needs a GNOME or Plasma session: see the matrix in [linux-desktop.md](../linux-desktop.md#closing-the-window) |
+| Background running | `test/core/services/portal_background_permission_test.dart`, against a stand-in portal that answers the way xdg-desktop-portal 1.18 does, and which also holds the bus calls to what xdg-dbus-proxy lets out of the sandbox | The desktop's own background monitor, which needs a GNOME or Plasma session: see the matrix in [Linux desktop](../linux/desktop.md#closing-the-window) |
 | Notifications | none | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
 
 The two gaps that matter for [#456](https://github.com/TheZupZup/Linthra/issues/456)
@@ -189,7 +189,7 @@ started needing something.
   half in detail, and the manual portal pass
 - [flathub-builder-lint.md](../distribution/flatpak/flathub-builder-lint.md), Flathub's own view of
   the same permissions
-- [optical-media.md](../optical-media.md), a feature the sandbox cannot serve
+- [optical-media.md](../linux/optical-media.md), a feature the sandbox cannot serve
   today: UDisks2 is on the system bus, which this page refuses in every
   spelling
 - `scripts/check_linux_runner.py`, the exact allow-list, checked against both

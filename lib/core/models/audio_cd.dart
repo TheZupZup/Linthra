@@ -231,7 +231,7 @@ enum AudioCdInspectionStatus {
   /// or unfinalised disc, a drive that gave up, a TOC that does not parse.
   ///
   /// **This is the state detection alone could never reach.** UDisks2 reports
-  /// a disc it cannot identify as an empty drive (see `docs/optical-media.md`);
+  /// a disc it cannot identify as an empty drive (see `docs/linux/optical-media.md`);
   /// actually trying to read it is what tells the two apart.
   ///
   /// It is also where a medium with no CD table of contents at all lands — a
@@ -240,7 +240,7 @@ enum AudioCdInspectionStatus {
   /// table of contents with one data track in it; the others have nothing for
   /// this layer to read, and telling "no CD TOC" from "a damaged CD" needs the
   /// drive's current profile, which is another MMC command. See
-  /// `docs/optical-media.md`.
+  /// `docs/linux/optical-media.md`.
   unreadable,
 
   /// The drive itself is gone: unplugged, or a device node that no longer
@@ -252,7 +252,7 @@ enum AudioCdInspectionStatus {
   permissionDenied,
 
   /// Nothing in this build can read a table of contents: every non-Linux
-  /// platform, and the Flatpak. See `docs/optical-media.md`.
+  /// platform, and the Flatpak. See `docs/linux/optical-media.md`.
   unsupported,
 }
 

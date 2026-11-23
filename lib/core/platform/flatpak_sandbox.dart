@@ -13,6 +13,6 @@ import 'dart:io' show Platform;
 /// reading a disc's table of contents needs the drive's device node, which the
 /// sandbox does not expose either. Both halves of #631 therefore report
 /// "unsupported" up front inside the Flatpak instead of opening something that
-/// is certain to be refused. See `docs/optical-media.md`.
+/// is certain to be refused. See `docs/linux/optical-media.md`.
 bool get isFlatpakSandbox =>
     (Platform.environment['FLATPAK_ID'] ?? '').trim().isNotEmpty;

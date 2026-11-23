@@ -20,7 +20,7 @@ enum OpticalMediaAvailability {
   ///
   /// Android (which has no optical media and must stay untouched), every
   /// non-Linux desktop, and — today — the Flatpak, whose sandbox deliberately
-  /// grants no system-bus reach. See `docs/optical-media.md`.
+  /// grants no system-bus reach. See `docs/linux/optical-media.md`.
   unsupported,
 
   /// The host refused to answer: the detection service is there and said no.
@@ -55,7 +55,7 @@ enum OpticalMediaAvailability {
 /// rather than a state worth modelling. Telling a damaged disc apart means
 /// actually reading it, which is the table-of-contents work later in #631;
 /// until then, claiming to distinguish them would be a promise the hardware
-/// does not keep. See `docs/optical-media.md`.
+/// does not keep. See `docs/linux/optical-media.md`.
 enum OpticalDiscState {
   /// The drive is there and there is nothing in it.
   ///

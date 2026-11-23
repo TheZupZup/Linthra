@@ -6,7 +6,7 @@ needed for either. Any other native platform folder (`windows/`, `macos/`, …)
 would be generated locally, and none is a target today.
 
 > Building for the Linux desktop? Start with
-> [linux-desktop.md](linux-desktop.md) — required native packages, how to run
+> [Linux desktop](linux/desktop.md) — required native packages, how to run
 > from source, and what is intentionally unsupported so far (playback, most of
 > all). Android is the platform Linthra ships on; Linux is not production-ready
 > yet.
@@ -65,7 +65,7 @@ update `PATH` just to run it.
 
 `scripts/verify_linux.sh` is the desktop twin: the same shared checks plus the
 Linux runner configuration check, the native audio lifecycle smoke test, and
-`flutter build linux --release`. See [linux-desktop.md](linux-desktop.md).
+`flutter build linux --release`. See [Linux desktop](linux/desktop.md).
 
 ### What `verify_android.sh` does
 
@@ -131,7 +131,7 @@ flutter pub get
 # 2. Run on a connected Android device or emulator
 flutter run
 
-# Or run the native Linux desktop build (see linux-desktop.md for the
+# Or run the native Linux desktop build (see docs/linux/desktop.md for the
 # native packages it needs first):
 flutter run -d linux
 ```
@@ -152,7 +152,7 @@ The repo holds source and the committed `android/` and `linux/` scaffolds only
 - **Dart/Flutter caches and build output** — `.dart_tool/`, `build/`,
   `linux/flutter/ephemeral/`, etc.
 - **The Linux native toolchain** (clang/cmake/ninja/GTK/libsecret) — installed
-  from your distribution; see [linux-desktop.md](linux-desktop.md).
+  from your distribution; see [Linux desktop](linux/desktop.md).
 
 CI installs Flutter via the `subosito/flutter-action` GitHub Action rather than
 these scripts, but reads the **same** `.flutter-version` file to decide which
@@ -175,7 +175,7 @@ do not.
 - **Linux build/runtime dependencies missing** — `./scripts/verify_linux.sh`
   names the packages (including the libmpv runtime) it could not find and
   skips only the audio smoke test and the build step;
-  [linux-desktop.md](linux-desktop.md) lists them per distribution.
+  [Linux desktop](linux/desktop.md) lists them per distribution.
 - **`dart format` mismatch** — run `dart format .` to apply the formatter, then
   commit the result. CI uses `--set-exit-if-changed`, so unformatted code fails.
   Make sure you're on the pinned Flutter — a newer Dart can reformat differently.

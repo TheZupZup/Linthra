@@ -21,7 +21,7 @@ the seams described here rather than beside them.
 
 ### What Linthra can tell you
 
-One value, [`OpticalMediaSnapshot`](../lib/core/models/optical_media.dart),
+One value, [`OpticalMediaSnapshot`](../../lib/core/models/optical_media.dart),
 answers the whole question:
 
 | State | What it means |
@@ -128,9 +128,9 @@ the `dbus` package for MPRIS (#397) and desktop notifications (#400).
 ## Part 2: reading the disc
 
 Once detection has found an audio CD, one call describes it:
-[`AudioCdTocService.inspect`](../lib/core/services/optical/audio_cd_toc_service.dart)
+[`AudioCdTocService.inspect`](../../lib/core/services/optical/audio_cd_toc_service.dart)
 takes the drive and answers with an
-[`AudioCdInspection`](../lib/core/models/audio_cd.dart).
+[`AudioCdInspection`](../../lib/core/models/audio_cd.dart).
 
 | Status | What it means |
 | --- | --- |
@@ -209,7 +209,7 @@ is — is a pure function in `lib/core/services/optical/`, driven by fixtures.
 
 | Approach | Why not |
 | --- | --- |
-| `dart:ffi` into libc or libcdio | Linthra's own security guard rejects runtime FFI and dynamic library loading outright, by a rule approval cannot clear ([pr-security-guard.md](audits/pr-security-guard.md)). That is a deliberate property of this codebase, not an obstacle to route around. |
+| `dart:ffi` into libc or libcdio | Linthra's own security guard rejects runtime FFI and dynamic library loading outright, by a rule approval cannot clear ([pr-security-guard.md](../audits/pr-security-guard.md)). That is a deliberate property of this codebase, not an obstacle to route around. |
 | libcdio | A native library, a build-system change on every target, a `.so` whose soname has moved repeatedly, and a package many distributions do not install by default — to wrap ioctls Linthra can issue itself. Its GPL-3.0-or-later licence would have been compatible with Linthra's AGPL-3.0-or-later; the cost was never the licence. |
 | libdiscid | The same costs, for a narrower library: a TOC and a disc ID, and no CD-Text at all. Its *algorithm* is what Linthra actually needed, and reading an algorithm costs no dependency (see [Disc identity](#disc-identity)). |
 | Reading the TOC through libmpv | Linthra already links libmpv, and mpv can open `cdda://` — but only when it was built with libcdio, which is not guaranteed; it spins the drive through the player; and it would make the metadata layer depend on the playback engine, which is exactly the coupling PR 3 must not inherit. |
@@ -386,7 +386,7 @@ They are blocked on two different things, and the Flatpak PR has to weigh both.
 
 **Detection needs the system bus.** UDisks2 lives on it, Linthra's sandbox
 grants no system-bus reach of any kind, and
-[flatpak-permissions.md](audits/flatpak-permissions.md) refuses
+[flatpak-permissions.md](../audits/flatpak-permissions.md) refuses
 `--system-talk-name=`, `--system-own-name=` and `--system-see-name=` outright,
 with the reasoning that the system bus carries the machine's own services and a
 music player has no business on it. Then:
@@ -548,9 +548,9 @@ circumvention, Blu-ray video, and burning.
 
 ## Related
 
-- [flatpak-permissions.md](audits/flatpak-permissions.md) — every permission
+- [flatpak-permissions.md](../audits/flatpak-permissions.md) — every permission
   Linthra asks for, and the ones it refuses
-- [local-music.md](features/local-music.md) — the ordinary local-file path, which is
+- [local-music.md](../features/local-music.md) — the ordinary local-file path, which is
   what a *data* disc of audio files would eventually reuse
-- [linux-desktop.md](./linux-desktop.md) — building and running the Linux
+- [Linux desktop](desktop.md) — building and running the Linux
   desktop build

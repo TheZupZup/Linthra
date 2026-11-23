@@ -732,7 +732,7 @@ a defined fallback:
   unsupported for now (consistent with the Linux target already being documented
   as incomplete) while Linux WebDAV **downloads** still work, since the
   downloader does its own HTTP. The capability model cannot express "streams on
-  Android only", so this is documented in [linux-desktop.md](linux-desktop.md)
+  Android only", so this is documented in [Linux desktop](linux/desktop.md)
   and surfaced as a typed, friendly playback error on Linux rather than a silent
   failure.
 

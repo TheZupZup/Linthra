@@ -62,7 +62,7 @@ final notificationPermissionProvider = Provider<NotificationPermission>((ref) {
 /// preference (`flutter/engine`'s `fl_settings.cc`, via the XDG desktop portal
 /// or a GNOME GSettings fallback) and pushes live changes the same way Android
 /// does. That native bridge is outside this app's code and isn't independently
-/// exercised by Linthra's widget tests — see docs/linux-desktop.md's
+/// exercised by Linthra's widget tests — see docs/linux/desktop.md's
 /// "Light/Dark/System theme" row for what is and isn't verified.
 class LinthraApp extends ConsumerStatefulWidget {
   const LinthraApp({super.key, this.lifecycle});

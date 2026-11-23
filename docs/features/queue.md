@@ -259,7 +259,7 @@ The song playing at that moment goes too: playback stops and the queue lands,
 stopped, on the next song left (Play starts it). Local files and other
 providers' songs stay where they were. On Linux the saved session records whose
 songs it holds, so a restart under another account leaves them out as well
-(see [Crash-safe playback restore](../linux-desktop.md#crash-safe-playback-restore)).
+(see [Crash-safe playback restore](../linux/desktop.md#crash-safe-playback-restore)).
 
 ## Save queue as playlist
 

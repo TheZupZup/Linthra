@@ -22,7 +22,7 @@
 # cannot actually play audio. All of these are checked up front and a missing
 # one *skips* the build and the audio smoke test with a clear message instead
 # of failing the whole script — the same shape as verify_android.sh skipping
-# the APK when there is no Android SDK. See docs/linux-desktop.md for the
+# the APK when there is no Android SDK. See docs/linux/desktop.md for the
 # Fedora, Debian/Ubuntu and Arch package names.
 #
 # Flutter resolution: prefer the project-local SDK from setup_flutter.sh
@@ -211,7 +211,7 @@ main() {
     warn "Missing native Linux build/runtime dependencies:"
     printf '  - %s\n' "${missing[@]}" >&2
     warn "Skipping the native audio lifecycle smoke and"
-    warn "'flutter build linux --release'. See docs/linux-desktop.md for the"
+    warn "'flutter build linux --release'. See docs/linux/desktop.md for the"
     warn "packages to install. analyze/format/tests still ran above."
     # A missing libmpv is the one that is also a user-visible behaviour, not
     # just a skipped step: the app reports it as a Linux runtime problem with
@@ -220,7 +220,7 @@ main() {
     if ! libmpv_runtime_available; then
       warn "Without libmpv the app still starts; playback reports the runtime"
       warn "as unavailable and offers Retry once it is installed. See"
-      warn "docs/linux-desktop.md#when-the-audio-engine-itself-wont-start."
+      warn "docs/linux/desktop.md#when-the-audio-engine-itself-wont-start."
     fi
   fi
 

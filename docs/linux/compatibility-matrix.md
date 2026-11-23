@@ -16,7 +16,7 @@ branch on which desktop is running.
 
 **Not in scope.** Distributions. Nothing in Linthra keys off a distribution and
 nothing here asks which one you are on; the [required
-packages](./linux-desktop.md#required-packages) differ by package manager and
+packages](desktop.md#required-packages) differ by package manager and
 that is all. Run the matrix on whatever you already have.
 
 ## Contents
@@ -52,8 +52,8 @@ Two builds behave differently enough to matter, so say which one you ran:
 
 | Build | Get it | Reaches the desktop through |
 | --- | --- | --- |
-| **Native** | `flutter build linux --release`, or the [release tarball](./linux-desktop.md#release-tarball) | GTK directly, the session bus directly, the Secret Service directly |
-| **Flatpak** | the [`.flatpak` bundle](./linux-desktop.md#installing-from-github-releases-flatpak), or a local build | xdg-desktop-portal for files and notifications, the Secret portal for credentials, two `--own-name` grants for MPRIS |
+| **Native** | `flutter build linux --release`, or the [release tarball](desktop.md#release-tarball) | GTK directly, the session bus directly, the Secret Service directly |
+| **Flatpak** | the [`.flatpak` bundle](desktop.md#installing-from-github-releases-flatpak), or a local build | xdg-desktop-portal for files and notifications, the Secret portal for credentials, two `--own-name` grants for MPRIS |
 
 A full pass is both builds on both desktops under Wayland. A minimum pass,
 before a Linux milestone release, is the Flatpak on both desktops under
@@ -75,7 +75,7 @@ No `rm -rf` recipe is given here on purpose. The window geometry is the one
 native path this page states outright, because A4 needs it and the runner builds
 it from `g_get_user_config_dir()`. The library is `linthra.sqlite` in Flutter's
 `getApplicationSupportDirectory()`
-([`catalog_database_file.dart`](../lib/data/database/catalog_database_file.dart)),
+([`catalog_database_file.dart`](../../lib/data/database/catalog_database_file.dart)),
 beside the offline audio and caches. Older builds kept it in the XDG Documents
 folder: a newer build moves it over on first launch, and an older one run after
 that starts a fresh catalog back there. Deleting by a guessed path is how a
@@ -83,7 +83,7 @@ compatibility pass eats something it did not mean to.
 
 *Flatpak.* `flatpak uninstall` leaves `~/.var/app/io.github.thezupzup.linthra/`
 in place on purpose ([the table of what each command
-removes](distribution/flatpak/development.md#clean-and-uninstall)), so reinstalling for the
+removes](../distribution/flatpak/development.md#clean-and-uninstall)), so reinstalling for the
 second desktop comes back already signed in *and* already indexed. Either sign
 out and remove the folders inside the Flatpak before G5, or reset it between
 passes:
@@ -201,7 +201,7 @@ last in time. The native pass ignores this and starts at A1.
 | A5 | **Minimum sizing** | Drag the window as small as it will go, in both directions. | It stops at 420x600 and the layout at that size is still usable: the navigation is reachable, nothing is clipped, no overflow warnings. |
 | A6 | **Maximize / restore** | Maximize with the title bar control, with a double-click on the title bar, and with the desktop's keyboard shortcut. Restore each way. | Maximizes to the work area (not over the panels), restores to the size it had before, and the content re-lays-out both ways without a visible stall. |
 | A7 | **Tile / snap** | Drag the window to a screen edge, or use the desktop's tiling shortcut, then restore. | It tiles to half the work area, stays usable at that width, and restores to its previous size. Which gestures exist is the desktop's business; behaving at whatever size results is Linthra's. |
-| A8 | **Geometry survives a restart** | Resize to something distinctive, quit, relaunch. Repeat maximized. | The size comes back. Maximized comes back maximized, and un-maximizing lands back on the earlier size. Position comes back on X11 only, [by design](./linux-desktop.md#window-state). |
+| A8 | **Geometry survives a restart** | Resize to something distinctive, quit, relaunch. Repeat maximized. | The size comes back. Maximized comes back maximized, and un-maximizing lands back on the earlier size. Position comes back on X11 only, [by design](desktop.md#window-state). |
 | A9 | **Shutdown and relaunch** | Quit from the window control, relaunch from the launcher. Then quit while a track is paused and relaunch. | Clean exit with no leftover process: `pgrep -u "$(id -u)" -x linthra` is empty. Scoped to your own user and to the exact process name on purpose, since one of the setups this page suggests is two accounts on one machine, and a bare `pgrep linthra` would report the *other* session's healthy instance and fail this row for it. The relaunch is an ordinary cold start and the crash-safe session restores the paused track. |
 | A10 | **Second launch reaches the first window** | With Linthra running, click the launcher entry again. | The existing window is presented. No second process, no second entry in the media controls. If the compositor's focus-stealing prevention marks it as needing attention instead of raising it, that is [a compositor difference](#differences-linthra-does-not-normalize), not a failure. |
 | A11 | **Title bar owner (X11 only)** | Look at who painted the title bar: Linthra's own header bar has the window controls inside the application's own bar, a window-manager title bar is drawn in the desktop's own style above it. Compare the two X11 sessions. | A header bar under GNOME Shell, the window manager's own title bar elsewhere. This is the one place the [grandfathered desktop-name check](#why-there-are-no-desktop-checks-in-the-code) is observable, so it is the row that notices if that condition is ever inverted. Nothing else changes with it: title, identity, icon and geometry are the same either way, which is why no other row would catch it. Under Wayland there is only the client-side option, so this row is `n/a` there. |
@@ -238,9 +238,9 @@ of this.
 | C2 | **Local music folder selection** | Pick a folder with a few albums in it. | The scan runs, tracks appear with real tags (title, artist, album, track number, duration) rather than filenames, and the count matches the folder. |
 | C3 | **Cancel is not a failure** | Open the chooser and cancel it. | Nothing changes, no error, no half-added folder. |
 | C4 | **A second folder** | Add a second folder **beside** the first, not inside it. | Both are listed and the library is the union of the two. |
-| C4b | **A nested folder is absorbed, not added** | Now add a folder that sits *inside* one already selected. | It does not become a third root. Linthra keeps the outermost selection and drops the one it contains, so the list is unchanged and the files under it are still scanned exactly once, under the outer folder. That is deliberate ([`LocalMusicRoots`](../lib/core/sources/local/local_music_roots.dart) normalizes overlapping selections so no file is imported twice and every track has one owning root), and it is why C4 uses two folders beside each other: with a nested pair there is no second root for C5 to remove. |
+| C4b | **A nested folder is absorbed, not added** | Now add a folder that sits *inside* one already selected. | It does not become a third root. Linthra keeps the outermost selection and drops the one it contains, so the list is unchanged and the files under it are still scanned exactly once, under the outer folder. That is deliberate ([`LocalMusicRoots`](../../lib/core/sources/local/local_music_roots.dart) normalizes overlapping selections so no file is imported twice and every track has one owning root), and it is why C4 uses two folders beside each other: with a nested pair there is no second root for C5 to remove. |
 | C5 | **Removing a folder** | Remove one of C4's two folders. | Only its tracks go. The other folder's tracks stay, and the files on disk are untouched. |
-| C6 | **An unreachable folder** | Point a folder at a removable drive and unplug it, or `chmod 000` a test folder. | The folder's row says *which* problem it has and offers Retry, Select folder again and Remove folder. The indexed catalog is kept rather than replaced with an empty scan. See [when a music folder can't be read](./linux-desktop.md#when-a-music-folder-cant-be-read). |
+| C6 | **An unreachable folder** | Point a folder at a removable drive and unplug it, or `chmod 000` a test folder. | The folder's row says *which* problem it has and offers Retry, Select folder again and Remove folder. The indexed catalog is kept rather than replaced with an empty scan. See [when a music folder can't be read](desktop.md#when-a-music-folder-cant-be-read). |
 | C7 | **Selection survives a restart** | Quit and relaunch. | The folders are still selected and the library is still there, with no second full scan of unchanged files. |
 
 ### D. Desktop integration
@@ -272,9 +272,9 @@ of this.
 | E2 | **Audio output device list** | Settings ▸ Music & playback ▸ Audio output. | The list covers the sinks the desktop's own volume control shows, and offers the system default alongside them. |
 | E3 | **Routing to a chosen device** | Pick a non-default sink and play. | Sound comes from that device, and the desktop's volume control shows Linthra on it. |
 | E4 | **A chosen device survives a restart** | Quit and relaunch with a non-default device selected. | The device is re-applied. If it is gone, playback falls back to the system default and says so rather than failing silently. |
-| E5 | **Hotplug** | While playing, plug in or remove a headset, a Bluetooth sink or an HDMI display. | Playback recovers without restarting the track and without a second player. A chosen device that comes back takes playback back. See [device hotplug](./linux-desktop.md#device-hotplug). |
+| E5 | **Hotplug** | While playing, plug in or remove a headset, a Bluetooth sink or an HDMI display. | Playback recovers without restarting the track and without a second player. A chosen device that comes back takes playback back. See [device hotplug](desktop.md#device-hotplug). |
 | E6 | **Per-app volume** | Move Linthra's own slider in the desktop's volume control. | It moves Linthra alone, and Linthra keeps playing. The desktop identifies the stream as Linthra rather than as a generic media stream. |
-| E7 | **Suspend and resume** | Suspend the machine while playing, then wake it. | The [suspend / resume matrix](./linux-desktop.md#suspend--resume-manual-matrix) is the detailed version of this row; the short answer is the same track and queue, audio back within a few seconds, and never a second stream. |
+| E7 | **Suspend and resume** | Suspend the machine while playing, then wake it. | The [suspend / resume matrix](desktop.md#suspend--resume-manual-matrix) is the detailed version of this row; the short answer is the same track and queue, audio back within a few seconds, and never a second stream. |
 | E8 | **Playback diagnostics** | Settings ▸ Diagnostics & support ▸ Linux playback. | A report that names the backend, libmpv and the output subsystem actually in use, and contains no path, URL, token or device name. |
 
 ### F. Credentials and providers
@@ -303,12 +303,12 @@ of this.
 | --- | --- | --- | --- |
 | G1 | **Flatpak install** | **Quit the native Linthra first**, not just remove its desktop entry: F9 ends by relaunching it, and a running native instance keeps `org.mpris.MediaPlayer2.linthra`. The sandboxed one then falls back to an `.instance…` name, and every later MPRIS row plus the `busctl` commands in D4, D5 and D12 would drive the *native* player while you record them as Flatpak results. Then `flatpak install --user <bundle>`, or through the desktop's software centre. | It installs, and the software centre shows the AppStream name, summary and icon. |
 | G2 | **Flatpak launch** | Launch it from the application launcher, not from a terminal. | Same as A1 and A2, from the sandbox. |
-| G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](audits/flatpak-permissions.md) is really about. |
+| G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](../audits/flatpak-permissions.md) is really about. |
 | G4 | **Flatpak audio** | Repeat E1 and E2 inside the Flatpak. | Audio from the packaged libmpv, and the sink list matches the host's. |
 | G5 | **Flatpak uninstall** | `flatpak uninstall --user io.github.thezupzup.linthra`. | It goes cleanly, and the music files you added are still on disk untouched. This deliberately leaves `~/.var/app/io.github.thezupzup.linthra/` behind, so if another pass follows on this machine, see [Between desktops, start from the same state](#before-you-start). |
 
 The shorter release-time version of G is the
-[manual Flatpak smoke checklist](./linux-desktop.md#manual-flatpak-smoke-checklist);
+[manual Flatpak smoke checklist](desktop.md#manual-flatpak-smoke-checklist);
 this section is that checklist run on both desktops.
 
 ## Result sheet
@@ -400,7 +400,7 @@ enforcer, so a Wayland pass says nothing about X11.
 **A2 is in that list for a reason that is easy to miss.** Window identity is
 not one mechanism checked once: Wayland reads the `xdg_toplevel` app id, and
 X11 reads `WM_CLASS` and `_NET_WM_ICON`, which the runner sets with different
-calls (see [Desktop identity](./linux-desktop.md#desktop-identity)). Passing A2
+calls (see [Desktop identity](desktop.md#desktop-identity)). Passing A2
 under Wayland says nothing about X11, and an X11-only identity regression looks
 exactly like a window that will not group with its launcher.
 
@@ -414,10 +414,10 @@ and none of them is a reason to add a branch on which desktop is running.
 | Difference | What you will see | Why it stays |
 | --- | --- | --- |
 | **Title bar decorations** | On a header-bar desktop the title bar is Linthra's own, with its controls inside the window. Elsewhere under X11 the window manager draws its own title bar in its own style. | GTK 3 implements no xdg-decoration protocol, so under Wayland the toolkit only has the client-side option, and under X11 there is no standard to ask. It changes who paints the title bar and nothing else. This is the [one grandfathered desktop-name check](#why-there-are-no-desktop-checks-in-the-code). |
-| **Window position** | Position is restored on X11 and not under Wayland. | Wayland gives a client neither its own position nor a way to set one. Restoring only the size is what Wayland users expect. See [window state](./linux-desktop.md#window-state). |
+| **Window position** | Position is restored on X11 and not under Wayland. | Wayland gives a client neither its own position nor a way to set one. Restoring only the size is what Wayland users expect. See [window state](desktop.md#window-state). |
 | **Raise and focus** | MPRIS `Raise`, and a second launcher click, may present the window or may only mark it as needing attention, depending on the compositor's focus-stealing prevention. | Whether a background client may take focus is the compositor's decision. GTK 3 sends no xdg-activation token, so there is nothing for Linthra to pass along. |
 | **Tiling and snapping** | Different edge gestures, different keyboard shortcuts, different tiled widths, and a half-screen tile that is narrower on one desktop than the other. | Window management. What Linthra owns is being usable at whatever width results, which is what A5 and A7 check. |
-| **Fractional scaling** | A desktop that implements fractional scaling for its clients renders sharply at 125% or 150%; one that scales an integer-scaled surface down renders slightly soft. | GTK 3 has no fractional-scale protocol support. See [hidpi-and-scaling.md](./hidpi-and-scaling.md), which has the full scale pass. |
+| **Fractional scaling** | A desktop that implements fractional scaling for its clients renders sharply at 125% or 150%; one that scales an integer-scaled surface down renders slightly soft. | GTK 3 has no fractional-scale protocol support. See [hidpi-and-scaling.md](hidpi-and-scaling.md), which has the full scale pass. |
 | **Notification presentation** | Placement, timeout, whether the cover is shown, whether a transient notification is kept in a history, and how do-not-disturb treats it. | The notification daemon's and the portal's decisions. Linthra sends a title, a body, a cover and low priority, and everything after that is the desktop's. |
 | **File chooser appearance** | Two different choosers with different sidebars, different recent-file behaviour and different bookmark handling. | The portal backend is the desktop's implementation of a standard interface. Linthra asks for a folder through `GtkFileChooserNative` and takes the path it gets. |
 | **Secret Service backend** | Different credential managers, different unlock prompts, different names for the keyring in their own UI. | Linthra speaks the freedesktop Secret Service interface (native) or the Secret portal (Flatpak). Which daemon answers is the desktop's business, and a locked one is reported rather than worked around. |
@@ -514,8 +514,8 @@ Work out which layer owns it before filing:
    Most likely Linthra or the toolkit. File it with the session facts from the
    top of this page, both results side by side, and the exact row number.
 3. **Does it fail only in the Flatpak?** Look at the sandbox first:
-   [flatpak-permissions.md](audits/flatpak-permissions.md) and
-   [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) have the commands for
+   [flatpak-permissions.md](../audits/flatpak-permissions.md) and
+   [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md) have the commands for
    inspecting it by hand.
 4. **Is it in the [differences](#differences-linthra-does-not-normalize)
    table?** Then it is recorded behaviour. If it is a *new* difference of that
@@ -529,11 +529,11 @@ difference, an upstream bug, or both.
 
 | Topic | Doc |
 | --- | --- |
-| Linux desktop build, and everything it supports | [linux-desktop.md](./linux-desktop.md) |
-| Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](./manual-test-checklist.md) |
-| HiDPI and fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
-| Flatpak development | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
-| Flatpak permission audit | [flatpak-permissions.md](audits/flatpak-permissions.md) |
-| Suspend / resume matrix | [linux-desktop.md](./linux-desktop.md#suspend--resume-manual-matrix) |
-| Closing the window (background mode) | [linux-desktop.md](./linux-desktop.md#closing-the-window) |
-| Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
+| Linux desktop build, and everything it supports | [Linux desktop](desktop.md) |
+| Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](../manual-test-checklist.md) |
+| HiDPI and fractional scaling | [hidpi-and-scaling.md](hidpi-and-scaling.md) |
+| Flatpak development | [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md) |
+| Flatpak permission audit | [flatpak-permissions.md](../audits/flatpak-permissions.md) |
+| Suspend / resume matrix | [Linux desktop](desktop.md#suspend--resume-manual-matrix) |
+| Closing the window (background mode) | [Linux desktop](desktop.md#closing-the-window) |
+| Reporting a bug | [reporting-bugs.md](../reporting-bugs.md) |

@@ -24,14 +24,14 @@ what works today, and what deliberately does not yet.
 * Server credentials persist in **encrypted** storage on Linux, through the
   desktop Secret Service (see [Secure storage](#secure-storage)).
 * CI builds the Linux target on every PR
-  ([`linux-desktop-build.yml`](../.github/workflows/linux-desktop-build.yml)).
+  ([`linux-desktop-build.yml`](../../.github/workflows/linux-desktop-build.yml)).
   For an official release, that same workflow is separately dispatched to
   build at the exact release tag, package the bundle into a `.tar.gz`, and
   attach it to the GitHub Release — see [Release tarball](#release-tarball)
   below and
-  [docs/distribution/release-process.md §4a](distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build).
+  [docs/distribution/release-process.md §4a](../distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build).
 * A stable Release also carries an installable `.flatpak` bundle, built by
-  [`flatpak-build.yml`](../.github/workflows/flatpak-build.yml) at the same tag
+  [`flatpak-build.yml`](../../.github/workflows/flatpak-build.yml) at the same tag
   — see
   [Installing from GitHub Releases](#installing-from-github-releases-flatpak).
 
@@ -42,7 +42,7 @@ for the **native** build described on this page.
 
 > Building the **Flatpak** instead? None of these packages are needed for it —
 > it brings its own toolchain and bundles its own libmpv. See
-> [Flatpak development on Fedora Atomic](distribution/flatpak/development.md).
+> [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md).
 
 ### Fedora / Fedora Kinoite
 
@@ -190,7 +190,7 @@ KDE Plasma 6 via KWallet's `ksecretd`), keeps its own gcrypt-encrypted store
 under the app's data directory with the master secret handed over by that
 portal. Encrypted at rest either way, and libsecret's storage in both cases,
 just not the shared keyring collection this page's native build uses. See
-[Flatpak development on Fedora Atomic](distribution/flatpak/development.md#secure-credential-storage).
+[Flatpak development on Fedora Atomic](../distribution/flatpak/development.md#secure-credential-storage).
 
 ## Audio playback
 
@@ -224,7 +224,7 @@ Android gets exactly the same behaviour from exactly the same code, and a source
 switch reuses the existing logical-track candidates rather than a second
 fallback path. The rules (which recoveries are valid for which failure, the
 bounded attempt budget, what happens to the queue) are in
-[streaming.md](features/streaming.md#when-a-track-cant-play-at-all).
+[streaming.md](../features/streaming.md#when-a-track-cant-play-at-all).
 
 ### When the audio engine itself won't start
 
@@ -251,7 +251,7 @@ Retry." when libmpv was never loaded, and "Then restart Linthra" when it was
 (see the second bullet below for why the two differ).
 
 Inside a Flatpak the wording changes, because a Flatpak bundles its own libmpv
-and never loads the host's ([Flatpak development on Fedora Atomic](distribution/flatpak/development.md)):
+and never loads the host's ([Flatpak development on Fedora Atomic](../distribution/flatpak/development.md)):
 the fix there is reinstalling Linthra from Flathub, and an `apt install` line
 would send the listener to repair a library the app does not use.
 
@@ -384,7 +384,7 @@ bundle, so the last hop — media_kit decoding those bytes and putting them out
 through PipeWire or PulseAudio — is not exercised above; the engine seam is
 driven as far as the handoff and no further. That hop is covered by
 `tool/linux_audio_backend_smoke.dart` (built and run by
-[`scripts/verify_linux.sh`](../scripts/verify_linux.sh) and CI, headless, with
+[`scripts/verify_linux.sh`](../../scripts/verify_linux.sh) and CI, headless, with
 `ao=null`), and the rest is this manual matrix, worth re-checking before a Linux
 milestone release:
 
@@ -618,7 +618,7 @@ libmpv provides broad codec/container support and PulseAudio/PipeWire output.
 It is a native runtime dependency, not a binary downloaded when Linthra starts.
 The Flatpak manifest therefore builds libmpv as a declared module and bundles
 it, so the packaged app needs no host libmpv at all
-([Flatpak development on Fedora Atomic](distribution/flatpak/development.md)).
+([Flatpak development on Fedora Atomic](../distribution/flatpak/development.md)).
 `media_kit_libs_linux` normally offers an optional build-time mimalloc download;
 Linthra explicitly disables it in `linux/CMakeLists.txt`, so this backend adds no
 undeclared network access to an isolated `flatpak-builder` build.
@@ -863,7 +863,7 @@ started on top of the first.
 | --- | --- | --- |
 | **Audio playback** | Supported | media_kit/libmpv through `LinuxPlaybackController`; local files and resolved Jellyfin, Navidrome/Subsonic, and Plex HTTP(S) streams share one backend. A libmpv that is missing, unloadable or incompatible is reported as such and retried in place ([issue #404](https://github.com/TheZupZup/Linthra/issues/404)), not as a track that would not play. See [When the audio engine itself won't start](#when-the-audio-engine-itself-wont-start). |
 | **Suspend / resume** | Supported (app side); real device/sink timing varies | Linthra notices a system sleep itself, from the kernel's boot clock running ahead of its monotonic one, and reloads a track that was playing across it once, after a short backoff ([issue #466](https://github.com/TheZupZup/Linthra/issues/466), [issue #799](https://github.com/TheZupZup/Linthra/issues/799)). See [Suspend / resume (manual matrix)](#suspend--resume-manual-matrix). |
-| **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. Rows B1 and B2 of the [compatibility matrix](./desktop-compatibility-matrix.md#b-appearance) are where that bridge is exercised by hand, on both desktops. |
+| **Light/Dark/System theme** | Supported (app side); the native brightness bridge itself is Flutter's, not independently verified here | Settings → Appearance's System/Light/Dark choice ([issue #459](https://github.com/TheZupZup/Linthra/issues/459)) is the same shared `ThemeModePreference`/`ThemeModeController` Android uses, mapped onto `MaterialApp`'s own `themeMode` — no `gsettings`/D-Bus/GNOME/KDE-specific code in Linthra itself, and no separate Linux theme path (`test/app/theme_mode_test.dart` proves that). *Supplying* System's brightness on Linux is Flutter's GTK embedder (via the XDG desktop portal or a GNOME GSettings fallback); that native bridge is outside Linthra's code and isn't exercised by `flutter test`, which runs on the Dart VM and injects brightness straight into Flutter's test `PlatformDispatcher`. Reproducing the real bridge deterministically in CI would need a running portal daemon or GNOME schemas — exactly the DE-specific setup this app avoids adding — so it stays untested here and is a known gap, not a claimed guarantee. Rows B1 and B2 of the [compatibility matrix](compatibility-matrix.md#b-appearance) are where that bridge is exercised by hand, on both desktops. |
 | Media session / MPRIS | Supported | `PlatformMediaSessionBinding` routes Linux to `MprisMediaSessionBinding`, which exports `/org/mpris/MediaPlayer2` and owns `org.mpris.MediaPlayer2.linthra` ([issue #397](https://github.com/TheZupZup/Linthra/issues/397)). Shells get PlaybackStatus, Metadata, Position and the transport methods; media keys work through the same interface. `Volume` is read/write, so a shell's own volume slider drives Linthra's level (and reads zero while muted); `Rate` stays honestly read-only. `Raise` and `Quit` are answered too, so a listener whose window is hidden by background mode can bring Linthra back or shut it down from the shell's media widget (#401). `audio_service` is still never initialised on Linux — it stays the Android delegate. A machine with no session bus simply gets no desktop controls. |
 | Close-window behaviour | Supported | Settings → Music & playback → Desktop window chooses between quitting and keeping playback running ([issue #401](https://github.com/TheZupZup/Linthra/issues/401)). The runner answers the close, Dart decides what the answer should be, and background mode only ever starts while audio is actually playing. See [Closing the window](#closing-the-window). |
 | Android Auto | Android-only, by design | It is an Android platform integration, not a Linthra feature. |
@@ -1156,7 +1156,7 @@ gets the lot for free.
   Focus gets its own vocabulary on purpose: hover is a neutral veil and
   selection is an identity tint, and a third veil would leave all three saying
   roughly the same thing. `FocusRing`
-  ([`lib/shared/focus/focus_ring.dart`](../lib/shared/focus/focus_ring.dart))
+  ([`lib/shared/focus/focus_ring.dart`](../../lib/shared/focus/focus_ring.dart))
   draws it as an overlay, so it is visible even on an album cover, where
   Material's ink highlight is painted on the surface *behind* the card. It is
   drawn only while the focus manager is in keyboard/mouse mode, which is what
@@ -1169,7 +1169,7 @@ gets the lot for free.
 - **Home and End** jump to the ends of a collection. They have to be added:
   in a lazily-built list the far end has no focus node for a traversal policy
   to find until something scrolls it into range. `ListKeyboardNavigation`
-  ([`lib/shared/focus/list_keyboard_navigation.dart`](../lib/shared/focus/list_keyboard_navigation.dart))
+  ([`lib/shared/focus/list_keyboard_navigation.dart`](../../lib/shared/focus/list_keyboard_navigation.dart))
   scrolls first and takes the outermost row at that end on the next frame. The
   same widget lets **← / →** carry on into the next row of a grid of cards, the
   way a desktop icon grid is walked. A focused text field is left alone
@@ -1179,7 +1179,7 @@ gets the lot for free.
   queue pane or the Library detail pane disposes everything inside it, and
   Flutter unwinds focus to the route's scope: nothing is ringed and the next
   Tab starts again at the top of the page. `FocusHandoff`
-  ([`lib/shared/focus/focus_handoff.dart`](../lib/shared/focus/focus_handoff.dart))
+  ([`lib/shared/focus/focus_handoff.dart`](../../lib/shared/focus/focus_handoff.dart))
   puts it back on the control that reopens the pane, or on the list the detail
   was sitting beside. It fires only when the pane really was holding focus, and
   a window narrowed past a pane's width floor counts the same as pressing its
@@ -1201,7 +1201,7 @@ as it did before.
 
 The listen-through with a screen reader — window title, rail destinations,
 sliders, dialogs, and the rule that a secret is never spoken — is the
-[Linux Orca smoke](features/accessibility.md#linux-orca-smoke-checklist). Widget tests
+[Linux Orca smoke](../features/accessibility.md#linux-orca-smoke-checklist). Widget tests
 pin the tree; that checklist is the pass that has to be heard.
 
 Configurable shortcuts are a separate job
@@ -1330,7 +1330,7 @@ Like the layout, it is **not** gated on `HostPlatform`: the binding lives in the
 shortcut registry below, which wraps the router above every route and can only
 fire when a real keyboard sends the chord — so a phone is unaffected while an
 Android tablet with a keyboard case gets it for free. What it searches and how
-it ranks is documented in [library.md](features/library.md#quick-search-ctrlk).
+it ranks is documented in [library.md](../features/library.md#quick-search-ctrlk).
 
 Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/library/album_grid_test.dart`,
@@ -1385,7 +1385,7 @@ claims it whatever is drawn on top, clearing the overlay first, because a tab
 switch nobody can see is not a tab switch.
 
 **How the frame gets first refusal.** Through
-[`ShortcutSurface`](../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
+[`ShortcutSurface`](../../lib/app/shortcuts/shortcut_surface.dart), a tiny registry
 the navigation frame binds itself into while it is mounted, rather than through
 a nested `Actions` inside it. `Shortcuts` resolves an intent from wherever the
 keyboard focus happens to sit, and focus is not something the frame controls:
@@ -1400,7 +1400,7 @@ and declines everywhere else, including under a route pushed over it.
 
 **Media keys are not here.** `XF86AudioPlay` and friends reach Linthra through
 MPRIS (#398), which works while the window is not focused. Binding one here
-would be a second, worse path, so [`ShortcutBinding`](../lib/app/shortcuts/shortcut_binding.dart)
+would be a second, worse path, so [`ShortcutBinding`](../../lib/app/shortcuts/shortcut_binding.dart)
 refuses a media key outright and says why.
 
 **The typing guard is checked against the real thing.**
@@ -1526,7 +1526,7 @@ Tab and Escape.
 `Ctrl+/`, or **Show all shortcuts** on the settings card, opens a window
 listing every shortcut under its group heading, with the combination each one
 answers *right now*
-([`lib/features/help/keyboard_shortcuts_help.dart`](../lib/features/help/keyboard_shortcuts_help.dart)).
+([`lib/features/help/keyboard_shortcuts_help.dart`](../../lib/features/help/keyboard_shortcuts_help.dart)).
 
 **It has no list of its own.** The rows come from `ShortcutActions.grouped` and
 the chords from `activeShortcutBindingsProvider`: the registry the dispatcher
@@ -1593,11 +1593,11 @@ Three things about it are worth knowing:
 
 The rules behind all of that — what a saved geometry means, when it is too
 damaged to trust, whether a position is still reachable — live in
-[`native/linthra_desktop`](../native/linthra_desktop), which is pure C++ with no
+[`native/linthra_desktop`](../../native/linthra_desktop), which is pure C++ with no
 GTK, no GDK and no filesystem in it. The runner links those sources directly and
 does the toolkit half; the same sources build and test on their own, without a
 display server or a second monitor to unplug, in
-[`cpp-desktop-window.yml`](../.github/workflows/cpp-desktop-window.yml).
+[`cpp-desktop-window.yml`](../../.github/workflows/cpp-desktop-window.yml).
 
 A damaged or missing file is never fatal: it falls back to the 1180×780 default,
 clamped to the 420×600 minimum. Deleting the file resets the window.
@@ -1662,7 +1662,7 @@ catalogs are generated locally into real SQLite files in the production schema.
 The verdict is a comparison against a baseline you record on the same machine,
 never a fixed millisecond limit, and CI deliberately times nothing; it only
 checks that the benchmark still runs and still produces a valid sample set.
-[tools/startup/README.md](../tools/startup/README.md) covers what is and is not
+[tools/startup/README.md](../../tools/startup/README.md) covers what is and is not
 measured, how to compare two runs, and why a debug number is not a release
 number.
 
@@ -1719,7 +1719,7 @@ Everything still builds, every test still passes, and the other desktop is the
 one that breaks after release. So there is a repeatable pass covering both, run
 on a real session before a Linux milestone:
 
-**[docs/desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md)**
+**[docs/linux/compatibility-matrix.md](compatibility-matrix.md)**
 
 It covers launch, window sizing and maximize/restore, light/dark appearance,
 the file/folder portal, local music folder selection, notifications, MPRIS,
@@ -1982,7 +1982,7 @@ anyway.
    because it is the only route a sandboxed Linthra has: the Flatpak asks for
    no `--talk-name` at all (`scripts/check_flatpak_permissions.py` refuses
    every spelling of one), and the portal is available to every Flatpak with no
-   finish-arg. See [docs/audits/flatpak-permissions.md](audits/flatpak-permissions.md).
+   finish-arg. See [docs/audits/flatpak-permissions.md](../audits/flatpak-permissions.md).
 2. **`org.freedesktop.Notifications`**, the spec interface every notification
    daemon implements, for a host that has no portal running: a bare window
    manager with `dunst`, say.
@@ -2113,7 +2113,7 @@ summary, the bundle included, taken from the published file. Compare it with:
 sha256sum Linthra-v0.2.7-x86_64.flatpak
 ```
 
-See [release-artifact-verification.md](distribution/release-artifact-verification.md) for
+See [release-artifact-verification.md](../distribution/release-artifact-verification.md) for
 what that record is and what it is worth.
 
 ### Manual Flatpak smoke checklist
@@ -2148,9 +2148,9 @@ server, is enough.
 If step 3 or 4 fails, the export half of the package is wrong (desktop entry or
 icons). If step 7 or 8 fails, the packaged audio runtime is the place to look:
 CI already walks that lifecycle inside the sandbox
-([Flatpak audio playback smoke](distribution/flatpak/audio-smoke.md)), so a failure here that CI
+([Flatpak audio playback smoke](../distribution/flatpak/audio-smoke.md)), so a failure here that CI
 did not catch is worth reporting with the details, and
-[Flatpak development on Fedora Atomic](distribution/flatpak/development.md) has the commands for
+[Flatpak development on Fedora Atomic](../distribution/flatpak/development.md) has the commands for
 inspecting the sandbox by hand.
 
 ## Release tarball
@@ -2184,7 +2184,7 @@ and a Secret Service provider for [secure storage](#secure-storage). It is
 self-contained, sandboxed one; this tarball is a plain native build, built by a
 different workflow, with no bearing on the Flatpak's design.
 
-See [docs/distribution/release-process.md §4a](distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build)
+See [docs/distribution/release-process.md §4a](../distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build)
 for exactly how the CI job builds and attaches it.
 
 ## Where this is going
@@ -2195,9 +2195,9 @@ is what Linux users install until Linthra is accepted there
 ([#456](https://github.com/TheZupZup/Linthra/issues/456)), not the destination.
 
 That packaging is now underway in #376 and lives outside this page: the
-committed manifest is in [`flatpak/`](../flatpak/README.md) and the contributor
+committed manifest is in [`flatpak/`](../../flatpak/README.md) and the contributor
 workflow for building, installing and debugging it on Fedora Atomic is
-[Flatpak development on Fedora Atomic](distribution/flatpak/development.md). It builds, installs and
+[Flatpak development on Fedora Atomic](../distribution/flatpak/development.md). It builds, installs and
 launches with working audio, and installs the desktop entry
 (`linux/packaging/io.github.thezupzup.linthra.desktop`, shared with any future
 native package rather than Flatpak-only) together with Linthra's icon under

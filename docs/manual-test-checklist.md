@@ -494,7 +494,7 @@ sandbox issue, not a missing label.
 Linux ships on two desktops that most users are on, and a build tuned to one of
 them looks fine until the other one breaks after release. The full pass, with a
 copy-paste result sheet, is
-[desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md); it covers
+[GNOME and KDE Plasma compatibility matrix](linux/compatibility-matrix.md); it covers
 launch, window sizing and maximize/restore, appearance, the file portal, local
 folder selection, notifications, MPRIS, media keys, audio output, secure
 storage, the Flatpak, provider setup, playback and relaunch, on both desktops,
@@ -506,14 +506,14 @@ Wayland first.
   both results and the session facts from the top of that page.
 - ☐ A difference that turns out to belong to the compositor or the portal
   backend gets a row in that page's
-  [differences table](./desktop-compatibility-matrix.md#differences-linthra-does-not-normalize),
+  [differences table](linux/compatibility-matrix.md#differences-linthra-does-not-normalize),
   never a branch on which desktop is running.
 
 ### Desktop HiDPI & fractional scaling (Linux)
 
 The scale matrix is covered by widget tests, so this pass is only about what a
 compositor does that Flutter's own layout cannot tell you. The full GNOME/KDE
-steps live in [hidpi-and-scaling.md](./hidpi-and-scaling.md); the short version:
+steps live in [hidpi-and-scaling.md](linux/hidpi-and-scaling.md); the short version:
 
 - ☐ GNOME: Library, an album, an artist and Now Playing at 100 / 125 / 150 /
   175 / 200% display scale: nothing clipped, artwork sharp rather than soft.
@@ -530,7 +530,7 @@ steps live in [hidpi-and-scaling.md](./hidpi-and-scaling.md); the short version:
 
 Which surface takes a notch is covered by widget tests; this pass is about how
 it feels against a real mouse and a real touchpad. What each piece does is in
-[linux-desktop.md](./linux-desktop.md#mouse-wheel-and-trackpad).
+[Linux desktop](linux/desktop.md#mouse-wheel-and-trackpad).
 
 - ☐ Wheel over the Songs list, the Albums and Artists grids, a playlist, the
   queue and Settings: each scrolls at a steady, predictable rate and stops dead

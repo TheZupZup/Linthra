@@ -186,7 +186,7 @@ class LoopbackEngine extends Fake implements AudioPlayer {
 /// Dart VM without the Linux plugin bundle, so the last hop — media_kit
 /// decoding those bytes and putting them out through PipeWire — is exercised by
 /// `tool/linux_audio_backend_smoke.dart` and the manual matrix in
-/// docs/linux-desktop.md instead. Everything up to and including the handoff to
+/// docs/linux/desktop.md instead. Everything up to and including the handoff to
 /// the engine is real here, and the Linux-specific seams
 /// ([LinuxPlaybackBackendInitializer], the preflight, the load-time
 /// classification) run as they do in the app.

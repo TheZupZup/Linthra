@@ -25,7 +25,7 @@ Android and Linux desktop, from one Flutter codebase; possibly Windows later.
 Android is the platform Linthra ships on. The native Linux target builds and
 launches, and is deliberately incomplete — playback and the desktop UX are still
 being built out. What each platform does and does not have is in
-[linux-desktop.md](linux-desktop.md).
+[Linux desktop](linux/desktop.md).
 
 Platform differences live behind interfaces, never in widgets. `HostPlatform`
 (`core/platform/host_platform.dart`) is the platform expressed as a value, so

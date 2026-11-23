@@ -21,7 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// A shortcut that *does* know is never a build failure and never a test
 /// failure. It only means the untested desktop is the one that breaks after
 /// release, which is what the compatibility matrix
-/// (`docs/desktop-compatibility-matrix.md`) exists to prevent. So it is checked
+/// (`docs/linux/compatibility-matrix.md`) exists to prevent. So it is checked
 /// the only way it can be: by reading the source.
 ///
 /// The rule is deliberately blunt: a desktop's name may not appear in Dart
@@ -115,7 +115,7 @@ void main() {
           'answers on both GNOME and KDE Plasma: portals, MPRIS, the Secret '
           'Service, freedesktop window properties. Reach for the standard '
           'instead; if there genuinely is none, document the difference in '
-          'docs/desktop-compatibility-matrix.md rather than branching on it.',
+          'docs/linux/compatibility-matrix.md rather than branching on it.',
     );
   });
 
@@ -141,7 +141,7 @@ void main() {
           'those apart by reading the source is not reliable, so an '
           'occurrence that is genuinely neutral is accepted by adding it to '
           'allowedOccurrences with a reason. Prose is exempt: put the name '
-          'in a comment, or in docs/desktop-compatibility-matrix.md.',
+          'in a comment, or in docs/linux/compatibility-matrix.md.',
     );
     expect(
       unused,
