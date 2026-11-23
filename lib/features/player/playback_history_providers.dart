@@ -18,7 +18,7 @@ import 'player_providers.dart';
 class PlaybackHistoryController extends Notifier<PlaybackHistory> {
   @override
   PlaybackHistory build() {
-    // Desktop only. History is a desktop queue-pane feature (#419): Android's
+    // Desktop only. History is a desktop queue-pane feature: Android's
     // queue keeps exactly the semantics it had, and a recorder that never runs
     // there cannot change them. Off desktop this stays the empty history and
     // costs one provider read.

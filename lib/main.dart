@@ -71,7 +71,7 @@ Future<void> main(List<String> arguments) async {
     ),
   );
 
-  // Everything `main` used to do inline between the container and `runApp`:
+  // Everything between the container and `runApp`:
   // attaching the media session, starting the side-effect services, warming the
   // persisted sessions, and installing the global artwork hooks. The handle it
   // returns owns all of it, and shutting it down releases all of it.

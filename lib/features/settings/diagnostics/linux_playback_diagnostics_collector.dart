@@ -97,9 +97,9 @@ class LinuxPlaybackDiagnosticsCollector {
       outputSelectionSupported:
           _ref.read(audioOutputDeviceServiceProvider).isSupported,
       // A count only when there is one to report. An enumeration that was
-      // attempted and came back empty is a backend that did not answer (#402
-      // reports it that way), so it is published as a failure rather than as
-      // "this machine has zero outputs".
+      // attempted and came back empty is a backend that did not answer, so it
+      // is published as a failure rather than as "this machine has zero
+      // outputs".
       outputsEnumerated:
           output.devices.isNotEmpty ? output.devices.length : null,
       outputEnumerationFailed: output.hasEnumerated && output.devices.isEmpty,

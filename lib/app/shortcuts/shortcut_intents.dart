@@ -49,7 +49,7 @@ class OpenNowPlayingIntent extends Intent {
   const OpenNowPlayingIntent();
 }
 
-/// Open the keyboard shortcuts help window (#392).
+/// Open the keyboard shortcuts help window.
 class ShowKeyboardShortcutsIntent extends Intent {
   const ShowKeyboardShortcutsIntent();
 }

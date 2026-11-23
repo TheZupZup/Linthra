@@ -11,7 +11,7 @@ typedef RemoveProviderSongsFromQueue = Future<void> Function(
 
 /// Run when a remote provider's songs stop being the signed-in account's (or,
 /// for Plex, the connected server's): another account's library was cleared
-/// for the one signing in, or Plex let its server go (#767).
+/// for the one signing in, or Plex let its server go.
 ///
 /// A song id only means something on its own server, and the play queue holds
 /// ids. Left in it, `subsonic:101` from server A plays server B's song 101

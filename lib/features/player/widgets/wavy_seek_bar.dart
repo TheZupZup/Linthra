@@ -162,8 +162,8 @@ class WavySeekBar extends StatelessWidget {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
-    // A modified arrow is somebody else's key. Ctrl+→ is a bindable chord
-    // (#391), and seeking on it here would both move the track and swallow
+    // A modified arrow is somebody else's key. Ctrl+→ is a bindable chord,
+    // and seeking on it here would both move the track and swallow
     // the event, so the user's shortcut would be dead for as long as the bar
     // held focus.
     if (shortcutModifierPressed()) return KeyEventResult.ignored;
@@ -242,8 +242,8 @@ class WavySeekBar extends StatelessWidget {
             // marker: without it, Tab moves through the transport with nothing
             // on screen saying where it landed.
             //
-            // The same ring the rest of the app draws through `FocusRing`
-            // (#390), same accent and same width, but drawn here rather than
+            // The same ring the rest of the app draws through `FocusRing`,
+            // same accent and same width, but drawn here rather than
             // wrapped around the bar: the shared widget adds a box of its own,
             // and this widget's outermost node has to stay the slider
             // semantics a screen reader reads. The two numbers come from the

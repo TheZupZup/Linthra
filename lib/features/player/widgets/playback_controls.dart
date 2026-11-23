@@ -160,7 +160,7 @@ class _PlayPauseButton extends StatelessWidget {
         button: true,
         enabled: onTap != null,
         // The spinner says "wait" to the eye. Without this a screen reader
-        // only hears a Play button that has stopped working (#460). Same word
+        // only hears a Play button that has stopped working. Same word
         // the mini player uses for its spinner.
         value: loading ? 'Buffering' : null,
         child: Container(

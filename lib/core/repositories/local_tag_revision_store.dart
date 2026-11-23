@@ -4,7 +4,7 @@
 ///
 /// A folder read by another revision, or never recorded, is read in full once
 /// more, so a change to how tags are read reaches files that haven't changed
-/// on disk since they were indexed (#783).
+/// on disk since they were indexed.
 ///
 /// Privacy: the folder paths the user picked and small numbers, kept on the
 /// device like the folder selection itself.

@@ -11,7 +11,7 @@ import 'desktop_notifier.dart';
 typedef DesktopNotificationBuilder = DesktopNotification Function(Track track);
 
 /// Watches the playback state stream and announces the track that is actually
-/// playing now (issue #400).
+/// playing now.
 ///
 /// A pure observer, the same shape as `PlaybackHistoryRecorder`: it never
 /// touches the queue, the controller or the audio engine, and it emits nothing
@@ -182,7 +182,7 @@ class TrackChangeNotifier {
   /// Buffering and reconnecting count: both mean the engine is working toward
   /// sound on the current track, and both are what `PlaybackStatus` reports
   /// mid-stream rather than a reason to stay silent. Unless the listener
-  /// paused it: a reconnect keeps its status through a pause (#806), and
+  /// paused it: a reconnect keeps its status through a pause, and
   /// announcing it then would say "now playing" for a song they just paused.
   /// The same call every toggle and MPRIS make. Loading, paused, idle,
   /// completed and error do not count.

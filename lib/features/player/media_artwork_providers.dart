@@ -15,7 +15,7 @@ import 'player_providers.dart';
 /// The pixel size Linthra requests Subsonic and Plex cover art at for the
 /// **media session** (lock screen / Android Auto now-playing card). Small enough
 /// to download quickly and let the platform decode it without jank or OOM, but
-/// crisp on those surfaces. The in-app full-size render (PR #170) is unaffected.
+/// crisp on those surfaces. The in-app full-size render is unaffected.
 const int kMediaSessionArtworkSize = 512;
 
 /// Resolves a credential-free media-session cover [reference] into an
@@ -79,7 +79,7 @@ final mediaArtworkCacheProvider = Provider<MediaArtworkCache>((ref) {
       subsonic: ref.read(subsonicSettingsControllerProvider.notifier).session,
       plex: ref.read(plexSettingsControllerProvider.notifier).session,
     ),
-    // One server's cover is never shown for another's reference (#739).
+    // One server's cover is never shown for another's reference.
     serverOf: (Uri reference) => artworkServerOf(
       reference,
       subsonic: ref.read(subsonicSettingsControllerProvider.notifier).session,
@@ -101,7 +101,7 @@ final mediaArtworkPrewarmServiceProvider =
   final service = MediaArtworkPrewarmService(
     playbackStates: ref.read(playbackControllerProvider).stateStream,
     warm: cache.resolve,
-    // Remembered per server, the way the cache files them (#739): a cover
+    // Remembered per server, the way the cache files them: a cover
     // warmed for one server says nothing about another's of the same name.
     identityOf: cache.keyOf,
   );

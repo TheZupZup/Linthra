@@ -118,7 +118,7 @@ class _JellyfinSettingsSectionState
   /// The line explaining that a *configured* server can't be reached right now,
   /// or `null` when there's nothing to explain.
   ///
-  /// This is what closes the loop for the user in #536: without it, Jellyfin
+  /// This is what closes the loop for the user: without it, Jellyfin
   /// tracks quietly leaving the library would look like data loss. It says
   /// plainly that nothing was deleted and that the music comes back on its own,
   /// so nobody reaches for "sign out" to get a usable library again.

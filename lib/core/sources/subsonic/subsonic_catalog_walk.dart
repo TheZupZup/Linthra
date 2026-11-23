@@ -24,13 +24,13 @@ class SubsonicCatalogWalk {
 
   /// Albums that still failed after the retries while the server itself kept
   /// answering: a record it chokes on, a proxy timing out on a huge album.
-  /// The walk went on without them (#740), but their tracks were not read.
+  /// The walk went on without them, but their tracks were not read.
   final int failedAlbumCount;
 
   /// Whether the album list was read a second time once every album had been
   /// walked. An album that moved while the list was read the first time (an
   /// earlier one deleted or renamed between two pages) is in the second
-  /// reading and was walked then (#752). False when that second reading
+  /// reading and was walked then. False when that second reading
   /// failed.
   final bool listingConfirmed;
 
@@ -66,7 +66,7 @@ class SubsonicCatalogWalk {
   ///
   /// Not when an album kept failing while the server answered: the next walk
   /// would fail it the same way, after reading everything before it again,
-  /// on every launch and resume (#740). A manual sync still retries it. Not a
+  /// on every launch and resume. A manual sync still retries it. Not a
   /// truncated walk either: it would only hit the page cap again.
   bool get worthResuming =>
       !stopped && !truncated && failedAlbumCount == 0 && !isComplete;

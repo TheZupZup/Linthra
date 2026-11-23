@@ -4,7 +4,7 @@ import '../../core/models/track.dart';
 ///
 /// Held by the screen rather than by the rows, so it survives a rebuild of the
 /// list — a catalog refresh, a download finishing, a position tick — and so a
-/// row never has to know anything about its neighbours (#387).
+/// row never has to know anything about its neighbours.
 ///
 /// Membership is keyed by the provider-namespaced uri, never the bare id: a
 /// local `file:///…` copy and a `jellyfin:101` copy of the same song are

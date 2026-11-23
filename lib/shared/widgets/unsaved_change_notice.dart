@@ -6,7 +6,7 @@ import '../../core/repositories/local_store_write_exception.dart';
 /// playlists, and says so through [messenger] when the device refused to save
 /// it. Returns what [change] returned, or null when it was refused.
 ///
-/// A refused change is left undone by the repository (#808), so without this
+/// A refused change is left undone by the repository, so without this
 /// the tap would look like it did nothing. [what] names what wasn't saved when
 /// part of the action already was (a playlist created, then its songs
 /// refused). Any other error is not this one's to explain and is rethrown.

@@ -64,7 +64,7 @@ class AlbumGrid extends StatelessWidget {
             (content - _gridGutter * (columns - 1)) / columns;
         // A grid of covers is walked the way a desktop icon grid is: the arrow
         // keys move cell to cell and carry on into the next row at a row's
-        // end, and Home/End go to the ends of the collection (#390).
+        // end, and Home/End go to the ends of the collection.
         return ListKeyboardNavigation(
           wrapRows: true,
           child: GridView.builder(

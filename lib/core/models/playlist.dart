@@ -130,7 +130,7 @@ class Playlist {
   final String? owner;
 
   /// For a device playlist, where each of its remote songs was added
-  /// (`SongOrigins`, #795): uri → the account or server it names a song on.
+  /// (`SongOrigins`): uri → the account or server it names a song on.
   /// A Subsonic or Plex id means another song, or none, elsewhere, so such an
   /// entry only stands for the library's song while that origin is signed in.
   /// An entry missing here was added before origins were recorded.

@@ -242,7 +242,7 @@ class _LibraryPicker extends ConsumerWidget {
       ),
       // The one genuinely horizontal surface in the app, and the only place a
       // vertical wheel is allowed to mean "sideways": a mouse with one wheel
-      // could otherwise never reach the libraries past the right edge (#396).
+      // could otherwise never reach the libraries past the right edge.
       child: HorizontalWheelScroll(
         chainTo: chainTo,
         builder: (BuildContext context, ScrollController controller) =>

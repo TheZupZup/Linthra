@@ -4,7 +4,7 @@ import '../../core/repositories/keyboard_shortcut_preferences.dart';
 import 'in_memory_keyboard_shortcut_preferences.dart';
 import 'shared_preferences_keyboard_shortcut_preferences.dart';
 
-/// The user's keyboard-shortcut overrides (#391).
+/// The user's keyboard-shortcut overrides.
 ///
 /// In-memory by default so widget tests and dev runs need no plugin; the app
 /// persists them through

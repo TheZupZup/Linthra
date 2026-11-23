@@ -50,7 +50,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
   /// The selection used when no host supplied one.
   final TrackSelection _ownSelection = TrackSelection();
 
-  /// Which songs are picked, and where a Shift-click measures from (#387).
+  /// Which songs are picked, and where a Shift-click measures from.
   TrackSelection get _selection => widget.selection ?? _ownSelection;
 
   bool get _selecting => _selection.isActive;

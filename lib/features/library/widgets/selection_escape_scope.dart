@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Lets Escape leave a track selection, on every screen that has one (#387).
+/// Lets Escape leave a track selection, on every screen that has one.
 ///
 /// A selection is a mode, and a mode with no keyboard focus has nowhere for a
 /// key to land: clicking a row does not move focus by itself, so without this

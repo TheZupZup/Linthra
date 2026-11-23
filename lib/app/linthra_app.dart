@@ -122,7 +122,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       }
       StabilityDiagnostics.backgroundPlaybackState(
           ref.read(playbackControllerProvider).state.status.name);
-      // Nothing here arms the reload after a system sleep (#799). Linux never
+      // Nothing here arms the reload after a system sleep. Linux never
       // reports `paused`, and a sleep changes neither focus nor visibility, so
       // the engine notices the sleep itself (see SystemSleepWatcher). A hidden
       // or minimized window is not a sleep and reloads nothing.
@@ -135,7 +135,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       }
       ref.read(remoteLibraryRefresherProvider).refresh();
       // Pick up a Navidrome/Subsonic library sync that Android froze or killed
-      // partway (#680). A no-op unless one is on record for the signed-in
+      // partway. A no-op unless one is on record for the signed-in
       // account; the sync is idempotent, so running it again is always safe.
       unawaited(
         ref
@@ -144,7 +144,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       );
       // Re-probe the configured music server: coming back to the app is the
       // moment a LAN server the user walked away from is most likely reachable
-      // again. Requirement of #536 — the library restores itself, with no
+      // again. The library restores itself, with no
       // reconnect and no rescan, because nothing was removed to begin with.
       unawaited(ref.read(jellyfinAvailabilityProvider.notifier).refresh());
 
@@ -217,7 +217,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       return BrandPalettes.byId(variant.id, brightness: brightness);
     }
 
-    // Desktop density (#395). Watched here rather than read deeper down so a
+    // Desktop density. Watched here rather than read deeper down so a
     // change repaints and relaids out every screen at once, the same way the
     // theme mode does — no restart, and no widget needing to know the
     // preference exists.
@@ -270,7 +270,7 @@ class _LinthraAppState extends ConsumerState<LinthraApp>
       // One scroll policy for the whole app, routes and dialogs included:
       // every `Scrollable` resolves its physics and its overscroll decoration
       // through the `ScrollConfiguration` this installs, so none of them needs
-      // a desktop check of its own (#396).
+      // a desktop check of its own.
       scrollBehavior: const AppScrollBehavior(),
       routerConfig: router,
       // Keyboard shortcuts wrap the router rather than living inside the

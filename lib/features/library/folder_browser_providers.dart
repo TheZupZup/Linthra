@@ -56,8 +56,8 @@ final folderBrowsableSourcesProvider =
 ///
 /// Browsing is a walk: you open a folder, look, and come back up. Without this
 /// every step back re-asked the server for a level that was on screen seconds
-/// earlier, which is slow on a remote library and rude to a self-hosted one
-/// (#581). Bounded rather than kept for the whole session so a long browse does
+/// earlier, which is slow on a remote library and rude to a self-hosted one.
+/// Bounded rather than kept for the whole session so a long browse does
 /// not hold every level it ever visited, and short enough that a folder changed
 /// on the server shows up again quickly.
 const Duration folderListingCacheDuration = Duration(minutes: 5);

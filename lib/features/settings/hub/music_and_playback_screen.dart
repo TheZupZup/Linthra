@@ -21,16 +21,16 @@ import 'settings_detail_scaffold.dart';
 /// plays. Each card is the existing section, unchanged: nothing here touches
 /// the playback engine or provider logic.
 ///
-/// On a desktop host it also carries the close-window behaviour (#401): what
+/// On a desktop host it also carries the close-window behaviour: what
 /// closing the window does is a playback choice there, since the answer is
 /// whether the music keeps going. Android never shows it, because closing a
 /// window is not something Android does.
 ///
-/// The same goes for desktop notifications (#400), the opt-in toast when the
+/// The same goes for desktop notifications, the opt-in toast when the
 /// track changes: on Android that notification is the media session's, drawn
 /// by the system, so there is nothing there to offer a switch for.
 ///
-/// And for remapping the keyboard shortcuts (#391). The shortcuts themselves
+/// And for remapping the keyboard shortcuts. The shortcuts themselves
 /// work wherever a real keyboard sends the chord — an Android tablet with a
 /// keyboard case included — but a card for rebinding them is dead weight on a
 /// phone.

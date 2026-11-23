@@ -58,7 +58,7 @@ class NowPlayingActions extends ConsumerWidget {
   /// without the width for a pane.
   final VoidCallback? onToggleQueue;
 
-  /// The queue button's focus node, when the host wants to keep it (#390).
+  /// The queue button's focus node, when the host wants to keep it.
   ///
   /// Closing a queue pane disposes whatever inside it had the keyboard, so the
   /// host hands focus back to this button, which means the node has to belong

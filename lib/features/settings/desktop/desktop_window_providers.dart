@@ -7,8 +7,7 @@ import '../../../data/repositories/desktop_window_controller_provider.dart';
 import '../../player/player_providers.dart';
 
 /// The service that keeps the desktop runner's close behaviour in step with
-/// the user's choice and with playback, and that owns the explicit quit
-/// (issue #401).
+/// the user's choice and with playback, and that owns the explicit quit.
 ///
 /// Created lazily and inert off the desktop: with the default
 /// [NoopDesktopWindowController] behind it, nothing is pushed anywhere. The
@@ -25,8 +24,8 @@ final desktopWindowLifecycleServiceProvider =
   return service;
 });
 
-/// What the desktop last said about Linthra running with its window closed
-/// (#754): the settings card says so when the answer was no.
+/// What the desktop last said about Linthra running with its window closed:
+/// the settings card says so when the answer was no.
 final desktopBackgroundPermissionProvider =
     StreamProvider<BackgroundPermission>((ref) async* {
   final DesktopWindowLifecycleService service =

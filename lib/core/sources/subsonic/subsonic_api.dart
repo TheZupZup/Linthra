@@ -323,7 +323,7 @@ class SubsonicPlaylistDto {
 // The reads every parser above goes through, by the rule the Jellyfin DTOs
 // already follow: a value of an unexpected type is left out rather than thrown
 // on. A `TypeError` here would fail a whole sync over one odd record, and the
-// next launch would walk the library into it again (#781).
+// next launch would walk the library into it again.
 
 /// [value] when it is a string, otherwise `null`.
 String? _asString(Object? value) => value is String ? value : null;

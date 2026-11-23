@@ -36,12 +36,12 @@ enum CastMediaScope {
 
 /// What casting one track actually hands over, per source.
 ///
-/// This exists because "the URL has a token in it" is not a security model, and
-/// [#576](https://github.com/TheZupZup/Linthra/issues/576) is about being honest
-/// about the difference between the delegation a provider *supports* and the one
-/// Linthra is *forced* into. Declaring it in code — next to the resolver that
-/// mints the URL, checked by tests — means a new source cannot quietly widen the
-/// exposure, and the app can eventually tell a user what a handoff costs.
+/// This exists because "the URL has a token in it" is not a security model,
+/// and to be honest about the difference between the delegation a provider
+/// *supports* and the one Linthra is *forced* into. Declaring it in code, next
+/// to the resolver that mints the URL and checked by tests, means a new source
+/// cannot quietly widen the exposure, and the app can eventually tell a user
+/// what a handoff costs.
 ///
 /// It carries no secret: it describes a URL's authority, never its contents.
 /// See docs/design/cast-media-access.md for the per-provider matrix and what each

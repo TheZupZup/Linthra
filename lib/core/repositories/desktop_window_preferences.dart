@@ -1,6 +1,6 @@
 import '../models/desktop_close_behavior.dart';
 
-/// The user's desktop window preferences (issue #401).
+/// The user's desktop window preferences.
 ///
 /// One choice today: what closing the main window does. Kept behind an
 /// interface like [PlaybackPreferences] so the lifecycle layer can read it

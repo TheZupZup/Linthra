@@ -117,7 +117,7 @@ class MprisMediaSession implements MediaSession {
   /// The pid is tried first because it is the spec's suggestion and it makes
   /// the name legible in `playerctl -l`, but it cannot be trusted to be unique:
   /// each Flatpak instance has its own pid namespace, so two sandboxed windows
-  /// can genuinely both be pid 2. The runner is single-instance since #401, so
+  /// can genuinely both be pid 2. The runner is single-instance, so
   /// a second Linthra is rare rather than routine (a second Flatpak instance,
   /// or a machine with no session bus to register on), but a collision must
   /// still cost a less readable name rather than a window with no media

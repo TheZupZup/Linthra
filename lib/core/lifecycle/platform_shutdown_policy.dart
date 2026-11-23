@@ -16,7 +16,7 @@ const Duration exitShutdownDeadline = Duration(seconds: 5);
 ///    window is closing and the process is on its way out. Nothing else keeps
 ///    Linthra alive, so this is exactly the moment to close the database, stop
 ///    the audio engine, and drop the remote-control socket — the deterministic
-///    Linux shutdown issue #464 asks for.
+///    Linux shutdown.
 ///  * On **Android** (and iOS), `detached` also arrives when the *Activity* is
 ///    destroyed while the application keeps running: `audio_service` holds a
 ///    foreground service so playback continues with no UI attached, and the

@@ -5,7 +5,7 @@ import '../sources/plex/plex_track_mapper.dart';
 import '../sources/subsonic/subsonic_track_mapper.dart';
 
 /// Where the songs a stored reference names came from, for the providers
-/// whose song ids only mean something on one server (#795).
+/// whose song ids only mean something on one server.
 ///
 /// A Plex ratingKey and most Subsonic song ids are numbers their server hands
 /// out: `subsonic:48211` names one song on server A and another, or none, on
@@ -14,7 +14,7 @@ import '../sources/subsonic/subsonic_track_mapper.dart';
 /// reference records the origin it was made under, and only counts while
 /// that origin is signed in again.
 ///
-/// The origin is the identity the saved play queue already uses (#767): the
+/// The origin is the identity the saved play queue already uses: the
 /// signed-in account for Subsonic, whose library is synced per account, and
 /// the server for Plex, whose profiles share their server's ids. Jellyfin item
 /// ids are unique across servers, so Jellyfin references record nothing.

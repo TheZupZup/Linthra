@@ -68,7 +68,7 @@ class SharedPreferencesDownloadStore
     );
     // `false` is a write that didn't happen (a full disk), while the plugin's
     // in-memory copy already holds [raw]: the next launch would read the old
-    // document back (#786).
+    // document back.
     if (!await prefs.setString(_key, raw)) {
       throw const DownloadStoreWriteException();
     }

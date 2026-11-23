@@ -153,7 +153,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   // reconnect) can still land on it. Forwarding then would run the *same* press
   // through the controller twice, once per live handler. Every transport
   // command checks this first, so a superseded handler is inert rather than a
-  // second, invisible driver of the queue (#638).
+  // second, invisible driver of the queue.
   bool _detached = false;
 
   /// Whether [dispose] has run, i.e. this handler no longer speaks for the
@@ -804,13 +804,13 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// notification's spinner; the foreground service stays up.
   ///
   /// A pause is the one state that depends on *why* it happened, which is what
-  /// makes this the battery-optimal mode (#499):
+  /// makes this the battery-optimal mode:
   ///  - paused because another app holds a transient focus and Linthra will
   ///    resume when it hands focus back (the controller's
   ///    [PlaybackState.interruptedByTransientFocus]) → still `playing`, so the
   ///    service stays foreground and the isolate that processes
   ///    `AUDIOFOCUS_GAIN` stays alive. Without it, recovery from a call or a
-  ///    navigation prompt would again need the app reopened (#244).
+  ///    navigation prompt would again need the app reopened.
   ///  - paused by the user → `false`, so the service is demoted and the wake
   ///    lock released straight away, exactly like stop / idle / completion /
   ///    error. That is the battery win over holding it across *every* pause.
@@ -820,7 +820,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   ///
   /// A busy engine is only working toward sound while the listener still wants
   /// it: one they paused mid-stall (or a seek while paused that rebuffers) is
-  /// paused, whatever the engine is still doing (#751, [_pausedWhileBusy]).
+  /// paused, whatever the engine is still doing ([_pausedWhileBusy]).
   static bool _isSessionPlaying(PlaybackState state) {
     switch (state.status) {
       case PlaybackStatus.playing:
@@ -846,7 +846,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// session playing: Pause stayed in the notification, on the lock screen and
   /// in the car, a headset click paused again and did nothing, and the
   /// foreground service and its wake lock stayed held until the buffer
-  /// refilled or the stream failed (#751). Such a state is reported exactly
+  /// refilled or the stream failed. Such a state is reported exactly
   /// like a pause instead.
   ///
   /// A transient-focus hold is not the listener pausing: the controller will
@@ -929,7 +929,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// The session-level processing state for a controller [state].
   ///
   /// Opening a track — [PlaybackStatus.loading] — is reported as *buffering*,
-  /// not as `audio_service`'s `loading` (#638).
+  /// not as `audio_service`'s `loading`.
   ///
   /// `AudioProcessingState.loading` is the one value that becomes
   /// `PlaybackStateCompat.STATE_CONNECTING`
@@ -967,7 +967,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
   /// which with `playing: false` is `STATE_PAUSED`. Buffering would not do:
   /// `audio_service` turns it into `STATE_BUFFERING` whatever `playing` says,
   /// and Android's media controls and car head units read that as active (a
-  /// spinner or Pause), never as paused (#751).
+  /// spinner or Pause), never as paused.
   audio.AudioProcessingState _processingStateFor(PlaybackState state) {
     if (_pausedWhileBusy(state)) return audio.AudioProcessingState.ready;
     switch (state.status) {
@@ -1028,7 +1028,7 @@ class LinthraAudioHandler extends audio.BaseAudioHandler {
 /// `adb logcat`.
 ///
 /// **Attaches at most once per process.** A second call returns the handler that
-/// is already attached instead of initialising `audio_service` again (#638).
+/// is already attached instead of initialising `audio_service` again.
 /// `AudioService.init` installs a fresh set of platform callbacks and starts a
 /// fresh set of stream observers each time it runs, but it tears none of the
 /// previous ones down: a second init would leave the first handler mirroring
@@ -1112,7 +1112,7 @@ Future<LinthraAudioHandler?> _attachMediaSession(
         androidNotificationChannelId: 'com.linthra.audio',
         androidNotificationChannelName: 'Linthra playback',
         // Demote the foreground media service on a pause — but only on a pause
-        // that is really the user's (#499).
+        // that is really the user's.
         //
         // `audio_service` releases the foreground service AND the CPU wake lock
         // the moment the session reports `playing: false`, which lets the OS
@@ -1121,23 +1121,24 @@ Future<LinthraAudioHandler?> _attachMediaSession(
         // native focus and routes interruptions through audio_session/Dart), so
         // a frozen isolate can't process the `AUDIOFOCUS_GAIN` that another app
         // emits when it ends a voice/transient interruption — and playback would
-        // only recover when reopening the app (#244).
+        // only recover when reopening the app.
         //
-        // #244 solved that with `androidStopForegroundOnPause: false`, which
-        // held the service — and the wake lock — across *every* pause, including
-        // one left paused-not-stopped for hours. The recovery guarantee is now
-        // carried by the `playing` flag instead: [_isSessionPlaying] keeps
-        // reporting `playing` across a transient-focus pause (bounded by the
-        // controller), so the isolate survives exactly the interruption it has
-        // to recover from, and an ordinary user pause demotes the service and
-        // drops the wake lock right away. Foreground-while-playing (the
-        // screen-off cutout fix, also in [_isSessionPlaying]) is unchanged.
+        // `androidStopForegroundOnPause: false` would solve that, but it
+        // holds the service (and the wake lock) across *every* pause,
+        // including one left paused-not-stopped for hours. The recovery
+        // guarantee is carried by the `playing` flag instead:
+        // [_isSessionPlaying] keeps reporting `playing` across a
+        // transient-focus pause (bounded by the controller), so the isolate
+        // survives exactly the interruption it has to recover from, and an
+        // ordinary user pause demotes the service and drops the wake lock
+        // right away. Foreground-while-playing (the screen-off cutout fix,
+        // also in [_isSessionPlaying]) is unchanged.
         //
         // The notification stays non-ongoing. `stopForegroundOnPause: true`
         // would now let it be ongoing again (audio_service asserts
         // `!ongoing || stopForegroundOnPause`), but with the service demoted on
         // a real pause there is nothing to gain from making it undismissable, so
-        // this is left exactly as #244 set it.
+        // it stays false.
         androidNotificationOngoing: false,
         androidStopForegroundOnPause: true,
         // Downscale the album-art bitmap `audio_service` embeds in the session

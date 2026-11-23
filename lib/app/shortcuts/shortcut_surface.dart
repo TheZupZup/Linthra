@@ -10,7 +10,7 @@ import 'shortcut_action.dart';
 typedef ShortcutSurfaceHandler = bool Function();
 
 /// Where a mounted surface says it can answer a shortcut better than the
-/// app-level command can (#391).
+/// app-level command can.
 ///
 /// The obvious mechanism for this is a nested `Actions` inside the surface,
 /// and it does not hold up. `Shortcuts` resolves an intent from wherever the

@@ -97,7 +97,7 @@ class SubsonicSyncState {
   final String? errorKind;
 
   /// Albums a sync that read to the end had to leave out, because they kept
-  /// failing while the server itself answered (#740).
+  /// failing while the server itself answered.
   final int unreadAlbumCount;
 
   /// The [errorKind] of a failure that wasn't a Subsonic error (a storage

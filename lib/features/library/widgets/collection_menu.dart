@@ -10,7 +10,7 @@ import '../../player/shuffle_play.dart';
 import '../../playlists/widgets/add_to_playlist_sheet.dart';
 
 /// What a right-click offers on something that *is* a set of songs: an album,
-/// an artist, a playlist (#386).
+/// an artist, a playlist.
 ///
 /// Deliberately only what the domain layer already does. Every entry maps onto
 /// a command the detail screens have used since before this menu existed —

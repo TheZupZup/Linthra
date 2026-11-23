@@ -321,7 +321,7 @@ final playbackCandidateSourceProvider = Provider<PlaybackCandidateSource>(
 /// host packages or speakers.
 final linuxAudioPlayerProvider = Provider<AudioPlayer?>((ref) => null);
 
-/// Test seam for how the Linux engine notices a system sleep (#799).
+/// Test seam for how the Linux engine notices a system sleep.
 ///
 /// Production leaves this null so [LinuxPlaybackController] watches the real
 /// machine's clocks. Tests hand in a watcher whose clocks they move.

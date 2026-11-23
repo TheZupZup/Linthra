@@ -37,7 +37,7 @@ abstract interface class MediaSessionBinding {
   /// is no session.
   ///
   /// [application] is what the session's own Raise/Quit go to. MPRIS offers
-  /// both to the desktop shell (#401), which is how a listener with no window
+  /// both to the desktop shell, which is how a listener with no window
   /// on screen still has a visible way to bring Linthra back or shut it down.
   /// Passing nothing means the session advertises neither.
   Future<MediaSession?> attach(

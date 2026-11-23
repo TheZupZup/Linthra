@@ -67,7 +67,7 @@ class AppDiagnosticsData {
 
   /// `Build.VERSION.SDK_INT`, when known. Fire OS puts a build id (e.g.
   /// `NS6574`) where [androidVersion] normally has the release, so this is the
-  /// only reliable API level in a report (#674).
+  /// only reliable API level in a report.
   final int? androidSdkInt;
 
   /// The device's supported ABIs, most preferred first (e.g. `armeabi-v7a`).

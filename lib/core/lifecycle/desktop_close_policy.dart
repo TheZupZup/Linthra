@@ -1,7 +1,7 @@
 import '../models/desktop_close_behavior.dart';
 import '../models/playback_state.dart';
 
-/// The two rules behind the configurable close-window behaviour (issue #401),
+/// The two rules behind the configurable close-window behaviour,
 /// as pure functions of the user's choice and what playback is doing.
 ///
 /// They live here, apart from the widget layer and from the GTK runner, because
@@ -18,7 +18,7 @@ abstract final class DesktopClosePolicy {
   /// requirement, and it is why the preference alone does not decide.
   ///
   /// [backgroundAllowed] false means the desktop refused to let Linthra run
-  /// without a window (#754): inside the Flatpak, a hidden Linthra would then
+  /// without a window: inside the Flatpak, a hidden Linthra would then
   /// be killed a few seconds later, mid-song and without its graceful
   /// shutdown, so the window closes the normal way instead.
   static bool hidesOnClose(
@@ -28,7 +28,7 @@ abstract final class DesktopClosePolicy {
   }) {
     if (behavior != DesktopCloseBehavior.keepPlaying) return false;
     if (!backgroundAllowed) return false;
-    // A load or a stall the listener paused lands paused (#751): the queue
+    // A load or a stall the listener paused lands paused: the queue
     // restored at launch, a pause during a reconnect. No sound is on its way,
     // so it is a paused player like any other, and hiding it would leave a
     // silent process with no window that never quits on its own.

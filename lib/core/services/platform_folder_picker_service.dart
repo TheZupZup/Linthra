@@ -11,7 +11,7 @@ import 'method_channel_saf_folder_picker.dart';
 /// `content://` tree URI with a persisted read grant — the scoped-storage-
 /// correct selection. On Linux it uses [LinuxFolderPickerService], the runner's
 /// GTK chooser, which GTK routes through xdg-desktop-portal inside the Flatpak
-/// and draws in-process on a native build (#438). Everywhere else (the other
+/// and draws in-process on a native build. Everywhere else (the other
 /// desktops, where the chooser returns a real filesystem path) it uses the
 /// `file_picker`-backed [FilePickerFolderPickerService]. This is the one place
 /// that knows about the platform split, mirroring [PlatformAudioFileScanner] on

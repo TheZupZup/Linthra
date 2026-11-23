@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 ///
 /// Most of Linthra hovers for free: a [ListTile], an [InkWell], a button or a
 /// navigation destination all draw the theme's `hoverColor` as an ink overlay,
-/// so one value in the theme covers rows, buttons, menus and the rail at once
-/// (#385). This exists for the one case that does not work: a card whose child
+/// so one value in the theme covers rows, buttons, menus and the rail at once.
+/// This exists for the one case that does not work: a card whose child
 /// is an opaque image. Ink is painted on the [Material] *behind* the child, so
 /// an album cover hides the highlight and leaves a mouse user with feedback on
 /// the label strip and nothing on the artwork they are actually pointing at.

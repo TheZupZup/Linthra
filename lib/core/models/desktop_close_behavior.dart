@@ -1,4 +1,4 @@
-/// What closing the desktop window does (issue #401).
+/// What closing the desktop window does.
 ///
 /// Desktop-only: on Android the window is an Activity the platform owns, and
 /// closing it never meant "quit the app" in the first place. Linthra ships

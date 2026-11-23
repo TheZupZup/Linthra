@@ -32,7 +32,7 @@ import 'text_folding.dart';
 ///     artists' "Greatest Hits" still stay distinct without either signal.
 /// Tracks with no album title (and no [Track.albumId]) fold into one "Unknown
 /// Album" *per artist*, keyed exactly like [artistIdForTrack], so an artist
-/// page's Unknown Album only ever holds that artist's tracks (#682). Each
+/// page's Unknown Album only ever holds that artist's tracks. Each
 /// tier's key is prefixed so ids from different tiers can never collide with
 /// one another. All ordering uses total comparators (every tie
 /// broken down to the stable id), so a given catalog always produces the exact
@@ -160,7 +160,7 @@ Artist? artistById(List<Track> tracks, String artistId) {
 /// Disc comes before track because track numbers restart on every disc: sorted
 /// by number alone, a two-disc album interleaves (d1t1, d2t1, d1t2, …) instead
 /// of playing disc 1 end to end and then disc 2. [Track.discNumber] is null for
-/// every source today (#85), which makes the disc tier a no-op and leaves the
+/// every source today, which makes the disc tier a no-op and leaves the
 /// order for single-disc albums exactly as it was.
 List<Track> tracksForAlbum(List<Track> tracks, String albumId) {
   final List<Track> result = <Track>[

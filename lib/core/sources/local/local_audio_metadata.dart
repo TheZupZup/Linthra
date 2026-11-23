@@ -54,7 +54,7 @@ class LocalAudioMetadata {
   /// only read from real tags.
   ///
   /// Reported by the Android SAF walk today; the desktop reader leaves it null
-  /// until it reads the tag too, and nothing groups albums by it yet (#85).
+  /// until it reads the tag too, and nothing groups albums by it yet.
   final int? discNumber;
 
   /// The track's real duration, when the source reported one. Distinct from the

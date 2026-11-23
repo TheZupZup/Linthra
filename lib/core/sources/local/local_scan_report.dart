@@ -141,7 +141,7 @@ class LocalScanReport {
   final int readFailures;
 
   /// How many files and folders were left out because their name isn't one
-  /// the platform can open them by (#817): a name that isn't valid UTF-8.
+  /// the platform can open them by: a name that isn't valid UTF-8.
   /// Never indexed, so never shown as songs that can't play. A count only,
   /// never which names.
   final int unopenableNames;

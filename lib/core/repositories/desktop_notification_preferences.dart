@@ -1,4 +1,4 @@
-/// The user's desktop-notification preferences (issue #400).
+/// The user's desktop-notification preferences.
 ///
 /// One choice today: whether a track change shows a notification. Kept behind
 /// an interface like [DesktopWindowPreferences] so the notification path can

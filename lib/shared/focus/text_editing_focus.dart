@@ -3,8 +3,8 @@ import 'package:flutter/widgets.dart';
 /// Whether the keyboard is currently inside a text field.
 ///
 /// One question, asked in two places that must never disagree: the list
-/// navigation helper (#390), where Home and End are the ends of a *line* while
-/// you are typing, and the app-wide shortcut dispatcher (#391), where a chord
+/// navigation helper, where Home and End are the ends of a *line* while
+/// you are typing, and the app-wide shortcut dispatcher, where a chord
 /// the field itself owns must reach the field rather than skip a track.
 ///
 /// Checked through the ancestors as well as the focused widget itself: a

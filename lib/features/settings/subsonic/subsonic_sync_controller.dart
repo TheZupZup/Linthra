@@ -44,7 +44,7 @@ import 'subsonic_sync_state.dart';
 /// Settings screen, or an app restart of an already-synced account — mirroring
 /// the Jellyfin onboarding. The manual [sync] is always available.
 ///
-/// Large libraries (issue #680): a Navidrome library of ~80k tracks takes
+/// Large libraries: a Navidrome library of ~80k tracks takes
 /// thousands of requests to read, long enough for Android to freeze or kill the
 /// app partway. So the sync never holds the library back until the end:
 ///
@@ -126,7 +126,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   ///
   /// It runs on every sign-in, so it is also where the library stops showing
   /// another account's tracks: signing out keeps them, and they go here,
-  /// before this account's walk, which may write nothing (#741).
+  /// before this account's walk, which may write nothing.
   Future<void> autoSyncIfNeeded() async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
@@ -249,7 +249,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// Called on sign-out, which keeps the library: makes sure the tracks it
   /// keeps are recorded as [account]'s, so the next account to sign in clears
   /// them rather than inheriting them. Only fills in a missing record, which
-  /// is what a library synced before #741 has. Never throws.
+  /// is what a library synced by an older version has. Never throws.
   Future<void> rememberCatalogOwner(String account) async {
     try {
       final RemoteCatalogOwnerStore owners =
@@ -265,7 +265,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
 
   /// Makes the Subsonic slice of the catalog [source]'s account's before
   /// anything is written for it, and returns whether another account's
-  /// tracks had to go (#741).
+  /// tracks had to go.
   ///
   /// Signing out keeps the slice, so the library stays there offline, but its
   /// rows are still the previous account's, and the next account's walk only
@@ -294,7 +294,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
             ref.read(remoteCatalogOwnerStoreProvider);
         final String? owner = await _readQuietly(() => owners.read(source.id));
         if (owner == account) return false;
-        // Nothing recorded the owner before #741. Then the account whose
+        // Older versions never recorded the owner. Then the account whose
         // first sync landed last is the best guess, and with no guess at all
         // the tracks are taken to be this account's own: nothing is removed.
         final String? previous = owner ??
@@ -309,8 +309,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
           return false;
         }
         // Out of the play queue too, first: left there, their ids would ask
-        // this account's server for its songs under the other one's titles
-        // (#767).
+        // this account's server for its songs under the other one's titles.
         await _removeSongsFromQueue();
         await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
           sourceId: source.id,
@@ -338,7 +337,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
         MusicProviders.subsonic,
       );
     } catch (_) {
-      // They stay queued, as they did before #767.
+      // Best-effort: the songs stay queued.
     }
   }
 
@@ -483,7 +482,7 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
       // the marker so launch/resume reconciles the stale rows it had to keep.
       // Not for albums that kept failing while the server answered: the next
       // walk would read the whole library again only to fail them the same
-      // way, on every launch and resume (#740). Sync again retries them.
+      // way, on every launch and resume. Sync again retries them.
       if (!walk.worthResuming) await _clearPending();
 
       // Import Navidrome playlists and adopt server favourites best-effort; a

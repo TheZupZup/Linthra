@@ -8,7 +8,7 @@ import 'linux_music_directory.dart';
 /// Linthra's own Linux runner channel (`linux/runner/folder_picker_channel.cc`)
 /// and returns the chosen folder's filesystem path.
 ///
-/// This exists for the Flatpak (#438). The `file_picker` plugin's Linux
+/// This exists for the Flatpak. The `file_picker` plugin's Linux
 /// implementation shells out to `zenity`/`qarma`/`kdialog`; none of those
 /// binaries exist inside the sandbox, so a Flatpak pick failed before any
 /// dialog appeared. The runner instead uses GTK's `GtkFileChooserNative`, which

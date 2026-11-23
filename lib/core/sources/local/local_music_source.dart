@@ -75,7 +75,7 @@ class LocalScan {
   /// A walk of a filesystem folder that found no files at all, not even ones
   /// that aren't music. Said only of a walk that read everything ([isComplete]):
   /// that is the state a drive or network share that isn't mounted leaves its
-  /// mount point in, and not just a folder with no music in it (#737).
+  /// mount point in, and not just a folder with no music in it.
   final bool foundNoFiles;
 
   /// Whether the walk read the whole folder, so that a file it did not return
@@ -149,7 +149,7 @@ class LocalMusicSource implements MusicSource {
   final Map<String, StampedTrack> _alreadyIndexed;
 
   /// Reads every file, unchanged ones included, because the way tags are read
-  /// changed since they were indexed (#783). [_alreadyIndexed] still stands in
+  /// changed since they were indexed. [_alreadyIndexed] still stands in
   /// for a file whose read fails: it read fine before, and an unchanged file
   /// has the same tags, so the row it had beats one built from its file name.
   /// That file is stored without its stamp, so the next scan reads it again.
@@ -487,7 +487,7 @@ class LocalMusicSource implements MusicSource {
         read = await _readTags(path).timeout(_stallLimit);
       } on TimeoutException {
         // The read never came back, and stays blocked where it is: the file is
-        // on storage that stopped answering (#778). If the folder itself no
+        // on storage that stopped answering. If the folder itself no
         // longer answers either, every file left would stall the same way,
         // one limit each, so the folder is given up as one the scan couldn't
         // read, and keeps its music.
@@ -516,7 +516,7 @@ class LocalMusicSource implements MusicSource {
       }
       // Unchanged since its row was written, and read again only because the
       // artwork cache no longer holds its cover, or because the way tags are
-      // read changed (#783). A read of those same bytes that failed this time
+      // read changed. A read of those same bytes that failed this time
       // (a drive answering with an I/O error, a parse that ran out of time)
       // says nothing about the tags the row was built from, so the row stays
       // as it was, cover reference included. Rebuilt from the file name, it
@@ -556,7 +556,7 @@ class LocalMusicSource implements MusicSource {
       // stalling past the parse limit, an I/O error. Its row is built from the
       // file name as ever, but stored without its stamp. With it, every later
       // scan would reuse that row as it is, and the tags would never come back
-      // short of a full rescan (#743). Without it, the next scan reads the
+      // short of a full rescan. Without it, the next scan reads the
       // file again, once (see above).
       if (read.failed) stamps.remove(path);
       tracks.add(LocalTrackMapper.fromPath(

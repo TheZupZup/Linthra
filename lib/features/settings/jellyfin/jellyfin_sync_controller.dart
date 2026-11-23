@@ -102,7 +102,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   ///
   /// It runs on every sign-in, so it is also where the library stops showing
   /// another account's tracks: signing out keeps them, and they go here,
-  /// before this account's sync, which may write nothing (#741).
+  /// before this account's sync, which may write nothing.
   Future<void> autoSyncIfNeeded() async {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) {
@@ -176,7 +176,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// Called on sign-out, which keeps the library: makes sure the tracks it
   /// keeps are recorded as [account]'s, so the next account to sign in clears
   /// them rather than inheriting them. Only fills in a missing record, which
-  /// is what a library synced before #741 has. Never throws.
+  /// is what a library synced by an older version has. Never throws.
   Future<void> rememberCatalogOwner(String account) async {
     try {
       final RemoteCatalogOwnerStore owners =
@@ -192,7 +192,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
 
   /// Makes the Jellyfin slice of the catalog [source]'s account's before
   /// anything is written for it, and returns whether another account's
-  /// tracks had to go (#741).
+  /// tracks had to go.
   ///
   /// Signing out keeps the slice, so the library stays there offline, but its
   /// rows are still the previous account's, and the next account's sync only
@@ -219,7 +219,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
             ref.read(remoteCatalogOwnerStoreProvider);
         final String? owner = await _readQuietly(() => owners.read(source.id));
         if (owner == account) return false;
-        // Nothing recorded the owner before #741. Then the account whose
+        // Older versions never recorded the owner. Then the account whose
         // first sync landed last is the best guess, and with no guess at all
         // the tracks are taken to be this account's own: nothing is removed.
         final String? previous = owner ??
@@ -234,8 +234,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
           return false;
         }
         // Out of the play queue too, first: left there, their ids would ask
-        // this account's server for its songs under the other one's titles
-        // (#767).
+        // this account's server for its songs under the other one's titles.
         await _removeSongsFromQueue();
         await ref.read(musicLibraryRepositoryProvider).upsertCatalog(
           sourceId: source.id,
@@ -263,7 +262,7 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
         MusicProviders.jellyfin,
       );
     } catch (_) {
-      // They stay queued, as they did before #767.
+      // Best-effort: the songs stay queued.
     }
   }
 

@@ -130,9 +130,7 @@
       "kind": "reference",
       "builds": "all",
       "paths": [
-        "lib/core/models/playback_history.dart",
         "lib/core/services/cast/cast_containment.dart",
-        "lib/core/services/cast/cast_media_access.dart",
         "lib/core/services/cast/cast_receiver_trust.dart",
         "lib/core/services/cast/trust_gated_cast_transport.dart",
         "lib/data/repositories/cast_receiver_pin_store_provider.dart",

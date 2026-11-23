@@ -544,7 +544,7 @@ class _FolderContents extends ConsumerWidget {
             data: (MusicFolderListing data) {
               // Pull to refresh is the way out of the cache above: the level is
               // held for a few minutes, so a folder you just changed on the
-              // server needs a deliberate way to be re-read (#581).
+              // server needs a deliberate way to be re-read.
               //
               // The empty state lives *inside* the refreshable scrollable, and
               // the physics are always-scrollable, because those are exactly

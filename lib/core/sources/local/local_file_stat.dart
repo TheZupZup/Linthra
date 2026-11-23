@@ -83,7 +83,7 @@ class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
   @override
   Future<LocalFileStamp?> stamp(String path) async {
     try {
-      // A `stat` that doesn't answer (a share that went away, #778) is one
+      // A `stat` that doesn't answer (a share that went away) is one
       // that failed, and is left blocked on its I/O thread.
       final FileStat stat = await FileStat.stat(path).timeout(_stallLimit);
       if (stat.type != FileSystemEntityType.file) return null;

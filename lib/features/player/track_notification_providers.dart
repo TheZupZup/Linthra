@@ -12,7 +12,7 @@ import '../settings/desktop/track_change_notifications_controller.dart';
 import 'media_artwork_providers.dart';
 import 'player_providers.dart';
 
-/// Announces track changes on the desktop (issue #400), or null where there is
+/// Announces track changes on the desktop, or null where there is
 /// nothing to announce them through.
 ///
 /// **Instantiated at bootstrap, not by the UI.** The controller's state stream

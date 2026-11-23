@@ -55,7 +55,7 @@ void installArtworkDiskCache(ArtworkDiskCache? cache) {
 /// scan, or the 1024 px bound Linthra's own local-artwork cache applies. At a
 /// fractional or 2x scale factor, an unbounded decode of one of those into a
 /// 48 px avatar costs the same memory and the same CPU as showing it
-/// full-screen, once per visible row (#457).
+/// full-screen, once per visible row.
 ///
 /// Bounded here rather than per call site so no surface can forget. 1024
 /// matches `LocalArtworkCache`'s own bound, which is sized for the largest
@@ -125,7 +125,7 @@ int artworkDecodeExtent(BuildContext context, double logicalExtent) =>
 /// - Anything else — a server's plain http(s) image URL (Jellyfin builds a
 ///   token-free primary-image URL), or a credential-free *reference* (e.g.
 ///   Subsonic's `subsonic-cover:<id>`) — is first checked against the installed
-///   [ArtworkDiskCache] (issue #356): a hit loads straight from disk with a
+///   [ArtworkDiskCache]: a hit loads straight from disk with a
 ///   [FileImage], no network at all. A miss is handed to the installed
 ///   [ArtworkReferenceResolver] (which weaves in the live session's auth to
 ///   produce a loadable URL for a reference, or returns `null` for an
@@ -160,7 +160,7 @@ ImageProvider artworkImageProvider(Uri uri, {int? decodeExtent}) {
 /// the image's *shorter* side. `ResizeImage` cannot express that: given one
 /// axis it derives the other from the aspect ratio, so a landscape source
 /// constrained on width comes back too short and gets scaled back up, which is
-/// a visibly soft cover (#626). Given both axes it either stretches the image
+/// a visibly soft cover. Given both axes it either stretches the image
 /// (`exact`) or fits it inside the box (`fit`), and neither is cover.
 ///
 /// The decode callback is handed the source's intrinsic size before the codec

@@ -63,7 +63,7 @@ class ArtistGrid extends StatelessWidget {
     final double subtitle =
         scaler.scale(theme.textTheme.bodyMedium?.fontSize ?? 14) * _lineHeight;
     final double text = title + subtitle + AppSpacing.md;
-    // The floor follows the theme's density (#384) so a compact desktop row
+    // The floor follows the theme's density so a compact desktop row
     // actually gets shorter instead of sitting in a cell sized for a touch one.
     // The text-driven part above is untouched: density buys padding back, never
     // room the words need.
@@ -84,7 +84,7 @@ class ArtistGrid extends StatelessWidget {
         final bool single = columns == 1;
         // ← / → only mean "the next artist" once there is more than one
         // column: in the single-column list a phone gets, a row break is the
-        // list itself, not a layout artefact to walk through (#390).
+        // list itself, not a layout artefact to walk through.
         return ListKeyboardNavigation(
           wrapRows: !single,
           child: GridView.builder(

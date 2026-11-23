@@ -7,7 +7,7 @@ import '../../player/now_playing.dart';
 /// Whether an album's page can lead its rows with [AlbumTrackNumber]: some
 /// song there has a number, and no number comes up twice.
 ///
-/// No source carries disc numbers yet (#85), so every disc of a multi-disc
+/// No source carries disc numbers yet, so every disc of a multi-disc
 /// album starts over at 1 and the album order interleaves them. Numbered, that
 /// page would read 1, 1, 2, 2, so it keeps its cover rows instead, as does an
 /// album with no numbers at all.

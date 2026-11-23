@@ -89,7 +89,7 @@ final playlistTracksProvider =
       await ref.watch(musicLibraryRepositoryProvider).getAllTracks();
   // Resolve by the provider-namespaced uri, so a `jellyfin:101` entry can never
   // resolve to a `subsonic:101` catalog track that merely shares the bare id,
-  // and only the entries made on the servers signed in now (#795), so one
+  // and only the entries made on the servers signed in now, so one
   // made on another server never stands for this server's song with its id.
   final Map<String, Track> byUri = <String, Track>{
     for (final Track track in all) track.uri: track,

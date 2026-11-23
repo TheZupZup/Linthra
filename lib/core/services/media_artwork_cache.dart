@@ -62,7 +62,7 @@ class MediaArtworkCache implements MediaArtworkSource {
 
   /// The server [reference] resolves against now (see `artworkServerOf`), so
   /// one server's cover is never handed out for another's reference of the
-  /// same name (#739). Null when nothing would resolve it (signed out).
+  /// same name. Null when nothing would resolve it (signed out).
   final String? Function(Uri reference) _serverOf;
 
   /// The HTTP client used by the default fetcher. Reused across cover fetches so
@@ -216,7 +216,7 @@ class MediaArtworkCache implements MediaArtworkSource {
 
   /// What [reference]'s cover is cached under right now: a hash of the
   /// reference on the server it resolves against, so another server's cover of
-  /// the same name is another key (#739). Credential-free, and null when
+  /// the same name is another key. Credential-free, and null when
   /// nothing would resolve [reference] (signed out).
   String? keyOf(Uri reference) => _keyFor(reference);
 

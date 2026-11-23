@@ -26,7 +26,7 @@ import '../../core/sources/music_provider.dart';
 ///  * **v1** (`favorites_v1`) — bare ids: local paths in `local`, bare Jellyfin
 ///    item ids in `remote`.
 ///  * **v2** (`favorites_v2`) — provider-namespaced uris in both sets. Later
-///    v2 documents also carry `owners` (uri scheme → account key, #843): whose
+///    v2 documents also carry `owners` (uri scheme → account key): whose
 ///    remote hearts and queued writes they are. A v2 document without it was
 ///    written before owners were kept, so nothing says which account its
 ///    queued writes were made for; they are dropped on load rather than sent

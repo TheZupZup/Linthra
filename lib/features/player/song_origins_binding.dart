@@ -8,9 +8,9 @@ import '../../data/repositories/song_origins_provider.dart';
 import '../settings/plex/plex_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
 
-/// Production binding for [songOriginsProvider] (#795): Subsonic and Plex
+/// Production binding for [songOriginsProvider]: Subsonic and Plex
 /// references are bound to the account or server signed in, read live from
-/// the same sessions the saved play queue keys on (#767). A change of either
+/// the same sessions the saved play queue keys on. A change of either
 /// is announced so whatever resolves stored references re-resolves. Applied
 /// in `main`; tests keep the data-layer default (nothing bound).
 final songOriginsOverride = songOriginsProvider.overrideWith((ref) {

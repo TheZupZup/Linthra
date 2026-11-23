@@ -4,9 +4,9 @@ import '../../../core/diagnostics/app_diagnostics.dart';
 import '../../../core/diagnostics/safe_event_log.dart';
 import '../diagnostics/diagnostics_collector.dart';
 
-// The browser seam used to live here; it moved to the app level once Plex's
-// "Connect with Plex" flow needed the same launcher. Re-exported so existing
-// imports (and test overrides) keep working unchanged.
+// The browser seam lives at the app level, because Plex's "Connect with Plex"
+// flow needs the same launcher. Re-exported so imports from here (and test
+// overrides) keep working.
 export '../../../app/external_link_launcher_provider.dart'
     show externalLinkLauncherProvider;
 

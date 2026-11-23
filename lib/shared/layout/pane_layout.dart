@@ -52,7 +52,7 @@ const double listDetailMinWidth = detailPaneWidth + mediumWindowWidth;
 /// never thought of as leaving the screen. State that has to outlive the pane
 /// belongs to the host and is passed down (see `LibraryScreen`).
 ///
-/// Keyboard focus is the one piece of that this widget can hold itself (#390).
+/// Keyboard focus is the one piece of that this widget can hold itself.
 /// When the pane goes and the keyboard was in it, focus would otherwise unwind
 /// to the route's scope: nothing on screen carries a ring, and the next Tab
 /// starts again at the top of the page. So it lands on the list instead, which
@@ -186,7 +186,7 @@ class SplitPanes extends StatelessWidget {
     // Each pane is its own traversal group, so Tab walks one whole before the
     // other in the order they read. Left to the page's reading order, Tab
     // weaves between them wherever their rows line up: an album's first
-    // track, then its Play button, then its second track (#460).
+    // track, then its Play button, then its second track.
     final Widget fixedPane = SizedBox(
       width: fixedWidth,
       child: FocusTraversalGroup(child: fixed),

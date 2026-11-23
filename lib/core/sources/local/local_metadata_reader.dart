@@ -7,7 +7,7 @@ import 'local_audio_metadata.dart';
 /// This is a seam, deliberately mirroring [SafDocumentLister]: the source
 /// depends on this interface, never on a concrete reader, so tag reading can
 /// change without touching the scanner, source, or mapper, which is exactly
-/// how the real reader arrived (#407) without a caller moving.
+/// how the real reader arrived without a caller moving.
 ///
 /// Which implementation runs is `localMetadataReaderProvider`'s decision:
 /// `FilesystemLocalMetadataReader` on desktop/Linux, and
@@ -32,7 +32,7 @@ typedef LocalMetadataRead = ({LocalAudioMetadata? metadata, bool failed});
 /// A scan treats the first as settled and the second as worth one more try:
 /// it may not happen again (a network share stalling, a drive answering with
 /// an error), and a row stored as read would be reused by every later scan,
-/// so the tags would never come back (#743).
+/// so the tags would never come back.
 ///
 /// Separate from [LocalMetadataReader], and reached through an `is` check, for
 /// the reason [LocalArtworkMaintainer] is: a reader that can't tell (Android's,
@@ -112,7 +112,7 @@ class UnsupportedLocalMetadataReader implements LocalMetadataReader {
 /// A scan reuses the row of a file whose size and mtime haven't changed, so
 /// without this a change to how tags are read would only ever reach new and
 /// edited files. A folder last read in full by another [tagRevision] is read
-/// in full once more (#783). Reached through an `is` check, like the other
+/// in full once more. Reached through an `is` check, like the other
 /// capabilities here: a reader without one (Android's, the test fakes) leaves
 /// every scan incremental, as before.
 abstract interface class LocalTagRevision {

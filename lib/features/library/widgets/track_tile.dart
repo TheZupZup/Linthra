@@ -67,13 +67,13 @@ enum _TrackAction {
 /// Favorites) keep the plain tap-to-play behaviour.
 ///
 /// With a keyboard attached the modifiers a desktop list is expected to honour
-/// work too (#387), whether or not a selection is already running: Ctrl-click
+/// work too, whether or not a selection is already running: Ctrl-click
 /// (Cmd on macOS) toggles this row alone, and Shift-click extends from the last
 /// row picked to this one through [onSelectRange]. They are read off the
 /// hardware keyboard at tap time rather than gated on a platform, so a keyboard
 /// case on a tablet gets them for free and a bare touch tap is unchanged.
 ///
-/// On desktop the row is also a drag source for playlists (#389): pulling it
+/// On desktop the row is also a drag source for playlists: pulling it
 /// sideways picks up this track, or the whole selection when this row is part
 /// of one, and dropping it on a playlist adds it. A vertical drag still
 /// scrolls the list, and nothing about this exists on mobile. The keyboard and
@@ -258,7 +258,7 @@ class TrackTile extends ConsumerWidget {
     );
 
     // The same menu the 3-dot button opens, on right-click and on the
-    // keyboard's menu key (#386). Built at open time, so it reflects the
+    // keyboard's menu key. Built at open time, so it reflects the
     // favourite and download state as it is then rather than as it was when the
     // row was laid out. Withheld while selecting: the app bar is acting on the
     // whole selection there, and a per-row menu would be acting on one row.
@@ -417,7 +417,7 @@ bool _hasArtistPage(WidgetRef ref, Track track) =>
 /// The row's action list, built fresh so it always reflects the current
 /// favourite and download state.
 ///
-/// Shared by the trailing 3-dot button and the row's right-click menu (#386):
+/// Shared by the trailing 3-dot button and the row's right-click menu:
 /// one list, one dispatcher, so a right-click can never offer an action a tap
 /// cannot — or run it differently.
 List<PopupMenuEntry<_TrackAction>> _trackMenuItems({

@@ -245,7 +245,7 @@ Future<ApplicationHandle> bootstrapApplication(
     closingReportDeadline: closingReportDeadline,
   );
   try {
-    // The desktop window lifecycle (#401): what a window close does, and the
+    // The desktop window lifecycle: what a window close does, and the
     // explicit quit. Started before the media session so MPRIS can offer the
     // same Raise/Quit the window itself does, and handed the graceful shutdown
     // so an explicit quit releases audio, the bus name and the database before
@@ -308,7 +308,7 @@ Future<ApplicationHandle> bootstrapApplication(
     container.read(mediaArtworkPrewarmServiceProvider);
     container.read(smartPrecacheServiceProvider);
     container.read(remotePrebufferServiceProvider);
-    // Filesystem watching for the local library (#409). Reading it opens
+    // Filesystem watching for the local library. Reading it opens
     // watches on the folders already selected and keeps them in step as the
     // selection changes; the watches are released with the container, so a
     // shutdown gives back its inotify descriptors rather than leaving them to
@@ -316,7 +316,7 @@ Future<ApplicationHandle> bootstrapApplication(
     // rather than a directory, and harmless when the kernel refuses a watch:
     // the folder is simply not live and manual refresh is untouched.
     container.read(localLibraryWatchServiceProvider);
-    // Removable-drive availability for the local library (#415). Reading it
+    // Removable-drive availability for the local library. Reading it
     // probes the folders already selected, so a music drive that is not plugged
     // in at startup reads as *temporarily unavailable* (its tracks stay
     // indexed, its folder stays selected) and asks for the ordinary
@@ -324,13 +324,13 @@ Future<ApplicationHandle> bootstrapApplication(
     // probed (Android's SAF trees answer for themselves), and it holds a timer
     // only while some folder is actually away.
     container.read(localRootAvailabilityProvider);
-    // Desktop recent-playback history (#419). Read here rather than left to the
+    // Desktop recent-playback history. Read here rather than left to the
     // queue pane: the pane starts closed, and the controller's state stream
     // does not replay, so a lazily-created recorder would miss everything
     // played before the listener first opened it. Off desktop this creates no
     // recorder at all.
     container.read(playbackHistoryProvider);
-    // Desktop track-change notifications (#400). Read here for the same reason
+    // Desktop track-change notifications. Read here for the same reason
     // as the history recorder: the state stream does not replay, so an observer
     // created later would miss every track played before it. Null off the
     // desktop and wherever there is no notification seam, and silent until the
@@ -428,7 +428,7 @@ Future<ApplicationHandle> bootstrapApplication(
     }
 
     // Whose the remote songs that playlists and play history saved before
-    // they recorded it are (#795): the accounts just restored, settled once,
+    // they recorded it are: the accounts just restored, settled once,
     // before anyone can sign in to anything else.
     final SongOrigins songOrigins = container.read(songOriginsProvider);
     if (songOrigins is SessionSongOrigins) await songOrigins.settleLegacy();
@@ -461,10 +461,9 @@ Future<ApplicationHandle> bootstrapApplication(
     handle.ownArtworkReferenceResolver();
 
     if (installPersistentArtworkCache) {
-      // Persistent, credential-free artwork cache (issue #356). Only the
+      // Persistent, credential-free artwork cache. Only the
       // credential-free key ever reaches disk (see [ArtworkDiskCache]). A
-      // Subsonic/Plex reference is kept per server, the one connected now
-      // (#739).
+      // Subsonic/Plex reference is kept per server, the one connected now.
       final ArtworkDiskCache artworkDiskCache = ArtworkDiskCache(
         directory:
             artworkCacheDirectory ?? await ArtworkDiskCache.defaultDirectory(),
@@ -494,7 +493,7 @@ Future<ApplicationHandle> bootstrapApplication(
     unawaited(container.read(playlistRepositoryProvider).refreshFromRemote());
 
     // Resume a Navidrome/Subsonic library sync the previous run never finished
-    // (#680: Android froze or killed the app partway). A no-op unless one is on
+    // (Android froze or killed the app partway). A no-op unless one is on
     // record for the account just restored above. Not owned, for the same
     // reason as the refreshes: it is network-bound, it swallows its own
     // failures, and whatever it already saved is kept if shutdown cuts it off.

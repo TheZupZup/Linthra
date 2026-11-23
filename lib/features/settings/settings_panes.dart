@@ -13,7 +13,7 @@ import 'settings_screen.dart';
 /// Width of the category sidebar on a wide window.
 const double settingsSidebarWidth = 280;
 
-/// The frame around every Settings page (#753).
+/// The frame around every Settings page.
 ///
 /// It hosts the Settings tab's own navigator, so the routes stay the one
 /// source of truth for which page is open: a deep link, a row on another

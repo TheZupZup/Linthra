@@ -106,7 +106,7 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
   ///  * a failure that outlasts the retries is put to the server: if it still
   ///    answers a ping, the album is the problem, and it is counted in
   ///    [SubsonicCatalogWalk.failedAlbumCount] and skipped, so one bad album
-  ///    can't keep the rest of the library from syncing (#740). If the server
+  ///    can't keep the rest of the library from syncing. If the server
   ///    doesn't answer either, the [SubsonicException] propagates and the walk
   ///    ends there, with every earlier batch already delivered;
   ///  * a rejected credential, a blocked or untrusted connection or a bad
@@ -115,7 +115,7 @@ class SubsonicMusicSource implements MusicSource, SubsonicStreamSource {
   /// Once every album has been read, the album list is read again, and any
   /// album in it the walk hadn't seen is read too. Between two pages of the
   /// first reading, an album deleted or renamed earlier in the list shifts the
-  /// others, and one at the page boundary is never listed (#752).
+  /// others, and one at the page boundary is never listed.
   ///
   /// [onBatch] returns false to stop the walk early (the account changed); the
   /// result then reports [SubsonicCatalogWalk.stopped]. [albumPageSize] and

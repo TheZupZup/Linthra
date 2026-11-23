@@ -10,7 +10,7 @@ import '../../app/shortcuts/shortcut_binding.dart';
 import '../../data/repositories/host_platform_provider.dart';
 import '../../shared/widgets/settings_section_header.dart';
 
-/// Shows the keyboard shortcuts help window (#392) and returns when it closes.
+/// Shows the keyboard shortcuts help window and returns when it closes.
 ///
 /// [returnFocusTo] is the control that opened it, and is where the keyboard
 /// goes again afterwards. Worth passing whenever there is one: Flutter does not

@@ -47,7 +47,7 @@ enum LocalRootFault {
   unknown,
 
   /// The folder is there and can be read, but holds no files at all, while
-  /// the library has music from it (#737). Most often a drive or network share
+  /// the library has music from it. Most often a drive or network share
   /// that is not mounted: its mount point stays behind as an empty folder
   /// rather than going away, so it reads as an empty library instead of a
   /// missing one. The music stays until the folder holds files again, or the

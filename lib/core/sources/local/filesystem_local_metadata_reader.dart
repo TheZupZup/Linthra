@@ -21,7 +21,7 @@ import 'vorbis_tags_in_the_clear.dart';
 /// Without this, a Linux library shows filenames and folder names: the mapper's
 /// fallback is deliberately decent, but "03 - Track.flac" in a folder called
 /// "Album" is not the same as a real title, artist, duration and cover. This is
-/// what makes a local Linux library look like a library (#407, #408).
+/// what makes a local Linux library look like a library.
 ///
 /// It reads through `audio_metadata_reader` (MIT, pure Dart), on an isolate of
 /// its own (see [_parseStoppably]), which opens the
@@ -62,14 +62,13 @@ class FilesystemLocalMetadataReader
 
   /// Bump this whenever a change here, or an `audio_metadata_reader` update,
   /// changes what a file reads as. Folders indexed before then are read in
-  /// full once more, so the change reaches files that haven't changed since
-  /// (#783).
+  /// full once more, so the change reaches files that haven't changed since.
   ///
   /// 2: OGG and Opus files with one tag field the package can't parse keep
-  /// their tags, length and cover, and so do FLACs their cover (#776).
+  /// their tags, length and cover, and so do FLACs their cover.
   /// 3: `audio_metadata_reader` 1.8.0. An MP3 with an odd track number
   /// (`A1`, `3 of 12`) keeps its other tags, and OGG and Opus files their
-  /// album artist (#776).
+  /// album artist.
   static const int revision = 3;
 
   @override
@@ -147,7 +146,7 @@ class FilesystemLocalMetadataReader
       //
       // `stat` rather than `exists` because it is the same one syscall and
       // answers strictly more: whether this is a regular file (a *directory*
-      // named `Album.mp3` used to read as "exists" and then fail deeper in),
+      // named `Album.mp3` would read as "exists" and then fail deeper in),
       // and the size and mtime that identify which bytes any cached cover was
       // extracted from.
       final FileStat stat = await file.stat();

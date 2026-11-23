@@ -5,7 +5,7 @@ import 'audio_file_extension.dart';
 
 /// The body of a checked download [response], handed back while it is still
 /// arriving so the offline cache can write it to disk a chunk at a time
-/// instead of holding the whole file in memory (#745).
+/// instead of holding the whole file in memory.
 ///
 /// Shared by the remote downloaders (Jellyfin, Subsonic, Plex). The body waits
 /// at most [stallTimeout] for each chunk, and any error it raises is replaced

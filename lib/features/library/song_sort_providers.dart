@@ -16,7 +16,7 @@ import 'source_availability_providers.dart';
 import 'source_preference_controller.dart';
 import 'unified_library_providers.dart';
 
-/// The order the Songs list is in, remembered across launches (#893).
+/// The order the Songs list is in, remembered across launches.
 ///
 /// Starts on [SongSort.fallback] and moves to the stored order once the read
 /// lands. An order the user picks before then wins over the stored one, the
@@ -79,7 +79,7 @@ final songSortControllerProvider =
     NotifierProvider<SongSortController, SongSort>(SongSortController.new);
 
 /// When each Library song first arrived, keyed by [Track.uri], for the "Date
-/// added" orders (#893).
+/// added" orders.
 ///
 /// These are the first-seen times RecordingMusicLibraryRepository stamps on
 /// every scan and sync, the same ones behind the Recently added mix: never a

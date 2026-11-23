@@ -218,7 +218,7 @@ class JellyfinItemDto {
 
   /// The primary image's tag, which changes when the image does. Part of the
   /// cover URL, so a replaced cover is fetched again rather than served from
-  /// the artwork cache for good (#739).
+  /// the artwork cache for good.
   final String? primaryImageTag;
 
   /// Parses one item, or returns `null` when it lacks a usable id/name (skipped
@@ -269,7 +269,7 @@ class JellyfinItemDto {
 /// rather than a raw `as` cast, means such a value yields a safe fallback for
 /// that one field instead of throwing a `TypeError` that would abort parsing an
 /// entire response. The rule across the app: missing / renamed / null / retyped
-/// fields are non-fatal. Proven first on [JellyfinItemDto] (PR #253) and hoisted
+/// fields are non-fatal. Proven first on [JellyfinItemDto] and hoisted
 /// here so the server-info, auth, and playlist DTOs are equally robust.
 
 /// A trimmed non-empty [String] from a wire value, or `null` for anything

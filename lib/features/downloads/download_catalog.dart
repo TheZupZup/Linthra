@@ -32,7 +32,7 @@ class DownloadCatalog {
 /// "Download all" on a 500-song playlist is about 1,500 of them. Reading it
 /// for each one, on a large library, mapped the whole catalog on the UI
 /// isolate a thousand times over, and the Downloads branch stays mounted once
-/// opened, so it went on after leaving the screen (#746). Here a track's walk
+/// opened, so it went on after leaving the screen. Here a track's walk
 /// from queued to downloading to downloaded costs one read, when its key first
 /// shows up, and a batch queued at once costs one between them. Maps that
 /// arrive while a read is out are coalesced: only the latest is joined once it

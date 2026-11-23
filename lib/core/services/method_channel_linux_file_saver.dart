@@ -9,12 +9,12 @@ import 'text_file_saver.dart';
 /// dialog, on Linthra's own Linux runner channel (the one the folder chooser
 /// uses, `linux/runner/folder_picker_channel.cc`), then writes the file there.
 ///
-/// Saving used to write into `getApplicationDocumentsDirectory()`, which on
-/// Linux is `xdg-user-dir DOCUMENTS` (#748). Without `xdg-user-dir` that threw;
-/// inside the Flatpak, which has no access to Documents, it was the sandbox's
-/// own temporary home, so "Saved" was shown for a file gone when the app
-/// closed. The runner's `GtkFileChooserNative` in save mode draws the GTK save
-/// dialog on a native build, and inside the sandbox goes through the
+/// Not `getApplicationDocumentsDirectory()`: on Linux that is `xdg-user-dir
+/// DOCUMENTS`, which throws without `xdg-user-dir`, and inside the Flatpak,
+/// which has no access to Documents, it is the sandbox's own temporary home,
+/// so "Saved" would be shown for a file gone when the app closes. The
+/// runner's `GtkFileChooserNative` in save mode draws the GTK save dialog on a
+/// native build, and inside the sandbox goes through the
 /// xdg-desktop-portal FileChooser: the host asks where to save, and the path
 /// it hands back is one the sandbox may write to, with no filesystem
 /// permission at all.

@@ -94,7 +94,7 @@ class _LinthraShortcutsState extends ConsumerState<LinthraShortcuts> {
   /// search chord again while the overlay already has focus must be a no-op.
   bool _searchShowing = false;
 
-  /// The same promise for the help window (#392): its own chord is listed in
+  /// The same promise for the help window: its own chord is listed in
   /// it, so pressing it again while it is open is a thing people will do.
   bool _helpShowing = false;
 

@@ -261,7 +261,7 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Plex (see docs/servers/plex.md and issue #178).
+  /// Plex (see docs/servers/plex.md).
   /// `plex:<ratingKey>` URIs are recognized end to end, and the Settings card
   /// lets the user connect with their Plex account (or a manual server URL +
   /// token) and pick which music libraries to include.

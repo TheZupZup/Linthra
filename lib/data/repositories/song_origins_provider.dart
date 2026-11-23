@@ -5,7 +5,7 @@ import '../../core/services/song_origins.dart';
 import 'in_memory_song_origin_legacy_store.dart';
 import 'shared_preferences_song_origin_legacy_store.dart';
 
-/// Where the songs stored references name came from (#795). The data-layer
+/// Where the songs stored references name came from. The data-layer
 /// default binds nothing, so tests that don't care see every reference match;
 /// the app overrides it with the signed-in sessions (see
 /// `songOriginsOverride`).

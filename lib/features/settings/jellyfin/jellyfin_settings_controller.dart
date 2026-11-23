@@ -241,7 +241,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   ///
   /// The synced library itself stays, so it can still be browsed offline. It
   /// stays as this account's: a different account signing in next clears it
-  /// before its own sync (#741).
+  /// before its own sync.
   Future<void> clear() async {
     final JellyfinSession? signingOut = _session;
     try {

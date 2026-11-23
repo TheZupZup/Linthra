@@ -50,8 +50,8 @@ class MediaArtworkPrewarmService {
 
   /// What a warmed cover is remembered by. The app passes the cache's own key,
   /// the reference on the server it resolves against now: another server's
-  /// `subsonic-cover:al-12` is another cover, which has to be warmed too
-  /// (#739). Null when nothing would resolve the reference (signed out), so
+  /// `subsonic-cover:al-12` is another cover, which has to be warmed too.
+  /// Null when nothing would resolve the reference (signed out), so
   /// there is nothing to warm yet and a later queue change tries again.
   final Object? Function(Uri reference) _identityOf;
 

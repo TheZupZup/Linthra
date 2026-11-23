@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 /// Whether a shortcut modifier is being held right now.
 ///
 /// Control, Alt and Meta are the modifiers a Linthra keyboard shortcut can be
-/// built from (#391); Shift is never one on its own, so holding it alone does
+/// built from; Shift is never one on its own, so holding it alone does
 /// not count here.
 ///
 /// Widgets that answer a bare key use this to stand aside. An unmodified → is

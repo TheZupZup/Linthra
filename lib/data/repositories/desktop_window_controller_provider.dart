@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/desktop_window_controller.dart';
 import '../../core/services/method_channel_linux_window.dart';
 
-/// The desktop window Linthra manages its close behaviour through (#401).
+/// The desktop window Linthra manages its close behaviour through.
 ///
 /// Defaults to [NoopDesktopWindowController] so widget and unit tests stay
 /// free of platform channels and every non-desktop host ignores the feature.

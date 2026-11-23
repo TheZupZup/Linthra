@@ -1,8 +1,8 @@
 /// How much vertical room desktop rows, grids and controls are given.
 ///
-/// Desktop content density has existed since #384, but as a *fixed* value:
-/// `AppTheme` hands Material `VisualDensity.adaptivePlatformDensity`, which
-/// resolves to [VisualDensity.compact] on Linux/macOS/Windows and
+/// By default `AppTheme` hands Material
+/// `VisualDensity.adaptivePlatformDensity`, which resolves to
+/// [VisualDensity.compact] on Linux/macOS/Windows and
 /// [VisualDensity.standard] on anything touch-first. That is the right default —
 /// a mouse hits a smaller row happily and a thumb does not — but it is not a
 /// choice, and "fit more of my library on screen" and "stop making me aim" are

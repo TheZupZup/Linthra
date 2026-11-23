@@ -296,7 +296,7 @@ class _VariantTile extends StatelessWidget {
       ),
     );
     // The border and the check badge are the only signs of which icon is in
-    // use, so the tile states it too, as one button (#460).
+    // use, so the tile states it too, as one button.
     return Semantics(
       container: true,
       button: true,
