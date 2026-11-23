@@ -380,7 +380,7 @@ class QueueSheet extends ConsumerWidget {
   /// Saves the whole queue (history + current + up-next) as a new **local**
   /// playlist. Deliberately local-only: it never auto-syncs to Jellyfin, so a
   /// queue mixing local and remote tracks can't silently drop the local ones or
-  /// push anything to a server (see docs/queue.md). Reuses the shared create
+  /// push anything to a server (see docs/features/queue.md). Reuses the shared create
   /// dialog (with sync hidden) so the name prompt matches the rest of the app.
   Future<void> _saveAsPlaylist(
     BuildContext context,

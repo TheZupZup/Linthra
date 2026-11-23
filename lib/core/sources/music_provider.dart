@@ -216,7 +216,7 @@ abstract final class MusicProviders {
       canDeleteLocalFile: false,
       // Server-side delete (removing the item from Jellyfin for every device)
       // is intentionally not enabled in this release; see
-      // docs/playlists-and-delete.md.
+      // docs/features/playlists-and-delete.md.
       canDeleteRemoteItem: false,
       canListPlaylists: true,
       canCreatePlaylist: true,

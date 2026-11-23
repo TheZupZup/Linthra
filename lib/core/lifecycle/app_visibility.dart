@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// availability probe the cellular radio too. Background work that exists to
 /// keep the visible UI honest gates on this and stands down while hidden; the
 /// app-resume path re-runs it the moment the user comes back. See
-/// `docs/battery.md`.
+/// `docs/features/battery.md`.
 ///
 /// It says nothing about playback: audio keeps playing exactly as before while
 /// this is `false`. Nothing that affects sound, the media session, or a

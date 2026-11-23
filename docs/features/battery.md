@@ -9,9 +9,9 @@ the sound itself.
 
 This document is the user-and-contributor-facing summary. The read-only
 engineering audit of the media/CPU path lives in
-[docs/audits/bluetooth-and-cpu.md](audits/bluetooth-and-cpu.md); the
-streaming/buffering rationale is in [docs/streaming.md](./streaming.md), and the
-cache/pre-cache behaviour in [docs/offline-cache.md](./offline-cache.md).
+[docs/audits/bluetooth-and-cpu.md](../audits/bluetooth-and-cpu.md); the
+streaming/buffering rationale is in [docs/features/streaming.md](streaming.md), and the
+cache/pre-cache behaviour in [docs/features/offline-cache.md](offline-cache.md).
 
 ## What Linthra does to save battery
 
@@ -252,7 +252,7 @@ experience, so Linthra does not:
 - **Download / keep tracks offline** for trips and commutes. Playing a cached
   `file://` copy needs no radio and no streaming buffer, which is the single
   biggest battery win for self-hosted libraries. See
-  [docs/offline-cache.md](./offline-cache.md).
+  [docs/features/offline-cache.md](offline-cache.md).
 - **Keep downloads on Wi-Fi.** Leave **"Allow mobile data"** off
   (Settings ▸ Storage & offline) so downloads and pre-cache wait for Wi-Fi
   instead of waking the cellular radio.
@@ -290,7 +290,7 @@ Battery work is only safe if it's measurable. Useful levers:
 
 The most recent read-through of the whole playback path, with the numbers it
 produced and what was changed as a result, is in
-[docs/audits/battery-playback.md](audits/battery-playback.md).
+[docs/audits/battery-playback.md](../audits/battery-playback.md).
 
 ## Possible future work (not done here)
 

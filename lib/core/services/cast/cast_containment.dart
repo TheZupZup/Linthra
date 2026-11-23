@@ -39,7 +39,7 @@ import '../../models/cast_state.dart';
 /// containment; only casting is withheld.
 abstract final class CastContainment {
   /// Whether casting is withheld from production. Flipping this to `false` is a
-  /// security decision, not a cleanup: see `docs/cast.md` and the private
+  /// security decision, not a cleanup: see `docs/features/cast.md` and the private
   /// advisory.
   static const bool isActive = true;
 

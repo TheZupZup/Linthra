@@ -1344,7 +1344,7 @@ void main() {
       });
 
       // The Queue list is the live queue, so picking a row moves within it, as
-      // a row of the car's Up Next list does (docs/android-auto.md: "read +
+      // a row of the car's Up Next list does (docs/features/android-auto.md: "read +
       // jump"), instead of starting a new queue from the rows it shows.
       group('a Queue row moves within the queue', () {
         final List<Track> six = <Track>[

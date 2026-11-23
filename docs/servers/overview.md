@@ -62,7 +62,7 @@ Tracks play from their on-device path. The scan **reads each file's audio tags**
 (title/artist/album/track number/duration) so a local library indexes and groups
 like a server source, falling back cleanly to the file name and
 `…/Artist/Album/Track` folders when a tag is missing — see
-[local-music.md](../local-music.md). The chosen folder and the scanned catalog
+[local-music.md](../features/local-music.md). The chosen folder and the scanned catalog
 survive a restart. No broad storage permission is requested (tags are read
 through the same folder grant). A file's **embedded** cover art is read during
 the same scan and cached privately, so local tracks show their artwork too.
@@ -156,7 +156,7 @@ Linthra speaks the **Subsonic-compatible REST API**, so it works with
     the car. The credential is used once and never stored, logged, exposed, or
     put in the URI / filename. A failed/slow fetch leaves the card art-less and
     never blocks playback. Pending real-car confirmation; see
-    `docs/android-auto.md`.
+    `docs/features/android-auto.md`.
   - Cast still omits Subsonic artwork (a credentialed URL must not reach the
     receiver).
 - **Lyrics**: synced or plain lyrics are fetched on demand via the OpenSubsonic

@@ -1,5 +1,5 @@
 /// Typed, pure-Dart models for the **Linthra Backup / Restore V1** file format
-/// documented in `docs/backup-restore-format.md`.
+/// documented in `docs/features/backup-restore-format.md`.
 ///
 /// This file is the in-memory shape of the JSON envelope. It is deliberately
 /// free of any Android/UI, plugin, or app-state coupling so the *same* models

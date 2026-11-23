@@ -224,7 +224,7 @@ Android gets exactly the same behaviour from exactly the same code, and a source
 switch reuses the existing logical-track candidates rather than a second
 fallback path. The rules (which recoveries are valid for which failure, the
 bounded attempt budget, what happens to the queue) are in
-[streaming.md](streaming.md#when-a-track-cant-play-at-all).
+[streaming.md](features/streaming.md#when-a-track-cant-play-at-all).
 
 ### When the audio engine itself won't start
 
@@ -1201,7 +1201,7 @@ as it did before.
 
 The listen-through with a screen reader — window title, rail destinations,
 sliders, dialogs, and the rule that a secret is never spoken — is the
-[Linux Orca smoke](./accessibility.md#linux-orca-smoke-checklist). Widget tests
+[Linux Orca smoke](features/accessibility.md#linux-orca-smoke-checklist). Widget tests
 pin the tree; that checklist is the pass that has to be heard.
 
 Configurable shortcuts are a separate job
@@ -1330,7 +1330,7 @@ Like the layout, it is **not** gated on `HostPlatform`: the binding lives in the
 shortcut registry below, which wraps the router above every route and can only
 fire when a real keyboard sends the chord — so a phone is unaffected while an
 Android tablet with a keyboard case gets it for free. What it searches and how
-it ranks is documented in [library.md](./library.md#quick-search-ctrlk).
+it ranks is documented in [library.md](features/library.md#quick-search-ctrlk).
 
 Tests: `test/shared/layout/adaptive_layout_test.dart`,
 `test/features/library/album_grid_test.dart`,

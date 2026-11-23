@@ -395,7 +395,7 @@ foreground service and is visible to Android Auto: the manifest declares the
 `MediaButtonReceiver`, and the `com.google.android.gms.car.application` Android
 Auto media-app meta-data; `MainActivity` extends `AudioServiceActivity`. The
 notification channel id/name are set in `connectMediaSession` (`com.linthra.audio`
-/ "Linthra playback"). See [android-auto.md](android-auto.md) for the browse tree
+/ "Linthra playback"). See [android-auto.md](features/android-auto.md) for the browse tree
 and testing.
 
 ## Manual smoke test on a real Android phone

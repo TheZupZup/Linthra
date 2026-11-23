@@ -2,7 +2,7 @@
 """A source-pattern tripwire for the Cast security containment.
 
 Casting is withheld from production builds while a reported security issue is
-resolved (see lib/core/services/cast/cast_containment.dart and docs/cast.md).
+resolved (see lib/core/services/cast/cast_containment.dart and docs/features/cast.md).
 This script greps four files for the markers of the three layers that hold that
 in place: the `isActive` constant, the production override binding, the absence
 of a live backend in the cast provider wiring, and the transport's own guards.

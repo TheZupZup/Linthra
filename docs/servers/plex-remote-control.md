@@ -15,7 +15,7 @@
 > since shipped, and **Jellyfin** remote control is implemented on it (Jellyfin
 > uses an outbound control WebSocket, a different and more NAT-friendly protocol
 > than Plex's inbound Companion server). See
-> [docs/remote-control.md](../remote-control.md) for the cross-provider overview
+> [docs/features/remote-control.md](../features/remote-control.md) for the cross-provider overview
 > and status. This page remains the design for the **Plex Companion** half,
 > which is not yet built.
 
@@ -245,7 +245,7 @@ The reporting path's rules carry over, and an **inbound server** adds new ones:
 ## Battery & network risk (and how the design contains it)
 
 Linthra's battery stance is explicitly **"event-driven, never polled — no
-background polling, heartbeats, or keep-alives"** (see [docs/battery.md](../battery.md)).
+background polling, heartbeats, or keep-alives"** (see [docs/features/battery.md](../features/battery.md)).
 An always-listening companion server is the single biggest tension with that
 stance, so the design contains it deliberately:
 

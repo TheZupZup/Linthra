@@ -21,7 +21,7 @@ import 'unified_library_providers.dart';
 ///    the source remains streamable.
 ///
 /// Deleting the real device file or the server item is intentionally not wired
-/// here (see the provider capability model and docs/playlists-and-delete.md).
+/// here (see the provider capability model and docs/features/playlists-and-delete.md).
 abstract final class SongActions {
   /// Confirms (count-aware) and removes [tracks] from Linthra's library index,
   /// then refreshes the views. Returns whether the removal ran (false on

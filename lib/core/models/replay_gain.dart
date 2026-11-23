@@ -82,7 +82,7 @@ class ReplayGain {
   ///     past the source level, so a *positive* gain (quiet track) can't be
   ///     fully applied — it simply plays at its original level. Loud tracks
   ///     (negative gain) are turned down as intended. This is the documented
-  ///     trade-off, not a bug; see docs/volume-normalization.md.
+  ///     trade-off, not a bug; see docs/features/volume-normalization.md.
   double linearVolume({
     ReplayGainMode mode = ReplayGainMode.track,
     double maxVolume = 1.0,

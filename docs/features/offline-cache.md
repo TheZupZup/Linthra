@@ -65,7 +65,7 @@ at a time), not only when you tap Download. Leaving Wi-Fi halfway through an
 album holds the songs still waiting instead of fetching them over mobile data.
 
 On Linux, whether the connection is metered comes from the desktop's network
-monitor portal (see [Linux desktop](./linux-desktop.md)), and a download held
+monitor portal (see [Linux desktop](../linux-desktop.md)), and a download held
 for Wi-Fi starts once the portal reports an unmetered connection. A desktop
 without that portal reads as unknown.
 
@@ -177,7 +177,7 @@ matters because only the first is a promise — a pre-cached copy can be evicted
 under the cache limit at any time. When the server is away, either kind of copy
 reads as **Playing from offline copy**, because at that point the copy is the
 only reason the row still plays. See
-[library.md § Track status in the library](./library.md#track-status-in-the-library).
+[library.md § Track status in the library](library.md#track-status-in-the-library).
 
 ## Security & privacy
 

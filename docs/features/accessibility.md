@@ -40,7 +40,7 @@ text, which leaves a button a screen reader can name and cannot press.
 semantics node for a bare `CircularProgressIndicator`, so a blocking spinner
 announces nothing at all and a loading screen is indistinguishable from an empty
 one. Blocking, textless loads use
-[`LoadingIndicator`](../lib/shared/widgets/loading_indicator.dart), which names
+[`LoadingIndicator`](../../lib/shared/widgets/loading_indicator.dart), which names
 what is loading. A spinner that already has a caption beside it — "Connecting to
 Living Room…", "Downloading… 40%" — stays silent on purpose, or the sentence is
 read twice.
@@ -174,7 +174,7 @@ Roughly fifteen minutes end to end.
 - ☐ Focusing the window, Alt+Tab, and the overview / task switcher all say
   **Linthra**, not "Flutter" or an empty caption. The runner sets
   `gtk_window_set_title` unconditionally — see
-  [Desktop identity](./linux-desktop.md#desktop-identity).
+  [Desktop identity](../linux-desktop.md#desktop-identity).
 - ☐ Shells that resolve an application id see `io.github.thezupzup.linthra`.
 
 ### Sidebar navigation
@@ -232,7 +232,7 @@ exists. Use Settings' existing connection forms.
   that opened it.
 
 The keyboard mechanics themselves are in
-[linux-desktop.md](./linux-desktop.md#keyboard-navigation). This section is
+[linux-desktop.md](../linux-desktop.md#keyboard-navigation). This section is
 whether those stops are *understandable* with the screen reader on.
 
 ### Desktop-specific limitations (not a fail)

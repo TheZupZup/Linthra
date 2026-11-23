@@ -1,7 +1,7 @@
 # Receiver trust (what has to be true before casting comes back)
 
 Casting is switched off in shipped builds while a reported security issue is
-resolved ([cast.md](cast.md#temporary-containment)). This page is the public
+resolved ([cast.md](features/cast.md#temporary-containment)). This page is the public
 half of what restoring it requires: the trust model, the contract the code
 already enforces, the implementation choices on the table, and the tests that
 have to pass. It tracks

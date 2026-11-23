@@ -226,7 +226,7 @@ The glyph answers two questions, in this order:
 | On-device file | *(nothing)* | There is no server to be away from. |
 | Server-backed, server answering, no copy | *(nothing)* | The ordinary case. |
 | Explicitly downloaded | Download done | A copy the user asked for, and the server is answering. |
-| Pre-cached only | Outlined pin | A copy the app prefetched ahead of play ([offline-cache.md](./offline-cache.md)). Cached, but **evictable** — deliberately not shown as "Downloaded", which would promise more than it can keep. |
+| Pre-cached only | Outlined pin | A copy the app prefetched ahead of play ([offline-cache.md](offline-cache.md)). Cached, but **evictable** — deliberately not shown as "Downloaded", which would promise more than it can keep. |
 | Saved copy, server away | Filled pin | The copy is no longer a convenience: it is the only reason the row still plays. |
 | Server unreachable, no copy | Cloud-off | This row will not play right now. |
 | Session rejected, no copy | Lock | The server *answered* — sign in again, rather than checking the network. |
@@ -270,7 +270,7 @@ Two things it deliberately does **not** do yet:
   file with neither tags nor folder context still folds into a single
   **Unknown Album** / **Unknown Artist**. A local file's **embedded** cover art
   is read during the scan and shown like any other cover (see
-  [local-music.md](./local-music.md)).
+  [local-music.md](local-music.md)).
 - **Artwork may be missing** for some tracks (a local file with no embedded
   cover, or a Subsonic/Navidrome track); a calm placeholder is shown instead,
   and the layout never jumps.

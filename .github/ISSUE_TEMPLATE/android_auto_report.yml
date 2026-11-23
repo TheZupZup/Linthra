@@ -10,7 +10,7 @@ body:
 
         **Heads up:** sideloaded builds only appear after you enable Android
         Auto's developer **"Unknown sources"** toggle — a one-time step described
-        in [docs/android-auto.md](../../docs/android-auto.md). Flag any
+        in [docs/features/android-auto.md](../../docs/features/android-auto.md). Flag any
         **duplicate playback** (phone + car at once) explicitly.
   - type: input
     id: head-unit

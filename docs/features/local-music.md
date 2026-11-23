@@ -188,7 +188,7 @@ Local tracks index like a real source, not a flat file list:
   come from the conventional `…/Artist/Album/Track` folders. Each field falls
   back on its own, so a half-tagged file still gets the best of both. A file with
   nothing to go on still folds into **Unknown Album / Artist** (see
-  [library.md](./library.md)).
+  [library.md](library.md)).
 - **CUE sheets split a single audio file** into the tracks described by a
   neighboring `.cue` file. Track titles, performers, numbers, and `INDEX 01`
   positions are used for the library and playback; the referenced audio file
@@ -208,7 +208,7 @@ Local tracks index like a real source, not a flat file list:
   and reused on later launches and re-scans rather than re-read every time; if
   the OS reclaims the cache, the next rescan simply re-extracts. (A server copy's
   cover is still used when the same song is also on a server — see
-  [unified-library.md](./unified-library.md).)
+  [unified-library.md](../unified-library.md).)
 
 ## How it works (and why it's reliable)
 
@@ -259,7 +259,7 @@ is an ordinary `dart:io` walk. What differs is where the path comes from:
    is handed back to the sandbox, exported through the document portal, and it
    stays readable after a restart. Nothing else on the host becomes visible, and
    Linthra ships no `--filesystem=host` or `--filesystem=home` permission — see
-   [`flatpak/README.md`](../flatpak/README.md#local-music-folders).
+   [`flatpak/README.md`](../../flatpak/README.md#local-music-folders).
 3. If a folder later stops resolving — an unplugged drive, a folder you moved
    or deleted, or a portal grant you revoked — Linthra says so, on that folder's
    own row, and asks you to select it again. It does **not** treat that as "this
@@ -467,7 +467,7 @@ These three are easy to confuse but are distinct:
 | --- | --- | --- |
 | **Local music** | Music files that already live on the device, SD card or computer, played in place from a folder you chose in the system chooser (SAF on Android, the desktop/portal chooser on Linux). Linthra never moves or copies them. | Settings ▸ Connections ▸ Local music |
 | **Offline downloads** | Copies Linthra makes of **server** tracks (Jellyfin / Subsonic) so they play without a network. You choose what to download. | The download action / Settings ▸ Offline |
-| **Cache** | Linthra-managed **temporary** storage (e.g. streamed/pre-cached audio), bounded by a size limit and reclaimable at any time. | Settings ▸ Cache — see [offline-cache.md](./offline-cache.md) |
+| **Cache** | Linthra-managed **temporary** storage (e.g. streamed/pre-cached audio), bounded by a size limit and reclaimable at any time. | Settings ▸ Cache — see [offline-cache.md](offline-cache.md) |
 
 "Forget folder" only removes Linthra's index of the local source — it **deletes
 nothing on disk**. Your files stay exactly where they are, and re-selecting the

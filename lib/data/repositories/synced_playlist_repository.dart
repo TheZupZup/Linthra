@@ -277,7 +277,7 @@ class SyncedPlaylistRepository
     );
     // Push the rename only for a synced playlist whose provider supports it
     // (Subsonic does; a Jellyfin rename stays local-only, and a refresh
-    // re-adopts the server name). See docs/playlists-and-delete.md.
+    // re-adopts the server name). See docs/features/playlists-and-delete.md.
     final Playlist? playlist = _byId(id);
     if (playlist == null || !playlist.isRemote) return;
     if (!(_gatewayFor(playlist)?.pushesRename ?? false)) return;
