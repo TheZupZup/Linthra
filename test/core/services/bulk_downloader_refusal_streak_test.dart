@@ -31,7 +31,10 @@ class _ThrowingRepository extends FakeDownloadRepository {
   final Set<String> throwingUris;
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     if (throwingUris.contains(track.uri)) {
       requested.add(track.uri);
       await Future<void>.delayed(Duration.zero);

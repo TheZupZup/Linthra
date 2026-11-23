@@ -163,7 +163,10 @@ class FakeDownloadRepository implements DownloadRepository {
       throw UnimplementedError();
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) =>
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) =>
       throw UnimplementedError();
 
   @override

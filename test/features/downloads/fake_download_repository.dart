@@ -99,7 +99,10 @@ class FakeDownloadRepository implements DownloadRepository {
       _statuses[trackId] ?? DownloadStatus.notDownloaded;
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     requested.add(track.uri);
     _outstanding++;
     peakConcurrency =

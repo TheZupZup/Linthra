@@ -102,7 +102,10 @@ class _SpyDownloadRepository implements DownloadRepository {
   int requestCount = 0;
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     requestCount++;
     return DownloadRequestOutcome.started;
   }

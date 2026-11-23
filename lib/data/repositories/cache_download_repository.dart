@@ -183,11 +183,11 @@ class CacheDownloadRepository
   bool _disposed = false;
 
   /// Remote requests the network policy is holding back, by cache key, with
-  /// the account each was asked under. Their rows read "queued" and they are
-  /// asked again on every connection change and by [retryHeldDownloads].
+  /// the account each was asked under and the keys it protects. Their rows
+  /// read "queued" and they are asked again on every connection change and by
+  /// [retryHeldDownloads].
   /// In memory only: after a restart they read as not downloaded again.
-  final Map<String, ({Track track, String? scope})> _held =
-      <String, ({Track track, String? scope})>{};
+  final Map<String, _HeldRequest> _held = <String, _HeldRequest>{};
 
   final Map<String, DownloadStatus> _statuses = <String, DownloadStatus>{};
 
@@ -482,7 +482,10 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     if (!_downloader.isRemote(track)) {
       // On-device track: no bytes to fetch and no network gate, so record it as
       // available offline directly.
@@ -530,7 +533,11 @@ class CacheDownloadRepository
     final int networkChangesBefore = _networkChangeCount;
     DownloadRequestOutcome outcome = DownloadRequestOutcome.started;
     try {
-      outcome = await _runRemoteRequest(track, operation);
+      outcome = await _runRemoteRequest(
+        track,
+        operation,
+        protectKeys: protectKeys,
+      );
       return outcome;
     } on CacheStorageException {
       // The cache is full with nothing safe to evict; surface the friendly,
@@ -576,7 +583,13 @@ class CacheDownloadRepository
       // in-flight slot is released, so the next ask isn't taken for a
       // duplicate of this one.
       if (outcome != DownloadRequestOutcome.started && !operation.canceled) {
-        _hold(key, track, operation.scope, networkChangesBefore);
+        _hold(
+          key,
+          track,
+          operation.scope,
+          protectKeys,
+          networkChangesBefore,
+        );
       }
     }
   }
@@ -584,18 +597,22 @@ class CacheDownloadRepository
   @override
   Future<void> retryHeldDownloads() async {
     if (_disposed || _held.isEmpty) return;
-    final List<({Track track, String? scope})> held = _held.values.toList();
+    final List<_HeldRequest> held = _held.values.toList();
     _held.clear();
     await Future.wait(<Future<void>>[
-      for (final ({Track track, String? scope}) entry in held)
-        _retryHeld(entry.track, entry.scope),
+      for (final _HeldRequest entry in held)
+        _retryHeld(entry.track, entry.scope, entry.protectKeys),
     ]);
   }
 
   /// Asks again for one held download, unless the account it was asked under
   /// is gone: then it is dropped, since the session signed in now would fetch
   /// another account's item (or nothing) under this track.
-  Future<void> _retryHeld(Track track, String? scope) async {
+  Future<void> _retryHeld(
+    Track track,
+    String? scope,
+    Set<String> protectKeys,
+  ) async {
     final String key = _keyForTrack(track);
     if (_scopeOf(track) != scope) {
       if (!_inFlight.containsKey(key) &&
@@ -605,7 +622,7 @@ class CacheDownloadRepository
       return;
     }
     try {
-      await requestDownload(track);
+      await requestDownload(track, protectKeys: protectKeys);
     } on CacheStorageException {
       // Nothing safe left to evict. Nobody is looking at a snackbar for a
       // download that started on its own, so the row says it failed, and its
@@ -618,9 +635,15 @@ class CacheDownloadRepository
   /// changed while this request was being decided, the request may have been
   /// answered for the connection before it, so it is asked again now rather
   /// than at the next change.
-  void _hold(String key, Track track, String? scope, int networkChangesBefore) {
+  void _hold(
+    String key,
+    Track track,
+    String? scope,
+    Set<String> protectKeys,
+    int networkChangesBefore,
+  ) {
     if (_disposed) return;
-    _held[key] = (track: track, scope: scope);
+    _held[key] = (track: track, scope: scope, protectKeys: protectKeys);
     if (_networkChangeCount != networkChangesBefore) {
       unawaited(retryHeldDownloads());
     }
@@ -675,8 +698,9 @@ class CacheDownloadRepository
   /// slot before fetching the bytes and committing them under the cache limit.
   Future<DownloadRequestOutcome> _runRemoteRequest(
     Track track,
-    _CacheOperation operation,
-  ) async {
+    _CacheOperation operation, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     await _ensureLoaded();
     final String key = _keyForTrack(track);
     // Already cached — nothing to do. (A track that is downloading or queued is
@@ -808,7 +832,12 @@ class CacheDownloadRepository
         // Commit serially so concurrent downloads can't jointly overshoot the
         // limit; the (slow) byte fetch above already ran in parallel.
         await _commit(
-          () => _cacheRemote(track, downloaded, operation: operation),
+          () => _cacheRemote(
+            track,
+            downloaded,
+            operation: operation,
+            protectKeys: protectKeys,
+          ),
         );
       } finally {
         // Published by the commit, or not wanted after all.
@@ -1804,6 +1833,14 @@ class _CacheOperation {
 /// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
 /// connection (offline).
 enum _NetworkDecision { allowed, needsWifi, offline }
+
+/// A request the network policy is holding back: the track, the account it
+/// was asked under, and the keys it must not evict once it runs.
+typedef _HeldRequest = ({
+  Track track,
+  String? scope,
+  Set<String> protectKeys,
+});
 
 /// Stops a download that can't fit (see [CacheDownloadRepository._download]).
 /// A user download surfaces it as a [CacheStorageException]; a pre-cache
