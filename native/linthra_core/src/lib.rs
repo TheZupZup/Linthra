@@ -183,7 +183,13 @@ impl LibraryIndex {
         }
 
         let mut ranked: Vec<(usize, u32)> = candidates.unwrap_or_default().into_iter().collect();
-        ranked.sort_unstable_by(|(left_index, left_score), (right_index, right_score)| {
+        // A total order (the track index breaks the last tie), so selecting
+        // the best `limit` and sorting only those gives exactly what sorting
+        // everything and truncating would. A broad query ("m" while typing)
+        // matches the whole catalog; sorting all of it by title to keep 50
+        // was most of that query's time.
+        let order = |(left_index, left_score): &(usize, u32),
+                     (right_index, right_score): &(usize, u32)| {
             right_score
                 .cmp(left_score)
                 .then_with(|| {
@@ -202,8 +208,12 @@ impl LibraryIndex {
                         .cmp(&self.tracks[*right_index].provider)
                 })
                 .then_with(|| left_index.cmp(right_index))
-        });
-        ranked.truncate(limit);
+        };
+        if ranked.len() > limit {
+            ranked.select_nth_unstable_by(limit - 1, order);
+            ranked.truncate(limit);
+        }
+        ranked.sort_unstable_by(order);
 
         ranked
             .into_iter()
@@ -455,6 +465,48 @@ mod tests {
         let capped = index.search("metallica", 1);
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0].track.id, all[0].track.id);
+    }
+
+    /// Selecting the best `limit` before sorting must give exactly the first
+    /// `limit` hits of the full ranking, ties included. The library mixes
+    /// fields that score differently and many exact duplicates (same title,
+    /// id and provider), so every tie-break level is exercised.
+    #[test]
+    fn every_limit_returns_a_prefix_of_the_full_ranking() {
+        let titles = ["Echo", "Echo Chamber", "Lake", "Echoes"];
+        let providers = ["local", "jellyfin", "navidrome"];
+        let tracks: Vec<TrackRecord> = (0..240)
+            .map(|i| {
+                TrackRecord::new(
+                    format!("id-{}", i % 7),
+                    titles[i % titles.len()],
+                    if i % 5 == 0 { "Echo Artist" } else { "Other" },
+                    if i % 3 == 0 { "Echo Album" } else { "Album" },
+                    None,
+                    providers[i % providers.len()],
+                )
+            })
+            .collect();
+        let index = LibraryIndex::build(tracks);
+        // Which record, not just an equal one: exact duplicates are only told
+        // apart by their position in the index, the last tie-break.
+        let identity = |hits: &[SearchHit<'_>]| -> Vec<(*const TrackRecord, u32)> {
+            hits.iter()
+                .map(|hit| (hit.track as *const TrackRecord, hit.score))
+                .collect()
+        };
+        for query in ["echo", "e", "echo album", "album", "other"] {
+            let full = index.search(query, usize::MAX);
+            assert!(full.len() > 50, "query {query:?} should match broadly");
+            for limit in [1, 2, 3, 7, 50, full.len() - 1, full.len()] {
+                let capped = index.search(query, limit);
+                assert_eq!(
+                    identity(&capped),
+                    identity(&full[..limit]),
+                    "query {query:?}, limit {limit}"
+                );
+            }
+        }
     }
 
     #[test]
