@@ -1,12 +1,13 @@
-# Plex (self-hosted music) — design
+# Plex (self-hosted music)
 
-> **Status: design only.** This page captures the agreed design for a
-> **read-only Plex music provider** so a contributor can build it in small,
-> reviewable PRs. **No Plex code ships with this document.** It is the first PR
-> in the sequence described in [issue #178](https://github.com/TheZupZup/Linthra/issues/178)
-> and the [Suggested PR steps](#suggested-pr-steps) below; it does **not** touch
-> Jellyfin, Navidrome/Subsonic, or Local music, and it does **not** register a
-> provider, change playback, or bump the version.
+> **Status: shipped.** Linthra plays music from your own Plex Media Server as a
+> read-only provider: *Connect with Plex* sign-in (or a manual URL and token),
+> library sync, streaming, lyrics, offline caching and playback reporting. The
+> [overview](overview.md#plex) describes how it behaves today. This page is the
+> design the provider was built from in [issue #178](https://github.com/TheZupZup/Linthra/issues/178),
+> kept as the record of its endpoints, token-safety rules and trade-offs.
+> Receiving remote-control commands from other Plex apps is not built yet; see
+> [Plex remote control](../design/plex-remote-control.md).
 
 [Plex Media Server](https://www.plex.tv/) (PMS) is a self-hosted media server
 many people already run for their own music. A Plex `MusicSource` lets those
@@ -335,7 +336,7 @@ dropped and can never stall, stop, or alter playback.
 > controller uses to drive it, so Linthra appears in the dashboard but does not
 > yet react to remote play/pause/skip commands. Receiving those commands is the
 > separate **Plex Companion** protocol, designed in
-> [docs/servers/plex-remote-control.md](plex-remote-control.md).
+> [docs/design/plex-remote-control.md](../design/plex-remote-control.md).
 
 ### How Plex sees a player
 

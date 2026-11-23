@@ -17,8 +17,9 @@ turning it back on safely.
 | [Media access](cast-media-access.md) | What a cast handoff lets the receiving device fetch, and nothing more |
 | [Cast client](cast-client.md) | The Cast client built into the repository |
 
-## New servers
+## Servers
 
 | Document | What it covers |
 | --- | --- |
 | [WebDAV / NAS](webdav.md) | Playing music from a WebDAV share or a NAS |
+| [Plex remote control](plex-remote-control.md) | Letting other Plex apps play, pause and skip on Linthra |

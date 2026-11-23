@@ -31,3 +31,4 @@ What Linthra does and how each part behaves, one page per feature.
 | [Android Auto](android-auto.md) | The car integration, and how to test it |
 | [Battery](battery.md) | How Linthra saves battery without lowering audio quality |
 | [Accessibility](accessibility.md) | TalkBack support, which Linux also benefits from |
+| [App icon and branding](app-icon-branding.md) | Choosing how the logo looks in the app and on the Android launcher |

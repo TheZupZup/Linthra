@@ -14,8 +14,10 @@ shared contract between three things:
   pairing/QR flow moves this exact file between devices; nothing about the format
   depends on Connect existing.
 
-> **Status:** this is a **design spec**, written before the feature so it can be
-> built in small, reviewable PRs. No exporter/importer ships yet.
+> **Status:** the format is implemented and tested in
+> `lib/features/backup_restore/` (export mapping, validation, import plan), but
+> no screen in the app offers Backup or Restore yet, so the feature does not
+> ship. This page was written before the code as its spec.
 
 ## Principles
 
