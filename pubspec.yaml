@@ -148,6 +148,14 @@ dependencies:
   # keeps reading its tags in the native SAF walk and never loads this. See
   # docs/dependency-license-audit.md §3.
   audio_metadata_reader: ^1.8.0
+  # The Rust core (native/linthra_core). hooks and code_assets are the Dart
+  # team's build-hook API: hook/build.dart runs cargo on the crate during
+  # `flutter build`/`flutter test` and bundles the shared library, with no
+  # download and no prebuilt binary. ffi (Dart team, already in the graph)
+  # marshals strings for lib/core/native/. See native/linthra_core/README.md.
+  hooks: ^2.2.0
+  code_assets: ^2.1.0
+  ffi: ^2.1.3
   flutter_localizations:
     sdk: flutter
   intl: any
