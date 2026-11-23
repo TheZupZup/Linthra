@@ -77,6 +77,43 @@ void main() {
     test('no match yields an empty list', () {
       expect(filterTracks(tracks, 'zzz'), isEmpty);
     });
+
+    test('finds words in any order, each starting a word', () {
+      expect(
+        filterTracks(tracks, 'lights blind').map((Track t) => t.id),
+        <String>['2'],
+      );
+      expect(
+        filterTracks(tracks, 'mar cafe').map((Track t) => t.id),
+        <String>['3'],
+      );
+    });
+
+    test('every word has to match', () {
+      expect(filterTracks(tracks, 'levitating weeknd'), isEmpty);
+    });
+
+    test('does not match inside a word', () {
+      // "eeknd" is in "Weeknd" but starts no word.
+      expect(filterTracks(tracks, 'eeknd'), isEmpty);
+    });
+
+    test('a query with no words in it matches nothing', () {
+      expect(filterTracks(tracks, '!!!'), isEmpty);
+    });
+
+    test('matches by album artist', () {
+      final List<Track> withAlbumArtist = <Track>[
+        const Track(
+          id: '4',
+          title: 'Feature',
+          uri: 'file:///4.mp3',
+          artistName: 'Guest',
+          albumArtistName: 'Headliner',
+        ),
+      ];
+      expect(filterTracks(withAlbumArtist, 'headliner'), hasLength(1));
+    });
   });
 
   group('filterAlbums', () {

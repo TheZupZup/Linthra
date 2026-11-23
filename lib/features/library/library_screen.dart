@@ -34,6 +34,7 @@ import 'library_sync_activity.dart';
 import 'local_root_problem.dart';
 import 'selected_folder_controller.dart';
 import 'song_actions.dart';
+import 'song_search_index.dart';
 import 'song_sort.dart';
 import 'song_sort_providers.dart';
 import 'track_selection.dart';
@@ -591,7 +592,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
   }
 
-  List<Track> _filteredSongs(List<Track> songs) => filterTracks(songs, _query);
+  /// The songs matching the search box, in [songs]' order. A large catalog
+  /// answers from its search index, built in the background; until it is
+  /// ready, filtering directly finds the same songs, only slower.
+  List<Track> _filteredSongs(List<Track> songs) => searchSongs(
+        songs,
+        _query,
+        ref.watch(songSearchIndexProvider).valueOrNull,
+      );
 
   /// [tracks] as filtered by the search, sorted against the whole [catalog].
   Widget _songsList(List<Track> tracks, List<Track> catalog) {

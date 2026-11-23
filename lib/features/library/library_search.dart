@@ -1,47 +1,63 @@
-import '../../core/catalog/text_folding.dart';
+import '../../core/catalog/search_tokens.dart';
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
 
-/// Pure, dependency-free text matching for the Library search box.
+/// The Library search box's matching rules, shared by every tab: each word
+/// typed must start a word of the item, in any order, ignoring case and
+/// accents. "puppets metal" finds "Master of Puppets" by Metallica; "ica"
+/// does not, since it starts no word.
 ///
-/// All comparisons run through [foldText] (in `core/catalog`) so search is
-/// case-insensitive and, where practical, accent-insensitive: typing "beyonce"
-/// finds "Beyoncé" and "amelie" finds "Amélie".
+/// They are the Rust core's rules (see search_tokens.dart). The Songs tab of
+/// a large library answers from an index instead (song_search_index.dart);
+/// these direct filters are what it falls back to, so both must agree.
 
-bool _contains(String? field, String foldedQuery) =>
-    field != null && field.isNotEmpty && foldText(field).contains(foldedQuery);
+/// True when every one of [terms] starts a token of one of [fields].
+bool _matchesAll(List<String> terms, Iterable<String?> fields) {
+  final List<String> tokens = <String>[
+    for (final String? field in fields)
+      if (field != null && field.isNotEmpty) ...searchTokens(field),
+  ];
+  return terms.every(
+    (String term) => tokens.any((String token) => token.startsWith(term)),
+  );
+}
 
-/// Songs matching [query] by title, artist, or album. An empty query returns
-/// [tracks] unchanged (no allocation of a filtered copy is implied by callers).
-List<Track> filterTracks(List<Track> tracks, String query) {
-  final String q = foldText(query);
-  if (q.isEmpty) return tracks;
-  return <Track>[
-    for (final Track t in tracks)
-      if (_contains(t.title, q) ||
-          _contains(t.artistName, q) ||
-          _contains(t.albumName, q))
-        t,
+/// [items] whose [fields] match [query]. A blank query keeps everything (the
+/// same list instance); a query with no words in it ("!!!") matches nothing.
+List<T> _filter<T>(
+  List<T> items,
+  String query,
+  Iterable<String?> Function(T item) fields,
+) {
+  if (query.trim().isEmpty) return items;
+  final List<String> terms = searchTokens(query);
+  if (terms.isEmpty) return <T>[];
+  return <T>[
+    for (final T item in items)
+      if (_matchesAll(terms, fields(item))) item,
   ];
 }
+
+/// The fields a song is found by: the same as the Rust index is given.
+Iterable<String?> songSearchFields(Track track) => <String?>[
+      track.title,
+      track.artistName,
+      track.albumName,
+      track.albumArtistName,
+    ];
+
+/// Songs matching [query] by title, artist, album or album artist.
+List<Track> filterTracks(List<Track> tracks, String query) =>
+    _filter(tracks, query, songSearchFields);
 
 /// Albums matching [query] by album title or album artist.
-List<Album> filterAlbums(List<Album> albums, String query) {
-  final String q = foldText(query);
-  if (q.isEmpty) return albums;
-  return <Album>[
-    for (final Album a in albums)
-      if (_contains(a.title, q) || _contains(a.artistName, q)) a,
-  ];
-}
+List<Album> filterAlbums(List<Album> albums, String query) => _filter(
+      albums,
+      query,
+      (Album album) => <String?>[album.title, album.artistName],
+    );
 
 /// Artists matching [query] by name.
-List<Artist> filterArtists(List<Artist> artists, String query) {
-  final String q = foldText(query);
-  if (q.isEmpty) return artists;
-  return <Artist>[
-    for (final Artist a in artists)
-      if (_contains(a.name, q)) a,
-  ];
-}
+List<Artist> filterArtists(List<Artist> artists, String query) =>
+    _filter(artists, query, (Artist artist) => <String?>[artist.name]);
