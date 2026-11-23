@@ -85,7 +85,7 @@ For the other areas:
   dependency files against a reviewed list of advertising, analytics,
   attribution, telemetry and crash-reporting SDKs. If your branch fails on it,
   `python3 scripts/check_tracker_dependencies.py` reproduces it offline, and
-  [docs/tracker-dependency-audit.md](./docs/tracker-dependency-audit.md)
+  [docs/audits/tracker-dependencies.md](docs/audits/tracker-dependencies.md)
   explains how to review the finding.
 - Python tooling (`scripts/`, `tool/`, `tools/`) is checked with
   [Ruff](https://docs.astral.sh/ruff/). Before pushing a Python change, run

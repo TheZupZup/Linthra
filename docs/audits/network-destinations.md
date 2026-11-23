@@ -13,13 +13,13 @@ No network, no Flutter, no Android SDK. Everything it reads is committed, so
 the result you get is the result CI gets.
 
 It runs on every pull request as the **Check fixed network destinations** step
-of the "Secret & privacy scan" job in [`ci.yml`](../.github/workflows/ci.yml),
+of the "Secret & privacy scan" job in [`ci.yml`](../../.github/workflows/ci.yml),
 and `./scripts/verify_android.sh` runs it locally with the other guardrails.
 
 This is one part of [#504](https://github.com/TheZupZup/Linthra/issues/504).
-The [tracker dependency audit](./tracker-dependency-audit.md) covers the
+The [tracker dependency audit](tracker-dependencies.md) covers the
 dependency graph; this covers Linthra's own code. The overall status, including
-what is not automated yet, is in [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md).
+what is not automated yet, is in [PRIVACY_AUDIT.md](../../PRIVACY_AUDIT.md).
 
 ## What it shows today
 
@@ -41,7 +41,7 @@ Everything else the check finds is a **reference**: an issue link in a doc
 comment, an example address in hint text, a licence header in vendored code, an
 Android XML namespace. None of them is ever contacted. The full list, with a
 reason for each, is
-[`scripts/network_destinations.json`](../scripts/network_destinations.json).
+[`scripts/network_destinations.json`](../../scripts/network_destinations.json).
 
 The summary the check prints is:
 
@@ -97,7 +97,7 @@ so shipped code in a `lib/build/` or `lib/test/` is still read:
 Other build files are out of scope on purpose. The Flatpak manifests and
 CMake files describe what the build downloads, not what the app contacts, and
 they are pinned by their own checks
-([Flatpak source pinning](distribution/flatpak/source-pinning.md)).
+([Flatpak source pinning](../distribution/flatpak/source-pinning.md)).
 
 Every root has to exist and contain source files. A root that moved or emptied
 fails the check rather than quietly passing.
@@ -191,14 +191,14 @@ are written down in source. Specifically, it:
   `*.plex.direct` addresses) is invisible to it.
 - **doesn't read pub packages that aren't vendored.** A dependency that
   contacts a fixed host of its own is not in this repository's source. The
-  [tracker dependency audit](./tracker-dependency-audit.md) covers known
+  [tracker dependency audit](tracker-dependencies.md) covers known
   tracking SDKs by name. Scanning the compiled app for host strings is a
   separate, later part of #504.
 - **doesn't know what code does.** A path scope stops a reviewed host from
   quietly spreading to new files, but inside a reviewed file it can't tell a
   comment from a request. A new network call in a file that already mentions
   the host passes this check. The
-  [PR security guard](./pr-security-guard.md) separately flags new
+  [PR security guard](pr-security-guard.md) separately flags new
   network-capable code for review.
 - **doesn't observe traffic.** What the app actually does on the network is the
   runtime part of #504, which is not automated yet.
@@ -218,7 +218,7 @@ FAIL: collect.example-analytics.io is not in the reviewed inventory.
 2. **If it is an example**, prefer a reserved name (`music.example.com`,
    `192.0.2.10`). Those never need an entry.
 3. **If it is real**, add an entry to
-   [`scripts/network_destinations.json`](../scripts/network_destinations.json):
+   [`scripts/network_destinations.json`](../../scripts/network_destinations.json):
 
    ```json
    {
@@ -242,7 +242,7 @@ FAIL: collect.example-analytics.io is not in the reviewed inventory.
    - `paths` are files or globs (`**` crosses directories, `*` does not).
      Prefer exact files.
 
-4. **If it is an `app-request`, update [`PRIVACY.md`](../PRIVACY.md) in the same
+4. **If it is an `app-request`, update [`PRIVACY.md`](../../PRIVACY.md) in the same
    pull request.** A test fails when an `app-request` host is not mentioned
    there. An `automatic` trigger fails another test, because PRIVACY.md says
    nothing is contacted without a user action. If that ever genuinely has to
@@ -276,10 +276,10 @@ python3 scripts/check_network_destinations.py --json
 
 ## See also
 
-- [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md): every privacy check, what is still
+- [PRIVACY_AUDIT.md](../../PRIVACY_AUDIT.md): every privacy check, what is still
   checked by hand, and the limits
-- [PRIVACY.md](../PRIVACY.md): the policy this backs up
-- [tracker-dependency-audit.md](./tracker-dependency-audit.md): the dependency
+- [PRIVACY.md](../../PRIVACY.md): the policy this backs up
+- [Tracker dependency audit](tracker-dependencies.md): the dependency
   side of the same question
-- [pr-security-guard.md](./pr-security-guard.md): owner review for new
+- [pr-security-guard.md](pr-security-guard.md): owner review for new
   network-capable code

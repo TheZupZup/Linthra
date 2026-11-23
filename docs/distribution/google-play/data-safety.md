@@ -110,7 +110,7 @@ Notes for the form:
   **metadata declaration** that lets Android Auto recognize Linthra as a media
   app (it points at `automotive_app_desc.xml`). It does **not** link the GMS
   Cast/Car SDK and does not collect data.
-- See [docs/dependency-license-audit.md](../../dependency-license-audit.md) for the
+- See [docs/audits/dependency-licenses.md](../../audits/dependency-licenses.md) for the
   full dependency/anti-feature review.
 
 ## Dependencies relevant to Data Safety
@@ -150,6 +150,6 @@ form (and the privacy policy) must be updated.
 - [docs/privacy-policy.md](../../privacy-policy.md) — must stay consistent with this
   form.
 - [docs/distribution/google-play/readiness.md](readiness.md) — overall readiness.
-- [docs/dependency-license-audit.md](../../dependency-license-audit.md) — dependency
+- [docs/audits/dependency-licenses.md](../../audits/dependency-licenses.md) — dependency
   and anti-feature review.
 </content>

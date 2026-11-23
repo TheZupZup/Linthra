@@ -1024,7 +1024,7 @@ than by this doc:
    namespaces), entity handling and malformed bodies.
 
 Either way the parse lives behind one seam with its own tests, and
-[dependency-license-audit.md](dependency-license-audit.md) is updated in the same
+[Dependency & license audit](audits/dependency-licenses.md) is updated in the same
 PR if a declaration is added. Nothing is added for experimentation, and nothing
 is added by this design PR.
 

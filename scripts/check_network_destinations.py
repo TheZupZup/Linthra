@@ -60,7 +60,7 @@ see a host assembled from pieces, decoded from base64, or returned by a server
 at run time (Plex's `*.plex.direct` addresses arrive that way, from plex.tv),
 and it does not look inside pub packages that are not vendored. The compiled
 app and its runtime traffic are separate parts of #504.
-docs/network-destinations.md spells the boundary out.
+docs/audits/network-destinations.md spells the boundary out.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INVENTORY = REPO_ROOT / "scripts" / "network_destinations.json"
-DOC = "docs/network-destinations.md"
+DOC = "docs/audits/network-destinations.md"
 
 #: What Linthra does with a host. The order is the order the report prints.
 KINDS = ("app-request", "browser-link", "reference")
@@ -284,7 +284,7 @@ _HOST_LITERAL = (
 
 #: APIs that take a host as a bare string rather than inside a URL, one or two
 #: per language the scan reads (Dart, Kotlin/Java, C/C++, Rust). Best effort,
-#: not a parser: see docs/network-destinations.md for what it cannot see.
+#: not a parser: see docs/audits/network-destinations.md for what it cannot see.
 #:
 #: The flag says whether a dotless name counts. For the networking calls it
 #: does, because `metrics` can resolve through a search domain. For a `host:`

@@ -4,7 +4,7 @@
 // for a run of *position ticks* — the ~4 Hz emissions that make up the
 // overwhelming majority of what a playing session produces, and the one cost
 // that runs for the whole length of a screen-off listening session. See
-// docs/battery-playback-audit.md for what it was written for and the numbers it
+// docs/audits/battery-playback.md for what it was written for and the numbers it
 // produced.
 //
 // Deliberately named `_bench.dart`, not `_test.dart`, so `flutter test` does

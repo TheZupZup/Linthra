@@ -1409,7 +1409,7 @@ class GuardSelfSafety(unittest.TestCase):
         SCANNER,
         WORKFLOW,
         ROOT / ".github" / "workflows" / "pr-security-review-tests.yml",
-        ROOT / "docs" / "pr-security-guard.md",
+        ROOT / "docs" / "audits" / "pr-security-guard.md",
         Path(__file__).resolve(),
     )
 

@@ -24,7 +24,7 @@ import 'cdrom_toc_source.dart';
 ///  * **`dart:ffi` into libc or libcdio.** Linthra's own security guard
 ///    (`scripts/check_pr_security_surface.py`) rejects runtime FFI and dynamic
 ///    library loading outright, by a rule that approval cannot clear — see
-///    `docs/pr-security-guard.md`. That is a deliberate property of this
+///    `docs/audits/pr-security-guard.md`. That is a deliberate property of this
 ///    codebase, not an obstacle to route around.
 ///  * **libcdio or libdiscid.** A native library, a build-system change on
 ///    every target, a licence to audit and a `.so` whose soname has moved

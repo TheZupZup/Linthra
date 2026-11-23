@@ -111,7 +111,7 @@ That check proves a narrow thing: no *named* tracking SDK is in the dependency
 graph. It does not prove that Linthra cannot track users, and it says nothing
 about Linthra's own network code. What it covers, what it does not, and how a
 future finding gets reviewed are written down in
-[docs/tracker-dependency-audit.md](docs/tracker-dependency-audit.md).
+[docs/audits/tracker-dependencies.md](docs/audits/tracker-dependencies.md).
 
 A second check lists every host name and IP address written into the code
 Linthra ships, against a reviewed inventory that says what each one is for. A
@@ -126,7 +126,7 @@ python3 scripts/check_network_destinations.py
 
 It only sees addresses written down in the source, not ones built at run time
 or returned by a server. The details are in
-[docs/network-destinations.md](docs/network-destinations.md), and
+[docs/audits/network-destinations.md](docs/audits/network-destinations.md), and
 [PRIVACY_AUDIT.md](PRIVACY_AUDIT.md) lists every check, what is still checked
 by hand, and the limits of both.
 

@@ -329,7 +329,7 @@ class PolicyDataTest(unittest.TestCase):
 
     def test_the_shipped_policy_has_no_unexplained_exceptions(self) -> None:
         # Not a rule the checker enforces — an exception is allowed to exist.
-        # It is the state PRIVACY.md and docs/tracker-dependency-audit.md
+        # It is the state PRIVACY.md and docs/audits/tracker-dependencies.md
         # describe, so a PR that adds one has to update them too, and this test
         # is where that gets noticed.
         policy = checker.load_policy(POLICY_PATH)
@@ -337,7 +337,7 @@ class PolicyDataTest(unittest.TestCase):
             policy.exceptions,
             (),
             "The shipped policy grants no exceptions. If that changes, update "
-            "PRIVACY.md and docs/tracker-dependency-audit.md in the same PR.",
+            "PRIVACY.md and docs/audits/tracker-dependencies.md in the same PR.",
         )
 
 
@@ -370,7 +370,7 @@ class RealRepositoryTest(unittest.TestCase):
     def test_it_does_not_claim_to_prove_more_than_it_does(self) -> None:
         _, output = run(ROOT, POLICY_PATH)
         self.assertIn("does not prove", output)
-        self.assertIn("docs/tracker-dependency-audit.md", output)
+        self.assertIn("docs/audits/tracker-dependencies.md", output)
 
     def test_the_report_is_reproducible(self) -> None:
         first = run(ROOT, POLICY_PATH)
@@ -522,7 +522,7 @@ dependencies {
         with tree(pub_sources=sources) as root, policy_file(MINIMAL_POLICY) as policy:
             _, output = run(root, policy)
         self.assertIn("needs a human decision", output)
-        self.assertIn("docs/tracker-dependency-audit.md", output)
+        self.assertIn("docs/audits/tracker-dependencies.md", output)
         self.assertIn("exceptions", output)
 
 

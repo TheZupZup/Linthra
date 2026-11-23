@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 /// Historical releases and docs/licenses/MPL-2.0.txt intentionally remain MPL.
 /// F-Droid metadata was intentionally still MPL until the first post-transition
 /// release was added there. v0.2.5 is that release: its CurrentVersion is cut
-/// from an AGPL source commit, so per docs/license-transition.md the `License:`
+/// from an AGPL source commit, so per docs/audits/license-transition.md the `License:`
 /// field moved to AGPL-3.0-or-later in the same change. The historical `Builds`
 /// entries still name their pre-transition versions and are not relabelled.
 void main() {

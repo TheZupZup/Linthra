@@ -371,7 +371,7 @@ jobs:
       # so it lives here, and until it was wired up it ran nowhere at all.
       # `check_flatpak_permissions.py --installed` reads
       # `flatpak info --show-permissions` off the installed app and holds it to
-      # the same table in docs/flatpak-permissions.md.
+      # the same table in docs/audits/flatpak-permissions.md.
       #
       # The same script also re-checks #439's filesystem policy against the
       # artifact: no filesystem or persist grant in the package, none added by

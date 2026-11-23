@@ -2,7 +2,7 @@
 
 Linthra's Flatpak ships **no filesystem permission at all**: no
 `--filesystem=home`, no `--filesystem=host`, no XDG grant
-([flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md)). Local music
+([Flatpak filesystem sandbox audit](../../audits/flatpak-filesystem.md)). Local music
 works because the user hands over one folder and nothing else.
 
 That is a good policy and a fragile one: it only holds if the narrow path
@@ -66,7 +66,7 @@ a button in `xdg-desktop-portal`, and no headless runner can click it. Nor does
 it exercise the document portal's `/run/user/<uid>/doc/…` path rewriting.
 
 Those stay a manual pass, and the audit in
-[flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md#user-selected-library-check)
+[Flatpak filesystem sandbox audit](../../audits/flatpak-filesystem.md#user-selected-library-check)
 is still the checklist to follow before a release. What this smoke removes from
 that checklist is everything *after* the click, which is the part that breaks
 silently.
@@ -149,7 +149,7 @@ people paste into issues.
 
 ## Related
 
-- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), the permission
+- [Flatpak filesystem sandbox audit](../../audits/flatpak-filesystem.md), the permission
   policy this smoke defends, and the manual portal pass
 - [Flatpak audio playback smoke](audio-smoke.md), the sibling smoke, and
   the derived manifest both share

@@ -24,7 +24,7 @@
     "deployed enough to be worth naming; it cannot name one nobody has heard of",
     "yet, and it says nothing about code Linthra writes itself. What this check",
     "does and does not prove is written down in",
-    "docs/tracker-dependency-audit.md.",
+    "docs/audits/tracker-dependencies.md.",
     "",
     "Entries are sorted by (ecosystem, identifier) and must be unique. The",
     "checker enforces both, so a hand-edited file cannot drift into an order",

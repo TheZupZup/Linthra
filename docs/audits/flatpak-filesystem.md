@@ -9,7 +9,7 @@ remain outside the sandbox.
 
 The wider audit (every socket, device, network and D-Bus permission, each
 against the feature that needs it) is
-[flatpak-permissions.md](./flatpak-permissions.md) (#455). This page is the
+[flatpak-permissions.md](flatpak-permissions.md) (#455). This page is the
 filesystem half in detail.
 
 ## Result
@@ -143,7 +143,7 @@ overrides:
    is what Linthra's database/cache/offline stores rely on;
 5. runs `scripts/check_flatpak_permissions.py --installed`, which holds the
    package's whole permission set (not only its filesystem grants) to the
-   table in [flatpak-permissions.md](./flatpak-permissions.md).
+   table in [flatpak-permissions.md](flatpak-permissions.md).
 
 The script removes its host and sandbox probes before exiting.
 
@@ -156,7 +156,7 @@ artwork load, a track plays, a sentinel file and a sibling directory beside that
 folder stay unreadable, the library survives a relaunch, and taking the grant
 away produces the recoverable `folderUnavailable` state from #438 with the
 previously indexed tracks kept. See
-[Flatpak local-library sandbox smoke](distribution/flatpak/local-library-smoke.md).
+[Flatpak local-library sandbox smoke](../distribution/flatpak/local-library-smoke.md).
 
 What it cannot do is press the button. A FileChooser portal grant is minted only
 by the user's chooser action, and no headless runner can perform it, nor does a

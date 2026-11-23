@@ -306,7 +306,7 @@ Notes:
   manifest's `com.google.android.gms.car.application` entry is **only a
   metadata declaration** that tells Android Auto Linthra is a media app
   (pointing at `automotive_app_desc.xml`); it does **not** link the GMS Cast or
-  Car SDK. See [docs/dependency-license-audit.md](../../dependency-license-audit.md).
+  Car SDK. See [docs/audits/dependency-licenses.md](../../audits/dependency-licenses.md).
 - The same permission rationale, with more F-Droid framing, is in
   [docs/distribution/f-droid/readiness.md §5](../f-droid/readiness.md#5-anti-features-review).
 

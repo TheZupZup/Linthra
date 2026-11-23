@@ -55,7 +55,7 @@ fails the run too, so a reason cannot outlive the dependency it explains.
 yet, and it says nothing about code Linthra writes itself — the app could send
 anything anywhere with `package:http` alone. The rest of #504 (fixed network
 destinations, the manifest surface, the release APK report, the runtime network
-smoke test) is what covers those. docs/tracker-dependency-audit.md spells the
+smoke test) is what covers those. docs/audits/tracker-dependencies.md spells the
 boundary out.
 """
 
@@ -71,7 +71,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_POLICY = REPO_ROOT / "scripts" / "tracker_policy.json"
-DOC = "docs/tracker-dependency-audit.md"
+DOC = "docs/audits/tracker-dependencies.md"
 
 #: The ecosystems an identifier can belong to. An entry's ecosystem decides how
 #: it is matched, so an unknown one is a policy error rather than a no-op.

@@ -38,7 +38,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | Playlists & safe removal | [playlists-and-delete.md](./playlists-and-delete.md) |
 | Smart mixes (automatic playlists) | [smart-mixes.md](./smart-mixes.md) |
 | Backup & restore (file format) | [backup-restore-format.md](./backup-restore-format.md) |
-| Battery usage | [battery.md](./battery.md) · [playback audit](./battery-playback-audit.md) |
+| Battery usage | [battery.md](./battery.md) · [playback audit](audits/battery-playback.md) |
 | App icon & branding (in-app + real Android launcher icon) | [app-icon-branding.md](./app-icon-branding.md) |
 
 ## Quality & releases
@@ -53,17 +53,17 @@ The full index of Linthra's docs. New to the project? Start with the
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
 | Release process & signing | [release-process.md](distribution/release-process.md) · [signing](distribution/release-signing.md) · [artifact verification](distribution/release-artifact-verification.md) |
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |
-| PR security surface guard | [pr-security-guard.md](./pr-security-guard.md) |
-| Tracker dependency audit (no ads/analytics/telemetry SDKs) | [tracker-dependency-audit.md](./tracker-dependency-audit.md) |
-| Fixed network destinations (every host the shipped code names) | [network-destinations.md](./network-destinations.md) |
+| PR security surface guard | [pr-security-guard.md](audits/pr-security-guard.md) |
+| Tracker dependency audit (no ads/analytics/telemetry SDKs) | [Tracker dependency audit](audits/tracker-dependencies.md) |
+| Fixed network destinations (every host the shipped code names) | [network-destinations.md](audits/network-destinations.md) |
 | Privacy audit status (what is checked, and the limits) | [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) |
 | F-Droid readiness | [F-Droid readiness checklist](distribution/f-droid/readiness.md) |
 | Google Play readiness | [Google Play readiness checklist](distribution/google-play/readiness.md) |
 | Flatpak build CI | [Flatpak CI validation](distribution/flatpak/ci.md) |
 | Flatpak audio playback smoke | [Flatpak audio playback smoke](distribution/flatpak/audio-smoke.md) |
 | Flatpak local-library sandbox smoke | [Flatpak local-library sandbox smoke](distribution/flatpak/local-library-smoke.md) |
-| Flatpak sandbox filesystem audit | [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md) |
-| Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
+| Flatpak sandbox filesystem audit | [Flatpak filesystem sandbox audit](audits/flatpak-filesystem.md) |
+| Flatpak permission audit | [flatpak-permissions.md](audits/flatpak-permissions.md) |
 | Flatpak source pinning & refresh | [Flatpak source pinning](distribution/flatpak/source-pinning.md) |
 | Flathub builder lint | [flathub-builder-lint.md](distribution/flatpak/flathub-builder-lint.md) |
 | Flathub screenshots | [flathub-screenshots.md](distribution/flatpak/flathub-screenshots.md) |
@@ -78,8 +78,8 @@ published under MPL-2.0 and remain under those terms.
 | --- | --- |
 | Current license (GNU AGPLv3) | [LICENSE](../LICENSE) |
 | Historical license texts | [licenses/](./licenses/README.md) · [MPL-2.0.txt](./licenses/MPL-2.0.txt) |
-| License transition record | [license-transition.md](./license-transition.md) |
-| Contributor consent record | [relicensing-consent.md](./relicensing-consent.md) |
-| Dependency & license audit | [dependency-license-audit.md](./dependency-license-audit.md) |
+| License transition record | [license-transition.md](audits/license-transition.md) |
+| Contributor consent record | [relicensing-consent.md](audits/relicensing-consent.md) |
+| Dependency & license audit | [Dependency & license audit](audits/dependency-licenses.md) |
 | Branding / trademark policy | [TRADEMARKS.md](../TRADEMARKS.md) |
 | Privacy policy | [privacy-policy.md](./privacy-policy.md) |

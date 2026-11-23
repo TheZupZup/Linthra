@@ -14,7 +14,7 @@ blockers, and the steps to actually submit.
 
 Related docs: [F-Droid readiness checklist](readiness.md) (the overall
 checklist), [F-Droid build recipe planning & reproducible-build notes](build-recipe.md) (recipe and
-reproducibility), [dependency-license-audit.md](../../dependency-license-audit.md)
+reproducibility), [Dependency & license audit](../../audits/dependency-licenses.md)
 (licensing), [listing-assets.md](../listing-assets.md) (icon, graphic,
 screenshots), [release-process.md](../release-process.md) (versioning and
 tagging), and the draft recipe at
@@ -150,7 +150,7 @@ A few things still need checking against fdroiddata before submitting:
 ## 4. Anti-features
 
 The reasoning is in [F-Droid readiness checklist §5](readiness.md#5-anti-features-review)
-and [dependency-license-audit.md §6](../../dependency-license-audit.md#6-anti-features--non-free-check).
+and [Dependency & license audit §6](../../audits/dependency-licenses.md#6-anti-features--non-free-check).
 The short version: there's nothing to declare.
 
 | Anti-feature  | Apply? | Why |
@@ -280,7 +280,7 @@ the maintainer asked for.
 > This repository's own `metadata/io.github.thezupzup.linthra.yml` already made
 > the cutover: the v0.2.5 release update advanced `CurrentVersion` past
 > `v0.2.4` and set `License: AGPL-3.0-or-later` in the same change (see
-> [license-transition.md](../../license-transition.md)). **Still to do:** the
+> [license-transition.md](../../audits/license-transition.md)). **Still to do:** the
 > external `fdroiddata` recipe already builds v0.2.5 to v0.2.7 but its
 > `License:` field still says MPL-2.0. The merge request that fixes it is
 > ready in §11 (tracked in #659).
@@ -368,7 +368,7 @@ hotfix, and the target has since moved on to alpha.30.
 - Submission package: `docs/distribution/f-droid/submission.md`
 - Readiness checklist: `docs/distribution/f-droid/readiness.md`
 - Build recipe notes: `docs/distribution/f-droid/build-recipe.md`
-- Dependency/license audit: `docs/dependency-license-audit.md`
+- Dependency/license audit: `docs/audits/dependency-licenses.md`
 - Listing assets: `docs/distribution/listing-assets.md`
 
 ### Status
@@ -414,8 +414,8 @@ so the app-level `License:` field is updated to match.
 Releases up to and including v0.2.4 were published under MPL-2.0 and stay
 under it upstream. No `Builds` entry, commit or tag is changed here.
 
-- Transition record: https://github.com/TheZupZup/Linthra/blob/main/docs/license-transition.md
-- Contributor consent: https://github.com/TheZupZup/Linthra/blob/main/docs/relicensing-consent.md
+- Transition record: https://github.com/TheZupZup/Linthra/blob/main/docs/audits/license-transition.md
+- Contributor consent: https://github.com/TheZupZup/Linthra/blob/main/docs/audits/relicensing-consent.md
 - Preserved MPL-2.0 text for older releases: https://github.com/TheZupZup/Linthra/blob/main/docs/licenses/MPL-2.0.txt
 - Upstream tracking issue: https://github.com/TheZupZup/Linthra/issues/659
 

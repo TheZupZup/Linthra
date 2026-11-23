@@ -121,7 +121,7 @@ Whichever is chosen, the review has to cover: the trust anchors used to validate
 a receiver certificate and how they are updated; protocol compatibility with
 supported devices; the dependency's provenance (publisher, pinning in
 `pubspec.lock`, and — if vendored — placement under `third_party/` with the
-license audit in [dependency-license-audit.md](dependency-license-audit.md));
+license audit in [Dependency & license audit](audits/dependency-licenses.md));
 and which platforms it actually supports.
 
 ## Tests the restoration has to pass

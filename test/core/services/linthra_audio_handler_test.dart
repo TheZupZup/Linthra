@@ -2812,7 +2812,7 @@ void main() {
     group('Bluetooth / car media-session surface', () {
       // A Bluetooth headset, a car head unit, and the lock screen all drive the
       // same MediaSession. These lock in the device-facing invariants the audit
-      // verified (see docs/audio-bluetooth-cpu-audit.md): a stable capability
+      // verified (see docs/audits/bluetooth-and-cpu.md): a stable capability
       // set, artwork in the now-playing item when the track has it, and a Stop
       // control that is always offered.
 

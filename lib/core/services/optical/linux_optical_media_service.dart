@@ -111,7 +111,7 @@ class LinuxOpticalMediaService implements OpticalMediaService {
   ///
   /// False inside the Flatpak, and that is a packaging fact rather than a
   /// runtime failure. UDisks2 lives on the **system** bus, Linthra's sandbox
-  /// grants no system-bus reach of any kind, and `docs/flatpak-permissions.md`
+  /// grants no system-bus reach of any kind, and `docs/audits/flatpak-permissions.md`
   /// refuses `--system-talk-name=` outright — so a Flatpak build cannot ask,
   /// and saying so up front is more honest than opening a connection that is
   /// certain to be denied and reporting it as an error the user could fix.

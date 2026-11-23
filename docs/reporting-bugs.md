@@ -116,7 +116,7 @@ choose.
 
 ## See also
 
-- [docs/dependency-license-audit.md §7 (Reporting a bug)](./dependency-license-audit.md#reporting-a-bug-browser-hand-off-no-auto-send)
+- [docs/audits/dependency-licenses.md §7 (Reporting a bug)](audits/dependency-licenses.md#reporting-a-bug-browser-hand-off-no-auto-send)
   — why `url_launcher` is the only added dependency and how it stays F‑Droid‑clean.
 - [docs/privacy-policy.md](./privacy-policy.md) — the overall privacy posture.
 - The GitHub issue forms under [`.github/ISSUE_TEMPLATE`](../.github/ISSUE_TEMPLATE)

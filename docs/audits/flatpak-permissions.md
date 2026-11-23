@@ -63,7 +63,7 @@ was avoided.
 
 | Feature | The permission it did not need | What it uses instead |
 | --- | --- | --- |
-| Local music libraries | `--filesystem=home`, `--filesystem=xdg-music`, `--filesystem=host` | `GtkFileChooserNative` (`linux/runner/folder_picker_channel.cc`), which GTK redirects to the xdg-desktop-portal FileChooser inside a sandbox. The user's choice becomes a document-portal grant for that folder alone. See [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md). |
+| Local music libraries | `--filesystem=home`, `--filesystem=xdg-music`, `--filesystem=host` | `GtkFileChooserNative` (`linux/runner/folder_picker_channel.cc`), which GTK redirects to the xdg-desktop-portal FileChooser inside a sandbox. The user's choice becomes a document-portal grant for that folder alone. See [Flatpak filesystem sandbox audit](flatpak-filesystem.md). |
 | Server credentials | `--talk-name=org.freedesktop.secrets` | `flutter_secure_storage_linux` → libsecret. Inside a Flatpak with the Secret portal available, libsecret keeps its own encrypted file under the app's data directory, with the master secret handed over by the portal from the host keyring. Documented at `lib/data/repositories/secure_session_storage.dart`. |
 | Desktop notifications | `--talk-name=org.freedesktop.Notifications` | The Notification portal, which every Flatpak may use without a finish-arg. `lib/core/services/notifications/dbus_desktop_notifier.dart` calls it first and only falls back to the spec interface outside the sandbox, where the session bus is directly reachable. |
 | The app's own database, caches and downloads | `--persist=`, `--filesystem=~/.local/share/linthra` | The private XDG tree Flatpak gives every app under `~/.var/app/<app-id>/`, reached through `path_provider`. |
@@ -169,7 +169,7 @@ check is cheaper and runs on every PR in the main CI workflow instead
 | Self-hosted servers | none | Sign in to a Jellyfin/Navidrome/Plex/Audiobookshelf server from the installed Flatpak and play a track. Needs a server and a credential, so it is not a CI job |
 | Secure credentials | none | Sign in, quit, relaunch, and confirm the session survived, which is what proves libsecret's portal-backed store worked with no `--talk-name` |
 | MPRIS | none | `playerctl status` and the media keys while the packaged app plays; a second window to exercise the `.instance` name |
-| Background running | `test/core/services/portal_background_permission_test.dart`, against a stand-in portal that answers the way xdg-desktop-portal 1.18 does, and which also holds the bus calls to what xdg-dbus-proxy lets out of the sandbox | The desktop's own background monitor, which needs a GNOME or Plasma session: see the matrix in [linux-desktop.md](./linux-desktop.md#closing-the-window) |
+| Background running | `test/core/services/portal_background_permission_test.dart`, against a stand-in portal that answers the way xdg-desktop-portal 1.18 does, and which also holds the bus calls to what xdg-dbus-proxy lets out of the sandbox | The desktop's own background monitor, which needs a GNOME or Plasma session: see the matrix in [linux-desktop.md](../linux-desktop.md#closing-the-window) |
 | Notifications | none | Whatever surfaces a notification, once one does. Nothing in Linthra posts one on Linux today, which is why no permission is listed for it |
 
 The two gaps that matter for [#456](https://github.com/TheZupZup/Linthra/issues/456)
@@ -185,11 +185,11 @@ started needing something.
 
 ## Related
 
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the filesystem
+- [Flatpak filesystem sandbox audit](flatpak-filesystem.md), the filesystem
   half in detail, and the manual portal pass
-- [flathub-builder-lint.md](distribution/flatpak/flathub-builder-lint.md), Flathub's own view of
+- [flathub-builder-lint.md](../distribution/flatpak/flathub-builder-lint.md), Flathub's own view of
   the same permissions
-- [optical-media.md](./optical-media.md), a feature the sandbox cannot serve
+- [optical-media.md](../optical-media.md), a feature the sandbox cannot serve
   today: UDisks2 is on the system bus, which this page refuses in every
   spelling
 - `scripts/check_linux_runner.py`, the exact allow-list, checked against both

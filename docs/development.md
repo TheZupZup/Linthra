@@ -314,7 +314,7 @@ against the reviewed policy in `scripts/tracker_policy.json`. If it fails on you
 branch, a dependency you added — or something underneath it — matches a known
 advertising, analytics, attribution, telemetry or crash-reporting SDK. The output
 names the dependency, the file it came in through and why it is on the list;
-[tracker-dependency-audit.md](./tracker-dependency-audit.md) covers what the
+[Tracker dependency audit](audits/tracker-dependencies.md) covers what the
 check does and does not prove, and how to review a finding.
 
 The third one lists every host name and IP address written into the source
@@ -322,7 +322,7 @@ Linthra ships and compares them against `scripts/network_destinations.json`. If
 it fails on your branch, you added a URL or address it has not seen before, or a
 known one in a file where it was not reviewed. Server addresses the user types in
 are never affected, and example names like `music.example.com` never need an
-entry. [network-destinations.md](./network-destinations.md) explains how to add
+entry. [network-destinations.md](audits/network-destinations.md) explains how to add
 one.
 
 ### Python tooling checks (Ruff)

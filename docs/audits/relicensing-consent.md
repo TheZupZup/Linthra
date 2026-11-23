@@ -13,7 +13,7 @@ This file is not itself a license, it does not change the license of any
 existing Linthra release, and it is not legal advice.
 
 Releases published under MPL-2.0 — up to and including **v0.2.4** — remain under
-those terms. See [`license-transition.md`](./license-transition.md).
+those terms. See [`license-transition.md`](license-transition.md).
 
 ## What the consent is meant to do
 

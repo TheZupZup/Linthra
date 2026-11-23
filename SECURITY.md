@@ -62,11 +62,11 @@ Anything that breaks Linthra's own promises:
   (see [docs/backup-restore-format.md](./docs/backup-restore-format.md))
 - authenticated stream URLs escaping where they should not
 - the Flatpak sandbox: escapes, or permissions broader than the app needs
-  (see [docs/flatpak-filesystem-audit.md](./docs/flatpak-filesystem-audit.md))
+  (see [docs/audits/flatpak-filesystem.md](docs/audits/flatpak-filesystem.md))
 - Android platform surfaces: exported components, SAF and filesystem access,
   intent handling
 - the repository and release supply chain: workflows, signing, published
-  artifacts (see [docs/repository-hardening.md](./docs/repository-hardening.md))
+  artifacts (see [docs/audits/repository-hardening.md](docs/audits/repository-hardening.md))
 - anything that contradicts [PRIVACY.md](./PRIVACY.md), including unexpected
   network traffic
 

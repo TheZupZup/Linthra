@@ -87,7 +87,7 @@ Legend: ☑ = verified on a real device for the current alpha · ☐ = re-verify
 
 Linthra drives all of this through the **standard Android `MediaSession` + audio
 focus** (`audio_service` + `just_audio`) — there is no custom Bluetooth code (see
-[audio-bluetooth-cpu-audit.md](audio-bluetooth-cpu-audit.md)). CI can't exercise a
+[Audit — Bluetooth, Bluetooth LE / modern-Android compatibility, and CPU efficiency](audits/bluetooth-and-cpu.md)). CI can't exercise a
 real radio/headset/car, so verify on a device. Test what you have; mark the rest
 N/A.
 

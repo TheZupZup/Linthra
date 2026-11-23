@@ -113,7 +113,7 @@ jobs:
       # It proves a narrow thing: no NAMED tracking SDK is in the graph. It says
       # nothing about Linthra's own network code, which is what the rest of #504
       # covers. The boundary is written down in
-      # docs/tracker-dependency-audit.md. Local twin:
+      # docs/audits/tracker-dependencies.md. Local twin:
       # `python3 scripts/check_tracker_dependencies.py`.
       - name: Check for known tracker dependencies
         run: python3 scripts/check_tracker_dependencies.py
@@ -135,7 +135,7 @@ jobs:
       # are data, not code, and are never affected.
       #
       # It sees hosts written down in source, not ones built at run time or
-      # returned by a server. docs/network-destinations.md has the limits.
+      # returned by a server. docs/audits/network-destinations.md has the limits.
       # Local twin: `python3 scripts/check_network_destinations.py`.
       - name: Check fixed network destinations
         run: python3 scripts/check_network_destinations.py

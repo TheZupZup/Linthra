@@ -38,11 +38,11 @@ access and no Flutter or Android toolchain.
 
 | What it shows | When it runs | Reproduce it | Details |
 | --- | --- | --- | --- |
-| No known advertising, analytics, attribution, telemetry or crash-reporting SDK is in the dependency files Linthra ships from (pub, Gradle, vendored modules, Cargo) | Every pull request | `python3 scripts/check_tracker_dependencies.py` | [tracker-dependency-audit.md](docs/tracker-dependency-audit.md) |
-| Every host name and IP address written into the shipped source is reviewed, with what it is for, and only in the files it was reviewed in | Every pull request | `python3 scripts/check_network_destinations.py` | [network-destinations.md](docs/network-destinations.md) |
+| No known advertising, analytics, attribution, telemetry or crash-reporting SDK is in the dependency files Linthra ships from (pub, Gradle, vendored modules, Cargo) | Every pull request | `python3 scripts/check_tracker_dependencies.py` | [Tracker dependency audit](docs/audits/tracker-dependencies.md) |
+| Every host name and IP address written into the shipped source is reviewed, with what it is for, and only in the files it was reviewed in | Every pull request | `python3 scripts/check_network_destinations.py` | [network-destinations.md](docs/audits/network-destinations.md) |
 | No committed keys, tokens or private data, and no real server URLs or home paths in diagnostics fixtures | Every pull request | `./scripts/check_secrets.sh` | [development.md](docs/development.md#privacy-guardrails) |
-| Every Flatpak sandbox permission has a written reason, and nothing broader than listed is granted | Every pull request | `python3 scripts/check_flatpak_permissions.py` | [flatpak-permissions.md](docs/flatpak-permissions.md) |
-| New network-capable code, and changes to Android permissions or the network security config, need an owner's review | Every pull request | `python3 scripts/check_pr_security_surface.py --base <sha> --head <sha> --report out.md` | [pr-security-guard.md](docs/pr-security-guard.md) |
+| Every Flatpak sandbox permission has a written reason, and nothing broader than listed is granted | Every pull request | `python3 scripts/check_flatpak_permissions.py` | [flatpak-permissions.md](docs/audits/flatpak-permissions.md) |
+| New network-capable code, and changes to Android permissions or the network security config, need an owner's review | Every pull request | `python3 scripts/check_pr_security_surface.py --base <sha> --head <sha> --report out.md` | [pr-security-guard.md](docs/audits/pr-security-guard.md) |
 | Release APKs, AABs, the Linux tarball and the Flatpak bundle are checked after they are built, and their SHA-256 is recorded | Every release | `python3 scripts/verify_release_containment.py <downloaded release files>` | [release-artifact-verification.md](docs/distribution/release-artifact-verification.md) |
 
 The last row checks the built artifacts for the Cast security containment, not

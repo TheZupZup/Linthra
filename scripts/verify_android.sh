@@ -81,14 +81,14 @@ main() {
   # The other half of the privacy guardrail (#504): the dependency files
   # Linthra ships from are checked against the reviewed tracker policy in
   # scripts/tracker_policy.json. Offline and toolchain-free, same as CI's
-  # "Check for known tracker dependencies" step. docs/tracker-dependency-audit.md
+  # "Check for known tracker dependencies" step. docs/audits/tracker-dependencies.md
   # has what it proves and, just as importantly, what it does not.
   run_step "tracker dependency audit" \
     python3 scripts/check_tracker_dependencies.py
 
   # Same job, same idea, for Linthra's own code (#504): every host name or IP
   # literal in the shipped source has to be in the reviewed inventory in
-  # scripts/network_destinations.json. docs/network-destinations.md has the
+  # scripts/network_destinations.json. docs/audits/network-destinations.md has the
   # limits. Offline and toolchain-free, like CI's step of the same name.
   run_step "fixed network destination audit" \
     python3 scripts/check_network_destinations.py

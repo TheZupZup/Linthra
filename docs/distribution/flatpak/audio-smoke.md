@@ -225,7 +225,7 @@ quotes file paths in its own error strings, the sandbox still sees the host's
 ## Related
 
 - [Flatpak CI validation](ci.md), what the Flatpak build job proves
-- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), sandbox
+- [Flatpak filesystem sandbox audit](../../audits/flatpak-filesystem.md), sandbox
   filesystem policy and its smoke
 - [Flatpak development on Fedora Atomic](development.md), building the Flatpak
   locally

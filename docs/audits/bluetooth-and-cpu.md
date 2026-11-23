@@ -246,7 +246,7 @@ Per the phase's safety rules (report first; keep changes small and reviewable; n
 playback-stack refactor; no UI change; no telemetry; no battery-optimisation
 request), this PR is intentionally minimal:
 
-1. **This audit report** (`docs/audio-bluetooth-cpu-audit.md`).
+1. **This audit report** (`docs/audits/bluetooth-and-cpu.md`).
 2. **Regression tests** that lock in the Bluetooth-facing invariants the audit
    verified (see §5), so a future change can't silently regress them.
 3. **A manual test checklist** (`docs/manual-test-checklist.md` §3a) for the

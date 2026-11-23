@@ -18,7 +18,7 @@
     "explains.",
     "",
     "Entries are sorted by (host, kind) and paths are sorted within an entry.",
-    "The checker enforces both. docs/network-destinations.md explains how to",
+    "The checker enforces both. docs/audits/network-destinations.md explains how to",
     "review a new host and what this check does not prove."
   ],
   "version": 1,

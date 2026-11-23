@@ -9,7 +9,7 @@ import 'dart:io' show Platform;
 /// report a fixable error for something the user cannot fix.
 ///
 /// Optical media is the feature that asks. UDisks2 lives on the system bus and
-/// `docs/flatpak-permissions.md` refuses system-bus access outright, and
+/// `docs/audits/flatpak-permissions.md` refuses system-bus access outright, and
 /// reading a disc's table of contents needs the drive's device node, which the
 /// sandbox does not expose either. Both halves of #631 therefore report
 /// "unsupported" up front inside the Flatpak instead of opening something that
