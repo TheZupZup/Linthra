@@ -80,6 +80,15 @@ final class NativeSearchIndex implements Finalizable {
   /// Builds an index over [records], or returns null when this build has no
   /// Rust core ([LinthraCore.isAvailable] is false).
   static NativeSearchIndex? build(Iterable<NativeSearchRecord> records) {
+    final int? address = buildDetached(records);
+    return address == null ? null : NativeSearchIndex.adopt(address);
+  }
+
+  /// Builds an index over [records] and returns its native address, for
+  /// building on a background isolate: send the address back and pass it to
+  /// [NativeSearchIndex.adopt] on the isolate that will use it, exactly once.
+  /// Until then nothing frees it. Returns null without the Rust core.
+  static int? buildDetached(Iterable<NativeSearchRecord> records) {
     if (!LinthraCore.isAvailable) return null;
     final Pointer<LinthraIndexBuilder> builder = linthraIndexBuilderNew();
     try {
@@ -107,7 +116,15 @@ final class NativeSearchIndex implements Finalizable {
       linthraIndexBuilderFree(builder);
       rethrow;
     }
-    final Pointer<LinthraIndex> index = linthraIndexBuilderFinish(builder);
+    return linthraIndexBuilderFinish(builder).address;
+  }
+
+  /// Takes ownership of an index from [buildDetached]: it is freed by
+  /// [dispose], or when this object is collected.
+  factory NativeSearchIndex.adopt(int address) {
+    final Pointer<LinthraIndex> index = Pointer<LinthraIndex>.fromAddress(
+      address,
+    );
     final NativeSearchIndex result =
         NativeSearchIndex._(index, linthraIndexLen(index));
     _finalizer.attach(result, index.cast(), detach: result);
