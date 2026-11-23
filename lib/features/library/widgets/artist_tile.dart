@@ -25,7 +25,7 @@ class ArtistTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     // Right-click (and the keyboard's menu key) offers what an artist page's
-    // own buttons already do (#386); the long-press stays exactly the
+    // own buttons already do; the long-press stays exactly the
     // add-to-playlist shortcut a phone has always had.
     return ContextMenuRegion<CollectionAction>(
       itemBuilder: (BuildContext context) => collectionMenuItems(),
@@ -83,7 +83,7 @@ class _ArtistAvatar extends StatelessWidget {
   const _ArtistAvatar({required this.artworkUri});
 
   /// The avatar's logical size, named so the decode bound is derived from the
-  /// same number the box is (#457) rather than repeating it.
+  /// same number the box is rather than repeating it.
   static const double _avatarDimension = 48;
 
   final Uri? artworkUri;

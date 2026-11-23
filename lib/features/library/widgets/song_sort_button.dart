@@ -15,7 +15,7 @@ String songSortLabel(SongSort sort) => switch (sort) {
       SongSort.oldestAdded => 'Date added (oldest first)',
     };
 
-/// The Songs list's sort control (#893): the current order on a compact
+/// The Songs list's sort control: the current order on a compact
 /// button that opens every order the list offers, the current one checked.
 ///
 /// A labelled button rather than a bare icon, so the order the list is in can

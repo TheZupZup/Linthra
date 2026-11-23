@@ -5,8 +5,8 @@ import '../../core/services/background_permission.dart';
 import '../../core/services/portal_background_permission.dart';
 import 'download_repository_provider.dart';
 
-/// Asks the desktop whether Linthra may keep running with its window closed
-/// (#754), or null where there is nothing to ask. Null by default, so tests
+/// Asks the desktop whether Linthra may keep running with its window closed,
+/// or null where there is nothing to ask. Null by default, so tests
 /// and every host but the Flatpak never put the question.
 final backgroundPermissionRequesterProvider =
     Provider<BackgroundPermissionRequester?>((ref) => null);

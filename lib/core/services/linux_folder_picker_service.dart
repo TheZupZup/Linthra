@@ -8,7 +8,7 @@ import 'method_channel_linux_folder_picker.dart';
 /// The order is deliberate. [MethodChannelLinuxFolderPicker] is the chooser
 /// that works in *both* Linux builds — a plain GTK dialog natively, and the
 /// xdg-desktop-portal chooser inside the Flatpak, where `file_picker`'s
-/// `zenity`/`kdialog` binaries do not exist (#438). The plugin chooser is kept
+/// `zenity`/`kdialog` binaries do not exist. The plugin chooser is kept
 /// only for a build that has no such channel registered (a `flutter test` host,
 /// or an older runner), so nothing regresses if the native half is missing.
 ///

@@ -10,7 +10,7 @@ import '../../../app/shortcuts/shortcut_action.dart';
 import '../../../app/shortcuts/shortcut_binding.dart';
 import '../../help/keyboard_shortcuts_help.dart';
 
-/// The "Keyboard shortcuts" card on the Music & playback settings page (#391).
+/// The "Keyboard shortcuts" card on the Music & playback settings page.
 ///
 /// Desktop-only (the screen decides that): the shortcuts themselves work
 /// wherever a real keyboard sends the chord, including an Android tablet with a
@@ -27,7 +27,7 @@ import '../../help/keyboard_shortcuts_help.dart';
 /// which is why a refusal reads the same here as it would anywhere else that
 /// ever offers rebinding.
 ///
-/// "Show all shortcuts" opens the help window (#392), which is the readable
+/// "Show all shortcuts" opens the help window, which is the readable
 /// view of the same map: grouped, with descriptions, and without the editing
 /// controls. It is also what `Ctrl+/` opens from anywhere in the app.
 class KeyboardShortcutsSettingsSection extends ConsumerWidget {
@@ -161,7 +161,7 @@ class KeyboardShortcutsSettingsSection extends ConsumerWidget {
   }
 }
 
-/// The way into the help window (#392) from Settings.
+/// The way into the help window from Settings.
 ///
 /// Stateful only to own a [FocusNode]: the window hands the keyboard back to
 /// whatever opened it, and a button that was clicked never had focus for

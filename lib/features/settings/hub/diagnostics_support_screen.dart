@@ -12,7 +12,7 @@ import 'settings_detail_scaffold.dart';
 /// copying or saving a diagnostics snapshot to paste into one. Nothing is
 /// generated or sent on its own.
 ///
-/// On Linux a third card sits underneath: the native playback report (#406),
+/// On Linux a third card sits underneath: the native playback report,
 /// which answers the questions the general snapshot cannot — which backend is
 /// playing, whether libmpv answered, which output subsystem is in use. It
 /// renders nothing off Linux, so the Android page is unchanged.

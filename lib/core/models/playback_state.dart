@@ -132,7 +132,7 @@ class PlaybackState {
   /// exactly like a stall during playback. This is what tells the two apart,
   /// so the Android media session can report the first as paused (Play in the
   /// notification, a headset click that plays, the foreground service let go)
-  /// and keep the second playing (#751).
+  /// and keep the second playing.
   ///
   /// Defaults to true, which is how a busy state read before this flag
   /// existed: an output that does not track the intent separately (a cast

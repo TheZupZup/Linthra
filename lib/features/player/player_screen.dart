@@ -199,7 +199,7 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
   /// rather than closed.
   bool _showQueue = false;
 
-  /// The queue button's focus node (#390).
+  /// The queue button's focus node.
   ///
   /// Held by the screen rather than by the button so it outlives the pane: when
   /// the pane closes (by the button, or because the window narrowed past
@@ -223,7 +223,7 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
     // the app-level sheet: this screen already has somewhere to put the queue,
     // and pressing the chord over an open pane should close it rather than
     // stack a sheet on top of it. Registered last, so it is offered the key
-    // before the navigation frame underneath (#391).
+    // before the navigation frame underneath.
     _shortcutSurface = ref.read(shortcutSurfaceProvider)
       ..bind(ShortcutAction.queue, _handleQueueShortcut);
   }
@@ -311,7 +311,7 @@ class _NowPlayingState extends ConsumerState<_NowPlaying> {
               flex: 4,
               // Its own traversal group, and so is the queue: Tab walks the
               // controls whole, then the queue, instead of weaving queue rows
-              // in between the transport buttons beside them (#460).
+              // in between the transport buttons beside them.
               child: FocusTraversalGroup(
                 child: _paneControls(
                   track: track,
@@ -551,7 +551,7 @@ class _ActionsBar extends ConsumerWidget {
   final VoidCallback? onToggleQueue;
 
   /// The queue button's focus node, so the screen can hand the keyboard back
-  /// to it when the pane it opened closes (#390).
+  /// to it when the pane it opened closes.
   final FocusNode? queueButtonFocusNode;
 
   @override

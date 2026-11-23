@@ -26,7 +26,7 @@ typedef LinuxPlaybackBackendRegistration = void Function();
 /// streams audio, and it manages its own offline downloads separately. When mpv
 /// cannot create the temporary file it wants, libmpv logs
 /// `[lavf] Failed to create cache temporary file.` followed by
-/// `[lavf] Failed to create file cache.` on every stream (#405).
+/// `[lavf] Failed to create file cache.` on every stream.
 ///
 /// `cache-on-disk=no` turns off exactly that temporary on-disk packet file.
 /// media_kit's `cache=yes` is deliberately left alone, so normal memory and

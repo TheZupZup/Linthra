@@ -102,7 +102,7 @@ final Set<LogicalKeyboardKey> _mediaKeys = <LogicalKeyboardKey>{
 /// the point: `Ctrl+↑` and `Super+↑` move a row in a reorderable list
 /// (`ReorderHandle`) and `Shift+F10` opens a row's context menu
 /// (`ContextMenuRegion`) for keyboards with no menu key. Both are deliberate
-/// accessibility bindings from #390, installed in a `Shortcuts` nearer the
+/// accessibility bindings, installed in a `Shortcuts` nearer the
 /// keyboard than this one, so a global action bound here would simply never
 /// fire while such a row had focus.
 ///

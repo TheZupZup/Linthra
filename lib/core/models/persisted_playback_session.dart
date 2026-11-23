@@ -50,8 +50,8 @@ class PersistedPlaybackSession {
   /// Whose songs each remote provider's tracks are, by provider source id
   /// (`subsonic`, …): the same non-secret account fingerprint the sync stores
   /// keep, or the Plex server's `machineIdentifier`. A remote track id only
-  /// means something there, so a restore under anyone else leaves them out
-  /// (#767). A provider missing from it is one nobody could say for.
+  /// means something there, so a restore under anyone else leaves them out.
+  /// A provider missing from it is one nobody could say for.
   ///
   /// Null for a record saved before Linthra wrote this, whose tracks restore
   /// as they always did.
@@ -131,7 +131,7 @@ class PersistedPlaybackSession {
   /// Invalid individual tracks are dropped; [currentIndex] is remapped onto the
   /// surviving list. The saved position comes back only with the saved current
   /// song (or another copy of it): a song standing in for one that was dropped
-  /// starts from the top (#793). A wholly empty result yields `null`. When that
+  /// starts from the top. A wholly empty result yields `null`. When that
   /// is only because [isTrackRestorable] turned every track down, the record
   /// itself is still sound and is not a reason to clear the store.
   static PersistedPlaybackSession? fromJson(

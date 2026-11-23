@@ -84,7 +84,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   /// without measuring laid-out widgets.
   ///
   /// The row extent follows the theme's [VisualDensity] rather than being one
-  /// number for everyone (#384): a desktop theme is compact, and a list of song
+  /// number for everyone: a desktop theme is compact, and a list of song
   /// rows is where that difference is worth the most — eight pixels a row is a
   /// couple more songs per screen on every scroll. Touch keeps 64 exactly.
   static const double _baseTrackExtent = 64;
@@ -168,7 +168,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   /// per-letter scroll offsets from the current tracks.
   ///
   /// The order and the sections come from the same key, so every section is
-  /// one contiguous run and each letter appears once (#872). Sorting on one
+  /// one contiguous run and each letter appears once. Sorting on one
   /// key and grouping on another put '#' at both ends of the list.
   void _rebuildIndex() {
     final List<Track>? catalog = widget.catalog;
@@ -274,7 +274,7 @@ class _AlphabetTrackListState extends State<AlphabetTrackList> {
   Widget build(BuildContext context) {
     final showRail = _letters.length >= 2;
     // Home and End jump to the ends of the library the way they do in any
-    // desktop list; the arrow keys already walk it row by row (#390). It wraps
+    // desktop list; the arrow keys already walk it row by row. It wraps
     // the list alone: the rail's letters are focus stops too, and inside the
     // same region End would take the rail's last letter for the bottom row.
     return Stack(

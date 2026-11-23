@@ -34,7 +34,7 @@ import '../../core/sources/music_provider.dart';
 /// local-track favourites and other providers' hearts alone, as well as any heart
 /// toggled while the refresh was waiting on the server (the answer predates it).
 ///
-/// Ownership (#843): a remote id only means something on its own server and
+/// Ownership: a remote id only means something on its own server and
 /// account, so each provider's hearts and queued writes are saved with the key
 /// of the account they belong to ([FavoritesData.owners]). They are pushed
 /// only to that account. The first time another account is seen signed in for
@@ -125,7 +125,7 @@ class SyncedFavoritesRepository
   /// never landed is retried after a restart rather than undone by the first
   /// refresh. A save the disk refuses leaves memory, the stream and the disk
   /// all as they were: the change is not half there, where a later save that
-  /// works would write it after all (#808).
+  /// works would write it after all.
   Future<void> _write(FavoritesData next, Map<String, bool> pending) async {
     try {
       await _store.save(
@@ -172,7 +172,7 @@ class SyncedFavoritesRepository
     final bool remote = _isRemoteUri(key);
     final RemoteFavoritesGateway? gateway = remote ? _gatewayForUri(key) : null;
     // Throws, having changed nothing, when the disk refuses the save: the
-    // heart isn't shown, kept, or pushed (#808).
+    // heart isn't shown, kept, or pushed.
     final int toggle = await _inTurn(() async {
       if (!remote) {
         await _write(
@@ -623,7 +623,7 @@ class SyncedFavoritesRepository
   /// next refresh would revert it anyway: there is nothing of ours to move.
   /// Nothing is pushed anywhere: local hearts never leave the device.
   ///
-  /// A save the disk refuses leaves the heart where it was (#808) and
+  /// A save the disk refuses leaves the heart where it was and
   /// completes with false, so the move is kept and asked again.
   @override
   Future<bool> reassignTrack({

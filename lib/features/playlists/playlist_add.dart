@@ -8,8 +8,7 @@ import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 
 /// What adding a set of tracks to a playlist would actually do.
 ///
-/// Two rules decide it, and both were previously private to the "Add to
-/// playlist" sheet:
+/// Two rules decide it, shared by everything that adds to a playlist:
 ///
 ///  * a synced playlist only takes its own server's tracks, so it stays
 ///    consistent with the server (a Jellyfin playlist holds only `jellyfin:`
@@ -17,7 +16,7 @@ import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 ///  * the repository skips uris already in the playlist, so the count a user is
 ///    told must be the genuinely-new ones
 ///
-/// It lives here because drag-and-drop (#389) is a second way into the same
+/// It lives here because drag-and-drop is a second way into the same
 /// operation, and a drop that used its own rules could put a Jellyfin track in
 /// a Navidrome playlist by going around the sheet. One plan, both paths.
 ///

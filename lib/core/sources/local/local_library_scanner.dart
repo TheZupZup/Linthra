@@ -203,7 +203,7 @@ class LocalLibraryScanner {
   /// A filesystem folder whose walk found no files at all, while the library
   /// has music from it, is not read as a folder that was emptied: it is what an
   /// unmounted drive or network share looks like when its mount point stays
-  /// behind (#737). It is reported unavailable for [LocalRootFault.empty] and
+  /// behind. It is reported unavailable for [LocalRootFault.empty] and
   /// its music is kept, unless it is in [acceptEmpty], the folders the user has
   /// said really are empty.
   Future<LocalLibraryScan> scan({

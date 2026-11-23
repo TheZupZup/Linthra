@@ -6,7 +6,7 @@ import '../platform/host_platform.dart';
 import 'desktop_window_controller.dart';
 
 /// The [DesktopWindowController] backed by Linthra's own Linux runner channel
-/// (`linux/runner/window_lifecycle_channel.cc`), for issue #401.
+/// (`linux/runner/window_lifecycle_channel.cc`).
 ///
 /// Two directions on one channel:
 ///

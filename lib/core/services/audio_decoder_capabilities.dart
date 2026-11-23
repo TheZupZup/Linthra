@@ -16,7 +16,7 @@ enum FlacDecodingPath {
   platform,
 
   /// No platform FLAC decoder. The bundled libFLAC decoder is used instead
-  /// (API 24–26 devices without a vendor decoder, #674).
+  /// (API 24–26 devices without a vendor decoder).
   bundledFallback,
 
   /// Neither. A FLAC track fails with an unsupported-format error rather than
@@ -26,7 +26,7 @@ enum FlacDecodingPath {
 }
 
 /// What the Android audio stack on this device can decode, for the diagnostics
-/// report (#674).
+/// report.
 ///
 /// Everything here is a platform fact, not user data: the SDK level, ABI names,
 /// codec names and MIME types. Nothing about the library, servers or tracks.

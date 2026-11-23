@@ -1,5 +1,5 @@
 /// The Backup/Restore V1 **service layer**: a small, pure-Dart facade that
-/// composes the format building blocks from PR #246 into the two operations the
+/// composes the format building blocks into the two operations the
 /// (future) UI needs, while keeping every safety rule in one testable place.
 ///
 /// 1. **Export** — [BackupRestoreService.buildBackup] projects the live,

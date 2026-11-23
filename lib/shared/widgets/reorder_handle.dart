@@ -63,7 +63,7 @@ class _MoveItemIntent extends Intent {
 /// belongs to focus traversal and scrolling, and stealing it would trade one
 /// accessible behaviour for another.
 ///
-/// Shared by the queue's Up Next list and the playlist editor (#388, #389) so
+/// Shared by the queue's Up Next list and the playlist editor so
 /// the two lists cannot drift into two different reorder gestures. Pair it with
 /// a [ReorderFocusWalk] on the host, which is what keeps a held chord walking
 /// one row rather than whatever slid under the focus.
@@ -131,7 +131,7 @@ class ReorderHandle extends StatelessWidget {
           },
           child: Padding(
             padding: const EdgeInsets.only(left: AppSpacing.xs),
-            // The shared ring (#390): the handle is a focusable control like
+            // The shared ring: the handle is a focusable control like
             // any other, and says so the same way the rows around it do. Drawn
             // as an overlay outside the node, so arriving on it never nudges
             // the row's layout and `Focus.of` below still finds the handle.

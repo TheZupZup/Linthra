@@ -9,11 +9,11 @@ import 'shortcut_intents.dart';
 /// This enum plus [ShortcutActions.definitions] is *the* registry: the defaults,
 /// the names a person reads, and the intent each one dispatches all live here
 /// and nowhere else. The dispatcher, the settings screen, persistence, and the
-/// help window (#392) all read this same table, so a shortcut cannot be
+/// help window all read this same table, so a shortcut cannot be
 /// documented as one thing and bound as another.
 ///
 /// Deliberately absent: anything a media key does. Play/pause, next and
-/// previous reach Linthra from the desktop through MPRIS (#398), which works
+/// previous reach Linthra from the desktop through MPRIS, which works
 /// while the window is not focused and is what the user's keyboard already
 /// sends. The entries below are the *in-window* equivalents, bound to ordinary
 /// chords; [ShortcutBinding] refuses to bind a media key to any of them.
@@ -28,7 +28,7 @@ enum ShortcutAction {
   shortcutsHelp,
 }
 
-/// The heading a shortcut is listed under (#392).
+/// The heading a shortcut is listed under.
 ///
 /// Part of the registry rather than of the help window, for the same reason
 /// the labels and descriptions are: a group is a fact about the action, and a
@@ -74,7 +74,7 @@ class ShortcutActionDefinition {
 
   final ShortcutAction action;
 
-  /// The heading the help window lists this action under (#392).
+  /// The heading the help window lists this action under.
   final ShortcutGroup group;
 
   /// The stable key this action's override is stored under. Never derived from
@@ -85,7 +85,7 @@ class ShortcutActionDefinition {
   /// The short name a settings row and the help window show.
   final String label;
 
-  /// One line of what it does, shown in the help window (#392).
+  /// One line of what it does, shown in the help window.
   final String description;
 
   final ShortcutBinding defaultBinding;
@@ -135,7 +135,7 @@ abstract final class ShortcutActions {
       storageKey: 'play_pause',
       label: 'Play / pause',
       description: 'Start or pause whatever is loaded.',
-      // Ctrl+Space rather than bare Space: #390 made every button and row
+      // Ctrl+Space rather than bare Space: every button and row is
       // keyboard-activatable, and Space is how you activate the focused one.
       defaultBinding: ShortcutBinding(
         LogicalKeyboardKey.space,

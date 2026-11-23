@@ -40,7 +40,7 @@ abstract interface class TextFileSaver {
 }
 
 /// Writes straight into the app's documents directory, asking nothing: what
-/// every platform did before Linux got a save dialog (#748), and what Android
+/// every platform did before Linux got a save dialog, and what Android
 /// still does.
 class DocumentsDirectoryTextFileSaver implements TextFileSaver {
   const DocumentsDirectoryTextFileSaver({

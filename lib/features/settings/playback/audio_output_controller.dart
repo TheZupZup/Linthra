@@ -43,7 +43,7 @@ class AudioOutputSettingsState {
   /// was refused too, so audio may not be coming out anywhere.
   ///
   /// This is the "recovery is impossible" state the hotplug work has to surface
-  /// rather than leave silently muted (#403). It is recoverable, not terminal:
+  /// rather than leave silently muted. It is recoverable, not terminal:
   /// the card offers a retry, and the next device change or refresh clears it
   /// on its own if the backend comes back.
   final bool outputRecoveryFailed;
@@ -98,7 +98,7 @@ class AudioOutputSettingsState {
 /// so launching the app never probes the audio backend just to confirm the
 /// default. The Settings card calls [refresh] when it is opened.
 ///
-/// ## Hotplug (#403)
+/// ## Hotplug
 ///
 /// It also owns what happens when the *host* changes an output underneath
 /// playback — a headset unplugged, a Bluetooth speaker dropping and coming
@@ -141,7 +141,7 @@ class AudioOutputController extends AsyncNotifier<AudioOutputSettingsState> {
   ///
   /// Deliberately separate from the *stored* preference. Disk forgets a device
   /// that was not there at startup — that is the "saved on another machine"
-  /// rule from #402 and it stays — but a device that has been seen working this
+  /// rule and it stays — but a device that has been seen working this
   /// session and then vanished is a hotplug, not a stale preference, so memory
   /// keeps it and [onDevicesChanged] can hand playback back when it returns.
   String? _desiredId;

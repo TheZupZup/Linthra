@@ -126,7 +126,7 @@ abstract interface class PlaybackController {
   /// Takes every track [test] picks out of the queue, wherever it sits, the
   /// current one included. Used when a remote provider's songs stop being the
   /// signed-in account's, so none of them can play against another account's
-  /// server (#767). [test] answers by what a track is (its provider), never
+  /// server. [test] answers by what a track is (its provider), never
   /// by where it sits.
   ///
   /// When the current track goes, its audio goes with it: playback stops and

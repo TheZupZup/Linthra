@@ -510,7 +510,7 @@ class _ScanSummary extends StatelessWidget {
           "couldn't be read. Their music stays in your library — reconnect the "
           'drive or select the folder again, then rescan.';
     }
-    // Left out rather than shown as songs that never play (#817). Renaming
+    // Left out rather than shown as songs that never play. Renaming
     // them is the fix, and nothing else here would say so.
     if (report.unopenableNames > 0) {
       final int count = report.unopenableNames;

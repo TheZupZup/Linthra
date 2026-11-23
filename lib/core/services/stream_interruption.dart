@@ -52,7 +52,7 @@ class StreamInterruption {
 /// Linthra's patched just_audio raises it (see
 /// third_party/just_audio/PATCHES.md) where Media3 alone would drop the audio
 /// track and "play" silently, with the session reporting PLAYING and no error
-/// at all (#674). It means these bytes can't be decoded here, so it is never
+/// at all. It means these bytes can't be decoded here, so it is never
 /// retried.
 const int unsupportedAudioFormatErrorCode = 4005;
 
@@ -80,7 +80,7 @@ StreamInterruption classifyEngineError(Object error) {
   ).toLowerCase();
 
   // Structural, not wording: the Android engine's "no decoder on this device
-  // for this audio" error (#674) carries Media3's code, and just_audio renders
+  // for this audio" error carries Media3's code, and just_audio renders
   // an engine error as "(<code>) <message>". Checked before anything else so no
   // digit or word in the message can route it elsewhere.
   if (text.startsWith('($unsupportedAudioFormatErrorCode)')) {

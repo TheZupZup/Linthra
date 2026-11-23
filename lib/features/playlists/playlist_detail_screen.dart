@@ -139,7 +139,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   ),
                 ],
               ),
-        // The whole page takes a dropped track (#389), not just the list: the
+        // The whole page takes a dropped track, not just the list: the
         // rail's spring can land a drag here rather than on the Playlists tab
         // when this playlist was already open, and an empty playlist is
         // exactly the one somebody wants to drag songs into.
@@ -248,7 +248,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   ///
   /// Entering selection swaps a ReorderableListView for a plain ListView, which
   /// mounts a fresh Scrollable and would otherwise drop the user back at the top
-  /// of a long playlist (#582). They are different widgets on purpose (a drag
+  /// of a long playlist. They are different widgets on purpose (a drag
   /// handle has no place in selection mode), so the position is carried across
   /// by PageStorage rather than by keeping one widget alive.
   static const PageStorageKey<String> _listPosition =
@@ -753,7 +753,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 /// for that. Everything about *how* a row is reordered — the grab cursor, the
 /// lift, the Ctrl/Cmd + arrow chord, the screen-reader move actions — lives in
 /// the shared [ReorderHandle] and [ReorderFocusWalk], so the playlist editor
-/// and the queue cannot drift into two different gestures (#388, #389).
+/// and the queue cannot drift into two different gestures.
 ///
 /// Every route (drag, chord, screen reader) lands on the same
 /// [PlaylistRepository.reorderTracks] call, so there is one persistence path
@@ -906,7 +906,7 @@ class _ReorderableTrackListState extends ConsumerState<_ReorderableTrackList> {
   /// The indices are the rows', which only show a move once the playlist's
   /// songs are read again: a second drag before that comes from the old order,
   /// and applied to the stored one it moved whichever song had taken the
-  /// dragged one's place (#749). So the move goes by the song the drag was
+  /// dragged one's place. So the move goes by the song the drag was
   /// started on, as the rows showed it.
   void _moveByPointer(int from, int to) {
     final int focused = _walk.focusedIndex;

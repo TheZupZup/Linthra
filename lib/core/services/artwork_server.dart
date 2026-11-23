@@ -9,7 +9,7 @@ import '../sources/subsonic/subsonic_artwork.dart';
 
 /// The non-secret identity of the server a cover [reference] resolves against
 /// right now, for the artwork caches to keep one server's covers apart from
-/// another's (#739).
+/// another's.
 ///
 /// A Subsonic or Plex reference (`subsonic-cover:al-12`,
 /// `plex-thumb:/library/metadata/101/thumb/…`) names a cover on whichever

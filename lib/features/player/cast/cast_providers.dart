@@ -41,8 +41,8 @@ final castStateProvider = StreamProvider<CastState>((ref) {
 ///
 /// Unused by production while [CastContainment.isActive] — nothing resolves a
 /// stream URL for a receiver when no session can be opened. It stays wired and
-/// tested because [#576](https://github.com/TheZupZup/Linthra/issues/576) builds
-/// on it, rather than rebuilding it afterwards.
+/// tested because restoring Cast builds on it, rather than rebuilding it
+/// afterwards.
 final castMediaResolverProvider = Provider<CastMediaResolver>((ref) {
   return RoutingCastMediaResolver(<CastMediaResolver>[
     JellyfinCastMediaResolver(() => ref.read(jellyfinMusicSourceProvider)),

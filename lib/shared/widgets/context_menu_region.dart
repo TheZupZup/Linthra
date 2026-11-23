@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 /// Opens a menu on right-click, and on the keyboard's menu key.
 ///
-/// The desktop half of the per-item actions Linthra already has (#386). Every
+/// The desktop half of the per-item actions Linthra already has. Every
 /// menu here is the *same* menu the row's 3-dot button opens — same entries,
 /// same state, same commands — so a right-click can never offer something a tap
 /// cannot, or run it differently.
@@ -52,7 +52,7 @@ class ContextMenuRegion<T> extends StatelessWidget {
         // "F10 with Shift somewhere in the mix" also swallowed Ctrl+Shift+F10,
         // and "the menu key whatever else is held" swallowed Ctrl+Menu —
         // neither of which anybody presses to open a row menu, and both of
-        // which a user can bind as a shortcut (#391). A local handler that
+        // which a user can bind as a shortcut. A local handler that
         // eats a chord it was not given is a binding that looks set and never
         // fires.
         final HardwareKeyboard keyboard = HardwareKeyboard.instance;

@@ -10,7 +10,7 @@ import 'desktop_window_controller.dart';
 import 'playback_controller.dart';
 
 /// Keeps the desktop runner's close behaviour in step with the user's choice
-/// and with what playback is doing, and owns the explicit-quit path (#401).
+/// and with what playback is doing, and owns the explicit-quit path.
 ///
 /// The runner cannot ask Dart anything inside a GTK `delete-event` handler,
 /// because that answer has to be synchronous, so this service *pushes* the
@@ -43,7 +43,7 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
   final DesktopWindowController _window;
   final PlaybackController _playback;
 
-  /// Asks the desktop whether a windowless Linthra may run (#754). Null where
+  /// Asks the desktop whether a windowless Linthra may run. Null where
   /// nothing kills an app for having no window: everywhere but the Flatpak.
   final BackgroundPermissionRequester? _background;
 
@@ -82,7 +82,7 @@ class DesktopWindowLifecycleService implements DesktopApplicationActions {
   /// startup and again on every change.
   ///
   /// Choosing to keep playing (and starting up with that choice) also asks
-  /// the desktop whether Linthra may run with its window closed (#754). The
+  /// the desktop whether Linthra may run with its window closed. The
   /// window keeps hiding as before while the answer is on its way.
   void setCloseBehavior(DesktopCloseBehavior behavior) {
     if (_behavior == behavior) return;

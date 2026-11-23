@@ -24,7 +24,7 @@ class SettingsSectionHeader extends StatelessWidget {
         AppSpacing.xs,
       ),
       // A heading, read as written: the capitals are only a look, and some
-      // screen readers spell a capitalised word out letter by letter (#460).
+      // screen readers spell a capitalised word out letter by letter.
       child: Semantics(
         header: true,
         label: title,

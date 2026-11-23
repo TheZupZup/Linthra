@@ -287,9 +287,8 @@ class LibraryController extends Notifier<LibraryState> {
       // offline folder's tracks are carried into the new slice, a file whose
       // stamp is unchanged is reused instead of being opened and parsed again,
       // and a file that changed path can only be recognised as *the same file*
-      // by comparing against what was there before. It used to be fetched only
-      // for a multi-folder library, because retention was the only use; the
-      // other two make it worth one indexed query on every scan.
+      // by comparing against what was there before. Together they make it
+      // worth one indexed query on every scan.
       final List<StampedTrack>? previousTracks = await _localCatalogSnapshot();
       if (generation != _scanGeneration) return null;
 
@@ -312,7 +311,7 @@ class LibraryController extends Notifier<LibraryState> {
       // A folder last read in full by another revision of the tag reader, or
       // never recorded, is read in full once more: unchanged files are never
       // opened again otherwise, so a change to how tags are read would only
-      // ever reach new and edited ones (#783).
+      // ever reach new and edited ones.
       final int? tagRevision = metadataReader is LocalTagRevision
           ? (metadataReader as LocalTagRevision).tagRevision
           : null;

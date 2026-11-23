@@ -20,7 +20,7 @@ import '../../../core/models/track.dart';
 ///
 /// **Every field the catalog persists must be in here**, or a change confined
 /// to a missing field would look like "nothing changed" and never reach the
-/// database (#281).
+/// database.
 String plexLibrarySignature(List<String> sectionKeys, List<Track> tracks) {
   final List<String> sortedSections = List<String>.of(sectionKeys)..sort();
   final List<String> rows = <String>[

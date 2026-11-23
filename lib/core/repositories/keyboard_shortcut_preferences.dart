@@ -1,4 +1,4 @@
-/// The user's keyboard-shortcut overrides (issue #391).
+/// The user's keyboard-shortcut overrides.
 ///
 /// Deliberately string-to-string. The store knows nothing about which actions
 /// exist or what a binding means: it holds whatever the shortcut layer asked it

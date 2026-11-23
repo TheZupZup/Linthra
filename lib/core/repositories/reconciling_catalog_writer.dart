@@ -5,7 +5,7 @@ import '../models/track.dart';
 ///
 /// A replacement (`upsertCatalog`, `beginCatalogReplacement`) removes the old
 /// slice as part of the write, so it is only safe when the whole new catalog is
-/// in hand. A big remote library (issue #680: a Navidrome server with ~80k
+/// in hand. A big remote library (a Navidrome server with ~80k
 /// tracks) takes thousands of requests to enumerate, and a sync that must hold
 /// everything until the end loses all of it when Android freezes or kills the
 /// app halfway. Reconciling splits the write in two:

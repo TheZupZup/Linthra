@@ -1,6 +1,6 @@
 /// Remembers that a Subsonic/Navidrome library sync started for an account and
 /// has not finished yet, so the app can pick it up again after being frozen,
-/// backgrounded or killed partway (issue #680).
+/// backgrounded or killed partway.
 ///
 /// The sync writes the account's fingerprint (see `subsonicAccountFingerprint`)
 /// here before its first batch and clears it once the walk has run to its end.

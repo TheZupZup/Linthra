@@ -8,7 +8,7 @@ import 'local_root_probe.dart';
 /// Tracks whether each configured local music folder is reachable, and notices
 /// when one that was away comes back.
 ///
-/// This is the state half of "music on a removable drive" (#415). It owns no
+/// This is the state half of "music on a removable drive". It owns no
 /// catalog logic at all: unplugging a drive moves an enum, and plugging it back
 /// in asks for the ordinary incremental scan, the same one the Rescan button
 /// runs. Nothing it can do removes a track, a folder from the selection, or a
@@ -267,7 +267,7 @@ class LocalRootAvailabilityMonitor {
       // A folder a scan found empty while the library has music from it stays
       // that way while it still holds nothing: on its own, the probe can't
       // tell a mount point waiting for its share from a folder that is just
-      // empty, and taking it for back would rescan it on every poll (#737).
+      // empty, and taking it for back would rescan it on every poll.
       // The share coming back brings files, and that reads as back.
       final LocalRootFault? fault = answer.isAvailable &&
               answer.holdsNothing &&

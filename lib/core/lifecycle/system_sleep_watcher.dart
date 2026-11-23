@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 typedef TimeAsleepReader = Duration? Function();
 
 /// Notices that the machine slept, so the player can reload what was playing
-/// once it wakes (#466, #799).
+/// once it wakes.
 ///
 /// Linux tells a running app nothing about a system suspend. Flutter's Linux
 /// embedder reports the window's focus and visibility (`resumed`, `inactive`,

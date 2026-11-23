@@ -71,7 +71,7 @@ class ShortcutUpdateResult {
 /// The live shortcut map: defaults with the user's overrides on top.
 ///
 /// This is the single source the dispatcher binds, the settings screen edits,
-/// and the help window planned in #392 will read. Nothing else composes
+/// and the help window reads. Nothing else composes
 /// defaults with overrides, so what the app answers and what it says it answers
 /// cannot drift apart.
 ///

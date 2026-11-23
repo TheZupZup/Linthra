@@ -32,7 +32,7 @@ import '../../core/sources/subsonic/subsonic_track_mapper.dart';
 /// [PlaylistSyncState.syncFailed] with a friendly, secret-free
 /// [Playlist.lastSyncError], so the UI shows an honest status.
 ///
-/// Ownership (#843): a synced playlist's [Playlist.remoteId] means something
+/// Ownership: a synced playlist's [Playlist.remoteId] means something
 /// only on its own account's server, so each one records the account it
 /// belongs to ([Playlist.owner]) and is only ever pushed to that account. A
 /// refresh by another account drops the previous account's playlists before
@@ -59,7 +59,7 @@ class SyncedPlaylistRepository
 
   final PlaylistStore _store;
 
-  /// Where each remote song a device playlist lists was added (#795).
+  /// Where each remote song a device playlist lists was added.
   final SongOrigins _origins;
 
   /// The per-provider server seams. Empty for local-only (tests, the data-layer
@@ -534,7 +534,7 @@ class SyncedPlaylistRepository
     if (target > oldIndex) target -= 1;
     if (shown != null) {
       // The order the caller saw may not be the stored one any more, so the
-      // song it moved is found by identity (#749).
+      // song it moved is found by identity.
       final List<String>? moved = playlistWithMove(
         trackIds,
         shown: shown,
@@ -918,7 +918,7 @@ class SyncedPlaylistRepository
   /// playlist it becomes once its account is gone: this device holds the
   /// only copy, so there is nothing to drop it in favour of.
   ///
-  /// Its songs keep naming its account's (#795): an account's songs are what
+  /// Its songs keep naming its account's: an account's songs are what
   /// the origin of a device playlist's entry records for it.
   Playlist _asDevicePlaylist(Playlist p) {
     final String? owner = p.owner;
@@ -976,7 +976,7 @@ class SyncedPlaylistRepository
 
   /// Carries a moved local file to its new path in every device playlist that
   /// holds it, in the same place, so tidying a folder doesn't leave the song
-  /// missing from them (#794).
+  /// missing from them.
   ///
   /// Only device playlists and local paths take part: a synced playlist holds
   /// its server's songs, and a `scheme:` uri is a server's to change, so one
@@ -985,7 +985,7 @@ class SyncedPlaylistRepository
   /// edit, so [Playlist.updatedAt] stays as it was.
   ///
   /// Never throws: a save the disk refuses leaves every playlist as it was
-  /// (#808) and completes with false, so the move is kept and asked again
+  /// and completes with false, so the move is kept and asked again
   /// rather than failing the scan that asked. Asked again, it finds the old
   /// path gone from every playlist and saves nothing.
   @override
@@ -1361,7 +1361,7 @@ class SyncedPlaylistRepository
   ///
   /// A save the disk refuses throws with memory, the stream and the disk all
   /// as they were: the edit is not half there, where the next save that works
-  /// would write it after all (#808). With [keepIfRefused], for what stands
+  /// would write it after all. With [keepIfRefused], for what stands
   /// whatever the disk says, [next] is made current anyway before it throws.
   Future<void> _write(List<Playlist> next, {bool keepIfRefused = false}) async {
     try {

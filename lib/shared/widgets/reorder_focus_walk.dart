@@ -13,7 +13,7 @@ import 'package:flutter/widgets.dart';
 /// handle. Keying them by item would mean a new node per edit, and a duplicate
 /// node whenever the same song appears twice.
 ///
-/// Shared by the queue's Up Next list and the playlist editor (#388, #389).
+/// Shared by the queue's Up Next list and the playlist editor.
 /// Pure enough to unit-test the index arithmetic without pumping a list; the
 /// focus and scroll side effects are exercised through the two screens.
 class ReorderFocusWalk {

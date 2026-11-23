@@ -30,7 +30,7 @@ const double _desktopShellChromeWidth = 132;
 const double queueSidePanelMinWindowWidth =
     queueSidePanelWidth + _desktopShellChromeWidth + listDetailMinWidth;
 
-/// The playback queue as a persistent column beside the page (#416).
+/// The playback queue as a persistent column beside the page.
 ///
 /// It is the same [QueueSheet] the phone opens as a bottom sheet and Now
 /// Playing opens as a pane: the same current/up-next rows, the same reorder,

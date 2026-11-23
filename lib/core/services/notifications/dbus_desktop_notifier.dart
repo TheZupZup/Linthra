@@ -29,7 +29,7 @@ enum NotificationTransport {
 /// never come back and has to be given up.
 enum _SendOutcome { delivered, refused, timedOut }
 
-/// Shows Linux desktop notifications over D-Bus (issue #400).
+/// Shows Linux desktop notifications over D-Bus.
 ///
 /// D-Bus is what a desktop notification *is*: a method call to the session's
 /// notification service. Linthra already speaks it for MPRIS through the same

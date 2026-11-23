@@ -1,4 +1,4 @@
-/// Remembers whose library a remote source's catalog slice holds (#741).
+/// Remembers whose library a remote source's catalog slice holds.
 ///
 /// Signing out of Jellyfin or Subsonic keeps the source's rows, so the library
 /// stays visible offline. They are still the rows of the account that synced

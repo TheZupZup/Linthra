@@ -59,7 +59,7 @@ class SortedSongs {
 
 /// Orders [tracks] by [sort].
 ///
-/// The order and the sections come from one key, folded once per song (#872):
+/// The order and the sections come from one key, folded once per song:
 /// case, common accents and surrounding spaces count for nothing, so "Édith
 /// Piaf" sorts and files under E, and each section is one contiguous run.
 ///

@@ -247,10 +247,10 @@ abstract final class StabilityDiagnostics {
   ///
   /// Recorded because "the car's Next did nothing" has two very different
   /// causes and only this tells them apart: **no** breadcrumb means the command
-  /// never reached the app (the head unit swallowed the press — the #638
-  /// failure, where the session was reporting `STATE_CONNECTING` across every
-  /// track change), while a breadcrumb with no following track change means it
-  /// arrived and was a legitimate queue-boundary no-op.
+  /// never reached the app (the head unit swallowed the press, as it does
+  /// when the session reports `STATE_CONNECTING` across every track change),
+  /// while a breadcrumb with no following track change means it arrived and
+  /// was a legitimate queue-boundary no-op.
   static void skipCommand(String direction) {
     SafeEventLog.instance.record('skip', direction);
     _log(describeSkipCommand(direction));

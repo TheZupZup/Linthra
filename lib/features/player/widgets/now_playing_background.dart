@@ -42,7 +42,7 @@ class NowPlayingBackground extends StatelessWidget {
                 // Decoded far smaller than the screen on purpose. A 40px
                 // gaussian blur destroys every detail a larger decode would
                 // buy, so a full-screen 4K backdrop would cost tens of
-                // megabytes to look identical (#457). This is the one artwork
+                // megabytes to look identical. This is the one artwork
                 // surface whose bound is a constant rather than its box.
                 image: artworkImageProvider(
                   uri,

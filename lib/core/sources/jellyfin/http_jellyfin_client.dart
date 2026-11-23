@@ -517,7 +517,7 @@ class HttpJellyfinClient implements JellyfinClient {
     return id;
   }
 
-  /// How many item ids one playlist add carries (#876). They all ride in the
+  /// How many item ids one playlist add carries. They all ride in the
   /// query string, and a few hundred run past the 8 KB request line that
   /// Kestrel and most proxies accept. A hundred is about 3.5 KB.
   static const int _playlistAddBatchSize = 100;

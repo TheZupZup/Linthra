@@ -16,8 +16,7 @@ import 'artwork_fetch.dart';
 /// Why this exists: Flutter's built-in `ImageCache` is in-memory only and is
 /// dropped the moment the process ends, so every remote cover — Jellyfin's
 /// token-free image URL, or a resolved Subsonic/Plex reference — was otherwise
-/// re-fetched on *every* app launch (issue #356: "every time I open the app it
-/// has to re-download all images for everything"). This cache sits in front of
+/// re-fetched on *every* app launch. This cache sits in front of
 /// the network fetch inside `artworkImageProvider`: a hit is read straight from
 /// disk (no network at all); a miss still loads exactly as it did before this
 /// cache existed and, in the background, fetches + writes the bytes so the
@@ -46,7 +45,7 @@ import 'artwork_fetch.dart';
 ///    as a miss, never surfaced as an error — the caller falls back to a fresh
 ///    fetch and, ultimately, its placeholder.
 ///
-/// Per server, fresh and bounded (#739):
+/// Per server, fresh and bounded:
 ///  - A Subsonic or Plex reference (`subsonic-cover:al-12`) names a cover on
 ///    *a* server, not on which one, so it is cached under the server it
 ///    resolves against now ([serverOf]): another server's `al-12` is another

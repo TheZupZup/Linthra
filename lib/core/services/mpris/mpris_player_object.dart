@@ -16,7 +16,7 @@ import '../playback_controller.dart';
 /// MPRIS is how GNOME's lock screen and top-bar controls, KDE's media applet,
 /// `playerctl` and the media keys all discover and drive a player. Implementing
 /// it is what makes Linthra a real desktop music player rather than a window
-/// that happens to make sound (#397).
+/// that happens to make sound.
 ///
 /// Everything here is a pure translation between the spec's properties/methods
 /// and [PlaybackController]. Nothing owns a bus connection, a name, or a
@@ -52,7 +52,7 @@ class MprisPlayerObject extends DBusObject {
   final MediaArtworkSource? _artwork;
 
   /// The window and the process behind it, when this build has one it can act
-  /// on (#401). Null on a host that cannot raise or quit itself, and then
+  /// on. Null on a host that cannot raise or quit itself, and then
   /// `CanRaise`/`CanQuit` are false and both methods do nothing, which is what
   /// the spec asks of a player that cannot perform them.
   final DesktopApplicationActions? _application;
@@ -173,7 +173,7 @@ class MprisPlayerObject extends DBusObject {
         // spec says a player that cannot perform one should simply do
         // nothing, which is what a null [_application] means here.
         case 'Raise':
-          // Bring the window back. In background mode (#401) this is a
+          // Bring the window back. In background mode this is a
           // listener's way home from the shell's media widget when Linthra has
           // no window on screen at all.
           _startApplicationAction((actions) => actions.raise());
@@ -437,7 +437,7 @@ class MprisPlayerObject extends DBusObject {
     if (interface == rootInterface) {
       return <String, DBusValue>{
         // True exactly when there is a window/process seam to act on, so a
-        // shell only offers Quit and Raise where they do something (#401).
+        // shell only offers Quit and Raise where they do something.
         'CanQuit': DBusBoolean(_application != null),
         'CanRaise': DBusBoolean(_application != null),
         'HasTrackList': const DBusBoolean(false),
@@ -547,7 +547,7 @@ class MprisPlayerObject extends DBusObject {
         // Still Playing: MPRIS has no buffering state, and a player waiting on
         // data is working toward sound rather than stopped by the user. Unless
         // the listener paused it, which the Android session reports as paused
-        // too (#751). The same call every toggle makes
+        // too. The same call every toggle makes
         // ([PlaybackState.isPlayingOrStalled]), and it has to agree with
         // PlayPause above, or a shell would draw a play button for a state
         // whose toggle pauses.

@@ -212,7 +212,7 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   }
 
   /// The user says [folder] really is empty: its music was deleted on purpose,
-  /// not left behind on a drive or share that isn't mounted (#737). Scans the
+  /// not left behind on a drive or share that isn't mounted. Scans the
   /// selection once with that folder allowed to come back empty, which takes
   /// its music out of the library. Only while it still holds nothing: a share
   /// mounted again in the meantime is simply read.

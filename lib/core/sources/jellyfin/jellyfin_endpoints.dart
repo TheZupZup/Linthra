@@ -286,7 +286,7 @@ abstract final class JellyfinEndpoints {
   /// no auth, so it is safe to persist on a track and cache.
   ///
   /// [tag] is the image's current tag: a cover replaced on the server gets a
-  /// new one, and so a new URL, which the artwork cache fetches afresh (#739).
+  /// new one, and so a new URL, which the artwork cache fetches afresh.
   /// The image is asked for no larger than [coverMaxExtent] on either side,
   /// the most any Linthra surface draws a cover at, rather than the original
   /// scan (often several megabytes, and one per track).

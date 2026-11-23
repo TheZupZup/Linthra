@@ -10,7 +10,7 @@ import '../data/repositories/host_platform_provider.dart';
 /// seam and a test override covers them all.
 ///
 /// On Linux the listener picks the place in the desktop's save dialog (the
-/// portal's, inside the Flatpak) (#748). Elsewhere it is written into the
+/// portal's, inside the Flatpak). Elsewhere it is written into the
 /// app's documents directory, as before.
 final textFileSaverProvider = Provider<TextFileSaver>((ref) {
   return ref.watch(hostPlatformProvider) == HostPlatform.linux

@@ -158,7 +158,7 @@ class _PlaylistTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
     // The same two actions the trailing button offers, on right-click and on
-    // the keyboard's menu key (#386). Rename and delete are all the domain
+    // the keyboard's menu key. Rename and delete are all the domain
     // layer supports for a playlist from here, so that is all the menu claims.
     final Widget row = ContextMenuRegion<_PlaylistMenuAction>(
       itemBuilder: (BuildContext context) => _menuItems(),
@@ -186,7 +186,7 @@ class _PlaylistTile extends ConsumerWidget {
         onTap: () => context.push(AppRoutes.playlistDetailPath(playlist.id)),
       ),
     );
-    // Dropping tracks here adds them (#389). The row is the clear target the
+    // Dropping tracks here adds them. The row is the clear target the
     // issue asks for: it is the playlist, named, with its song count.
     return PlaylistDropRegion(
       playlist: playlist,

@@ -10,8 +10,8 @@ import 'vorbis_comment_fields.dart';
 /// `audio_metadata_reader` gives up on a whole file over one comment it can't
 /// parse: a TRACKNUMBER of `A1` on a vinyl rip, an empty `TRACKTOTAL=`, a
 /// `DISCTOTAL=two`, a comment with no `=` or one that isn't UTF-8. The track
-/// was then named after its file for good, with no length and no cover
-/// (#776). These containers keep all of that in a few well-specified
+/// was then named after its file for good, with no length and no cover.
+/// These containers keep all of that in a few well-specified
 /// structures, so [FilesystemLocalMetadataReader] reads them here when the
 /// package gives up, and only then.
 ///

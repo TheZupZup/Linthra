@@ -29,7 +29,7 @@ import 'widgets/selection_escape_scope.dart';
 import 'widgets/track_tile.dart';
 
 /// One album's tracks, in album order, with Play / Shuffle, the queue actions
-/// (#417) and tap-to-play.
+/// and tap-to-play.
 ///
 /// Reads the same derived grouping the Albums tab uses, so it stays in sync
 /// with the catalog: tapping a track plays it and queues the rest of *this
@@ -72,7 +72,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
   /// The selection used when no host supplied one.
   final TrackSelection _ownSelection = TrackSelection();
 
-  /// Which songs are picked, and where a Shift-click measures from (#387).
+  /// Which songs are picked, and where a Shift-click measures from.
   TrackSelection get _selection => widget.selection ?? _ownSelection;
 
   bool get _selecting => _selection.isActive;

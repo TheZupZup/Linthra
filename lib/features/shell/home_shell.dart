@@ -102,7 +102,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _queuePanelOpen = false;
 
   /// The mini-player queue button's focus node, owned here rather than by the
-  /// button (#390).
+  /// button.
   ///
   /// Closing the column disposes every control in it, the ✕ the user just
   /// pressed included, so without somewhere to put the keyboard it unwinds to
@@ -171,9 +171,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   /// Claimed whatever is drawn over the frame, unlike the queue. A queue
   /// column the user cannot see is no answer, but a tab switch is: it just has
   /// to be one they can see. So anything on top — Now Playing, a queue sheet,
-  /// a dialog — is cleared first, which is what the app-level `go` used to do
-  /// as a side effect of replacing the route stack, and then the branch is
-  /// switched so the tab keeps its own history.
+  /// a dialog — is cleared first, as the app-level `go` would by replacing the
+  /// route stack, and then the branch is switched so the tab keeps its own
+  /// history.
   bool _handleLibraryShortcut() {
     final ModalRoute<Object?>? route = ModalRoute.of(context);
     if (route == null || !route.isActive) return false;
@@ -202,8 +202,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final NavigatorState? activeBranch =
         widget.branchNavigatorKeys[currentIndex].currentState;
     // A tab can keep pages in a navigator of its own inside the branch's
-    // (Settings does, so a wide window can show them beside the categories,
-    // #753). Whatever the router can pop, it pops itself.
+    // (Settings does, so a wide window can show them beside the categories).
+    // Whatever the router can pop, it pops itself.
     if ((activeBranch?.canPop() ?? false) ||
         (GoRouter.maybeOf(context)?.canPop() ?? false)) {
       return false;
@@ -228,7 +228,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         constraints.maxWidth >= HomeShell.desktopNavigationBreakpoint;
   }
 
-  /// Opens the Playlists tab at its root for a drag (#389).
+  /// Opens the Playlists tab at its root for a drag.
   ///
   /// Always the branch's initial location, unlike a tap, which restores
   /// whatever that branch had on top. Favorites and the smart mixes live
@@ -239,8 +239,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         .goBranch(HomeShell.playlistsBranchIndex, initialLocation: true);
   }
 
-  /// Opens the existing Connections screen from a source-status indicator
-  /// (#425).
+  /// Opens the existing Connections screen from a source-status indicator.
   ///
   /// `go` rather than `push`: Connections lives inside the Settings branch, so
   /// this switches to that tab and lands on the page, leaving the user
@@ -268,7 +267,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   }
 
   /// The rail, wrapped in the drag spring so a track dragged out of the
-  /// library can reach the Playlists tab (#389).
+  /// library can reach the Playlists tab.
   Widget _buildNavigationRail() {
     return FocusTraversalOrder(
       order: const NumericFocusOrder(3),
@@ -290,7 +289,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                 // it away. Scrolling keeps every destination and every source
                 // reachable at any height.
                 scrollable: true,
-                // Status for the configured servers (#425), under the
+                // Status for the configured servers, under the
                 // destinations rather than among them: these are not places to
                 // go, and a rail whose selection could land on one would be
                 // lying about what it does.
@@ -386,7 +385,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     );
   }
 
-  /// The queue as a third column (#416), in its own traversal group so Tab
+  /// The queue as a third column, in its own traversal group so Tab
   /// walks the panel whole (header actions, then rows) instead of weaving it
   /// into the page beside it.
   Widget _buildQueuePanel() {

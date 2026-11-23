@@ -64,7 +64,7 @@ class PlaybackHistoryEntry {
 /// are in, and it disappears the moment a new queue replaces it. This is the
 /// other thing — what actually played recently, across queues — which is what
 /// "recently completed/skipped tracks" means and what a desktop queue pane has
-/// the room to show ([#419](https://github.com/thezupzup/linthra/issues/419)).
+/// the room to show.
 ///
 /// Three properties are the whole design:
 ///

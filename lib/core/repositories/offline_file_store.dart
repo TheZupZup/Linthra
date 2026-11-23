@@ -13,7 +13,7 @@
 /// name, a path, or anything this store persists.
 abstract interface class OfflineFileStore {
   /// Starts a cache file for [trackId], to be filled a chunk at a time as a
-  /// download arrives, so the download never sits in memory whole (#745).
+  /// download arrives, so the download never sits in memory whole.
   ///
   /// Until it is published, the draft is a temp file of its own in the
   /// offline directory that nothing reads, counts or serves, so two drafts of
@@ -39,7 +39,7 @@ abstract interface class OfflineFileStore {
   /// record accounts for: the temp file of a write cut off mid-way, and, unless
   /// [temporaryOnly], a finished file not named in [referenced] (a download
   /// whose record was never saved). Nothing else ever counts, clears or evicts
-  /// those, so without this they stay on disk for good (#747).
+  /// those, so without this they stay on disk for good.
   ///
   /// Runs at most once per store, and only ever takes files untouched since
   /// before the store was created, so it can never take a file this run is

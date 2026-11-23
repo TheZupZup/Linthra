@@ -19,7 +19,7 @@ import 'track.dart';
 /// what ties an entry in [tracks] to its place in [originalOrder]. The same
 /// song can be queued twice, and going by uri, shuffle off jumped to its first
 /// copy, and removing one copy could take another copy's place in the
-/// pre-shuffle order (#744).
+/// pre-shuffle order.
 @immutable
 class PlaybackQueue {
   const PlaybackQueue({
@@ -359,7 +359,7 @@ class PlaybackQueue {
   ///
   /// [test] answers by what a track is (its provider, say), never by where it
   /// sits, so a song leaves both orders together. Every entry left keeps its
-  /// id, so copies of a song queued twice stay apart (#744).
+  /// id, so copies of a song queued twice stay apart.
   PlaybackQueue removedWhere(bool Function(Track track) test) {
     if (!tracks.any(test)) return this;
     final List<int> ids = _entryIds;

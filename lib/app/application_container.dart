@@ -85,7 +85,7 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesKeyboardShortcutPreferencesOverride,
     if (resolvedHost == HostPlatform.linux) ...<Override>[
       sharedPreferencesPlaybackSessionStoreOverride,
-      // The window-lifecycle channel is Linthra's own GTK runner (#401), so
+      // The window-lifecycle channel is Linthra's own GTK runner, so
       // only the Linux build ever opens it. Everywhere else the app keeps the
       // no-op window controller and closing a window means whatever the host
       // already made it mean.
@@ -93,7 +93,7 @@ List<Override> productionApplicationOverrides({
       // The network monitor portal is read over the session bus.
       linuxSessionBusOverride,
       // Inside the Flatpak, the Background portal is asked before "Keep
-      // playing" relies on running with the window closed (#754).
+      // playing" relies on running with the window closed.
       linuxBackgroundPermissionOverride,
       // libmpv is the one engine whose audio quality Linthra can read, so the
       // "Show audio quality" setting only exists here.

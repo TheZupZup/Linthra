@@ -54,7 +54,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     GlobalKey<NavigatorState>(debugLabel: 'settingsBranch'),
   ];
   // The Settings pages' own navigator, inside the Settings tab's, so a wide
-  // window can show them beside the categories (#753).
+  // window can show them beside the categories.
   final GlobalKey<NavigatorState> settingsPagesNavigatorKey =
       GlobalKey<NavigatorState>(debugLabel: 'settingsPages');
   final bool onboardingCompleted = ref.read(onboardingControllerProvider);

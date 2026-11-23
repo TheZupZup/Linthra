@@ -294,7 +294,7 @@ abstract final class LinuxPlaybackDiagnostics {
   /// The libmpv property keys the report may show, and nothing else.
   ///
   /// All three are values Linthra itself writes:
-  ///  * `cache-on-disk` — Linthra always sets `no` (#405);
+  ///  * `cache-on-disk` — Linthra always sets `no`;
   ///  * `ao` — set only by the headless audio smoke;
   ///  * `audio-device` — reported as *set / not set*, never as its value, for
   ///    the same reason the selected output is reported as a driver and a kind.

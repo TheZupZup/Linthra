@@ -1,5 +1,4 @@
-/// What the desktop said about Linthra running on with its window closed
-/// (#754).
+/// What the desktop said about Linthra running on with its window closed.
 ///
 /// Inside a Flatpak, xdg-desktop-portal watches for apps that have no window
 /// open, and with the app's `background` permission set to "no" it kills them

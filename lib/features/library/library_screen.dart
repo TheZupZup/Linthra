@@ -61,7 +61,7 @@ import 'widgets/song_sort_button.dart';
 /// nothing in it is exactly where that step is the obvious next one.
 ///
 /// Songs keeps the long-press multi-select and the A–Z fast-scroller from
-/// before, and can be sorted by title, artist, album or date added (#893); the
+/// before, and can be sorted by title, artist, album or date added; the
 /// order is remembered across launches. Switching tabs clears the query, so a
 /// search meant for one tab never silently hides another's contents. Search
 /// only filters what is shown — it never touches playback, so the mini-player
@@ -288,8 +288,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // Selection changes the app bar, not the screen. Returning a *different*
     // widget tree here (a bare Scaffold holding the list) would unmount the
     // list, and with it the ScrollController that AlphabetTrackList owns, so
-    // long-pressing a row halfway down the catalog jumped back to the top
-    // (#582). Everything below therefore stays in the same slot in both modes.
+    // long-pressing a row halfway down the catalog jumped back to the top.
+    // Everything below therefore stays in the same slot in both modes.
     return PopScope(
       canPop: !_selecting,
       onPopInvokedWithResult: (bool didPop, _) {
@@ -451,7 +451,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         // Selection hides the search box, but the slot keeps exactly one child
         // either way: dropping it would move the Expanded below to index 0, and
         // an unkeyed Column re-inflates a child whose index changed — which is
-        // the scroll position we are here to preserve (#582).
+        // the scroll position we are here to preserve.
         if (_selecting)
           const SizedBox.shrink()
         else
@@ -620,7 +620,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     //
     // The sort control stays in this column in every mode, selection included:
     // the list below must keep its slot, or it would be re-inflated and lose
-    // its scroll position (#582).
+    // its scroll position.
     return AdaptiveContentWidth(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

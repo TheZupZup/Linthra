@@ -5,8 +5,8 @@
 /// [shown] is the order a screen showed when the move was made, [from] and [to]
 /// 0-based into it, [to] being the destination after removal. It need not
 /// match [stored]: the rows only catch up with a move once the playlist's songs
-/// are read again, so a second drag in the meantime comes from the old order
-/// (#749). Applying its indices to [stored] would move whichever song is there
+/// are read again, so a second drag in the meantime comes from the old order.
+/// Applying its indices to [stored] would move whichever song is there
 /// now instead.
 ///
 /// The song keeps its identity through duplicates: it is the same copy of the

@@ -101,7 +101,7 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: colorScheme,
-      // Desktop content density (#384). Material's own adaptive value: compact
+      // Desktop content density. Material's own adaptive value: compact
       // on Linux/macOS/Windows, standard everywhere touch-first, so a Linux
       // window fits materially more of a library per screen while a phone's
       // rows and tap targets do not move a pixel.
@@ -111,12 +111,12 @@ abstract final class AppTheme {
       // about what is pointing at the row, and an Android tablet in landscape
       // is as wide as a desktop window and still driven by a thumb.
       //
-      // [density] overrides it with the user's Compact/Comfortable choice
-      // (#395). `LinthraApp` passes one only on a desktop host, so a touch
+      // [density] overrides it with the user's Compact/Comfortable choice.
+      // `LinthraApp` passes one only on a desktop host, so a touch
       // build can never inherit a desktop density: off desktop the parameter is
       // null and this stays exactly the adaptive value it has always been.
       visualDensity: density ?? VisualDensity.adaptivePlatformDensity,
-      // Hover feedback (#385). Material's default is a 4% white/black veil,
+      // Hover feedback. Material's default is a 4% white/black veil,
       // which on a black-first theme is close to invisible — so a mouse user
       // could not tell a row apart from the page it sits on.
       //
@@ -126,7 +126,7 @@ abstract final class AppTheme {
       // reaches every ink surface at once: list rows, buttons, grid cards, the
       // navigation rail's destinations and popup-menu items.
       hoverColor: onSurface.withValues(alpha: 0.07),
-      // Keyboard focus (#390). Material's default is another neutral veil, a
+      // Keyboard focus. Material's default is another neutral veil, a
       // few percent apart from the hover one above and from the selected tint
       // below: three states saying almost the same thing, which on a keyboard
       // leaves "where am I" unanswerable without moving and looking again.

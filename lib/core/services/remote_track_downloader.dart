@@ -6,7 +6,7 @@ import '../models/track.dart';
 /// A real download hands its body back while it is still arriving
 /// ([RemoteTrackData.streamed]), and the offline cache writes it to disk a
 /// chunk at a time: a hi-res file can be a gigabyte, and several download at
-/// once (#745).
+/// once.
 class RemoteTrackData {
   /// A body already in memory as [bytes].
   const RemoteTrackData({required List<int> bytes, this.fileExtension})

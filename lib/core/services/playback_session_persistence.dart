@@ -23,7 +23,7 @@ class PlaybackSessionPersistence {
   /// (the signed-in account's fingerprint, the Plex server's
   /// `machineIdentifier`), or null while it is signed out. [queueOwnerOf]
   /// says whose songs a remote provider's queued tracks are, which a save
-  /// records for the next restore to check (#767). Without [remoteAccountOf]
+  /// records for the next restore to check. Without [remoteAccountOf]
   /// every remote track counts as playable; without [queueOwnerOf] nothing is
   /// recorded, and records restore as they always did.
   PlaybackSessionPersistence({

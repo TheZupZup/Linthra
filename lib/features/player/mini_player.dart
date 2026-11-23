@@ -569,7 +569,7 @@ class _SkipButton extends ConsumerWidget {
 /// that has somewhere better to live on a phone (the full player's action row).
 ///
 /// Two shapes, decided by the frame rather than by the button. Where the shell
-/// can host the queue as a column beside the page (#416) this is the toggle for
+/// can host the queue as a column beside the page this is the toggle for
 /// it, lit while the column is open. Everywhere else it opens the sheet, as it
 /// always has, so the queue is reachable at every window size, and the button
 /// never offers a panel that has nowhere to go.

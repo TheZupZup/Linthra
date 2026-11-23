@@ -4,7 +4,7 @@ import 'dart:async';
 enum DesktopWindowVisibility { shown, hidden }
 
 /// The native desktop window, as much of it as the close-behaviour feature
-/// needs (issue #401).
+/// needs.
 ///
 /// The Linux implementation talks to Linthra's own GTK runner
 /// (`linux/runner/window_lifecycle_channel.cc`); every other platform gets

@@ -1,4 +1,4 @@
-/// Persists the order the Library's Songs list was last sorted in (#893), so it
+/// Persists the order the Library's Songs list was last sorted in, so it
 /// reopens the way the user left it instead of always by title.
 ///
 /// The stored value is a single non-secret order name (`titleAscending`,

@@ -84,8 +84,8 @@ class _ListKeyboardNavigationState extends State<ListKeyboardNavigation> {
     // line and the arrow keys move the caret.
     if (isEditingText(focusedContext)) return KeyEventResult.ignored;
     // Held modifiers mean the key was meant for something else: Ctrl+End is
-    // the shell's business, and Ctrl+→ may be a shortcut the user bound
-    // (#391). Answering here would move focus *and* swallow the chord.
+    // the shell's business, and Ctrl+→ may be a shortcut the user bound.
+    // Answering here would move focus *and* swallow the chord.
     if (shortcutModifierPressed()) return KeyEventResult.ignored;
 
     final LogicalKeyboardKey key = event.logicalKey;

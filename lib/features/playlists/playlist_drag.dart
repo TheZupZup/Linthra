@@ -61,8 +61,8 @@ enum PlaylistDropState {
 
 /// Makes [child] draggable onto a playlist, on desktop only.
 ///
-/// Mobile is untouched (#389 is a desktop issue, and the acceptance criteria
-/// ask for mobile playlist behaviour to stay as it is). On a phone the row's
+/// Mobile is untouched: this is a desktop gesture, and mobile playlist
+/// behaviour stays as it is. On a phone the row's
 /// long-press already starts multi-select, and a second long-press gesture
 /// competing for it would break that.
 ///

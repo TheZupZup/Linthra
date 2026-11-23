@@ -109,7 +109,7 @@ class IoAudioFileScanner implements AudioFileScanner {
         }
       } on TimeoutException {
         // The storage stopped answering mid-listing: a share whose server went
-        // away blocks it for as long as the mount retries (#778). The listing
+        // away blocks it for as long as the mount retries. The listing
         // stays blocked on its I/O thread; the walk doesn't wait for it.
         if (wasRoot) {
           throw rootFaultException(folder, LocalRootFault.unavailable);
@@ -156,7 +156,7 @@ class IoAudioFileScanner implements AudioFileScanner {
   }
 
   /// Whether [entity]'s path names nothing on disk, though the listing just
-  /// found it there (#817).
+  /// found it there.
   ///
   /// A name that isn't valid UTF-8 (Latin-1 bytes from an old Windows rip
   /// copied with tar, a share mounted without a UTF-8 charset) reaches Dart

@@ -231,8 +231,8 @@ class DiagnosticsCollector {
 
   /// The Subsonic/Navidrome library sync's slice of the report: its state
   /// line, how many Subsonic tracks are stored, and the kind of its last
-  /// failure (which feeds "Last error"; before #680 a failed sync never reached
-  /// the report, so it read "Last error: none" beside an empty library).
+  /// failure (which feeds "Last error", so a failed sync never reads "Last
+  /// error: none" beside an empty library).
   ///
   /// The state line also reports a sync that an earlier run left unfinished
   /// (the process was killed partway), which the in-memory state alone can't
@@ -344,9 +344,9 @@ class DiagnosticsCollector {
   }
 
   /// The current playback failure's kind (a stable enum name such as
-  /// `unplayableMedia`), when playback is in an error state. Before #674 a
-  /// playback failure never reached "Last error", so a report could read
-  /// "Last error: none" beside a track that would not play.
+  /// `unplayableMedia`), when playback is in an error state. It feeds "Last
+  /// error", so a report never reads "Last error: none" beside a track that
+  /// would not play.
   String? _playbackFailureKind() =>
       _ref.read(playbackControllerProvider).state.failure?.kind.name;
 

@@ -25,7 +25,7 @@ import '../../core/services/stability_diagnostics.dart';
 /// than mis-attributed.
 ///
 /// A play of a Subsonic or Plex song also records where it was made
-/// ([SongOrigins], #795), since the same id names another song on another
+/// ([SongOrigins]), since the same id names another song on another
 /// server: `subsonic:48211` played on two servers counts as two songs. The
 /// history this exposes ([current], [historyStream]) is the one for the
 /// servers signed in now, keyed by plain uri; another server's plays are kept

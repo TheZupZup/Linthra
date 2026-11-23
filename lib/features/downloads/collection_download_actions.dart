@@ -19,7 +19,7 @@ import 'bulk_download_controller.dart';
 const int kLargeBulkDownloadCount = 50;
 
 /// "Download all" for a collection the user is looking at: an album or a
-/// playlist (#84).
+/// playlist.
 ///
 /// Centralized here so the promise Linthra makes about downloads is made in one
 /// place: a bulk download is always **explicit**. It is offered only where the

@@ -35,8 +35,8 @@ const double queuePaneWidth = 340;
 /// reorders, removes, or jumps around the queue.
 ///
 /// A desktop gets it from the side instead, as the same pane the shell's queue
-/// column shows (#416): no drag handle to pull at with a mouse, the session
-/// history the column lists (#419), and the page still in view beside it.
+/// column shows: no drag handle to pull at with a mouse, the session
+/// history the column lists, and the page still in view beside it.
 /// That is what a desktop window too narrow for the column opens from the
 /// bottom bar, and what Now Playing and the keyboard open.
 ///
@@ -118,7 +118,7 @@ class _QueueSideSheet extends StatelessWidget {
   }
 }
 
-/// The queue sheet, with the app's queue shortcut (#391) pointed at it.
+/// The queue sheet, with the app's queue shortcut pointed at it.
 ///
 /// The registration lives here, around the *modal* sheet, rather than with
 /// whoever called [showQueueSheet], so every way of opening it takes part: the
@@ -182,7 +182,7 @@ class _ModalQueueSheetState extends ConsumerState<_ModalQueueSheet> {
 /// Hosted three ways. As a modal sheet ([showQueueSheet]) it keeps its own
 /// height budget and safe-area inset, the way a sheet has to. As an [embedded]
 /// pane (what a desktop-width Now Playing does with it, and what the shell's
-/// desktop queue column, `QueueSidePanel`, does with it in #416) it fills
+/// desktop queue column, `QueueSidePanel`, does with it) it fills
 /// whatever box the host gives it instead: the pane is already inside the
 /// host's padding, and a sheet's 85%-of-the-window ceiling in a column that is
 /// the full window tall would leave a band of dead space under the list. Only
@@ -196,7 +196,7 @@ class _ModalQueueSheetState extends ConsumerState<_ModalQueueSheet> {
 /// never start a second, duplicate playback (local or cast). It only ever holds
 /// catalog [Track]s, never a resolved/authenticated stream URL.
 ///
-/// **History differs by host, on purpose (#419).** As a sheet — which is what
+/// **History differs by host, on purpose.** As a sheet — which is what
 /// Android gets, at any window width — the history section is the current
 /// queue's own already-played prefix, unchanged: tapping a row steps back
 /// inside the queue. On a **desktop** pane the section is instead the session's
@@ -315,7 +315,7 @@ class QueueSheet extends ConsumerWidget {
               ? const _EmptyQueue()
               // Home and End reach the ends of a long queue without a pointer;
               // the arrow keys already walk it, and Ctrl+↑/↓ on a row's handle
-              // still reorders (#388, #390).
+              // still reorders.
               : ListKeyboardNavigation(
                   child: CustomScrollView(
                     slivers: <Widget>[
@@ -467,7 +467,7 @@ class _SectionLabel extends StatelessWidget {
           AppSpacing.lg,
           AppSpacing.xs,
         ),
-        // A heading, so a screen reader can jump section to section (#460).
+        // A heading, so a screen reader can jump section to section.
         child: Semantics(
           header: true,
           child: Text(
