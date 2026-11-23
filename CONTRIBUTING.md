@@ -79,7 +79,7 @@ For the other areas:
   is the desktop twin of `verify_android.sh`.
 - `flatpak/` packages that Linux build as a Flatpak. Building, installing and
   debugging it locally — on Fedora Atomic (Kinoite/Silverblue) or anywhere
-  else — is [docs/flatpak-development.md](./docs/flatpak-development.md).
+  else — is [docs/distribution/flatpak/development.md](docs/distribution/flatpak/development.md).
 - `tools/large_library/` contains the Python and SQLite large-library tooling.
 - Linthra's no-tracking posture is enforced in CI: every PR audits the shipped
   dependency files against a reviewed list of advertising, analytics,

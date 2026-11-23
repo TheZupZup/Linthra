@@ -244,7 +244,7 @@ debug-signed preview can never be mistaken for a production release
 (`alpha`/`beta`/`rc`) attach to a GitHub **pre-release** (created if absent);
 stable tags **require release signing** and only attach to a Release you created
 manually. Full versioning/tagging flow is in
-[release-process.md](release-process.md).
+[release-process.md](distribution/release-process.md).
 
 ### Versioning
 
@@ -252,7 +252,7 @@ Local `flutter build`/`flutter run` use the `pubspec.yaml` version, and so does
 the in-app **Settings ▸ About** version (`AppInfo.version`). A **tagged** release
 build instead derives the version from the tag and bakes it into both the
 APK/AAB metadata and the in-app display, so they always match — see
-[release-process.md §1](release-process.md#1-versioning-model).
+[release-process.md §1](distribution/release-process.md#1-versioning-model).
 
 Preview what a tag maps to, or reproduce a tag build locally:
 
@@ -277,7 +277,7 @@ is present does it sign with the release key; otherwise it falls back to the
 **debug** key so `flutter run --release` still works. **No signing keys or
 secrets are committed.** Required secrets, keystore generation/rotation, and how
 this relates to F-Droid (which signs its own builds) are in
-[release-signing.md](release-signing.md).
+[release-signing.md](distribution/release-signing.md).
 
 ## Continuous integration
 
@@ -382,7 +382,7 @@ manifest declares:
   only for the opt-in **All music on this device** mode, requested when the
   user picks it. The legacy one is wider than audio on Android 12 and older.
 
-The full rationale is in [fdroid-readiness.md](fdroid-readiness.md#android-permissions).
+The full rationale is in [F-Droid readiness checklist](distribution/f-droid/readiness.md#android-permissions).
 Picking a folder needs **no** storage permission: it uses the Storage Access
 Framework grant the user picks (see [architecture.md](architecture.md#android-folder-selection-saf)).
 

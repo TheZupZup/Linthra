@@ -9,7 +9,7 @@ distributed binary" has to be checked against the binary.
 This page is how that check is run, what it is worth, and the record of the
 releases it has been run on. The safeguard in question is the Cast security
 containment — casting is withheld from shipped builds while a reported security
-issue is resolved. See [cast.md](cast.md#temporary-containment); the report
+issue is resolved. See [cast.md](../cast.md#temporary-containment); the report
 itself stays in the private advisory.
 
 ## The check
@@ -82,7 +82,7 @@ exit non-zero rather than reporting a pass.
 | Every release build | `android-release-build.yml` ▸ *Verify the built artifacts carry the Cast containment* | The APK/AAB in `dist/`, before they are uploaded anywhere. |
 | Every release build | `github-sponsor-apk.yml` ▸ *Verify the built artifact carries the Cast containment* | The GitHub Sponsor APK, in the job that builds it, before it is uploaded anywhere. It is a public Release asset like the others, so it is held to the same rule. |
 | Every Linux release build | `linux-desktop-build.yml` ▸ *Verify the archive carries the Cast containment* | The `.tar.gz`, before it is attached to the Release — the Release is already public by then, so an artifact that fails the check must never become downloadable from it. |
-| Every Flatpak release build | `flatpak-build.yml` ▸ *Verify the bundle carries the Cast containment* | The `.flatpak` bundle, before it is attached to the Release, for the same reason. The bundle is also checked against its own manifest first (`scripts/flatpak_bundle.py verify`) — see [release-process.md §4b](./release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds). |
+| Every Flatpak release build | `flatpak-build.yml` ▸ *Verify the bundle carries the Cast containment* | The `.flatpak` bundle, before it is attached to the Release, for the same reason. The bundle is also checked against its own manifest first (`scripts/flatpak_bundle.py verify`) — see [release-process.md §4b](release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds). |
 
 Each of those release builds checks out the tag it is building, so the script
 itself comes from a second, script-only checkout of the revision the workflow is
@@ -111,7 +111,7 @@ release for its own sake.
 | Commit | `f1d61f982b87665a95a447b47b49aa7fbf8aa046` |
 | Version | `0.2.6+206999` (`pubspec.yaml`, mirrored by `AppInfo._devVersionName`) |
 | Published | 2026-09-08 |
-| Release notes | [docs/release-notes/v0.2.6.md](release-notes/v0.2.6.md) |
+| Release notes | [docs/release-notes/v0.2.6.md](../release-notes/v0.2.6.md) |
 
 Every published asset was downloaded from the Release and verified with the
 script above. Digests are of the assets as published:
@@ -137,7 +137,7 @@ carries a live-cast marker.
 | --- | --- |
 | GitHub Release | Published, assets verified above. |
 | F-Droid | F-Droid builds `v0.2.6` from source on its own infrastructure and signs with its own key, picked up automatically (`UpdateCheckMode: Tags` + `AutoUpdateMode: Version`; `metadata/io.github.thezupzup.linthra.yml` names `0.2.6` / `2069993`). It is on F-Droid's build cycle, not ours, so confirm the published version on f-droid.org rather than assuming the tag is enough. An F-Droid APK is built from the same tagged source as the verified GitHub asset, but is a different binary — verify it there by version, not by the digests above. |
-| Google Play (closed testing) | Only ever receives the release-signed AAB from a tagged build, and only a non-production track (`google-play-publishing.md`). |
+| Google Play (closed testing) | Only ever receives the release-signed AAB from a tagged build, and only a non-production track ([Google Play publishing](google-play/publishing.md)). |
 
 The user-facing message, the disclosure timing, and any credential-rotation
 guidance are coordinated in the private advisory. Nothing in this repository

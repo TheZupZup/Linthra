@@ -59,7 +59,7 @@ runtime_ref="$runtime_id//$runtime_version"
 sdk_ref="$sdk_id//$runtime_version"
 for runtime_ref_to_check in "$runtime_ref" "$sdk_ref"; do
   flatpak info "$runtime_ref_to_check" >/dev/null 2>&1 ||
-    fail "missing $runtime_ref_to_check; install the Flatpak build prerequisites documented in docs/flatpak-development.md"
+    fail "missing $runtime_ref_to_check; install the Flatpak build prerequisites documented in docs/distribution/flatpak/development.md"
 done
 
 sdk_base_ref="$(flatpak info --show-runtime "$sdk_ref" 2>/dev/null)" ||
@@ -79,7 +79,7 @@ for extension in "${sdk_extensions[@]}"; do
   [[ -n "$extension" ]] || continue
   extension_ref="$extension//$sdk_extension_branch"
   flatpak info "$extension_ref" >/dev/null 2>&1 ||
-    fail "missing $extension_ref; install the Flatpak build prerequisites documented in docs/flatpak-development.md"
+    fail "missing $extension_ref; install the Flatpak build prerequisites documented in docs/distribution/flatpak/development.md"
 done
 
 # The app module's source is `type: dir, path: ..` with no skip list, so

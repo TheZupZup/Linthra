@@ -2,7 +2,7 @@
 
 Linthra's Flatpak ships **no filesystem permission at all**: no
 `--filesystem=home`, no `--filesystem=host`, no XDG grant
-([flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md)). Local music
+([flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md)). Local music
 works because the user hands over one folder and nothing else.
 
 That is a good policy and a fragile one: it only holds if the narrow path
@@ -66,7 +66,7 @@ a button in `xdg-desktop-portal`, and no headless runner can click it. Nor does
 it exercise the document portal's `/run/user/<uid>/doc/…` path rewriting.
 
 Those stay a manual pass, and the audit in
-[flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md#user-selected-library-check)
+[flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md#user-selected-library-check)
 is still the checklist to follow before a release. What this smoke removes from
 that checklist is everything *after* the click, which is the part that breaks
 silently.
@@ -100,7 +100,7 @@ network call is involved at any point.
 
 In CI this is a step of the `Sandbox smokes on the packaged app` job in
 `.github/workflows/flatpak-build.yml`. It shares the derived manifest and the
-build with the [audio smoke](./flatpak-audio-smoke.md); see that document for
+build with the [audio smoke](audio-smoke.md); see that document for
 why CI builds a manifest derived from the submission manifest, and what the
 generator guarantees about it.
 
@@ -149,8 +149,8 @@ people paste into issues.
 
 ## Related
 
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the permission
+- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), the permission
   policy this smoke defends, and the manual portal pass
-- [flatpak-audio-smoke.md](./flatpak-audio-smoke.md), the sibling smoke, and
+- [Flatpak audio playback smoke](audio-smoke.md), the sibling smoke, and
   the derived manifest both share
-- [local-music.md](./local-music.md), the feature itself
+- [local-music.md](../../local-music.md), the feature itself

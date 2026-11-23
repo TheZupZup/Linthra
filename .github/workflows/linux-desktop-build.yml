@@ -32,7 +32,7 @@ name: Linux desktop build
 # With `release_tag` set, `build-linux` checks out that EXACT tag (never
 # `main` or whatever ref happens to be at the tip) and runs unchanged; a
 # second job then packages the bundle it already built and validated into a
-# `.tar.gz` and attaches it to that Release. See docs/release-process.md §4a
+# `.tar.gz` and attaches it to that Release. See docs/distribution/release-process.md §4a
 # for the full flow and where to look when a release build fails.
 #
 # Flatpak packaging is separate, later work (issue #376, PR 5). Nothing here
@@ -234,7 +234,7 @@ jobs:
       # lifecycle (initialize, load, play, pause, seek, stop, dispose) against
       # a local WAV it generates, through libmpv, without requiring audible
       # output. Three cycles cover reinitialization. The same target runs inside
-      # the packaged Flatpak (#446, docs/flatpak-audio-smoke.md); this run uses
+      # the packaged Flatpak (#446, docs/distribution/flatpak/audio-smoke.md); this run uses
       # the host's libmpv and so says nothing about packaging.
       - name: Build native audio lifecycle smoke
         run: >-
@@ -406,7 +406,7 @@ jobs:
           # workflow's revision against that tag's own message, so an old tag
           # is never a way to attach an unverified asset.
           if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
-            echo "::warning::This tag predates the Cast containment, so its archive carries nothing to check. See docs/release-artifact-verification.md."
+            echo "::warning::This tag predates the Cast containment, so its archive carries nothing to check. See docs/distribution/release-artifact-verification.md."
             exit 0
           fi
 

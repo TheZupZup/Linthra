@@ -34,8 +34,8 @@ against a development checkout:
 
 | Area | Check |
 | --- | --- |
-| Playback | The whole transport is exercised on the packaged libmpv, asserting on the playback clock rather than on a status flag, three times per run. [Details](../flatpak-audio-smoke.md) |
-| Local library | A chosen folder is scanned, its tags and embedded artwork are read, a track is played from it, unrelated host paths are confirmed unreachable, and losing access is confirmed recoverable. [Details](../flatpak-local-library-smoke.md) |
+| Playback | The whole transport is exercised on the packaged libmpv, asserting on the playback clock rather than on a status flag, three times per run. [Details](../distribution/flatpak/audio-smoke.md) |
+| Local library | A chosen folder is scanned, its tags and embedded artwork are read, a track is played from it, unrelated host paths are confirmed unreachable, and losing access is confirmed recoverable. [Details](../distribution/flatpak/local-library-smoke.md) |
 
 ## What the sandbox means for you
 
@@ -138,4 +138,4 @@ placeholders.
 - [local-music.md](../local-music.md), how local libraries work
 - [flatpak-filesystem-audit.md](../flatpak-filesystem-audit.md), the sandbox filesystem policy
 - [linux-desktop.md](../linux-desktop.md), the Linux build itself
-- [flatpak-development.md](../flatpak-development.md), building the Flatpak locally
+- [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md), building the Flatpak locally

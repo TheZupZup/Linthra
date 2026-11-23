@@ -97,7 +97,7 @@ so shipped code in a `lib/build/` or `lib/test/` is still read:
 Other build files are out of scope on purpose. The Flatpak manifests and
 CMake files describe what the build downloads, not what the app contacts, and
 they are pinned by their own checks
-([flatpak-source-pinning.md](./flatpak-source-pinning.md)).
+([Flatpak source pinning](distribution/flatpak/source-pinning.md)).
 
 Every root has to exist and contain source files. A root that moved or emptied
 fails the check rather than quietly passing.

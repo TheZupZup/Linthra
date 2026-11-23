@@ -127,7 +127,7 @@ version: 0.1.0-alpha.36+100036  ─┤
 > releases** (`UpdateCheckMode: Tags` + `UpdateCheckData`, `AutoUpdateMode:
 > Version`) from a plain build, instead of needing a hand-written `Builds` entry
 > per release. See
-> [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields).
+> [F-Droid build recipe planning & reproducible-build notes §2](f-droid/build-recipe.md#2-expected-f-droid-metadata-repo-fields).
 
 ### versionName
 
@@ -290,7 +290,7 @@ F-Droid (and our own release tracking) builds from a **git tag**.
   (§4). Because `pubspec.yaml` now tracks the tag in lockstep, F-Droid
   auto-detects new releases (`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`)
   instead of needing a manual `Builds` entry per release — see
-  [fdroid-build-recipe.md §2](./fdroid-build-recipe.md#2-expected-f-droid-metadata-repo-fields).
+  [F-Droid build recipe planning & reproducible-build notes §2](f-droid/build-recipe.md#2-expected-f-droid-metadata-repo-fields).
 - Tag only commits where CI is green **and** generated files are current (§3).
 
 ## 3. Pre-tag checklist
@@ -333,10 +333,10 @@ NOT publish a release; those still happen manually after the PR is merged.
 7. **Watch the Android Release Build** workflow on the pushed tag; install the
    resulting APK and smoke-test.
 8. **Update `fdroiddata`** to the new tag/version if the F-Droid submission has
-   landed (see [fdroid-submission.md](./fdroid-submission.md)).
+   landed (see [F-Droid submission package (draft)](f-droid/submission.md)).
 9. **Update the Flatpak/Flathub packaging** from the same tag once Linthra is
    on Flathub (see
-   [flathub-update-process.md](./flathub-update-process.md)). The version bump
+   [flathub-update-process.md](flatpak/flathub-update-process.md)). The version bump
    in step 1 already wrote the AppStream release entry that listing shows.
 
 > **The workflow never creates the tag.** The tag is created only after the
@@ -350,7 +350,7 @@ has no `_devVersionName` to update, or when an existing Fastlane changelog
 would be overwritten without `--force-changelog` (`--keep-changelog` leaves
 written notes alone instead, for a re-run that only has to fix the other
 metadata). See
-[scripts/prepare_release_bump.py](../scripts/prepare_release_bump.py) for the
+[scripts/prepare_release_bump.py](../../scripts/prepare_release_bump.py) for the
 full safety list — that is the same script the workflow invokes, so you can
 run it locally:
 
@@ -396,7 +396,7 @@ the canonical source of truth for what the bump must contain.
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` — e.g.
    `100031.txt`. Keep it short and factual; this is what F-Droid shows. A longer
    GitHub-Release body can live under `docs/release-notes/vX.Y.Z*.md` (see the
-   [v0.1.0-alpha.9 notes](./release-notes/v0.1.0-alpha.9.md)); the version inside
+   [v0.1.0-alpha.9 notes](../release-notes/v0.1.0-alpha.9.md)); the version inside
    it must match the tag.
 4. **Add the AppStream release entry** at the top of `<releases>` in
    `linux/packaging/io.github.thezupzup.linthra.metainfo.xml`, e.g.
@@ -408,15 +408,15 @@ the canonical source of truth for what the bump must contain.
    the whole set agrees with `python3 scripts/check_release_metadata_sync.py`.
 5. **Regenerate committed generated files** (Drift `*.g.dart`) so they match the
    schema at the tagged commit — run the
-   [Generate Drift files workflow](../README.md#generating-drift-files-in-ci) or
+   [Generate Drift files workflow](../../README.md#generating-drift-files-in-ci) or
    `dart run build_runner build --delete-conflicting-outputs` locally, and commit
    the result. The committed output means the F-Droid build needs no `build_runner`
-   prebuild (see [fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
+   prebuild (see [F-Droid build recipe planning & reproducible-build notes §4](f-droid/build-recipe.md#4-reproducibility-notes)).
 6. **Open the version-bump PR and wait for CI green**
    (`flutter analyze`, `flutter test`, formatting) — this includes the
    version-drift test from step 2.
 7. **Confirm licensing** is still accurate if dependencies changed — re-run the
-   [dependency & license audit](./dependency-license-audit.md).
+   [dependency & license audit](../dependency-license-audit.md).
 8. **Merge the version-bump PR.** Do **not** tag yet — see the warning box
    below.
 9. **Pull latest `main` locally** so the tag points at the merged bump:
@@ -491,7 +491,7 @@ mismatch or a malformed tag, before any build), builds the APK/AAB with the
 GitHub Release. **Writing the release notes stays manual** — the workflow never
 authors production notes, publishes to a store, or submits to F-Droid. It listens
 only to the tag `push` (not to `release: published`), so a tag builds exactly
-once. See [docs/release-signing.md](./release-signing.md) for the signing
+once. See [docs/distribution/release-signing.md](release-signing.md) for the signing
 details.
 
 The attachment behavior depends on whether the tag is a **pre-release**:
@@ -513,7 +513,7 @@ Artifacts are named with the version and signing label, e.g.
 
 The same run also builds the **GitHub Sponsor APK**,
 `linthra-<tag>-github-sponsor.apk`, and attaches it alongside them. It is the
-supporter build described in [SUPPORT.md](./SUPPORT.md#github-release-apk): the
+supporter build described in [SUPPORT.md](../SUPPORT.md#github-release-apk): the
 same app compiled for the `github` distribution, so an active monthly
 sponsorship can unlock the custom palette. It is not one of the canonical
 assets, F-Droid does not reference it, and the universal, per-ABI and AAB names
@@ -540,7 +540,7 @@ above are unaffected by it.
 
 1. Ensure generated files are current (§3) and `pubspec.yaml` matches the tag.
 2. (Optional but recommended) configure the `LINTHRA_*` keystore secrets (see
-   [release-signing.md §2](./release-signing.md#2-required-github-secrets-ci))
+   [release-signing.md §2](release-signing.md#2-required-github-secrets-ci))
    so the attached artifacts are release-signed. Without them, the pre-release
    gets clearly-labeled **debug-signed** artifacts for testing only.
 3. Push the annotated tag (§2), e.g. `v0.1.0-alpha.1`. The build runs, and a
@@ -590,7 +590,7 @@ never touch any GitHub Release.
 > while an F-Droid build of the same version is signed with **F-Droid's** key.
 > The two cannot be cross-installed as updates of each other. This is expected;
 > call it out in the release notes so users don't mix sources. See
-> [release-signing.md §6](./release-signing.md#6-f-droid-signing-considerations).
+> [release-signing.md §6](release-signing.md#6-f-droid-signing-considerations).
 
 ## 4a. Linux release tarball (dispatched alongside the Android build)
 
@@ -604,7 +604,7 @@ exact limitation for the Android build (see §4); the Linux tarball reuses the
 same mechanism instead of assuming a tag push or Release event will fire
 anything.
 
-[`.github/workflows/linux-desktop-build.yml`](../.github/workflows/linux-desktop-build.yml)
+[`.github/workflows/linux-desktop-build.yml`](../../.github/workflows/linux-desktop-build.yml)
 — the same workflow that already builds and validates Linux on every PR and
 push to `main` — gains an optional `workflow_dispatch` input, `release_tag`.
 Left empty (or on a plain PR/push), the workflow behaves exactly as before.
@@ -689,7 +689,7 @@ run, stays `contents: read`.
 **This tarball is the native Linux build, not the Flatpak.** It is
 Linthra's plain `flutter build linux --release` bundle — it still expects the
 Linux runtime libraries listed in
-[docs/linux-desktop.md](./linux-desktop.md#required-packages) (GTK 3,
+[docs/linux-desktop.md](../linux-desktop.md#required-packages) (GTK 3,
 libmpv, a Secret Service provider, …) to already be present on the machine
 that runs it. It is **not** distro-independent or self-contained. The
 self-contained, sandboxed artifact is the `.flatpak` bundle in §4b, produced
@@ -721,7 +721,7 @@ publishes anything to it.
 
 ### How the bundle is produced
 
-[`.github/workflows/flatpak-build.yml`](../.github/workflows/flatpak-build.yml)
+[`.github/workflows/flatpak-build.yml`](../../.github/workflows/flatpak-build.yml)
 — the same workflow that already builds, installs and launches the Flatpak on
 packaging changes — gains an optional `workflow_dispatch` input, `release_tag`,
 exactly like `linux-desktop-build.yml`'s and for the same
@@ -787,18 +787,18 @@ evidence, and neither is duplicated here:
 
 - the **sandbox smokes** (`flatpak-build.yml` ▸ *Sandbox smokes on the packaged
   app*) run inside the installed sandbox. The audio one
-  ([flatpak-audio-smoke.md](./flatpak-audio-smoke.md)) walks the real playback
+  ([Flatpak audio playback smoke](flatpak/audio-smoke.md)) walks the real playback
   lifecycle on the libmpv the manifest built; the local-library one
-  ([flatpak-local-library-smoke.md](./flatpak-local-library-smoke.md)) covers
+  ([Flatpak local-library sandbox smoke](flatpak/local-library-smoke.md)) covers
   what a chosen music folder can and cannot reach. Both run on a manifest
   *derived* from the shipped one — the same package plus test binaries under
   `/app/libexec` — precisely so the shipped package carries no test harness,
   which is also why they cannot be pointed at the release bundle itself. They
   gate the same packaging changes this bundle is built from;
 - the real-desktop checks are in
-  [linux-desktop.md](./linux-desktop.md#manual-flatpak-smoke-checklist), and the
+  [linux-desktop.md](../linux-desktop.md#manual-flatpak-smoke-checklist), and the
   wider GNOME/KDE Plasma pass they are the short version of is
-  [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md).
+  [desktop-compatibility-matrix.md](../desktop-compatibility-matrix.md).
 
 What the release path adds on top is narrow and deterministic: the bundle
 contains a `libmpv`, so the shipped artifact cannot be one that would fall back
@@ -878,9 +878,9 @@ consume our signed artifacts:
   `1019993`, the highest per-ABI code). **This repo never pushes to fdroiddata** —
   that change, if needed, is made in the fdroiddata repo.
 - The submission flow, metadata fields, and recipe live in
-  [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md) and
-  [docs/fdroid-submission.md](./fdroid-submission.md); overall status lives in
-  [docs/fdroid-readiness.md](./fdroid-readiness.md).
+  [docs/distribution/f-droid/build-recipe.md](f-droid/build-recipe.md) and
+  [docs/distribution/f-droid/submission.md](f-droid/submission.md); overall status lives in
+  [docs/distribution/f-droid/readiness.md](f-droid/readiness.md).
 
 ## 6. What is automated vs. manual
 
@@ -890,14 +890,14 @@ consume our signed artifacts:
 | Secret & privacy scan on PRs & `main` | **Automatic** (`ci.yml`, job `secret-scan`; runs `scripts/check_secrets.sh` — offline, no secrets). |
 | Fastlane changelog exists for the current `versionCode` | **Automatic** on PRs & `main` (`flutter test` ▸ `test/tooling/release_changelog_test.dart`). |
 | Release-bump PR touches only version files | **Automatic** on `release/*` PRs only (`ci.yml`, job `release-bump-guard`; `scripts/check_release_bump_files.sh`). |
-| Dart/Flutter package updates inside the current constraints | **Automatic PR only** (weekly `dart-dependency-updates.yml`); resolves with the pinned SDK, changes only `pubspec.lock`, opens a **draft** PR and never merges. See [dependency-updates.md](./dependency-updates.md). |
+| Dart/Flutter package updates inside the current constraints | **Automatic PR only** (weekly `dart-dependency-updates.yml`); resolves with the pinned SDK, changes only `pubspec.lock`, opens a **draft** PR and never merges. See [dependency-updates.md](../dependency-updates.md). |
 | Dependency-update PR touches only `pubspec.lock` | **Automatic** on `deps/*` PRs only (`ci.yml`, job `dependency-guard`; `scripts/check_dependency_update_files.sh`). |
 | Debug APK build + build-output verification | Manual (`workflow_dispatch`) + on PRs (`android-debug-apk.yml`; a "Verify build output exists" step rejects a missing/empty APK). |
 | Release APK/AAB build | **Manual** (`workflow_dispatch`) **and automatic on `v*` tags** (`android-release-build.yml`). |
-| GitHub Sponsor APK build | **Automatic with every release build** (`android-release-build.yml` ▸ `build-sponsor`, which calls `github-sponsor-apk.yml`). Same run, same commit, same signing decision as the canonical artifacts; attached to the Release by the same `attach-release` job. Needs the `LINTHRA_GITHUB_OAUTH_CLIENT_ID` repository variable. `github-sponsor-apk.yml` is still dispatchable on its own for development, and a manual run only produces a workflow artifact. See [SUPPORT.md](./SUPPORT.md#github-release-apk). |
+| GitHub Sponsor APK build | **Automatic with every release build** (`android-release-build.yml` ▸ `build-sponsor`, which calls `github-sponsor-apk.yml`). Same run, same commit, same signing decision as the canonical artifacts; attached to the Release by the same `attach-release` job. Needs the `LINTHRA_GITHUB_OAUTH_CLIENT_ID` repository variable. `github-sponsor-apk.yml` is still dispatchable on its own for development, and a manual run only produces a workflow artifact. See [SUPPORT.md](../SUPPORT.md#github-release-apk). |
 | Preparing the version-bump PR (pubspec, in-app mirror, Fastlane changelog, F-Droid `CurrentVersion`, AppStream `<release>`) | **Manual** (`workflow_dispatch`, `prepare-release-bump.yml`); opens a draft PR but never tags, builds, or publishes. The same edits are reproducible locally with `scripts/prepare_release_bump.py`. |
 | Verifying the tag matches `pubspec.yaml` (versionName/versionCode) | **Automatic** on a `v*` tag build (`scripts/release_preflight.sh`, encoding-checked against `tool/version_from_tag.dart`); fails fast on a mismatch and the workflow summary explicitly says "Version mismatch: release was not built." so it is not confused with an APK build failure. The same script is intended to be run locally before tagging (§3 step 10). Both manual and tag builds take the version from `pubspec.yaml`. |
-| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, `github-sponsor-apk.yml`, `linux-desktop-build.yml` and `flatpak-build.yml`, before each artifact is uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](./release-artifact-verification.md). |
+| Verifying the shipped artifacts carry the Cast containment | **Automatic**: on every release build (`android-release-build.yml`, `github-sponsor-apk.yml`, `linux-desktop-build.yml` and `flatpak-build.yml`, before each artifact is uploaded) and again on the published assets during a stable publication (`publish-stable-release.yml`, which records every SHA-256 in the job summary). Local twin: `python3 scripts/verify_release_containment.py dist/*.apk dist/*.aab`. See [release-artifact-verification.md](release-artifact-verification.md). |
 | Attaching APK/AAB to a Release | **Automatic** on a `v*` tag build. Alpha/beta/rc tags attach (debug- or release-signed) to a **pre-release**; stable tags attach **release-signed** assets to an existing Release only. The `linthra-<tag>-github-sponsor.apk` rides along in the same upload when its build succeeded; a failed Sponsor build reddens the run and still lets the canonical assets attach, except on a rerun of a tag whose Release already carries a Sponsor APK, where the attach stops rather than refresh five assets around a sixth this run did not build (nothing is uploaded and nothing is deleted). |
 | Linux `.tar.gz` build + attach to a Release | **Automatic**, via `workflow_dispatch` (`linux-desktop-build.yml` `release_tag` input, job `package-linux-release`) — see §4a. `publish-stable-release.yml` dispatches it for every stable release; `android-release-build.yml`'s `attach-release` job dispatches it for a directly-pushed alpha/beta/rc tag. Not wired to `push: tags` or `release: published` — a `GITHUB_TOKEN`-authored tag push/Release doesn't reliably start either. |
 | Linux `.flatpak` bundle build + attach to a Release | **Automatic** for stable releases, via `workflow_dispatch` (`flatpak-build.yml` `release_tag` input, job `package-flatpak-release`) — see §4b. `publish-stable-release.yml` dispatches it and waits for it. A directly-pushed alpha/beta/rc tag does not get one automatically. |
@@ -992,7 +992,7 @@ git diff --name-only origin/main...HEAD | ./scripts/check_release_bump_files.sh
 The blockers that gated the first F-Droid release are resolved:
 
 1. **Release signing secrets** (`LINTHRA_*`) are used for the GitHub-Release
-   artifacts — see [release-signing.md](./release-signing.md). A **stable** tag
+   artifacts — see [release-signing.md](release-signing.md). A **stable** tag
    now **requires** them (the tag build fails fast without them); F-Droid itself
    signs its own builds and needs none.
 2. **Tags exist and F-Droid is live.** Alpha tags through `v0.1.0-alpha.40` are
@@ -1003,20 +1003,20 @@ The blockers that gated the first F-Droid release are resolved:
    Keep it committed and in sync.
 4. **Feature maturity** is tracked per release in the GitHub Release notes and the
    Fastlane changelogs; `0.1.0-alpha.1` shipped the initial feature set (see
-   [docs/release-notes/v0.1.0-alpha.1.md](./release-notes/v0.1.0-alpha.1.md)).
+   [docs/release-notes/v0.1.0-alpha.1.md](../release-notes/v0.1.0-alpha.1.md)).
 
-See [fdroid-readiness.md](./fdroid-readiness.md) for the broader F-Droid status.
+See [F-Droid readiness checklist](f-droid/readiness.md) for the broader F-Droid status.
 
 ## 8. Related docs
 
-- [docs/release-signing.md](./release-signing.md) — signing keys, CI secrets,
+- [docs/distribution/release-signing.md](release-signing.md) — signing keys, CI secrets,
   rotation.
-- [docs/release-artifact-verification.md](./release-artifact-verification.md) —
+- [docs/distribution/release-artifact-verification.md](release-artifact-verification.md) —
   checking a published artifact actually carries the Cast security containment,
   and the recorded digests per release.
-- [docs/fdroid-readiness.md](./fdroid-readiness.md) — F-Droid submission checklist.
-- [docs/fdroid-build-recipe.md](./fdroid-build-recipe.md) — F-Droid build recipe.
-- [docs/dependency-license-audit.md](./dependency-license-audit.md) — dependency
+- [docs/distribution/f-droid/readiness.md](f-droid/readiness.md) — F-Droid submission checklist.
+- [docs/distribution/f-droid/build-recipe.md](f-droid/build-recipe.md) — F-Droid build recipe.
+- [docs/dependency-license-audit.md](../dependency-license-audit.md) — dependency
   licensing.
-- [docs/listing-assets.md](./listing-assets.md) — store icon / feature graphic /
+- [docs/distribution/listing-assets.md](listing-assets.md) — store icon / feature graphic /
   screenshots.

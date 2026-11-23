@@ -154,7 +154,7 @@ question — is the safeguard in the file people actually install? — so
 APK/AAB/tarball, and the release workflows run it before an artifact is uploaded
 and again on the published assets. The shipped `v0.2.6` artifacts and their
 SHA-256 digests are recorded in
-[release-artifact-verification.md](release-artifact-verification.md).
+[release-artifact-verification.md](distribution/release-artifact-verification.md).
 
 In the app, the cast button stays visible but muted and the sheet says casting is
 temporarily unavailable — it does not claim the platform is unsupported, which

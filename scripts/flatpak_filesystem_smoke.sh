@@ -53,7 +53,7 @@ cleanup() {
     flatpak --user uninstall -y "$APP_ID" >/dev/null 2>&1 || true
 
     # And only ever delete app data this run created.
-    # docs/flatpak-development.md calls --delete-data Destructive because it
+    # docs/distribution/flatpak/development.md calls --delete-data Destructive because it
     # is: it wipes the Flatpak install's settings, library database and cache.
     # Refusing to run against an existing *installation* is not enough, since
     # the data tree outlives an ordinary uninstall. A script that borrows the

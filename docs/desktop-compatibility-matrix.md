@@ -83,7 +83,7 @@ compatibility pass eats something it did not mean to.
 
 *Flatpak.* `flatpak uninstall` leaves `~/.var/app/io.github.thezupzup.linthra/`
 in place on purpose ([the table of what each command
-removes](./flatpak-development.md#clean-and-uninstall)), so reinstalling for the
+removes](distribution/flatpak/development.md#clean-and-uninstall)), so reinstalling for the
 second desktop comes back already signed in *and* already indexed. Either sign
 out and remove the folders inside the Flatpak before G5, or reset it between
 passes:
@@ -515,7 +515,7 @@ Work out which layer owns it before filing:
    top of this page, both results side by side, and the exact row number.
 3. **Does it fail only in the Flatpak?** Look at the sandbox first:
    [flatpak-permissions.md](./flatpak-permissions.md) and
-   [flatpak-development.md](./flatpak-development.md) have the commands for
+   [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) have the commands for
    inspecting it by hand.
 4. **Is it in the [differences](#differences-linthra-does-not-normalize)
    table?** Then it is recorded behaviour. If it is a *new* difference of that
@@ -532,7 +532,7 @@ difference, an upstream bug, or both.
 | Linux desktop build, and everything it supports | [linux-desktop.md](./linux-desktop.md) |
 | Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](./manual-test-checklist.md) |
 | HiDPI and fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
-| Flatpak development | [flatpak-development.md](./flatpak-development.md) |
+| Flatpak development | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
 | Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
 | Suspend / resume matrix | [linux-desktop.md](./linux-desktop.md#suspend--resume-manual-matrix) |
 | Closing the window (background mode) | [linux-desktop.md](./linux-desktop.md#closing-the-window) |

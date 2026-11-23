@@ -22,7 +22,7 @@
 # The package this needs is built from the manifest that
 # scripts/make_flatpak_smoke_manifest.py derives from the submission manifest:
 # the same runtime, modules, sources and permissions, plus the smoke binary
-# under /app/libexec. See docs/flatpak-audio-smoke.md.
+# under /app/libexec. See docs/distribution/flatpak/audio-smoke.md.
 #
 # No credentials, no network, no committed media: the fixture is PCM the smoke
 # generates into the sandbox's own temp directory at startup.
@@ -88,7 +88,7 @@ cleanup() {
   rm -f -- "$LOG_FILE"
   flatpak kill "$APP_ID" >/dev/null 2>&1 || true
 
-  # A plain uninstall, never `--delete-data`. docs/flatpak-development.md calls
+  # A plain uninstall, never `--delete-data`. docs/distribution/flatpak/development.md calls
   # that flag Destructive because it is: it wipes ~/.var/app/<app id>/ with the
   # library database, settings and offline audio in it, and it also drops the
   # app's entries from Flatpak's permission store, which lives outside
@@ -198,7 +198,7 @@ fi
 # ao=null is libmpv's own discard-audio output. Neither CI runner has a sound
 # device, so this is what keeps the decode, clock, seek and transport paths
 # real without one. It does not prove a speaker makes a sound; that stays a
-# manual check (docs/flatpak-audio-smoke.md).
+# manual check (docs/distribution/flatpak/audio-smoke.md).
 printf 'Running the audio lifecycle smoke inside the sandbox...\n'
 status=0
 bounded_run \

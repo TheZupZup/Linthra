@@ -122,7 +122,7 @@ code. It cannot meet two of Linthra's requirements:
 - **The pinned SDK.** Dependabot's pub updater resolves with its own bare Dart
   SDK and installs no Flutter at all. `pubspec.lock` is committed so the F-Droid
   build resolves the same dependency set we tested
-  ([release-process.md](./release-process.md) §7), which means the lockfile has
+  ([release-process.md](distribution/release-process.md) §7), which means the lockfile has
   to come from the SDK in `.flutter-version`. The difference is not theoretical:
   resolving with the pinned SDK writes an `sdks:` block into the lockfile that
   names the Flutter line it was resolved against, which a Flutter-less resolver
@@ -233,7 +233,7 @@ Pass `--output-dir DIR` to also write the Markdown summary and the raw
   `./scripts/regenerate_flatpak_sources.sh`. Until that lands, the Flatpak
   source checks are red and name the package they are missing, which is
   another red that is the point rather than something to work around (see
-  [source pinning](./flatpak-source-pinning.md)).
+  [source pinning](distribution/flatpak/source-pinning.md)).
 - Merge manually when it is green and you are happy with it. Nothing
   auto-merges, by design.
 
@@ -343,7 +343,7 @@ Exactly one file:
 
 Notably **not** `pubspec.lock`. A new SDK can require the lockfile to be
 re-resolved, but that resolution is what the reproducible F-Droid build depends
-on ([release-process.md](./release-process.md) §7), so it is a human's decision
+on ([release-process.md](distribution/release-process.md) §7), so it is a human's decision
 in a human's PR — not something an SDK bump drags along.
 
 `scripts/check_dependency_update_files.sh` owns the list. It takes an explicit
@@ -410,13 +410,13 @@ version it is, and why it is intentionally manual:
   formatting change from the newer Dart, or a lockfile that needs re-resolving.
 - Do any migration in a separate PR, and refresh `pubspec.lock` with the new SDK
   there as well — the F-Droid build resolves from the committed lockfile.
-- Re-read [`fdroid-build-recipe.md`](./fdroid-build-recipe.md) and the
+- Re-read [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the
   reproducibility notes, and update them if the bump changes what a builder must
   install.
 - The Flatpak builds the SDK from the same pin, so the migration PR is also
   where its sources get regenerated (`./scripts/regenerate_flatpak_sources.sh`)
   and the template's Flutter `commit` moves to the one the new tag resolves to.
-  See [source pinning](./flatpak-source-pinning.md).
+  See [source pinning](distribution/flatpak/source-pinning.md).
 - Merge manually when you are happy with it. Nothing auto-merges, by design.
 
 ### One-time setup
@@ -652,7 +652,7 @@ came from, and why the upgrade is manual:
 - **F-Droid and reproducibility.** The F-Droid builder resolves this toolchain
   offline from these files. A major can change what a builder must provide and
   whether the build still reproduces, and CI cannot prove either. See
-  [`fdroid-build-recipe.md`](./fdroid-build-recipe.md) and the reproducibility
+  [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the reproducibility
   notes.
 - **The rest of the toolchain.** Gradle, AGP, Kotlin and the JDK move as a
   compatible set.
@@ -674,7 +674,7 @@ bump is the easy part.
   is not the same as supported.
 - Check CI. Red is informative; work out what the new version changed.
 - Do any migration in a separate PR.
-- Re-read [`fdroid-build-recipe.md`](./fdroid-build-recipe.md) and the
+- Re-read [F-Droid build recipe planning & reproducible-build notes](distribution/f-droid/build-recipe.md) and the
   reproducibility notes, and update them if the bump changes what a builder must
   install.
 - Merge manually when you are happy with it. Nothing auto-merges, by design.

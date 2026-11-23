@@ -153,7 +153,7 @@ jobs:
           # (their name stays stable for F-Droid and the Release notes flag the
           # signing); there is no such labelling here, so this fails instead.
           if [ -n "$TARGET_TAG" ] && [ "$mode" != "release-signed" ]; then
-            echo "::error::Tagged GitHub Sponsor APKs require the LINTHRA_* signing secrets. The canonical release assets for '${TARGET_TAG}' are unaffected by this failure. See docs/release-signing.md."
+            echo "::error::Tagged GitHub Sponsor APKs require the LINTHRA_* signing secrets. The canonical release assets for '${TARGET_TAG}' are unaffected by this failure. See docs/distribution/release-signing.md."
             exit 1
           fi
 
@@ -222,7 +222,7 @@ jobs:
       # to the same rule: casting is withheld from shipped builds while a
       # reported security issue is resolved, and that is checked in the built
       # artifact before it leaves this job. It fails closed (see
-      # docs/release-artifact-verification.md).
+      # docs/distribution/release-artifact-verification.md).
       - name: Verify the built artifact carries the Cast containment
         run: |
           set -euo pipefail
@@ -232,7 +232,7 @@ jobs:
           # The one case with nothing to check: a tag from before the
           # containment existed, which carries no message to look for.
           if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
-            echo "::warning::This tag predates the Cast containment, so its artifacts carry nothing to check. See docs/release-artifact-verification.md."
+            echo "::warning::This tag predates the Cast containment, so its artifacts carry nothing to check. See docs/distribution/release-artifact-verification.md."
             exit 0
           fi
 

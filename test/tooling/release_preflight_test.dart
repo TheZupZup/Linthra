@@ -8,7 +8,7 @@ import '../../tool/version_from_tag.dart';
 
 /// Specifies `scripts/release_preflight.sh` — the pure-bash twin of
 /// `tool/version_from_tag.dart` that the GitHub release workflow runs against
-/// every pushed tag (see docs/release-process.md §3 step 9 and
+/// every pushed tag (see docs/distribution/release-process.md §3 step 9 and
 /// .github/workflows/android-release-build.yml).
 ///
 /// The two encodings must agree forever, so this suite shells out to the

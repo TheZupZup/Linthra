@@ -1,8 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
-/// Keeps [docs/flathub-update-process.md] honest (#453).
+const String _docPath = 'docs/distribution/flatpak/flathub-update-process.md';
+
+/// Keeps [docs/distribution/flatpak/flathub-update-process.md] honest (#453).
 ///
 /// The doc's whole value is that a maintainer can follow it command by command
 /// on the day of a release. That makes it exactly the kind of file that rots
@@ -14,7 +17,7 @@ void main() {
   late String doc;
 
   setUpAll(() {
-    doc = File('docs/flathub-update-process.md').readAsStringSync();
+    doc = File(_docPath).readAsStringSync();
   });
 
   test('every repository path the walkthrough names exists', () {
@@ -41,17 +44,20 @@ void main() {
   test('every relative link resolves', () {
     final Set<String> broken = <String>{};
     for (final RegExpMatch match
-        in RegExp(r'\]\((\.[^)#]*)(?:#[^)]*)?\)').allMatches(doc)) {
+        in RegExp(r'\]\(([^)#:\s]+)(?:#[^)]*)?\)').allMatches(doc)) {
       final String target = match.group(1)!;
-      final File file = File('docs/$target');
-      if (!file.existsSync()) broken.add(target);
+      // Relative to the doc's own folder, as GitHub resolves it.
+      final String resolved = p.normalize(p.join(p.dirname(_docPath), target));
+      if (!File(resolved).existsSync() && !Directory(resolved).existsSync()) {
+        broken.add(target);
+      }
     }
     expect(broken, isEmpty);
   });
 
   test('the release process hands off to it', () {
     expect(
-      File('docs/release-process.md').readAsStringSync(),
+      File('docs/distribution/release-process.md').readAsStringSync(),
       contains('flathub-update-process.md'),
     );
   });

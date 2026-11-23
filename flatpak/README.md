@@ -158,9 +158,9 @@ connections for user-configured Jellyfin, Navidrome/Subsonic, and Plex servers.
 The full contributor workflow — host tools, build, install, run, rebuild,
 clean/uninstall and debugging, written for Fedora Atomic (Kinoite/Silverblue)
 and usable anywhere else — is
-[docs/flatpak-development.md](../docs/flatpak-development.md). Turning a tagged
+[docs/distribution/flatpak/development.md](../docs/distribution/flatpak/development.md). Turning a tagged
 release into a published Flatpak is a different walk, in
-[docs/flathub-update-process.md](../docs/flathub-update-process.md). The short
+[docs/distribution/flatpak/flathub-update-process.md](../docs/distribution/flatpak/flathub-update-process.md). The short
 version, run from this directory:
 
 ```bash
@@ -181,9 +181,9 @@ To uninstall: `flatpak --user uninstall io.github.thezupzup.linthra` and
 A stable release turns that same exported repository into the single
 `Linthra-<tag>-x86_64.flatpak` file attached to the GitHub Release (#618) — one
 manifest, one package, two ways of installing it. The commands are in
-[docs/flatpak-ci.md](../docs/flatpak-ci.md#reproduce-the-build-locally) and the
+[docs/distribution/flatpak/ci.md](../docs/distribution/flatpak/ci.md#reproduce-the-build-locally) and the
 release path is
-[docs/release-process.md §4b](../docs/release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
+[docs/distribution/release-process.md §4b](../docs/distribution/release-process.md#4b-linux-flatpak-bundle-dispatched-alongside-the-android-and-linux-builds).
 
 Nothing above needs network access during the actual sandboxed build —
 `flatpak-builder`'s normal declared-source fetch (`generated/sources/pubspec.json`,
@@ -438,7 +438,7 @@ That is the same check CI runs on every PR. What each input is pinned by, how
 to refresh a pin by hand, and the four inputs that genuinely cannot be
 content-addressed (the runtime, the SDK, the SDK extension and the app's own
 checkout) are in
-[docs/flatpak-source-pinning.md](../docs/flatpak-source-pinning.md).
+[docs/distribution/flatpak/source-pinning.md](../docs/distribution/flatpak/source-pinning.md).
 
 ## Local music folders
 
@@ -489,7 +489,7 @@ does credential storage (see
 The submission itself is tracked in #456. The issues still open for it:
 
 * **Screenshots** (#437), taken in a real desktop session; see
-  [docs/flathub-screenshots.md](../docs/flathub-screenshots.md).
+  [docs/distribution/flatpak/flathub-screenshots.md](../docs/distribution/flatpak/flathub-screenshots.md).
 * **AppStream metadata** (#450).
 * **A clean `flathub-builder-lint`** (#449), and gating CI on its repo mode
   (#628).

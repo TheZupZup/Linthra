@@ -339,7 +339,7 @@ jobs:
             echo "- [ ] **F-Droid / reproducibility:** the F-Droid builder resolves this"
             echo "      toolchain offline from these same files, so the proposed version has"
             echo "      to be available and reproducible there too. Re-read"
-            echo "      \`docs/fdroid-build-recipe.md\` and the reproducibility notes, and"
+            echo "      \`docs/distribution/f-droid/build-recipe.md\` and the reproducibility notes, and"
             echo "      update them if the bump changes what a builder must install."
             echo "- [ ] A human reviewed and merged this. Nothing here auto-merges, ever."
             echo
@@ -458,7 +458,7 @@ jobs:
             echo "  toolchain offline from the files in this repository. A major upgrade can"
             echo "  change what the builder must provide and whether the build still"
             echo "  reproduces, and CI cannot prove either. See"
-            echo "  \`docs/fdroid-build-recipe.md\` and the reproducibility notes."
+            echo "  \`docs/distribution/f-droid/build-recipe.md\` and the reproducibility notes."
             echo "- **The rest of the toolchain.** Gradle, AGP, Kotlin and the JDK move as a"
             echo "  compatible set; one of them crossing a major usually drags the others."
             echo

@@ -9,16 +9,16 @@ blockers, and the steps to actually submit.
 > The material below is the historical submission prep that got it there, kept for
 > reference; some lines still read as pre-submission. For the **current** release
 > process — and the next release, the stable `v0.1.1` (`0.1.1+101999`) — see
-> [release-process.md](./release-process.md). This repo never pushes to fdroiddata
+> [release-process.md](../release-process.md). This repo never pushes to fdroiddata
 > directly.
 
-Related docs: [fdroid-readiness.md](./fdroid-readiness.md) (the overall
-checklist), [fdroid-build-recipe.md](./fdroid-build-recipe.md) (recipe and
-reproducibility), [dependency-license-audit.md](./dependency-license-audit.md)
-(licensing), [listing-assets.md](./listing-assets.md) (icon, graphic,
-screenshots), [release-process.md](./release-process.md) (versioning and
+Related docs: [F-Droid readiness checklist](readiness.md) (the overall
+checklist), [F-Droid build recipe planning & reproducible-build notes](build-recipe.md) (recipe and
+reproducibility), [dependency-license-audit.md](../../dependency-license-audit.md)
+(licensing), [listing-assets.md](../listing-assets.md) (icon, graphic,
+screenshots), [release-process.md](../release-process.md) (versioning and
 tagging), and the draft recipe at
-[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml).
+[`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml).
 
 ## 1. App identity
 
@@ -51,7 +51,7 @@ not install … startup regression," and alpha.25 was the hotfix that reverted i
 
 `pubspec.yaml` now carries the release version in lockstep with the tag
 (`version: 0.1.0-alpha.30+100030`; see
-[release-process.md §1](./release-process.md#1-versioning-model)), so F-Droid
+[release-process.md §1](../release-process.md#1-versioning-model)), so F-Droid
 reads it at each tag and tracks new releases **automatically**. The fields that
 enable this:
 
@@ -72,7 +72,7 @@ highest `versionCode` across the tags, and `AutoUpdateMode: Version` adds a
 **plain-build** entry (`flutter build apk --release`, no
 `--build-name`/`--build-number`) using the tag as the commit. The changelog file
 is named by that `versionCode` (`100030.txt`), in line with
-[release-process.md §1](./release-process.md#1-versioning-model) (the older
+[release-process.md §1](../release-process.md#1-versioning-model) (the older
 `1.txt`/`9.txt`/`15.txt` stay as they are).
 
 ### One-time transition for the `v0.1.0-alpha.30` tag
@@ -87,18 +87,18 @@ committed `pubspec.yaml` matches the tag, so those flags are dropped and the bui
 is a plain `flutter build apk --release`; when `AutoUpdateMode` adds the first new
 entry, remove the flags it inherits from the seed (a one-time edit). The draft
 recipe at
-[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+[`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml)
 carries exactly this, with the transition spelled out in comments.
 
 ## 3. Build recipe status
 
 The draft recipe is in
-[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml).
+[`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml).
 What makes it a good fit for building from source:
 
 - It builds with no signing keys — F-Droid signs its own builds. Linthra's
   optional release signing only applies to the GitHub channel and is injected at
-  build time (see [release-signing.md](./release-signing.md)); no keystore or
+  build time (see [release-signing.md](../release-signing.md)); no keystore or
   secret is committed.
 - The toolchain is pinned: Flutter `3.47.5` (stable), Dart `3.13.x`, JDK 17,
   Gradle 9.3.1 — CI reads the same `.flutter-version` and `.java-version` files.
@@ -143,14 +143,14 @@ A few things still need checking against fdroiddata before submitting:
    `AllowedAPKSigningKeys` also stays as a sideload-source check.
 4. The `pubspec.lock` policy — still git-ignored. Decide whether to commit it at
    the tagged commit for a fully pinned dependency set
-   ([fdroid-build-recipe.md §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
+   ([F-Droid build recipe planning & reproducible-build notes §4](build-recipe.md#4-reproducibility-notes)).
 5. The Gradle wrapper jar isn't committed; F-Droid restores it, but confirm the
    recipe handles that (a `flutter build` provisions the wrapper).
 
 ## 4. Anti-features
 
-The reasoning is in [fdroid-readiness.md §5](./fdroid-readiness.md#5-anti-features-review)
-and [dependency-license-audit.md §6](./dependency-license-audit.md#6-anti-features--non-free-check).
+The reasoning is in [F-Droid readiness checklist §5](readiness.md#5-anti-features-review)
+and [dependency-license-audit.md §6](../../dependency-license-audit.md#6-anti-features--non-free-check).
 The short version: there's nothing to declare.
 
 | Anti-feature  | Apply? | Why |
@@ -173,7 +173,7 @@ Ten permissions are declared in `AndroidManifest.xml`. The set is deliberately
 small: no location, contacts, camera, microphone, or phone permission, and no
 `MANAGE_EXTERNAL_STORAGE` (folder access goes through the Storage Access
 Framework and needs no permission). Each one is explained in
-[fdroid-readiness.md §5 (Android permissions)](./fdroid-readiness.md#android-permissions):
+[F-Droid readiness checklist §5 (Android permissions)](readiness.md#android-permissions):
 `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`,
 `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `WAKE_LOCK`,
 `ACCESS_LOCAL_NETWORK` (Android 17's runtime permission for reaching a server
@@ -187,7 +187,7 @@ manifest before submitting.
 
 ## 6. Listing assets
 
-Tracked in [listing-assets.md](./listing-assets.md). The app icon (512×512) and
+Tracked in [listing-assets.md](../listing-assets.md). The app icon (512×512) and
 feature graphic (1024×500) are committed, generated from
 `tool/branding/linthra_icon.svg`. Eight real phone screenshots — captured from a
 running build, not mocked — are now committed under
@@ -195,7 +195,7 @@ running build, not mocked — are now committed under
 Library Albums/Artists views, Smart mixes, both provider setup screens, the
 diagnostics / bug-report screen, a library-syncing state, and Favorites). What
 each shows and the privacy review are in
-[listing-assets.md §6](./listing-assets.md). This is the core set tracked by
+[listing-assets.md §6](../listing-assets.md). This is the core set tracked by
 issue #77; optional extras (Downloads with tracks downloaded, Android Auto, Cast,
 tablet layouts) remain nice-to-haves, none of them a merge-request blocker.
 
@@ -243,7 +243,7 @@ fdroid build -v -l io.github.thezupzup.linthra        # full from-source build t
 ## 8. Steps to submit to fdroiddata
 
 1. ✅ Screenshots committed (issue #77) — eight phone screenshots under
-   `images/phoneScreenshots/` (see [listing-assets.md §6](./listing-assets.md)).
+   `images/phoneScreenshots/` (see [listing-assets.md §6](../listing-assets.md)).
 2. Re-confirm a clean `flutter build apk --release` from source on a machine with
    the Android SDK, and re-check the merged-manifest permission set.
 3. Fork https://gitlab.com/fdroid/fdroiddata and make a branch.
@@ -280,7 +280,7 @@ the maintainer asked for.
 > This repository's own `metadata/io.github.thezupzup.linthra.yml` already made
 > the cutover: the v0.2.5 release update advanced `CurrentVersion` past
 > `v0.2.4` and set `License: AGPL-3.0-or-later` in the same change (see
-> [license-transition.md](./license-transition.md)). **Still to do:** the
+> [license-transition.md](../../license-transition.md)). **Still to do:** the
 > external `fdroiddata` recipe already builds v0.2.5 to v0.2.7 but its
 > `License:` field still says MPL-2.0. The merge request that fixes it is
 > ready in §11 (tracked in #659).
@@ -352,7 +352,7 @@ hotfix, and the target has since moved on to alpha.30.
 - [ ] Settle the Builds toolchain to fdroiddata's Flutter convention (srclib vs.
       sudo-clone).
 - [ ] `fdroid readmeta` + `fdroid lint` + `fdroid build -l` all green.
-- [ ] Open the merge request (text in `docs/fdroid-submission.md` §9); mention
+- [ ] Open the merge request (text in `docs/distribution/f-droid/submission.md` §9); mention
       the early-alpha status and ask about tracking an `-alpha` tag.
 
 ### Open questions
@@ -365,11 +365,11 @@ hotfix, and the target has since moved on to alpha.30.
 ### Links
 
 - Metadata draft: `metadata/io.github.thezupzup.linthra.yml`
-- Submission package: `docs/fdroid-submission.md`
-- Readiness checklist: `docs/fdroid-readiness.md`
-- Build recipe notes: `docs/fdroid-build-recipe.md`
+- Submission package: `docs/distribution/f-droid/submission.md`
+- Readiness checklist: `docs/distribution/f-droid/readiness.md`
+- Build recipe notes: `docs/distribution/f-droid/build-recipe.md`
 - Dependency/license audit: `docs/dependency-license-audit.md`
-- Listing assets: `docs/listing-assets.md`
+- Listing assets: `docs/distribution/listing-assets.md`
 
 ### Status
 

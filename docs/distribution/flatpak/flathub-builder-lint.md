@@ -37,7 +37,7 @@ flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
 ```
 
 Two of the three need a completed build, so the practical way to run all of
-them is the sequence in [flatpak-ci.md](./flatpak-ci.md) followed by:
+them is the sequence in [Flatpak CI validation](ci.md) followed by:
 
 ```sh
 # That sequence ends inside flatpak/, and the paths below are relative to the
@@ -130,7 +130,7 @@ coverage for a red badge.
 `appstream-screenshots-not-mirrored-in-ostree`, both real submission blockers
 whose fix is to take screenshots
 ([#437](https://github.com/TheZupZup/Linthra/issues/437),
-[flathub-screenshots.md](./flathub-screenshots.md)) rather than to change
+[flathub-screenshots.md](flathub-screenshots.md)) rather than to change
 anything here. Wiring it in before then would mean one of two things, and both
 are worse than waiting:
 
@@ -228,8 +228,8 @@ does not.
 
 ## Related
 
-- [flatpak-ci.md](./flatpak-ci.md), the build this lints the output of
-- [flathub-update-process.md](./flathub-update-process.md), where a lint result
+- [Flatpak CI validation](ci.md), the build this lints the output of
+- [flathub-update-process.md](flathub-update-process.md), where a lint result
   sits in a release
-- [flatpak-filesystem-audit.md](./flatpak-filesystem-audit.md), the permission
+- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), the permission
   policy the manifest mode also checks

@@ -258,8 +258,11 @@ const List<String> _scannedDirs = <String>['docs', 'scripts', '.github'];
 /// toolchain they were run against. Anything not listed here must match the
 /// pin — including the current-toolchain sentences in these same files.
 const Map<String, Set<String>> _historicalVersions = <String, Set<String>>{
-  'docs/fdroid-reproducibility-arm64.md': <String>{'3.27.4', '8.2.1'},
-  'docs/fdroid-readiness.md': <String>{'3.27.4'},
+  'docs/distribution/f-droid/reproducibility-arm64.md': <String>{
+    '3.27.4',
+    '8.2.1'
+  },
+  'docs/distribution/f-droid/readiness.md': <String>{'3.27.4'},
   'docs/dependency-license-audit.md': <String>{'3.27.4'},
   // Names the Flutter 3.44.7 bump as the worked example of an upgrade that
   // needed application changes, which is why the Dart dependency updater is

@@ -69,7 +69,7 @@ be confused with a production release. They are uploaded as workflow artifacts
 (`linthra-<signing>-apk` / `linthra-<signing>-aab`). On a tag build the
 `versionName`/`versionCode` baked into the APK/AAB (and the in-app version) are
 derived from the tag — see
-[release-process.md §1](./release-process.md#1-versioning-model). Signing is
+[release-process.md §1](release-process.md#1-versioning-model). Signing is
 independent of this and unchanged.
 
 - **Manual unsigned preview (default):** run with `signed = false` →
@@ -114,7 +114,7 @@ password manager.
 
 For a **local** release build, create `android/key.properties` (git-ignored).
 A committed, secret-free template is provided at
-[`android/key.properties.example`](../android/key.properties.example) — copy it
+[`android/key.properties.example`](../../android/key.properties.example) — copy it
 and fill in your own values:
 
 ```sh
@@ -194,5 +194,5 @@ freely once published — plan rotation carefully.
 - Submitting to F-Droid.
 - Committing any keystore, password, or `key.properties`.
 
-See [docs/fdroid-readiness.md](./fdroid-readiness.md) for the broader
+See [docs/distribution/f-droid/readiness.md](f-droid/readiness.md) for the broader
 distribution checklist.

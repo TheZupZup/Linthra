@@ -41,7 +41,7 @@ jobs:
       # --enforce-lockfile makes `pub get` FAIL instead of silently rewriting
       # pubspec.lock when it has drifted from pubspec.yaml. This is the same
       # resolution the reproducible F-Droid build depends on — the lockfile is
-      # committed for exactly this reason (docs/release-process.md §7) — so a PR
+      # committed for exactly this reason (docs/distribution/release-process.md §7) — so a PR
       # that changes a dependency without refreshing the lockfile is caught here
       # instead of at release time.
       - name: Install dependencies (lockfile-enforced)

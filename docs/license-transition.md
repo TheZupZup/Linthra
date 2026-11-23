@@ -145,8 +145,8 @@ The transition was made in one reviewable change. The surfaces updated:
 
 **Documentation**
 
-- `docs/fdroid-build-recipe.md`, `docs/fdroid-readiness.md`, `docs/fdroid-submission.md`
-- `docs/play-store-listing.md`, `docs/play-store-readiness.md`
+- `docs/distribution/f-droid/build-recipe.md`, `docs/distribution/f-droid/readiness.md`, `docs/distribution/f-droid/submission.md`
+- `docs/distribution/google-play/listing.md`, `docs/distribution/google-play/readiness.md`
 - `docs/privacy-policy.md`, `docs/index.html`, `docs/privacy.html`
 - `docs/dependency-license-audit.md` — refreshed against the current inventory
 - `docs/license-transition.md` (this file), `docs/relicensing-consent.md`
@@ -234,7 +234,7 @@ for every current F-Droid build and needs a one-line manual merge request:
 
 Nothing else in the recipe changes: no `Builds` entry, commit or tag is
 edited. The ready-to-file merge request is in
-[fdroid-submission.md](./fdroid-submission.md) §11, and the sync is tracked in
+[F-Droid submission package (draft)](distribution/f-droid/submission.md) §11, and the sync is tracked in
 [#659](https://github.com/TheZupZup/Linthra/issues/659).
 
 F-Droid's `License:` is a single app-level field with no per-build value (see

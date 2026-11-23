@@ -171,7 +171,7 @@ abstract final class LinuxPlaybackRuntime {
   /// Two wordings per problem, because the fix is genuinely different: a
   /// distribution build plays through the libmpv the machine has, while a
   /// Flatpak ships its own and never looks at the host's
-  /// (`docs/flatpak-development.md`). Telling a Flatpak user to
+  /// (`docs/distribution/flatpak/development.md`). Telling a Flatpak user to
   /// `apt install libmpv-dev` would send them to fix something the app does
   /// not use.
   ///

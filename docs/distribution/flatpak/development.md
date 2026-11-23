@@ -10,13 +10,13 @@ Four docs, four jobs:
 
 * **This page** — the contributor workflow: host tools, build, install, run,
   rebuild, clean, debug.
-* [`flatpak/README.md`](../flatpak/README.md) — what the packaging *files* are,
+* [`flatpak/README.md`](../../../flatpak/README.md) — what the packaging *files* are,
   why the manifest looks the way it does, and what is deliberately not in it
   yet.
-* [`linux-desktop.md`](./linux-desktop.md) — the **native** Flutter Linux
+* [`linux-desktop.md`](../../linux-desktop.md) — the **native** Flutter Linux
   build, which is a different thing with different dependencies. See
   [Native Linux vs Flatpak](#native-linux-vs-flatpak) before mixing the two.
-* [`flathub-update-process.md`](./flathub-update-process.md): how a tagged
+* [`flathub-update-process.md`](flathub-update-process.md): how a tagged
   Linthra release becomes a reviewed Flathub update, and which repository each
   step happens in.
 
@@ -54,7 +54,7 @@ A libmpv-related failure in one says nothing about the other: the Flatpak
 carries its own ffmpeg/libplacebo/libass/mpv chain under `/app/lib`, so it runs
 on a host with no mpv installed at all, and the native bundle keeps needing the
 host library documented in
-[linux-desktop.md](./linux-desktop.md#required-packages).
+[linux-desktop.md](../../linux-desktop.md#required-packages).
 
 ## Host tools
 
@@ -66,7 +66,7 @@ other thing you need is `flatpak-builder`, and it is available **as a Flatpak**
 > slows every future system update, and buys nothing here: `org.flatpak.Builder`
 > is the same tool, sandboxed, and the Flatpak build never needs the native
 > Linux toolchain from
-> [linux-desktop.md](./linux-desktop.md#required-packages) on the host.
+> [linux-desktop.md](../../linux-desktop.md#required-packages) on the host.
 
 ```bash
 # A user-level Flathub remote. Fedora's preinstalled remote is filtered on some
@@ -115,7 +115,7 @@ alias flatpak-builder='flatpak run org.flatpak.Builder'
 
 | Task | Where |
 | --- | --- |
-| `flutter` / native Linux build / `./scripts/verify_linux.sh` | **toolbox** — that is what [linux-desktop.md](./linux-desktop.md#required-packages) sets up |
+| `flutter` / native Linux build / `./scripts/verify_linux.sh` | **toolbox** — that is what [linux-desktop.md](../../linux-desktop.md#required-packages) sets up |
 | Any `flatpak` or `flatpak-builder` command on this page | **host** — a toolbox has no access to the host's Flatpak installations |
 | `./scripts/regenerate_flatpak_sources.sh` | either — it needs `git`, `python3` and network, not Flatpak. Run it on the host, or in a toolbox if your image lacks them |
 
@@ -219,8 +219,8 @@ It regenerates `flatpak/io.github.thezupzup.linthra.yml` and
 flatpak-flutter checkout in `.tool/`. Needs network (it pins every dependency
 by URL + sha256), and finishes by checking its own output with
 `scripts/check_flatpak_sources.py`. Review the diff before committing; see
-[`flatpak/README.md`](../flatpak/README.md#regenerating-the-pinned-sources)
-and [source pinning](./flatpak-source-pinning.md).
+[`flatpak/README.md`](../../../flatpak/README.md#regenerating-the-pinned-sources)
+and [source pinning](source-pinning.md).
 
 ## Clean and uninstall
 
@@ -237,7 +237,7 @@ Ordered least to most destructive. Nothing here needs `sudo`.
 | `rm -rf .tool/flatpak-flutter .tool/flatpak-flutter-venv` | the source-regeneration tool checkout | Safe; refetched by `regenerate_flatpak_sources.sh` |
 
 The audio/network testing in
-[`flatpak/README.md`](../flatpak/README.md#testing-audio-locally) leaves
+[`flatpak/README.md`](../../../flatpak/README.md#testing-audio-locally) leaves
 nothing to clean up: those permissions are passed to `flatpak run` and last
 only for that invocation. That is why it does not use `flatpak override` —
 override grants persist, `--nofilesystem=…`/`--unshare=network` add a
@@ -323,7 +323,7 @@ The following are **expected**, not bugs, and not worth debugging:
   permission audit). Picking a **music folder** does work, and needs no grant:
   the chooser goes through xdg-desktop-portal and the folder comes back through
   the document portal ([#438](https://github.com/TheZupZup/Linthra/issues/438),
-  see [`flatpak/README.md`](../flatpak/README.md#local-music-folders)).
+  see [`flatpak/README.md`](../../../flatpak/README.md#local-music-folders)).
 * Saved sessions come back signed in
   ([#441](https://github.com/TheZupZup/Linthra/issues/441)), through the
   Secret portal rather than a D-Bus grant. Two things that are *not* bugs:
@@ -375,7 +375,7 @@ backend, keyed by a master secret from xdg-desktop-portal's
 GNOME does (gnome-keyring) and KDE Plasma 6 does (KWallet's `ksecretd`), so on
 both the credential path is a portal every Flatpak may use, and
 `--talk-name=org.freedesktop.secrets` is not shipped.
-[`flatpak/README.md`](../flatpak/README.md#secure-credential-storage) has the
+[`flatpak/README.md`](../../../flatpak/README.md#secure-credential-storage) has the
 full derivation, the source references, the table of what each provider
 stores, and the user-side override for hosts with no Secret portal backend.
 

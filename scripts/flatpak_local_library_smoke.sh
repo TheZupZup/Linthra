@@ -23,7 +23,7 @@
 # What it is not is the chooser dialog itself. A portal grant is minted by a
 # user clicking a button in xdg-desktop-portal, and no headless runner can
 # click it. That step stays a documented manual pass; see
-# docs/flatpak-local-library-smoke.md.
+# docs/distribution/flatpak/local-library-smoke.md.
 #
 # The manifest is never widened. `--filesystem=home` and `--filesystem=host`
 # are exactly what this test exists to make unnecessary, and
@@ -100,7 +100,7 @@ cleanup() {
   [[ -n "$SIBLING_DIR" && -d "$SIBLING_DIR" ]] && rm -rf -- "$SIBLING_DIR"
   flatpak kill "$APP_ID" >/dev/null 2>&1 || true
 
-  # A plain uninstall, never `--delete-data`. docs/flatpak-development.md calls
+  # A plain uninstall, never `--delete-data`. docs/distribution/flatpak/development.md calls
   # that flag Destructive because it is: it wipes ~/.var/app/<app id>/ with the
   # library database, settings and offline audio in it, and it also drops the
   # app's entries from Flatpak's permission store, which lives outside

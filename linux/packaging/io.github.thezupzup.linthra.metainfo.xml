@@ -37,7 +37,7 @@
   Screenshots are still missing, and flatpak-builder-lint reports that as
   metainfo-missing-screenshots. It is a real finding, not one to except. The
   captures have to come from a real desktop session; see
-  docs/flathub-screenshots.md for the sizes, the naming, and the exact block to
+  docs/distribution/flatpak/flathub-screenshots.md for the sizes, the naming, and the exact block to
   paste in once the files exist. Inventing them from the Android set would
   misrepresent the desktop window.
 

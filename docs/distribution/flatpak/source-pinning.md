@@ -9,7 +9,7 @@ has to return. Rebuilding the same repository commit therefore fetches the same
 inputs, and a change to any of them is a diff somebody reviewed.
 
 This page is the "how and where" of those pins. The complementary audit,
-[flatpak-offline-build.md](./flatpak-offline-build.md) (#442), covers the other
+[Flatpak network-independent build audit](offline-build.md) (#442), covers the other
 half: that each declared source is staged exactly where the sandboxed build
 reads it, so the build needs no network of its own.
 
@@ -20,10 +20,10 @@ Only four files decide what the build fetches. Everything under
 
 | File | Decides |
 | --- | --- |
-| [`.flutter-version`](../.flutter-version) | The Flutter SDK tag, for the Flatpak and for every other build |
-| [`pubspec.lock`](../pubspec.lock) | Every Dart package version and its SHA-256 |
-| [`flatpak/flatpak-flutter.yml`](../flatpak/flatpak-flutter.yml) | The native chain (ffmpeg, libplacebo, libass, mpv), the runtime, the sandbox, the Flutter source |
-| [`scripts/regenerate_flatpak_sources.sh`](../scripts/regenerate_flatpak_sources.sh) | Which `flatpak-flutter` produced the generated files (`TOOL_COMMIT`) |
+| [`.flutter-version`](../../../.flutter-version) | The Flutter SDK tag, for the Flatpak and for every other build |
+| [`pubspec.lock`](../../../pubspec.lock) | Every Dart package version and its SHA-256 |
+| [`flatpak/flatpak-flutter.yml`](../../../flatpak/flatpak-flutter.yml) | The native chain (ffmpeg, libplacebo, libass, mpv), the runtime, the sandbox, the Flutter source |
+| [`scripts/regenerate_flatpak_sources.sh`](../../../scripts/regenerate_flatpak_sources.sh) | Which `flatpak-flutter` produced the generated files (`TOOL_COMMIT`) |
 
 And the derived files, all committed so a reviewer can read them:
 
@@ -73,10 +73,10 @@ without a row fails, and a row for an input that is gone fails too.
 Regeneration is a normal, reviewable diff. Nothing here is automated into a
 merge. The updater bots move `.flutter-version` or `pubspec.lock` and stop
 there, and their branch guard
-([`scripts/check_dependency_update_files.sh`](../scripts/check_dependency_update_files.sh))
+([`scripts/check_dependency_update_files.sh`](../../../scripts/check_dependency_update_files.sh))
 keeps the derived pins off the bot's branch, so refreshing them is a human's
 own PR. That is the same reasoning as everywhere else in
-[dependency-updates.md](./dependency-updates.md): a bot moves one pin, a person
+[dependency-updates.md](../../dependency-updates.md): a bot moves one pin, a person
 reviews what it implies.
 
 ```bash

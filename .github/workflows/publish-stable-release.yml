@@ -259,7 +259,7 @@ jobs:
       # instead of extracting the native tarball and installing its runtime
       # dependencies by hand. flatpak-build.yml checks out the exact tag,
       # verifies the release metadata at it, builds and launches the package,
-      # exports the bundle and attaches it — see docs/release-process.md §4b.
+      # exports the bundle and attaches it — see docs/distribution/release-process.md §4b.
       - name: Dispatch Flatpak release build
         id: dispatch-flatpak
         env:

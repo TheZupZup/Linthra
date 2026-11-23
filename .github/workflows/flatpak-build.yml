@@ -19,7 +19,7 @@ name: Flatpak build
 # it just exported into a standalone `.flatpak` bundle and launches that bundle
 # too. A second job attaches the bundle to that Release. Everything else about
 # this workflow — what it builds, what it proves, and the fact that it is
-# read-only on PRs — is unchanged. See docs/release-process.md §4b.
+# read-only on PRs — is unchanged. See docs/distribution/release-process.md §4b.
 on:
   push:
     branches: [main]
@@ -422,7 +422,7 @@ jobs:
       # It arrives with the screenshots that let it pass (#628).
       #
       # `scripts/flathub_builder_lint.py --repo ...` runs today and is
-      # documented in docs/flathub-builder-lint.md; it is the CI wiring that
+      # documented in docs/distribution/flatpak/flathub-builder-lint.md; it is the CI wiring that
       # waits, not the capability.
 
       # Everything below here only happens for a validated release build.
@@ -596,7 +596,7 @@ jobs:
           source_file="lib/core/services/cast/cast_containment.dart"
 
           if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
-            echo "::warning::This tag predates the Cast containment, so its bundle carries nothing to check. See docs/release-artifact-verification.md."
+            echo "::warning::This tag predates the Cast containment, so its bundle carries nothing to check. See docs/distribution/release-artifact-verification.md."
             exit 0
           fi
 

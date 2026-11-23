@@ -5,7 +5,7 @@
 > today from what is planned, and makes **no** claim that Linthra is on Google
 > Play or F-Droid (it is not, and no submission has been made). Review and trim
 > to Play's limits before pasting into the Play Console. See
-> [docs/play-store-readiness.md](./play-store-readiness.md).
+> [docs/distribution/google-play/readiness.md](readiness.md).
 
 The repo already carries reusable listing text under
 `fastlane/metadata/android/en-US/` (`short_description.txt`,
@@ -27,7 +27,7 @@ Open-source, local-first music player for music you own. No forced sync.
 Play limit: **4000 characters.**
 
 The **canonical full description is
-[`fastlane/metadata/android/en-US/full_description.txt`](../fastlane/metadata/android/en-US/full_description.txt)**
+[`fastlane/metadata/android/en-US/full_description.txt`](../../../fastlane/metadata/android/en-US/full_description.txt)**
 — it is kept current with the shipped build, separates "works today" from
 "planned," states the privacy posture (no ads, no tracking, no analytics, no
 crash-reporting / telemetry SDK, no Google Play Services), and makes clear that
@@ -108,7 +108,7 @@ field — weave naturally, do not keyword-stuff):
 ## 7. Screenshot checklist
 
 Play requires **2–8 phone screenshots**; they must be **real** captures from a
-running build (see [docs/listing-assets.md](./listing-assets.md) for sizes and
+running build (see [docs/distribution/listing-assets.md](../listing-assets.md) for sizes and
 `adb` capture steps). Eight real captures already exist for F-Droid under
 `images/phoneScreenshots/` and can be reused here once **cropped** to Play's
 ≤ 2:1 ratio (the F-Droid originals are full-height ≈9:20). Suggested set, showing
@@ -158,14 +158,14 @@ A core promise worth stating plainly in the listing and release notes:
 
 ## 11. Related docs
 
-- [docs/play-store-readiness.md](./play-store-readiness.md) — overall Play
+- [docs/distribution/google-play/readiness.md](readiness.md) — overall Play
   readiness and submission path.
-- [docs/play-store-data-safety.md](./play-store-data-safety.md) — Data Safety
+- [docs/distribution/google-play/data-safety.md](data-safety.md) — Data Safety
   form prep.
-- [docs/play-store-review-notes.md](./play-store-review-notes.md) — reviewer /
+- [docs/distribution/google-play/review-notes.md](review-notes.md) — reviewer /
   app-access notes.
-- [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
-- [docs/listing-assets.md](./listing-assets.md) — image asset sizes and capture.
+- [docs/privacy-policy.md](../../privacy-policy.md) — privacy policy draft.
+- [docs/distribution/listing-assets.md](../listing-assets.md) — image asset sizes and capture.
 - `fastlane/metadata/android/en-US/` — the canonical short/full description and
   changelog text.
 </content>

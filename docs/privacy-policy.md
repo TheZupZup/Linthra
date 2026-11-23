@@ -5,7 +5,7 @@
 > legally reviewed. Review it for accuracy against the shipped build, and have it
 > reviewed as appropriate, before publishing it at a public URL and linking it
 > from a Google Play listing. See
-> [docs/play-store-readiness.md](./play-store-readiness.md).
+> [docs/distribution/google-play/readiness.md](distribution/google-play/readiness.md).
 
 _Last updated: see this file's git history._
 

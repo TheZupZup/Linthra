@@ -6,7 +6,7 @@
 # This is the local twin of the "Dart dependency updates" workflow. Running it
 # by hand produces exactly the lockfile that workflow would commit, which is the
 # point: the reproducible F-Droid build resolves from the committed pubspec.lock
-# (docs/release-process.md §7), so the lockfile has to come from the SDK this
+# (docs/distribution/release-process.md §7), so the lockfile has to come from the SDK this
 # repo is actually pinned to and not from whatever Dart happens to be on PATH.
 #
 #   ./scripts/setup_flutter.sh                    # install the pinned SDK

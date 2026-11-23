@@ -29,7 +29,7 @@ what works today, and what deliberately does not yet.
   build at the exact release tag, package the bundle into a `.tar.gz`, and
   attach it to the GitHub Release — see [Release tarball](#release-tarball)
   below and
-  [docs/release-process.md §4a](./release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build).
+  [docs/distribution/release-process.md §4a](distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build).
 * A stable Release also carries an installable `.flatpak` bundle, built by
   [`flatpak-build.yml`](../.github/workflows/flatpak-build.yml) at the same tag
   — see
@@ -42,7 +42,7 @@ for the **native** build described on this page.
 
 > Building the **Flatpak** instead? None of these packages are needed for it —
 > it brings its own toolchain and bundles its own libmpv. See
-> [flatpak-development.md](./flatpak-development.md).
+> [Flatpak development on Fedora Atomic](distribution/flatpak/development.md).
 
 ### Fedora / Fedora Kinoite
 
@@ -190,7 +190,7 @@ KDE Plasma 6 via KWallet's `ksecretd`), keeps its own gcrypt-encrypted store
 under the app's data directory with the master secret handed over by that
 portal. Encrypted at rest either way, and libsecret's storage in both cases,
 just not the shared keyring collection this page's native build uses. See
-[flatpak-development.md](./flatpak-development.md#secure-credential-storage).
+[Flatpak development on Fedora Atomic](distribution/flatpak/development.md#secure-credential-storage).
 
 ## Audio playback
 
@@ -251,7 +251,7 @@ Retry." when libmpv was never loaded, and "Then restart Linthra" when it was
 (see the second bullet below for why the two differ).
 
 Inside a Flatpak the wording changes, because a Flatpak bundles its own libmpv
-and never loads the host's ([flatpak-development.md](./flatpak-development.md)):
+and never loads the host's ([Flatpak development on Fedora Atomic](distribution/flatpak/development.md)):
 the fix there is reinstalling Linthra from Flathub, and an `apt install` line
 would send the listener to repair a library the app does not use.
 
@@ -618,7 +618,7 @@ libmpv provides broad codec/container support and PulseAudio/PipeWire output.
 It is a native runtime dependency, not a binary downloaded when Linthra starts.
 The Flatpak manifest therefore builds libmpv as a declared module and bundles
 it, so the packaged app needs no host libmpv at all
-([flatpak-development.md](./flatpak-development.md)).
+([Flatpak development on Fedora Atomic](distribution/flatpak/development.md)).
 `media_kit_libs_linux` normally offers an optional build-time mimalloc download;
 Linthra explicitly disables it in `linux/CMakeLists.txt`, so this backend adds no
 undeclared network access to an isolated `flatpak-builder` build.
@@ -2113,7 +2113,7 @@ summary, the bundle included, taken from the published file. Compare it with:
 sha256sum Linthra-v0.2.7-x86_64.flatpak
 ```
 
-See [release-artifact-verification.md](./release-artifact-verification.md) for
+See [release-artifact-verification.md](distribution/release-artifact-verification.md) for
 what that record is and what it is worth.
 
 ### Manual Flatpak smoke checklist
@@ -2148,9 +2148,9 @@ server, is enough.
 If step 3 or 4 fails, the export half of the package is wrong (desktop entry or
 icons). If step 7 or 8 fails, the packaged audio runtime is the place to look:
 CI already walks that lifecycle inside the sandbox
-([flatpak-audio-smoke.md](./flatpak-audio-smoke.md)), so a failure here that CI
+([Flatpak audio playback smoke](distribution/flatpak/audio-smoke.md)), so a failure here that CI
 did not catch is worth reporting with the details, and
-[flatpak-development.md](./flatpak-development.md) has the commands for
+[Flatpak development on Fedora Atomic](distribution/flatpak/development.md) has the commands for
 inspecting the sandbox by hand.
 
 ## Release tarball
@@ -2184,7 +2184,7 @@ and a Secret Service provider for [secure storage](#secure-storage). It is
 self-contained, sandboxed one; this tarball is a plain native build, built by a
 different workflow, with no bearing on the Flatpak's design.
 
-See [docs/release-process.md §4a](./release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build)
+See [docs/distribution/release-process.md §4a](distribution/release-process.md#4a-linux-release-tarball-dispatched-alongside-the-android-build)
 for exactly how the CI job builds and attaches it.
 
 ## Where this is going
@@ -2197,7 +2197,7 @@ is what Linux users install until Linthra is accepted there
 That packaging is now underway in #376 and lives outside this page: the
 committed manifest is in [`flatpak/`](../flatpak/README.md) and the contributor
 workflow for building, installing and debugging it on Fedora Atomic is
-[flatpak-development.md](./flatpak-development.md). It builds, installs and
+[Flatpak development on Fedora Atomic](distribution/flatpak/development.md). It builds, installs and
 launches with working audio, and installs the desktop entry
 (`linux/packaging/io.github.thezupzup.linthra.desktop`, shared with any future
 native package rather than Flatpak-only) together with Linthra's icon under

@@ -43,7 +43,7 @@ access and no Flutter or Android toolchain.
 | No committed keys, tokens or private data, and no real server URLs or home paths in diagnostics fixtures | Every pull request | `./scripts/check_secrets.sh` | [development.md](docs/development.md#privacy-guardrails) |
 | Every Flatpak sandbox permission has a written reason, and nothing broader than listed is granted | Every pull request | `python3 scripts/check_flatpak_permissions.py` | [flatpak-permissions.md](docs/flatpak-permissions.md) |
 | New network-capable code, and changes to Android permissions or the network security config, need an owner's review | Every pull request | `python3 scripts/check_pr_security_surface.py --base <sha> --head <sha> --report out.md` | [pr-security-guard.md](docs/pr-security-guard.md) |
-| Release APKs, AABs, the Linux tarball and the Flatpak bundle are checked after they are built, and their SHA-256 is recorded | Every release | `python3 scripts/verify_release_containment.py <downloaded release files>` | [release-artifact-verification.md](docs/release-artifact-verification.md) |
+| Release APKs, AABs, the Linux tarball and the Flatpak bundle are checked after they are built, and their SHA-256 is recorded | Every release | `python3 scripts/verify_release_containment.py <downloaded release files>` | [release-artifact-verification.md](docs/distribution/release-artifact-verification.md) |
 
 The last row checks the built artifacts for the Cast security containment, not
 for privacy as such. It is listed because it is the one check that already reads
@@ -78,8 +78,8 @@ automated, so they are only as current as that review.
 ## Still to do in #504
 
 - **Android permissions and exported components.** The permission tables in
-  [fdroid-readiness.md](docs/fdroid-readiness.md) and
-  [play-store-readiness.md](docs/play-store-readiness.md) are written by hand.
+  [F-Droid readiness checklist](docs/distribution/f-droid/readiness.md) and
+  [Google Play readiness checklist](docs/distribution/google-play/readiness.md) are written by hand.
   They now match the manifest (including `READ_MEDIA_AUDIO` and
   `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`), but nothing stops them
   drifting again. The plan is to check the final merged manifest, including

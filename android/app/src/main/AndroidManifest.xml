@@ -75,7 +75,7 @@
          storage access of its own — only local-network service discovery. The
          cast session itself connects over the already-declared INTERNET
          permission. No proprietary/GMS cast dependency is used; see
-         docs/fdroid-readiness.md. -->
+         docs/distribution/f-droid/readiness.md. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- networkSecurityConfig: permits cleartext (http) traffic so a self-hosted

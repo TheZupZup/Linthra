@@ -8,7 +8,7 @@ availability.
 > The checklist below is the historical readiness prep that got it there, kept for
 > reference; some items still read "not submitted yet." For the **current** release
 > process and the next release (the stable `v0.1.1`), see
-> [release-process.md](./release-process.md).
+> [release-process.md](../release-process.md).
 
 ## 1. Current status
 
@@ -31,9 +31,9 @@ availability.
   app/launcher icon, Fastlane-style store metadata under
   `fastlane/metadata/android/en-US/` (text plus the real icon, feature graphic,
   and eight real phone screenshots), a finished dependency/license audit, the
-  draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+  draft recipe at [`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml)
   (pinned to `v0.1.0-alpha.30`, auto-update enabled), and the submission package
-  at [`docs/fdroid-submission.md`](./fdroid-submission.md).
+  at [`docs/distribution/f-droid/submission.md`](submission.md).
 - **Not submitted yet.** See [Remaining blockers](#8-remaining-blockers-before-submission).
 
 ## 2. App identity
@@ -46,7 +46,7 @@ availability.
 
 - App ID is set as both the Android `namespace` and `applicationId` in
   `android/app/build.gradle` and must remain stable across releases.
-- License is declared in [`LICENSE`](../LICENSE) (GNU Affero General Public
+- License is declared in [`LICENSE`](../../../LICENSE) (GNU Affero General Public
   License v3.0 or later), an
   [FSF/OSI-approved free license](https://www.gnu.org/licenses/license-list.html)
   accepted by F-Droid. Releases up to and including v0.2.4 were published under
@@ -59,11 +59,11 @@ pinned and matches CI (`.github/workflows/ci.yml`, `android-debug-apk.yml`).
 
 | Question | Answer |
 | -------- | ------ |
-| **Flutter version required?** | **Flutter 3.47.5**, `stable` channel — pinned in [`.flutter-version`](../.flutter-version), which the CI workflows and `scripts/setup_flutter.sh` both read. |
+| **Flutter version required?** | **Flutter 3.47.5**, `stable` channel — pinned in [`.flutter-version`](../../../.flutter-version), which the CI workflows and `scripts/setup_flutter.sh` both read. |
 | **Dart SDK?** | `>=3.6.0 <4.0.0` (`pubspec.yaml`); satisfied by Flutter 3.47.5 (Dart 3.13.4). |
-| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../.java-version)), Gradle 9.3.1, Android Gradle Plugin 9.1.1, Kotlin 2.4.21. |
+| **JDK / Gradle?** | JDK 17 (Temurin in CI, pinned in [`.java-version`](../../../.java-version)), Gradle 9.3.1, Android Gradle Plugin 9.1.1, Kotlin 2.4.21. |
 | **Android SDK required?** | **Yes.** A standard Android SDK (`platform-tools`, `platforms;android-37`, `build-tools;36.0.0`) plus the NDK + CMake are needed to compile the native components (SQLite and the libFLAC fallback decoder, below). `compileSdk`/`targetSdk` are set to 37 (Android 17) in `android/app/build.gradle`, since Flutter 3.47.5 still defaults to 36; `minSdk` 24 comes from Flutter. An SDK without `android-37` no longer configures the build. |
-| **Signing keys required to build?** | **No.** A from-source build needs no signing material; F-Droid signs its own builds. Linthra's release signing is optional and supplied at build time via env vars / `android/key.properties`, falling back to the debug key when absent (see [release-signing.md](./release-signing.md)). No keystore or secret is committed. |
+| **Signing keys required to build?** | **No.** A from-source build needs no signing material; F-Droid signs its own builds. Linthra's release signing is optional and supplied at build time via env vars / `android/key.properties`, falling back to the debug key when absent (see [release-signing.md](../release-signing.md)). No keystore or secret is committed. |
 | **Build commands** | `flutter pub get` then `flutter build apk --release` (or `--debug`; split-per-ABI is fine — appbundle is for Play, not F-Droid). |
 | **Generated files: committed or generated?** | **Committed.** The Drift output `lib/data/database/linthra_database.g.dart` is committed, so **no `build_runner`/codegen prebuild step is required** for the F-Droid build. It must be kept in sync with the schema on the tagged commit (regenerate with the `generate-drift.yml` workflow or `dart run build_runner build`). |
 | **How version tags work** | A `v*` git tag is the source of truth; `tool/version_from_tag.dart` derives `versionName`/`versionCode` for GitHub-Release builds. F-Droid builds from source and runs a plain `flutter build`, which takes the version from `pubspec.yaml` — see §6 for the reconciliation caveat. |
@@ -80,7 +80,7 @@ pinned and matches CI (`.github/workflows/ci.yml`, `android-debug-apk.yml`).
   or other closed binary is tracked.
 - **No secrets or API keys committed.** No keystore, token, password, or API key
   is in the repository; release signing material is git-ignored and injected at
-  build time only (see [release-signing.md](./release-signing.md)).
+  build time only (see [release-signing.md](../release-signing.md)).
 - **No build step needs private credentials.** Building from source is
   `flutter pub get` + `flutter build apk` — the CI debug-APK build runs with
   read-only repo access and no secrets (`android-debug-apk.yml`).
@@ -105,15 +105,15 @@ accepted on F-Droid:
 | `http`                   | HTTP client for the optional self-hosted sources | BSD-3-Clause | OK (network is opt-in; see §5) |
 | `crypto`                 | MD5 for the Subsonic/Navidrome token auth | BSD-3-Clause | OK (Dart-team package; hashing only) |
 | `flutter_secure_storage` | Encrypted Jellyfin/Subsonic session-token store | BSD-3-Clause | OK (Android Keystore; AOSP, not GMS) |
-| `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](./dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services) |
+| `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](../../dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services) |
 | `bonsoir`                | mDNS discovery used by `cast`            | MIT | OK — Android side is AOSP `NsdManager`, not GMS; pinned to 5.x for Dart 3.6 |
-| `url_launcher`           | Opens the browser for "Report a bug" → "Open GitHub issue" | BSD-3-Clause | OK — official Flutter plugin; AOSP `ACTION_VIEW` intent, no GMS; fired only on an explicit user tap. See [audit §7 (Reporting a bug)](./dependency-license-audit.md#reporting-a-bug-browser-hand-off-no-auto-send) |
+| `url_launcher`           | Opens the browser for "Report a bug" → "Open GitHub issue" | BSD-3-Clause | OK — official Flutter plugin; AOSP `ACTION_VIEW` intent, no GMS; fired only on an explicit user tap. See [audit §7 (Reporting a bug)](../../dependency-license-audit.md#reporting-a-bug-browser-hand-off-no-auto-send) |
 
 Dev-only dependencies (`flutter_lints`, `flutter_test`, `drift_dev`,
 `build_runner`) are not shipped in the APK.
 
 The full per-package license breakdown, the native/bundled-component review, and
-the methodology live in [docs/dependency-license-audit.md](./dependency-license-audit.md).
+the methodology live in [docs/dependency-license-audit.md](../../dependency-license-audit.md).
 All direct dependencies are permissive (MIT / BSD-3-Clause) and
 AGPL-3.0-or-later compatible.
 
@@ -128,14 +128,14 @@ MPL-2.0 package (`dbus`, via `bonsoir_linux`) is AGPL-compatible under MPL-2.0
 §3.3. The only native AAR is AndroidX Media3 (Apache-2.0, the playback engine —
 not GMS); the Linux/Flatpak media chain is LGPL-2.1-or-later built from pinned
 source. Full results and methodology in
-[dependency-license-audit.md §2 & §5](./dependency-license-audit.md#2-how-this-audit-was-produced-and-its-limits).
+[dependency-license-audit.md §2 & §5](../../dependency-license-audit.md#2-how-this-audit-was-produced-and-its-limits).
 
 **Action items:**
 - Verify each plugin builds cleanly on the F-Droid build server (some Flutter
   plugins need specific recipe tweaks); confirm the NDK/CMake native build of
   `sqlite3_flutter_libs` works there.
 - Decide the `pubspec.lock` policy (still git-ignored) so the audited set is
-  pinned at the tagged commit (see [build-recipe §4](./fdroid-build-recipe.md#4-reproducibility-notes)).
+  pinned at the tagged commit (see [build-recipe §4](build-recipe.md#4-reproducibility-notes)).
 
 ## 5. Anti-features review
 
@@ -162,7 +162,7 @@ where applicable. Current assessment:
 > themselves free/open-source, and Linthra only speaks plain HTTP(S) to them. So
 > the optional remote sources do **not** warrant the `NonFreeNet` anti-feature.
 > Reviewed in detail in
-> [dependency-license-audit.md §7](./dependency-license-audit.md#7-network-use--the-optional-self-hosted-sources).
+> [dependency-license-audit.md §7](../../dependency-license-audit.md#7-network-use--the-optional-self-hosted-sources).
 >
 > **Future caveat:** any further online provider must be reviewed individually
 > and may warrant `NonFreeNet` if it defaults to or promotes a non-free hosted
@@ -172,7 +172,7 @@ where applicable. Current assessment:
 ### Android permissions
 
 Every permission Linthra ships is justified below. All ten are declared
-explicitly in [`android/app/src/main/AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml)
+explicitly in [`android/app/src/main/AndroidManifest.xml`](../../../android/app/src/main/AndroidManifest.xml)
 (each with an inline comment), even where a plugin's manifest would merge the
 same permission in anyway. The set is deliberately minimal: **no location,
 contacts, camera, microphone, or phone permission**, crucially **no
@@ -187,7 +187,7 @@ permissions belong to the opt-in **All music on this device** mode.
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | App manifest | The typed foreground-service grant required on Android 14+ (API 34) for a service of type `mediaPlayback`; without it the playback service cannot start on new devices. |
 | `POST_NOTIFICATIONS` | App manifest | Android 13+ (API 33) runtime permission for the media notification and its lock-screen/transport controls to appear; requested once on first launch. Playback still works if denied, just without the notification. |
 | `WAKE_LOCK` | App manifest (also `audio_service` / Media3) | Keep the CPU (and, via the foreground media service, the Wi-Fi radio) awake while audio plays so playback and streaming survive the screen turning off. Held only while the service reports `playing`. |
-| `ACCESS_LOCAL_NETWORK` | App manifest | Android 17 (API 37) runtime permission, in the "Nearby devices" group, without which an app targeting 37 cannot connect to the local network. Linthra asks only when the user tests, signs in to or plays from a server that resolves to a local address (a Jellyfin/Navidrome/Plex box at home, a NAS, a `.local` name), never at launch and never for a server on the internet. Denying it leaves local music and internet servers working. Older Android versions ignore it. See [android-17.md](./android-17.md). |
+| `ACCESS_LOCAL_NETWORK` | App manifest | Android 17 (API 37) runtime permission, in the "Nearby devices" group, without which an app targeting 37 cannot connect to the local network. Linthra asks only when the user tests, signs in to or plays from a server that resolves to a local address (a Jellyfin/Navidrome/Plex box at home, a NAS, a `.local` name), never at launch and never for a server on the internet. Denying it leaves local music and internet servers working. Older Android versions ignore it. See [android-17.md](../../android-17.md). |
 | `CHANGE_WIFI_MULTICAST_STATE` | App manifest (merged from `bonsoir_android`) | Receive multicast Wi-Fi packets for mDNS (`_googlecast._tcp`) Chromecast discovery. An **AOSP** permission (Android `NsdManager`) for local-network discovery only — no internet or storage access. Cast uses **no** Google Play Services / Cast SDK. |
 | `READ_MEDIA_AUDIO` | App manifest | Android 13+ "Music and audio" permission for the optional **All music on this device** mode, which reads MediaStore's audio collection. Requested only after the user chooses that mode, never on launch. |
 | `READ_EXTERNAL_STORAGE` (`maxSdkVersion="32"`) | App manifest | Legacy permission for the same opt-in mode on Android 12 and older; Android 13+ never sees it. The OS grant is wider than audio there (all shared storage on Android 9 and older, shared photos/videos/audio on Android 10 to 12); Linthra only queries MediaStore audio with it. |
@@ -208,7 +208,7 @@ permissions belong to the opt-in **All music on this device** mode.
 - **Folder access needs no permission.** A picked folder (Storage Access
   Framework, `ACTION_OPEN_DOCUMENT_TREE`) is walked through the content
   resolver using only the grant the user gave; see
-  [architecture.md](./architecture.md#android-folder-selection-saf). The
+  [architecture.md](../../architecture.md#android-folder-selection-saf). The
   device-wide mode is a separate, opt-in alternative and the only path that
   asks for `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE`.
 
@@ -216,11 +216,11 @@ permissions belong to the opt-in **All music on this device** mode.
 
 F-Droid builds from a git tag. Summary (the canonical, step-by-step process —
 including the GitHub-Release flow — is in
-[docs/release-process.md](./release-process.md)):
+[docs/distribution/release-process.md](../release-process.md)):
 
 1. **`pubspec.yaml`** is the source of truth for a release's version
    (`version: <versionName>+<versionCode>`), bumped to match the tag each release
-   (see [release-process.md §1](./release-process.md#1-versioning-model)). A plain
+   (see [release-process.md §1](../release-process.md#1-versioning-model)). A plain
    `flutter build` reads it.
 2. Tag releases as `vX.Y.Z[-suffix.N]` (annotated tag) on the commit to be built,
    matching `pubspec.yaml`'s `versionName`.
@@ -240,7 +240,7 @@ including the GitHub-Release flow — is in
 > GitHub release build uses, distinct and increasing per tag. F-Droid's default
 > `Tags` path doesn't read `pubspec.yaml`, so the recipe adds an `UpdateCheckData`
 > entry pointing at it; see
-> [docs/fdroid-submission.md §2](./fdroid-submission.md#2-target-version-and-auto-update).
+> [docs/distribution/f-droid/submission.md §2](submission.md#2-target-version-and-auto-update).
 > (Transition: the pre-change `v0.1.0-alpha.30` tag still has the old fixed
 > `pubspec.yaml`, so its one seed entry passes explicit flags; new tags don't.)
 
@@ -262,7 +262,7 @@ Stored under `fastlane/metadata/android/en-US/`:
 - [x] `changelogs/100030.txt` — notes for the current F-Droid target
   `v0.1.0-alpha.30`, named by its `versionCode` `100030` (the convention going
   forward — see
-  [release-process.md §1](./release-process.md#1-versioning-model)). Keep new
+  [release-process.md §1](../release-process.md#1-versioning-model)). Keep new
   changelog filenames in lockstep with `pubspec.yaml`'s `versionCode`.
 - [x] `images/icon.png` — 512×512 real Linthra store icon. The launcher icons
   under `android/app/src/main/res/mipmap-*` are now the same real mark (adaptive
@@ -270,7 +270,7 @@ Stored under `fastlane/metadata/android/en-US/`:
   placeholder.
 - [x] `images/featureGraphic.png` — 1024×500, the Linthra brand banner.
 - [x] `images/phoneScreenshots/*.png` — eight real phone screenshots from a
-  running build (see [docs/listing-assets.md §6](./listing-assets.md)).
+  running build (see [docs/distribution/listing-assets.md §6](../listing-assets.md)).
 - [ ] `images/sevenInchScreenshots/*.png` / `images/tenInchScreenshots/*.png` —
   optional tablet screenshots (only if the larger layout is worth showing).
 
@@ -278,7 +278,7 @@ The icon and feature graphic are committed (generated deterministically from
 `tool/branding/linthra_icon.svg`), and eight real phone screenshots — captured
 from a running build, not mocked — are committed under `images/phoneScreenshots/`.
 What each one shows, plus the privacy review and the still-optional extras, is in
-[docs/listing-assets.md §6](./listing-assets.md); see also F-Droid's
+[docs/distribution/listing-assets.md §6](../listing-assets.md); see also F-Droid's
 [descriptions, graphics & screenshots guide](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/).
 
 ## 8. Remaining blockers before submission
@@ -292,12 +292,12 @@ What each one shows, plus the privacy review and the still-optional extras, is i
    `flutter build apk --release` (incl. the NDK/CMake native build of
    `sqlite3_flutter_libs`) on an SDK-equipped machine, and run `fdroid lint` +
    `fdroid build -l` in an fdroiddata checkout (commands in
-   [docs/fdroid-submission.md §7](./fdroid-submission.md)).
+   [docs/distribution/f-droid/submission.md §7](submission.md)).
 2. **Toolchain provisioning in the recipe** must be matched to fdroiddata's
    current Flutter convention (sudo git-clone vs. the `flutter` srclib) and
    validated by an actual `fdroid build` — see
-   [docs/fdroid-submission.md §3](./fdroid-submission.md) and
-   [fdroid-build-recipe.md](./fdroid-build-recipe.md).
+   [docs/distribution/f-droid/submission.md §3](submission.md) and
+   [F-Droid build recipe planning & reproducible-build notes](build-recipe.md).
 3. **Feature maturity / pre-release tag (judgment call).** Decide whether to
    submit at the current early-alpha stage or wait for a stable (non-pre-release)
    tag — and confirm whether F-Droid will track/suggest an `-alpha`
@@ -305,7 +305,7 @@ What each one shows, plus the privacy review and the still-optional extras, is i
 4. **Release signing (GitHub channel only).** Not an F-Droid blocker (F-Droid
    signs its own builds), but the debug-key fallback should be replaced with real
    release signing for GitHub-Release artifacts (see
-   [docs/release-signing.md](./release-signing.md)).
+   [docs/distribution/release-signing.md](../release-signing.md)).
 5. **`pubspec.lock` policy** for reproducibility — still git-ignored; decide
    whether to commit it at the tagged commit (§4 action items).
 
@@ -314,7 +314,7 @@ What each one shows, plus the privacy review and the still-optional extras, is i
 - **Screenshots landed.** Eight real phone screenshots, captured from a running
   build (not mocked), are committed under `images/phoneScreenshots/` — the core
   set tracked by **issue #77**. What each shows and the privacy review are in
-  [docs/listing-assets.md §6](./listing-assets.md). Optional extras
+  [docs/distribution/listing-assets.md §6](../listing-assets.md). Optional extras
   (Downloads-with-tracks, Android Auto, Cast, tablet) remain nice-to-haves, not
   blockers.
 - **A tagged release now exists.** `v0.1.0-alpha.30` is the latest **working**
@@ -332,41 +332,41 @@ What each one shows, plus the privacy review and the still-optional extras, is i
 ## 9. Submission checklist (suggested order)
 
 The full step-by-step submission flow and the ready-to-adapt MR text live in
-[docs/fdroid-submission.md](./fdroid-submission.md). Summary:
+[docs/distribution/f-droid/submission.md](submission.md). Summary:
 
 1. ✅ **Dependency/license audit** — done (§4;
-   [audit doc](./dependency-license-audit.md)). Re-run on any dependency change.
+   [audit doc](../../dependency-license-audit.md)). Re-run on any dependency change.
 2. ✅ **Fastlane `full_description.txt` refreshed** to match the current alpha,
    with the "unofficial / not affiliated" framing (§7).
 3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.30` / `100030`, with a
    matching `changelogs/100030.txt`; `pubspec.yaml` carries the version and
    auto-update tracks the tags (§6). The broken `v0.1.0-alpha.24` is excluded.
 4. ✅ **Screenshots committed** — eight real phone screenshots under
-   `images/phoneScreenshots/` (§7; see [docs/listing-assets.md §6](./listing-assets.md);
+   `images/phoneScreenshots/` (§7; see [docs/distribution/listing-assets.md §6](../listing-assets.md);
    the core set for #77). Optional extras (Downloads-with-tracks, Android Auto,
    Cast, tablet) remain.
 5. **Verify a clean `flutter build apk --release`** on a machine with the Android
    SDK + NDK (the from-source path F-Droid uses), and re-confirm the merged
    manifest permission set (§5 verification note).
 6. **Finalize the recipe** from the draft
-   [`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml)
+   [`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml)
    (match fdroiddata's Flutter convention, run `fdroid lint`/`fdroid build -l`),
    then submit a merge request to
    [fdroiddata](https://gitlab.com/fdroid/fdroiddata) using the text in
-   [docs/fdroid-submission.md §9](./fdroid-submission.md).
+   [docs/distribution/f-droid/submission.md §9](submission.md).
 
 The metadata field reference, build-source/toolchain expectations, and
 reproducibility notes are in
-[docs/fdroid-build-recipe.md](./fdroid-build-recipe.md); a runnable draft recipe
+[docs/distribution/f-droid/build-recipe.md](build-recipe.md); a runnable draft recipe
 now lives at
-[`metadata/io.github.thezupzup.linthra.yml`](../metadata/io.github.thezupzup.linthra.yml).
+[`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml).
 
 ## 10. Manual test checklist before submission
 
 F-Droid builds and signs the APK itself, so the build it ships is **not** the one
 tested during development. Before (and after) submission, smoke-test a
 **release** build from the tagged commit on a real device using the full
-[docs/manual-test-checklist.md](./manual-test-checklist.md). The F-Droid-specific
+[docs/manual-test-checklist.md](../../manual-test-checklist.md). The F-Droid-specific
 must-pass items:
 
 - [ ] App installs and launches from a clean `flutter build apk --release`
@@ -398,4 +398,4 @@ readiness pass with the pinned toolchain (Flutter 3.27.4 / Dart 3.6.2); they are
 | transitive license audit | ✅ all permissive, no GMS (§4). |
 | `flutter build apk --debug` | ✅ built by CI per PR (`android-debug-apk.yml`). |
 | `flutter build apk --release` (from source) | ⏳ re-confirm on an SDK-equipped machine before submitting (§8.2). The tagged release APK is built by `android-release-build.yml`. |
-| `fdroid lint` / `fdroid build -l` | ⏳ run in an fdroiddata checkout (commands in [docs/fdroid-submission.md §7](./fdroid-submission.md)). |
+| `fdroid lint` / `fdroid build -l` | ⏳ run in an fdroiddata checkout (commands in [docs/distribution/f-droid/submission.md §7](submission.md)). |

@@ -34,7 +34,7 @@
 # This is the local twin of the GitHub Actions "Verify the tag matches
 # pubspec.yaml" step in .github/workflows/android-release-build.yml: that step
 # runs THIS script, so CI and a contributor's pre-tag check fail with the same
-# wording. See docs/release-process.md §3 step 10.
+# wording. See docs/distribution/release-process.md §3 step 10.
 
 set -euo pipefail
 

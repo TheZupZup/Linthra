@@ -119,10 +119,10 @@ name: Android Release Build
 #     agree without any build-time injection. A verification step then confirms
 #     the built APK carries the verified version. Manual `workflow_dispatch` runs
 #     are named without a tag (never passed off as a tagged release). See
-#     docs/release-process.md §1 for the full strategy.
+#     docs/distribution/release-process.md §1 for the full strategy.
 #
-# See docs/release-signing.md for the required secrets and keystore handling,
-# and docs/release-process.md for the overall release flow.
+# See docs/distribution/release-signing.md for the required secrets and keystore handling,
+# and docs/distribution/release-process.md for the overall release flow.
 on:
   workflow_dispatch:
     inputs:
@@ -247,13 +247,13 @@ jobs:
             if [ "$have_secrets" = "true" ]; then
               signing=release-signed
             elif [ "$trigger" = "manual" ]; then
-              echo "::error::Signed release requested but signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). See docs/release-signing.md."
+              echo "::error::Signed release requested but signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). See docs/distribution/release-signing.md."
               exit 1
             elif [ "$prerelease" = "true" ]; then
-              echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts. These are FOR TESTING ONLY, not a production release. The Release asset is uploaded under the canonical -release-signed file name (kept stable for F-Droid), and the GitHub PRE-RELEASE notes flag the testing-only signing explicitly. Configure the LINTHRA_* secrets to get a truly release-signed build. See docs/release-signing.md."
+              echo "::warning::Pre-release tag but signing secrets are missing; producing DEBUG-KEY signed artifacts. These are FOR TESTING ONLY, not a production release. The Release asset is uploaded under the canonical -release-signed file name (kept stable for F-Droid), and the GitHub PRE-RELEASE notes flag the testing-only signing explicitly. Configure the LINTHRA_* secrets to get a truly release-signed build. See docs/distribution/release-signing.md."
               signing=debug-signed
             else
-              echo "::error::Stable tag '${target_tag}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/release-signing.md."
+              echo "::error::Stable tag '${target_tag}' requires release signing, but the signing secrets are missing (need LINTHRA_KEYSTORE_BASE64, LINTHRA_KEYSTORE_PASSWORD, LINTHRA_KEY_ALIAS, LINTHRA_KEY_PASSWORD). Stable releases must not ship debug-signed artifacts. Configure the secrets, or use an alpha/beta/rc tag for a testing pre-release. See docs/distribution/release-signing.md."
               exit 1
             fi
           else
@@ -316,7 +316,7 @@ jobs:
         run: flutter pub get --enforce-lockfile
 
       # pubspec.yaml is the source of truth for the release version; each release
-      # bumps `version: <name>+<code>` to match the tag (docs/release-process.md
+      # bumps `version: <name>+<code>` to match the tag (docs/distribution/release-process.md
       # §1 & §3). scripts/release_preflight.sh re-derives the canonical
       # versionName/versionCode from the pushed tag (same rules as
       # tool/version_from_tag.dart, kept in lockstep by
@@ -330,7 +330,7 @@ jobs:
       # the GitHub Actions run page reads as a release that did not build —
       # never confused with an APK build failure (the build never ran). The
       # contributor sees the same wording locally because they ran the same
-      # script (see docs/release-process.md §3 step 10). We pass --no-app-info
+      # script (see docs/distribution/release-process.md §3 step 10). We pass --no-app-info
       # here because the AppInfo drift is already covered by the CI workflow's
       # `flutter test` step (test/core/app_info_version_test.dart).
       - name: Verify the tag matches pubspec.yaml
@@ -355,7 +355,7 @@ jobs:
               printf 'See the workflow log for the exact tag/pubspec mismatch and the fix '
               printf '(usually: bump `pubspec.yaml` in a PR, merge it, then create the next '
               printf 'release tag from `main` — do not move the existing tag). '
-              printf 'See docs/release-process.md §3.\n'
+              printf 'See docs/distribution/release-process.md §3.\n'
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::Version mismatch: release was not built. See log above for the exact tag/pubspec mismatch and fix."
             exit "$status"
@@ -381,7 +381,7 @@ jobs:
       #      metadata/io.github.thezupzup.linthra.yml. Building per-target (not
       #      all ABIs in one --split-per-abi pass) keeps the 64-bit split
       #      manifests byte-identical to F-Droid's — see the per-ABI step below
-      #      and docs/fdroid-reproducibility-arm64.md.
+      #      and docs/distribution/f-droid/reproducibility-arm64.md.
       #   3. AAB (`flutter build appbundle --release`) — still universal; AAB
       #      already provides per-ABI delivery on its own.
       #
@@ -410,7 +410,7 @@ jobs:
       # carried one extra source line before <application> compared to F-Droid's
       # single-ABI build. Building each ABI in isolation, exactly like F-Droid,
       # keeps the uploaded reference APK aligned with F-Droid's rebuild.
-      # See docs/fdroid-reproducibility-arm64.md.
+      # See docs/distribution/f-droid/reproducibility-arm64.md.
       - name: Build per-ABI release APKs (isolated, matching F-Droid)
         run: |
           set -euo pipefail
@@ -565,7 +565,7 @@ jobs:
           # revision, against the built tree's own message — because "the tag is
           # old" must never become a way to replace public assets unverified.
           if [ ! -f "$source_file" ] || ! grep -q 'static const String userMessage' "$source_file"; then
-            echo "::warning::This tag predates the Cast containment, so its artifacts carry nothing to check. See docs/release-artifact-verification.md."
+            echo "::warning::This tag predates the Cast containment, so its artifacts carry nothing to check. See docs/distribution/release-artifact-verification.md."
             exit 0
           fi
 
@@ -636,7 +636,7 @@ jobs:
                 echo ""
               fi
               echo "Configure the LINTHRA_* secrets (and, for manual runs, set \`signed = true\`) to"
-              echo "produce a release-signed build. See docs/release-signing.md."
+              echo "produce a release-signed build. See docs/distribution/release-signing.md."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

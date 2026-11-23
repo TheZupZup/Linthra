@@ -4,8 +4,8 @@
 > section and gives a reviewer everything they need to evaluate Linthra
 > **without** any account or server we operate. It makes **no** claim that
 > Linthra is on Google Play (it is not, and no submission has been made). See
-> [docs/play-store-readiness.md](./play-store-readiness.md), especially
-> [§13 App access](./play-store-readiness.md#13-play-console-declarations-to-prepare-category-target-audience-app-access).
+> [docs/distribution/google-play/readiness.md](readiness.md), especially
+> [§13 App access](readiness.md#13-play-console-declarations-to-prepare-category-target-audience-app-access).
 
 ## The one thing to know first
 
@@ -71,8 +71,8 @@ one:
   The one exception is the opt-in Subsonic legacy sign-in (off by default,
   https only) for servers that refuse tokens, which keeps the password in that
   same encrypted storage until sign-out.
-  See [docs/privacy-policy.md](./privacy-policy.md) and
-  [docs/play-store-data-safety.md](./play-store-data-safety.md).
+  See [docs/privacy-policy.md](../../privacy-policy.md) and
+  [docs/distribution/google-play/data-safety.md](data-safety.md).
 
 Features that **require** a configured self-hosted server (because they stream
 from / sync with it): server library browsing, server streaming, server-backed
@@ -119,7 +119,7 @@ OPTIONAL — server streaming (not required to review):
 ## Permissions a reviewer will see (and why)
 
 A short rationale; the full table is in
-[docs/play-store-readiness.md §12](./play-store-readiness.md#12-permissions-review).
+[docs/distribution/google-play/readiness.md §12](readiness.md#12-permissions-review).
 
 | Permission | Why |
 | ---------- | --- |
@@ -135,13 +135,13 @@ The normal folder-picker path still uses Android's Storage Access Framework and
 does not need either media permission. Linthra does not request
 `MANAGE_EXTERNAL_STORAGE` or broad "all files" access. Cast uses a pure-Dart
 implementation, not Google Play Services. See
-[docs/play-store-data-safety.md](./play-store-data-safety.md).
+[docs/distribution/google-play/data-safety.md](data-safety.md).
 
 ## Related docs
 
-- [docs/play-store-readiness.md](./play-store-readiness.md) — overall readiness,
+- [docs/distribution/google-play/readiness.md](readiness.md) — overall readiness,
   app-access declaration, permissions.
-- [docs/play-store-listing.md](./play-store-listing.md) — store listing copy.
-- [docs/play-store-data-safety.md](./play-store-data-safety.md) — Data Safety
+- [docs/distribution/google-play/listing.md](listing.md) — store listing copy.
+- [docs/distribution/google-play/data-safety.md](data-safety.md) — Data Safety
   form prep.
-- [docs/privacy-policy.md](./privacy-policy.md) — privacy policy draft.
+- [docs/privacy-policy.md](../../privacy-policy.md) — privacy policy draft.

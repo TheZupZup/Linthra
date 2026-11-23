@@ -9,7 +9,7 @@ on:
       - "scripts/reddit_release_voice.json"
       - "scripts/post_reddit_release.py"
       - "test/tooling/reddit_release_announcement_test.py"
-      - "docs/reddit-release-announcements.md"
+      - "docs/distribution/reddit-release-announcements.md"
   push:
     branches: [main]
     paths:
