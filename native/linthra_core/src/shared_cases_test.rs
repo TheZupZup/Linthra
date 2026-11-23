@@ -117,5 +117,7 @@ fn matches_match_the_shared_cases() {
             .collect();
         positions.sort_unstable();
         assert_eq!(positions, expected, "matches for {query:?}");
+        // The unranked view the Library filter uses must agree too.
+        assert_eq!(index.matching(&query), expected, "matching for {query:?}");
     }
 }
