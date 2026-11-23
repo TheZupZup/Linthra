@@ -30,7 +30,7 @@ import 'plex_track_mapper.dart';
 /// library picker in Settings fills it — simply yields empty lists, never an
 /// error.
 ///
-/// Playback is two-step by design (see docs/plex.md → MusicSource mapping): a
+/// Playback is two-step by design (see docs/servers/plex.md → MusicSource mapping): a
 /// track's opaque `plex:<ratingKey>` URI is resolved at play time via a
 /// `GET /library/metadata/{ratingKey}` lookup, because the playable `Part` key
 /// differs from the `ratingKey`. That live lookup doubles as the reachability/

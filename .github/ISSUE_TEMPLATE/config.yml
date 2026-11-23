@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/TheZupZup/Linthra/security/advisories/new
     about: Private Vulnerability Reporting. Please don't put security details in a public issue.
   - name: Jellyfin setup & troubleshooting
-    url: https://github.com/thezupzup/linthra/blob/main/docs/jellyfin-compatibility.md
+    url: https://github.com/thezupzup/linthra/blob/main/docs/servers/jellyfin-compatibility.md
     about: Connection, Cloudflare, and "how to report without leaking secrets" notes.
   - name: Android Auto troubleshooting
     url: https://github.com/thezupzup/linthra/blob/main/docs/android-auto.md

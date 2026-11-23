@@ -261,7 +261,7 @@ abstract final class MusicProviders {
     ),
   );
 
-  /// Plex (see docs/plex.md and issue #178).
+  /// Plex (see docs/servers/plex.md and issue #178).
   /// `plex:<ratingKey>` URIs are recognized end to end, and the Settings card
   /// lets the user connect with their Plex account (or a manual server URL +
   /// token) and pick which music libraries to include.
@@ -272,7 +272,7 @@ abstract final class MusicProviders {
   /// Caching fetches the original Part file (`download=1`) through the shared,
   /// provider-agnostic offline cache, keyed by the stable `plex:<ratingKey>`
   /// identity and named only from the non-secret track id, so the token never
-  /// reaches a cache file (docs/plex.md → Token safety rules). Lyrics are
+  /// reaches a cache file (docs/servers/plex.md → Token safety rules). Lyrics are
   /// fetched on demand from the track's Plex lyric stream (synced `.lrc` or
   /// plain). Cast stays off for now to keep the credential-in-URL surface
   /// small (a Plex stream URL carries the token as a query param).

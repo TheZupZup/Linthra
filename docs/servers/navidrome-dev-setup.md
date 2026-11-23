@@ -13,7 +13,7 @@ under `test/core/sources/subsonic/`.
 ## 1. Run Navidrome locally
 
 A ready-to-use Docker Compose file lives in
-[`tools/dev/navidrome/`](../tools/dev/navidrome/).
+[`tools/dev/navidrome/`](../../tools/dev/navidrome/).
 
 ```bash
 # 1. Put a few audio files in the music folder (anything Navidrome can read:
@@ -68,7 +68,7 @@ library**.
 ### HTTP / cleartext on Android
 
 A LAN server reached over plain `http://` works because Linthra ships a
-[network security config](../android/app/src/main/res/xml/network_security_config.xml)
+[network security config](../../android/app/src/main/res/xml/network_security_config.xml)
 that permits cleartext. Android blocks cleartext by default on modern targets;
 without that config, `http://192.168.1.50:4533` would fail. HTTPS is still
 preferred for anything reachable beyond your LAN. (This config also lets a
@@ -174,5 +174,5 @@ report** issue template.
   a LAN Jellyfin server too. Mirroring the granular `cleartextBlocked` /
   `insecureConnection` messages into the Jellyfin client is a possible follow-up.
 - Favourites, lyrics, and cover art remain **planned** for the Subsonic provider
-  (see [providers.md](providers.md)); they're declared unsupported in the
+  (see [Music providers](overview.md)); they're declared unsupported in the
   capability model, so their actions stay hidden rather than failing.

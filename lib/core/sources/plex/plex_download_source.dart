@@ -14,7 +14,7 @@ import '../../models/track.dart';
 /// Security: a Plex download URL carries the `X-Plex-Token` in its **query**
 /// (the HTTP fetch can't set headers), so [resolveDownloadUri] weaves it in on
 /// demand, at download time, and the URL is never stored on [track] — exactly
-/// like the stream URL. See docs/plex.md → Token safety rules.
+/// like the stream URL. See docs/servers/plex.md → Token safety rules.
 abstract interface class PlexDownloadSource {
   /// Confirms the session is still valid and the server reachable. Throws a
   /// `PlexException` (unauthorized / not reachable / …) when it is not.

@@ -13,7 +13,7 @@
 /// to the caller, never parked on a DTO. A [PlexResource] must carry its
 /// per-server `accessToken` (that token is the very thing the flow is after),
 /// so its [PlexResource.toString] redacts it, exactly like `PlexSession`. See
-/// docs/plex.md → Token safety rules.
+/// docs/servers/plex.md → Token safety rules.
 ///
 /// Only the fields Linthra uses are kept; the rest of each payload is ignored.
 library;
@@ -64,7 +64,7 @@ class PlexPin {
 /// [providesServer] (the user's Plex Media Servers).
 ///
 /// Carries the **server-scoped** [accessToken] (the narrowest credential that
-/// works — see docs/plex.md → Token scope) plus the [connections] the server
+/// works — see docs/servers/plex.md → Token scope) plus the [connections] the server
 /// can be reached on. [toString] redacts the token.
 class PlexResource {
   const PlexResource({

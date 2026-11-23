@@ -13,7 +13,7 @@ void main() {
       expect(caps.canListPlaylists, isFalse);
       expect(caps.canCast, isFalse);
       expect(caps.canCache, isFalse);
-      // Sidecar .lrc/.txt lyrics (LocalLyricsProvider) — the docs/providers.md
+      // Sidecar .lrc/.txt lyrics (LocalLyricsProvider) — the docs/servers/overview.md
       // matrix has said ✅ since they shipped.
       expect(caps.canLyrics, isTrue);
     });
@@ -50,7 +50,8 @@ void main() {
       expect(caps.canSyncPlaylists, isTrue);
     });
 
-    test('plex: stream + lyrics + caching in phase 1 (docs/plex.md matrix)',
+    test(
+        'plex: stream + lyrics + caching in phase 1 (docs/servers/plex.md matrix)',
         () {
       final caps = MusicProviders.plex.capabilities;
       expect(caps.canStream, isTrue);
@@ -214,7 +215,7 @@ void main() {
     });
 
     test('registering plex did not change how existing URIs route', () {
-      // The no-regression guard docs/plex.md calls for: the only shared-code
+      // The no-regression guard docs/servers/plex.md calls for: the only shared-code
       // edit Plex makes is its own forTrackUri branch, so every URI shape the
       // existing providers produce must keep resolving exactly as before.
       expect(MusicProviders.forTrackUri('jellyfin:item-42'),

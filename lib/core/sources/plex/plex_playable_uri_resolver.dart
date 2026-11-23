@@ -10,7 +10,7 @@ import 'plex_track_mapper.dart';
 /// The `X-Plex-Token` is woven into the URL here, on demand by the
 /// [PlexStreamSource], and never stored on the track or in the catalog — a
 /// Plex stream URL carries the token in its **query**, so persisting one would
-/// persist the credential (see docs/plex.md → Token safety rules). Before
+/// persist the credential (see docs/servers/plex.md → Token safety rules). Before
 /// minting, this verifies the session is still valid and the server reachable,
 /// so the player can show a precise, friendly error instead of an opaque
 /// audio-engine failure. The minted URL is returned to the controller and

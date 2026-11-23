@@ -48,7 +48,7 @@ typedef PlexPinAuthWait = Future<void> Function(Duration duration);
 /// each server's **server-scoped** `accessToken` over the account token — the
 /// narrowest credential that works — and only the resulting session (whose
 /// `toString` redacts its token) carries a secret out of this class. See
-/// docs/plex.md → Token safety rules.
+/// docs/servers/plex.md → Token safety rules.
 class PlexPinAuth {
   PlexPinAuth({
     required PlexTvClient tvClient,
@@ -189,7 +189,7 @@ class PlexPinAuth {
   ///
   /// Token choice: the server's own **server-scoped** `accessToken` when
   /// plex.tv provided one, falling back to the account token only when it
-  /// didn't — the narrowest blast radius that works (docs/plex.md → Token
+  /// didn't — the narrowest blast radius that works (docs/servers/plex.md → Token
   /// scope). The session starts with no selected library sections; the
   /// existing library picker fills them.
   ///

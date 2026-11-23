@@ -25,9 +25,9 @@ The full index of Linthra's docs. New to the project? Start with the
 | Library browsing & search | [library.md](./library.md) |
 | Local music (on-device folders) | [local-music.md](./local-music.md) |
 | Optical media detection (Linux) | [optical-media.md](./optical-media.md) |
-| Music providers (overview) | [providers.md](./providers.md) |
-| Jellyfin setup | [jellyfin.md](./jellyfin.md) · [compatibility](./jellyfin-compatibility.md) · [sync](./jellyfin-sync.md) |
-| Plex setup | [plex.md](./plex.md) |
+| Music providers (overview) | [Music providers](servers/overview.md) |
+| Jellyfin setup | [jellyfin.md](servers/jellyfin.md) · [compatibility](servers/jellyfin-compatibility.md) · [sync](servers/jellyfin-sync.md) |
+| Plex setup | [plex.md](servers/plex.md) |
 | WebDAV / NAS provider (design) | [webdav.md](./webdav.md) |
 | Streaming, buffering & recovery | [streaming.md](./streaming.md) |
 | Queue / Up Next | [queue.md](./queue.md) |

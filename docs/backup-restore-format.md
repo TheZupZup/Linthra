@@ -32,7 +32,7 @@ shared contract between three things:
   [Versioning](#versioning--forward-compatibility).
 - **Same rules as the rest of the app.** Credentials stay encrypted on-device and
   are never written to a plaintext sink — exactly as documented for each provider
-  in [docs/providers.md](./providers.md).
+  in [docs/servers/overview.md](servers/overview.md).
 
 ## Security
 

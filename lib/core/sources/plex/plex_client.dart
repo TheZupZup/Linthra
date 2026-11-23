@@ -80,7 +80,7 @@ class PlexClientIdentity {
 /// Implementations throw a [PlexException] (with a friendly message and a
 /// [PlexErrorKind]) for every failure, and must **never** put the token into an
 /// exception, a log, or any other output (header **or** query param). See
-/// docs/plex.md → Token safety rules.
+/// docs/servers/plex.md → Token safety rules.
 abstract interface class PlexClient {
   /// Fetches server identity from `GET /identity`, confirming the address is a
   /// reachable Plex Media Server (and recording its `machineIdentifier` /

@@ -7,7 +7,7 @@ local, the deliberate limitations, how to troubleshoot, and the security
 guarantees. For connectivity (URLs, Cloudflare, version floor) see
 [jellyfin-compatibility.md](jellyfin-compatibility.md); for the editing/delete
 model and the capability matrix see
-[playlists-and-delete.md](playlists-and-delete.md).
+[playlists-and-delete.md](../playlists-and-delete.md).
 
 ## When it syncs
 

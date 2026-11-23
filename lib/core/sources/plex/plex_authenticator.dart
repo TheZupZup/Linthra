@@ -20,7 +20,7 @@ import 'plex_server_url.dart';
 /// logged, and the client's [PlexException]s are static and token-free, so a
 /// failure on any path can't leak it. The session stores only the token (prefer a
 /// server-scoped one) plus the server metadata; it never holds a stream/art URL.
-/// See docs/plex.md → Authentication / Token safety rules.
+/// See docs/servers/plex.md → Authentication / Token safety rules.
 ///
 /// The primary "Connect with Plex" path is the plex.tv PIN sign-in
 /// (`PlexPinAuth`); this manual flow stays as the advanced fallback for users

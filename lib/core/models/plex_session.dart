@@ -16,7 +16,7 @@ import 'package:flutter/foundation.dart';
 ///
 /// No password is involved (phase 1 pastes a token directly), and an
 /// authenticated stream/art URL is **never** part of a session — those are minted
-/// on demand at play/render time and discarded. See docs/plex.md → Token safety
+/// on demand at play/render time and discarded. See docs/servers/plex.md → Token safety
 /// rules.
 class PlexSession {
   const PlexSession({
@@ -62,7 +62,7 @@ class PlexSession {
 
   /// `key`s of the music library sections the user chose to include. Starts
   /// empty at sign-in — the library picker in Settings fills it — and scopes
-  /// every artist/album/track fetch (see docs/plex.md → MusicSource mapping).
+  /// every artist/album/track fetch (see docs/servers/plex.md → MusicSource mapping).
   /// Section keys are not secret.
   final List<String> selectedSectionKeys;
 

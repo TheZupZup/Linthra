@@ -35,7 +35,7 @@ Open **Settings → Jellyfin** and:
    Playlists, and Favorites. If the first sync didn't finish (e.g. the server
    was briefly unreachable), the card shows a friendly message and a **Retry**.
 5. Tap a synced track to **stream** it, or use the download control to keep it
-   **offline** (see [offline-cache.md](offline-cache.md)).
+   **offline** (see [offline-cache.md](../offline-cache.md)).
 6. **Copy Jellyfin diagnostics** — a short, **secret-free** report for bug
    reports (app version, connection state, server name/version/host-only, last
    error kind). It never includes a password, token, `Authorization` header, or
@@ -79,7 +79,7 @@ friendly errors — **not signed in**, **expired session**, **server unreachable
 **a web page instead of audio**, **not an audio stream**, **track not available**,
 **unsupported response**, and a generic **couldn't stream** — branched on a typed
 error kind, not message text. Buffering, preload, and interruption recovery are in
-[streaming.md](streaming.md).
+[streaming.md](../streaming.md).
 
 ## Security (token handling)
 

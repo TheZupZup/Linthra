@@ -189,7 +189,7 @@ providers.
 `MusicLibraryRepository.upsertCatalog(...)`, which writes them into the local
 SQLite cache (`lib/data/database/`, Drift). The library/sync controllers in
 `features/` drive that. The UI then reads the catalog, never the server. More:
-[providers.md](providers.md), [jellyfin.md](jellyfin.md),
+[Music providers](servers/overview.md), [jellyfin.md](servers/jellyfin.md),
 [streaming.md](streaming.md).
 
 ## Offline cache & downloads
@@ -317,7 +317,7 @@ diagnostics — it's worth stating in one place:
 - **The password is used once, then discarded.** Sign-in trades it for a
   session token; the password is never stored. The one opt-in exception is
   Subsonic's legacy sign-in, for servers that refuse tokens (see
-  [providers.md](providers.md)), which keeps it in the encrypted store.
+  [Music providers](servers/overview.md)), which keeps it in the encrypted store.
 - **Tokens are encrypted at rest** (`flutter_secure_storage`), never written to
   shared preferences, logs, or diagnostics, and never shown on screen.
 - **Authenticated stream URLs are minted on demand** and never persisted — not

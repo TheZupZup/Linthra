@@ -5,7 +5,7 @@
 # ONLY: it serves over plain http and auto-creates a throwaway admin user on
 # first run. Do NOT expose it to the internet or reuse the password anywhere.
 #
-# Quick start (full walkthrough: docs/navidrome-dev-setup.md):
+# Quick start (full walkthrough: docs/servers/navidrome-dev-setup.md):
 #   1. Copy a few audio files into ./music
 #   2. docker compose -f tools/dev/navidrome/docker-compose.yml up -d
 #   3. Open http://localhost:4533 — the admin user below already exists.

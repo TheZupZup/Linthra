@@ -21,7 +21,7 @@ import 'plex_tv_endpoints.dart';
 ///
 /// Every failure becomes a [PlexException] built from a static, plex.tv-worded
 /// factory; no token is ever written into an exception, a log, or any other
-/// output. See docs/plex.md → Token safety rules.
+/// output. See docs/servers/plex.md → Token safety rules.
 class HttpPlexTvClient implements PlexTvClient {
   HttpPlexTvClient({
     required PlexClientIdentity identity,
