@@ -4,6 +4,7 @@ use linthra_core::{LibraryIndex, TrackRecord};
 
 const TRACK_COUNT: usize = 200_000;
 const SEARCH_ITERATIONS: usize = 500;
+const BROAD_ITERATIONS: usize = 40;
 
 fn main() {
     let tracks = synthetic_library(TRACK_COUNT);
@@ -38,6 +39,22 @@ fn main() {
         average.as_micros()
     );
     println!("total returned hits: {hit_count}");
+
+    // Queries that match (nearly) the whole catalog, like the first letter
+    // typed into a search box. Ranking is what costs here: every candidate is
+    // scored, and only the best 50 may be ordered.
+    let broad_queries = ["m", "midnight", "track", "midnight signal"];
+    let broad_started = Instant::now();
+    let mut broad_hits = 0usize;
+    for iteration in 0..BROAD_ITERATIONS {
+        let query = broad_queries[iteration % broad_queries.len()];
+        broad_hits += index.search(query, 50).len();
+    }
+    let broad_average = broad_started.elapsed() / BROAD_ITERATIONS as u32;
+    println!(
+        "{BROAD_ITERATIONS} broad searches (whole catalog matches): avg {} µs, {broad_hits} hits",
+        broad_average.as_micros()
+    );
 
     // This is a regression smoke threshold, not a marketing benchmark. It is
     // deliberately generous enough for shared CI runners while still catching
