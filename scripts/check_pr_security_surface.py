@@ -83,6 +83,10 @@ SENSITIVE_PATH_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "native code",
     ),
     (re.compile(r"(?:^|/)CMakeLists\.txt$"), "native build configuration"),
+    # A Dart build hook runs on every `flutter build`, `flutter run` and
+    # `flutter test`, on contributors' machines and in CI. Anything under
+    # hook/ is build-time code execution.
+    (re.compile(r"^hook/"), "Dart build hook (runs at build time)"),
     # A Cargo dependency may carry a build script, which runs at build time on
     # the CI machine — the same trust boundary pubspec.yaml crosses.
     (re.compile(r"(?:^|/)Cargo\.(?:toml|lock)$"), "dependency manifest / lockfile"),
@@ -357,6 +361,22 @@ _PROSE_PATH = re.compile(r"\.(?:md|markdown|txt|rst|html?|example)$", re.I)
 
 ADDITION_RULE_SKIP_PATHS: dict[str, re.Pattern[str]] = {
     "credential-sensitive logic": _PROSE_PATH,
+}
+
+# The few files where a blocked capability is the reviewed design rather than
+# an accident. There a match is reported as sensitive instead of blocked: an
+# external PR still needs the owner's approval of its exact HEAD, and the same
+# construct anywhere else stays blocked. Keyed by the blocked rule's reason;
+# keep each pattern as narrow as the design allows.
+BLOCKED_RULE_REVIEWED_PATHS: dict[str, re.Pattern[str]] = {
+    # The Dart build hook compiles the Rust core by running cargo. A hook has
+    # no other way to invoke a native toolchain.
+    "runtime process execution": re.compile(r"^hook/build\.dart$"),
+    # The Rust core's Dart bindings and their wrapper: FFI is the boundary
+    # itself. Direct children only, so a new subdirectory is a new decision.
+    "runtime FFI / dynamic library loading": re.compile(
+        r"^lib/core/native/[^/]+\.dart$"
+    ),
 }
 
 
@@ -701,8 +721,18 @@ def classify(
                 # down. Downgrade rather than drop, because a README telling a
                 # reader to pipe a download into a shell is still worth an
                 # owner's eyes — it just must not be an unclearable block.
+                reviewed = BLOCKED_RULE_REVIEWED_PATHS.get(reason)
                 if rules is BLOCKED_ADDITION_RULES and is_prose:
                     hit_sink, hit_reason = sensitive, f"textual reference to {reason}"
+                elif (
+                    rules is BLOCKED_ADDITION_RULES
+                    and reviewed is not None
+                    and reviewed.search(source.path)
+                ):
+                    hit_sink, hit_reason = (
+                        sensitive,
+                        f"{reason} in its reviewed location",
+                    )
                 else:
                     hit_sink, hit_reason = sink, reason
 
