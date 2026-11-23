@@ -1,0 +1,21 @@
+# Shared download network-gate cases.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/download_gate_cases_test.rs (Rust)
+#   - test/core/services/download_gate_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <network>  <allow mobile data>  <decision>
+#
+# network:  wifi | mobile | unknown | offline
+# decision: allowed | needsWifi | offline
+
+wifi	false	allowed
+wifi	true	allowed
+mobile	false	needsWifi
+mobile	true	allowed
+unknown	false	needsWifi
+unknown	true	allowed
+offline	false	offline
+offline	true	offline

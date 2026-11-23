@@ -11,6 +11,7 @@ import '../../core/repositories/download_store.dart';
 import '../../core/repositories/offline_file_store.dart';
 import '../../core/services/cache_eviction_policy.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../core/services/download_gate.dart';
 import '../../core/services/download_scheduler.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/offline_copy_origins.dart';
@@ -762,10 +763,10 @@ class CacheDownloadRepository
     // network. When it blocks, the track waits as "queued" for an explicit
     // retry once allowed (the in-flight reservation is released by the caller),
     // and the outcome tells the UI why so it can prompt instead of failing.
-    final _NetworkDecision decision = await _networkDecision();
-    if (decision != _NetworkDecision.allowed) {
+    final DownloadGate decision = await _networkDecision();
+    if (decision != DownloadGate.allowed) {
       _setPhase(key, operation, DownloadStatus.queued);
-      return decision == _NetworkDecision.offline
+      return decision == DownloadGate.offline
           ? DownloadRequestOutcome.waitingForConnection
           : DownloadRequestOutcome.waitingForWifi;
     }
@@ -778,7 +779,7 @@ class CacheDownloadRepository
     // at a time), and the listener can leave Wi-Fi or turn mobile data off
     // meanwhile. One that may no longer run is held like a request made now,
     // still "queued", and starts again when the connection allows it.
-    _NetworkDecision atSlot = _NetworkDecision.allowed;
+    DownloadGate atSlot = DownloadGate.allowed;
     await _scheduler.schedule(() async {
       // Removed or cleared while it waited for this slot: skip the fetch, so a
       // cancelled download spends no data and the slot goes straight to the
@@ -797,7 +798,7 @@ class CacheDownloadRepository
         return;
       }
       atSlot = await _networkDecision();
-      if (atSlot != _NetworkDecision.allowed) return;
+      if (atSlot != DownloadGate.allowed) return;
       if (operation.canceled) {
         operation.abandoned = true;
         return;
@@ -845,11 +846,11 @@ class CacheDownloadRepository
       }
     });
     switch (atSlot) {
-      case _NetworkDecision.allowed:
+      case DownloadGate.allowed:
         return DownloadRequestOutcome.started;
-      case _NetworkDecision.needsWifi:
+      case DownloadGate.needsWifi:
         return DownloadRequestOutcome.waitingForWifi;
-      case _NetworkDecision.offline:
+      case DownloadGate.offline:
         return DownloadRequestOutcome.waitingForConnection;
     }
   }
@@ -1586,29 +1587,17 @@ class CacheDownloadRepository
   /// The connectivity gate as a simple yes/no, for the best-effort pre-cache
   /// path that just skips when it can't run.
   Future<bool> _allowedToDownloadNow() async =>
-      await _networkDecision() == _NetworkDecision.allowed;
+      await _networkDecision() == DownloadGate.allowed;
 
-  /// Decides whether a download may run right now, and (when it can't) why:
-  ///  - Wi-Fi: always allowed.
-  ///  - Mobile data: allowed only when the user turned on "Allow mobile data";
-  ///    otherwise held for Wi-Fi.
-  ///  - Unknown: treated conservatively, like mobile data — allowed only when
-  ///    the user allowed mobile data, so an undetermined link is never assumed
-  ///    unmetered.
-  ///  - Offline: never allowed; the request waits for a connection.
-  Future<_NetworkDecision> _networkDecision() async {
+  /// Whether a download may run right now, and why not when it can't (see
+  /// [downloadGate]).
+  Future<DownloadGate> _networkDecision() async {
     final NetworkStatus status = await _connectivity.currentStatus();
-    switch (status) {
-      case NetworkStatus.wifi:
-        return _NetworkDecision.allowed;
-      case NetworkStatus.mobile:
-      case NetworkStatus.unknown:
-        return await _preferences.allowMobileData()
-            ? _NetworkDecision.allowed
-            : _NetworkDecision.needsWifi;
-      case NetworkStatus.offline:
-        return _NetworkDecision.offline;
-    }
+    // The setting is read only where it decides anything.
+    final bool allowMobileData =
+        (status == NetworkStatus.mobile || status == NetworkStatus.unknown) &&
+            await _preferences.allowMobileData();
+    return downloadGate(status, allowMobileData: allowMobileData);
   }
 
   /// Deletes the app-managed cache file behind [entry], if any. A `null` entry
@@ -1828,11 +1817,6 @@ class _CacheOperation {
   final Completer<DownloadRequestOutcome> admitted =
       Completer<DownloadRequestOutcome>();
 }
-
-/// Whether the network policy lets a download run now, and why not when it
-/// doesn't: held for Wi-Fi (mobile data not allowed) or waiting for a
-/// connection (offline).
-enum _NetworkDecision { allowed, needsWifi, offline }
 
 /// A request the network policy is holding back: the track, the account it
 /// was asked under, and the keys it must not evict once it runs.
