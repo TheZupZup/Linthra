@@ -1042,6 +1042,31 @@ void main() {
             <String>['j1']);
         expect(files.bytesFor('jellyfin_j1.mp3'), isNotNull);
       });
+
+      test('refuses rather than evict a protected track (#873)', () async {
+        // Room for two 4-byte tracks.
+        final repository = buildLimited(maxBytes: 8);
+        await repository.requestDownload(_jellyfin('j1'));
+        await repository.requestDownload(_jellyfin('j2'));
+
+        Object? caught;
+        try {
+          await repository.requestDownload(
+            _jellyfin('j3'),
+            protectKeys: <String>{
+              CachedTrack.cacheKeyForTrack(_jellyfin('j1')),
+              CachedTrack.cacheKeyForTrack(_jellyfin('j2')),
+            },
+          );
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(caught, isA<CacheStorageException>());
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(await repository.statusFor('j2'), DownloadStatus.downloaded);
+        expect(await repository.statusFor('j3'), DownloadStatus.notDownloaded);
+      });
     });
 
     group('parallel downloads', () {

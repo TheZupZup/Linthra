@@ -482,7 +482,10 @@ class CacheDownloadRepository
   }
 
   @override
-  Future<DownloadRequestOutcome> requestDownload(Track track) async {
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     if (!_downloader.isRemote(track)) {
       // On-device track: no bytes to fetch and no network gate, so record it as
       // available offline directly.
@@ -530,7 +533,11 @@ class CacheDownloadRepository
     final int networkChangesBefore = _networkChangeCount;
     DownloadRequestOutcome outcome = DownloadRequestOutcome.started;
     try {
-      outcome = await _runRemoteRequest(track, operation);
+      outcome = await _runRemoteRequest(
+        track,
+        operation,
+        protectKeys: protectKeys,
+      );
       return outcome;
     } on CacheStorageException {
       // The cache is full with nothing safe to evict; surface the friendly,
@@ -675,8 +682,9 @@ class CacheDownloadRepository
   /// slot before fetching the bytes and committing them under the cache limit.
   Future<DownloadRequestOutcome> _runRemoteRequest(
     Track track,
-    _CacheOperation operation,
-  ) async {
+    _CacheOperation operation, {
+    Set<String> protectKeys = const <String>{},
+  }) async {
     await _ensureLoaded();
     final String key = _keyForTrack(track);
     // Already cached — nothing to do. (A track that is downloading or queued is
@@ -808,7 +816,12 @@ class CacheDownloadRepository
         // Commit serially so concurrent downloads can't jointly overshoot the
         // limit; the (slow) byte fetch above already ran in parallel.
         await _commit(
-          () => _cacheRemote(track, downloaded, operation: operation),
+          () => _cacheRemote(
+            track,
+            downloaded,
+            operation: operation,
+            protectKeys: protectKeys,
+          ),
         );
       } finally {
         // Published by the commit, or not wanted after all.

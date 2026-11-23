@@ -105,7 +105,14 @@ abstract interface class DownloadRepository {
   /// Returns a [DownloadRequestOutcome] so the caller can tell the user when a
   /// download was queued by the network policy (mobile data not allowed, or
   /// offline) rather than started.
-  Future<DownloadRequestOutcome> requestDownload(Track track);
+  ///
+  /// [protectKeys] are cache keys this download must never evict to make
+  /// room, such as the rest of a "Download all" batch. When only those are
+  /// left to evict, it throws [CacheStorageException] instead.
+  Future<DownloadRequestOutcome> requestDownload(
+    Track track, {
+    Set<String> protectKeys = const <String>{},
+  });
 
   /// Removes the offline copy of [track], deleting any cached file and freeing
   /// storage. Takes the whole [Track] so removal is *provider-aware*: a Plex
