@@ -58,7 +58,7 @@ __pycache__/
 # This is a repo-wide safety net (android/.gitignore also covers the files
 # under android/). Templates such as android/key.properties.example contain no
 # secrets and are intentionally tracked; the patterns below do not match them.
-# See docs/release-signing.md.
+# See docs/distribution/release-signing.md.
 #
 # Upload/release keystores (incl. upload-keystore.jks).
 *.jks

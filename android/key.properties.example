@@ -15,7 +15,7 @@
 # AND the keystore file exists, release builds are signed with this key;
 # otherwise they fall back to the DEBUG key (not a real release). CI supplies
 # the same values via the LINTHRA_* environment variables instead of this file
-# (env vars take precedence). See docs/release-signing.md for keystore
+# (env vars take precedence). See docs/distribution/release-signing.md for keystore
 # generation, CI secrets, rotation, and Google Play App Signing notes.
 
 # Absolute path to your release keystore (e.g. /home/you/keys/linthra-release.keystore).
