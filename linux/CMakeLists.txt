@@ -89,7 +89,7 @@ set_target_properties(${BINARY_NAME}
 # satisfied locally. It works through CMake's own
 # FETCHCONTENT_SOURCE_DIR_<NAME> hook, so the plugin is never patched or
 # vendored: leave the variable unset and the build is byte-for-byte the
-# upstream one. See docs/linux-desktop.md.
+# upstream one. See docs/linux/desktop.md.
 set(LINTHRA_SQLITE3_SOURCE_DIR "$ENV{LINTHRA_SQLITE3_SOURCE_DIR}" CACHE PATH
   "Directory holding an already-unpacked SQLite amalgamation (sqlite3.c). \
 Set this to build without fetching SQLite from sqlite.org.")

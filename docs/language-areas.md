@@ -32,7 +32,7 @@ Choose Kotlin when Android itself is the feature. Linthra already has native cha
 
 `linux/` is the native entry point of the desktop app: a small GTK application that creates the window, sets Linthra's identity, and hands off to the Flutter engine. It is C++ because that is what the Flutter Linux embedder is; there is no Dart alternative for this layer.
 
-Keep it small. Anything that could live in Dart should — the runner exists to create a correct window and get out of the way, not to hold product logic. Its build configuration (`linux/CMakeLists.txt`) is also where native-dependency decisions land, such as the SQLite pre-fetch seam that keeps the build possible with no network. See [linux-desktop.md](linux-desktop.md).
+Keep it small. Anything that could live in Dart should — the runner exists to create a correct window and get out of the way, not to hold product logic. Its build configuration (`linux/CMakeLists.txt`) is also where native-dependency decisions land, such as the SQLite pre-fetch seam that keeps the build possible with no network. See [Linux desktop](linux/desktop.md).
 
 ## Python / tooling
 

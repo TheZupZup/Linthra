@@ -689,7 +689,7 @@ run, stays `contents: read`.
 **This tarball is the native Linux build, not the Flatpak.** It is
 Linthra's plain `flutter build linux --release` bundle — it still expects the
 Linux runtime libraries listed in
-[docs/linux-desktop.md](../linux-desktop.md#required-packages) (GTK 3,
+[docs/linux/desktop.md](../linux/desktop.md#required-packages) (GTK 3,
 libmpv, a Secret Service provider, …) to already be present on the machine
 that runs it. It is **not** distro-independent or self-contained. The
 self-contained, sandboxed artifact is the `.flatpak` bundle in §4b, produced
@@ -796,9 +796,9 @@ evidence, and neither is duplicated here:
   which is also why they cannot be pointed at the release bundle itself. They
   gate the same packaging changes this bundle is built from;
 - the real-desktop checks are in
-  [linux-desktop.md](../linux-desktop.md#manual-flatpak-smoke-checklist), and the
+  [Linux desktop](../linux/desktop.md#manual-flatpak-smoke-checklist), and the
   wider GNOME/KDE Plasma pass they are the short version of is
-  [desktop-compatibility-matrix.md](../desktop-compatibility-matrix.md).
+  [GNOME and KDE Plasma compatibility matrix](../linux/compatibility-matrix.md).
 
 What the release path adds on top is narrow and deterministic: the bundle
 contains a `libmpv`, so the shipped artifact cannot be one that would fall back

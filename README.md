@@ -111,7 +111,7 @@ Linthra appears in the application launcher like any other app. Linthra is
 
 The native archive `Linthra-<tag>-linux-x64.tar.gz` is still published for
 anyone who wants the plain build. It needs the runtime packages listed in
-[docs/linux-desktop.md](./docs/linux-desktop.md), which also covers both
+[docs/linux/desktop.md](docs/linux/desktop.md), which also covers both
 install routes and native development.
 
 Notes:

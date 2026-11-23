@@ -13,7 +13,7 @@ Four docs, four jobs:
 * [`flatpak/README.md`](../../../flatpak/README.md) — what the packaging *files* are,
   why the manifest looks the way it does, and what is deliberately not in it
   yet.
-* [`linux-desktop.md`](../../linux-desktop.md) — the **native** Flutter Linux
+* [Linux desktop](../../linux/desktop.md) — the **native** Flutter Linux
   build, which is a different thing with different dependencies. See
   [Native Linux vs Flatpak](#native-linux-vs-flatpak) before mixing the two.
 * [`flathub-update-process.md`](flathub-update-process.md): how a tagged
@@ -54,7 +54,7 @@ A libmpv-related failure in one says nothing about the other: the Flatpak
 carries its own ffmpeg/libplacebo/libass/mpv chain under `/app/lib`, so it runs
 on a host with no mpv installed at all, and the native bundle keeps needing the
 host library documented in
-[linux-desktop.md](../../linux-desktop.md#required-packages).
+[Linux desktop](../../linux/desktop.md#required-packages).
 
 ## Host tools
 
@@ -66,7 +66,7 @@ other thing you need is `flatpak-builder`, and it is available **as a Flatpak**
 > slows every future system update, and buys nothing here: `org.flatpak.Builder`
 > is the same tool, sandboxed, and the Flatpak build never needs the native
 > Linux toolchain from
-> [linux-desktop.md](../../linux-desktop.md#required-packages) on the host.
+> [Linux desktop](../../linux/desktop.md#required-packages) on the host.
 
 ```bash
 # A user-level Flathub remote. Fedora's preinstalled remote is filtered on some
@@ -115,7 +115,7 @@ alias flatpak-builder='flatpak run org.flatpak.Builder'
 
 | Task | Where |
 | --- | --- |
-| `flutter` / native Linux build / `./scripts/verify_linux.sh` | **toolbox** — that is what [linux-desktop.md](../../linux-desktop.md#required-packages) sets up |
+| `flutter` / native Linux build / `./scripts/verify_linux.sh` | **toolbox** — that is what [Linux desktop](../../linux/desktop.md#required-packages) sets up |
 | Any `flatpak` or `flatpak-builder` command on this page | **host** — a toolbox has no access to the host's Flatpak installations |
 | `./scripts/regenerate_flatpak_sources.sh` | either — it needs `git`, `python3` and network, not Flatpak. Run it on the host, or in a toolbox if your image lacks them |
 

@@ -129,7 +129,7 @@ finish-args:
   # Their absence is safe: secure storage that is missing, locked or denied
   # surfaces as a recoverable sign-in/storage error and Jellyfin/Subsonic/Plex
   # stay signed out. Linthra never writes a credential to storage of its own,
-  # in plaintext or otherwise (docs/linux-desktop.md "Secure storage").
+  # in plaintext or otherwise (docs/linux/desktop.md "Secure storage").
 
 modules:
   # === Self-contained libmpv audio runtime, built from pinned upstream source
@@ -168,7 +168,7 @@ modules:
   # http/https/tcp/tls protocol layer, which mpv's stream_lavf.c uses
   # directly for any http(s):// URL — the same path both local files and
   # resolved Jellyfin/Navidrome-Subsonic/Plex stream URLs already go through
-  # (see docs/linux-desktop.md "Audio playback"). --enable-gnutls adds the
+  # (see docs/linux/desktop.md "Audio playback"). --enable-gnutls adds the
   # TLS backend https:// needs: GnuTLS is LGPLv2.1+, so it keeps this LGPL-only
   # build's licensing unchanged, and org.gnome.Sdk//51 already ships gnutls.pc
   # (verified: `pkg-config --modversion gnutls` inside the SDK resolves to

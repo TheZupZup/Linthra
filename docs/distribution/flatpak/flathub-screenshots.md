@@ -57,7 +57,7 @@ From #437, and they matter:
   Capture the window itself, not the screen.
 
 Take them at 100% display scale unless you are deliberately showing HiDPI. The
-scaling matrix in [hidpi-and-scaling.md](../../hidpi-and-scaling.md) covers whether
+scaling matrix in [hidpi-and-scaling.md](../../linux/hidpi-and-scaling.md) covers whether
 the UI holds up; screenshots are not the place to prove that.
 
 ## Where the files go
@@ -138,5 +138,5 @@ ones, and the theme and window size will not match.
 ## Related
 
 - [flathub-builder-lint.md](flathub-builder-lint.md), the linter that gates this
-- [hidpi-and-scaling.md](../../hidpi-and-scaling.md), whether the UI holds up at other scales
+- [hidpi-and-scaling.md](../../linux/hidpi-and-scaling.md), whether the UI holds up at other scales
 - [flathub-update-process.md](flathub-update-process.md), publishing a new version

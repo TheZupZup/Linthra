@@ -165,7 +165,7 @@ bool isUDisksOpticalDrive(UDisksDriveProperties properties) {
 /// `src/udisksdaemonutil.c` and `src/udiskslinuxdrive.c`), so they can never
 /// disagree: a disc `cdrom_id` could not identify arrives here as an empty
 /// drive and is indistinguishable from one. [OpticalDiscState] says the same
-/// thing from the model's side, and `docs/optical-media.md` records it as a
+/// thing from the model's side, and `docs/linux/optical-media.md` records it as a
 /// hardware limit for the table-of-contents work to lift.
 ///
 /// [UDisksDriveProperties.optical] is still read, and still gates the audio-CD

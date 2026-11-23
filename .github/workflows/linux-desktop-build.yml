@@ -124,7 +124,7 @@ jobs:
       # The native toolchain `flutter build linux` shells out to. Kept as an
       # explicit list rather than a meta-package so it is obvious what the
       # desktop build actually needs, and so it stays comparable with the
-      # Fedora package list in docs/linux-desktop.md:
+      # Fedora package list in docs/linux/desktop.md:
       #
       #   clang / cmake / ninja-build / pkg-config — the build itself
       #   libgtk-3-dev                             — the Flutter Linux embedder

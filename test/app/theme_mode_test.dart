@@ -139,7 +139,7 @@ void main() {
     // Regression guard for #459, and deliberately narrow about what it proves.
     //
     // What it DOES prove: ThemeModeController/LinthraApp never branch on
-    // HostPlatform the way other platform seams do (see docs/linux-desktop.md
+    // HostPlatform the way other platform seams do (see docs/linux/desktop.md
     // "How platform selection works") — System/Light/Dark resolve through the
     // one shared path Android already used, regardless of what
     // hostPlatformProvider is overridden to. If a future change forked theme
@@ -156,7 +156,7 @@ void main() {
     // portal or a GNOME GSettings fallback), not Linthra's, and reproducing
     // that deterministically in `flutter test` or headless CI would need a
     // running portal daemon or GNOME schemas — exactly the DE-specific
-    // machinery this app avoids adding. See docs/linux-desktop.md's
+    // machinery this app avoids adding. See docs/linux/desktop.md's
     // "Light/Dark/System theme" row for the full picture.
     testWidgets('pinning HostPlatform.linux changes nothing about the result',
         (tester) async {

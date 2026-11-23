@@ -21,7 +21,7 @@ import 'method_channel_cdrom_toc_source.dart';
 /// [inspect] does not refuse a drive whose [OpticalDrive.disc] says `empty` or
 /// `otherMedia`. Detection cannot tell a damaged disc from an empty tray —
 /// both properties it reads come from the same udev flag, which is written up
-/// in `docs/optical-media.md` — and actually reading the disc is the only
+/// in `docs/linux/optical-media.md` — and actually reading the disc is the only
 /// thing that can. Short-circuiting on the snapshot would throw that away and
 /// hand the user "there is no disc" for a disc they are holding the case of.
 ///
@@ -66,7 +66,7 @@ class LinuxAudioCdTocService implements AudioCdTocService {
   /// hardware: reading a disc means opening its device node, and Linthra's
   /// sandbox exposes no device nodes. Widening it would mean `--device=`
   /// access to the drive, which is #631's Flatpak PR to weigh and not this
-  /// one's to grant. See `docs/optical-media.md`.
+  /// one's to grant. See `docs/linux/optical-media.md`.
   @override
   bool get isSupported => !_sandboxed && _source.isSupported;
 

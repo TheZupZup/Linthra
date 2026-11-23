@@ -10,7 +10,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Contributing & setup | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Development, build & CI | [development.md](./development.md) |
-| Linux desktop build (experimental) | [linux-desktop.md](./linux-desktop.md) |
+| Linux desktop build (experimental) | [Linux desktop](linux/desktop.md) |
 | Flatpak development (Fedora Atomic) | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
 | Codebase tour (where everything lives) | [codebase-tour.md](./codebase-tour.md) |
 | Architecture & extension points | [architecture.md](./architecture.md) |
@@ -24,7 +24,7 @@ The full index of Linthra's docs. New to the project? Start with the
 | --- | --- |
 | Library browsing & search | [library.md](features/library.md) |
 | Local music (on-device folders) | [local-music.md](features/local-music.md) |
-| Optical media detection (Linux) | [optical-media.md](./optical-media.md) |
+| Optical media detection (Linux) | [optical-media.md](linux/optical-media.md) |
 | Music providers (overview) | [Music providers](servers/overview.md) |
 | Jellyfin setup | [jellyfin.md](servers/jellyfin.md) · [compatibility](servers/jellyfin-compatibility.md) · [sync](servers/jellyfin-sync.md) |
 | Plex setup | [plex.md](servers/plex.md) |
@@ -48,8 +48,8 @@ The full index of Linthra's docs. New to the project? Start with the
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |
 | Manual QA checklist | [manual-test-checklist.md](./manual-test-checklist.md) |
 | Accessibility, TalkBack & Linux Orca checklists | [accessibility.md](features/accessibility.md) |
-| GNOME & KDE Plasma compatibility matrix | [desktop-compatibility-matrix.md](./desktop-compatibility-matrix.md) |
-| Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
+| GNOME & KDE Plasma compatibility matrix | [GNOME and KDE Plasma compatibility matrix](linux/compatibility-matrix.md) |
+| Desktop HiDPI & fractional scaling | [hidpi-and-scaling.md](linux/hidpi-and-scaling.md) |
 | Linux startup benchmark | [tools/startup/README.md](../tools/startup/README.md) |
 | Release process & signing | [release-process.md](distribution/release-process.md) · [signing](distribution/release-signing.md) · [artifact verification](distribution/release-artifact-verification.md) |
 | Dependency update bots | [dependency-updates.md](./dependency-updates.md) |

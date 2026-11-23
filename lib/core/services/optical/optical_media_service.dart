@@ -19,7 +19,7 @@ abstract interface class OpticalMediaService {
   ///
   /// Answerable without touching the host: it is a fact about the platform and
   /// the packaging, not about the hardware. `false` off Linux, and `false`
-  /// inside the Flatpak today (see `docs/optical-media.md`), so a caller can
+  /// inside the Flatpak today (see `docs/linux/optical-media.md`), so a caller can
   /// leave a disc section out entirely rather than showing one that can only
   /// ever say "no drive".
   bool get isSupported;

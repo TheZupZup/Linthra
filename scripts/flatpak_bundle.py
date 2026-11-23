@@ -41,7 +41,7 @@ WHAT IT IS NOT
 It reads a bundle's contents. It does not run the application, and finding a
 `libmpv` in the bundle is not the same as proving playback uses it — that is
 what the packaged-sandbox audio smoke (#446, docs/distribution/flatpak/audio-smoke.md) and
-the manual checklist in docs/linux-desktop.md are for. It also says nothing
+the manual checklist in docs/linux/desktop.md are for. It also says nothing
 about the Cast containment; `scripts/verify_release_containment.py` reads the
 same bundle for that, using this script's extractor.
 

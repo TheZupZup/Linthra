@@ -137,5 +137,5 @@ placeholders.
 
 - [local-music.md](../features/local-music.md), how local libraries work
 - [Flatpak filesystem sandbox audit](../audits/flatpak-filesystem.md), the sandbox filesystem policy
-- [linux-desktop.md](../linux-desktop.md), the Linux build itself
+- [Linux desktop](../linux/desktop.md), the Linux build itself
 - [Flatpak development on Fedora Atomic](../distribution/flatpak/development.md), building the Flatpak locally

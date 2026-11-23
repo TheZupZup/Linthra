@@ -32,7 +32,7 @@ covers and why no additional codec library was needed.
 **Native, non-Flatpak Linthra is unaffected**: `flutter build linux` outside
 this packaging still links nothing at build time and still expects the
 system `mpv-libs`/`libmpv` runtime documented in
-[docs/linux-desktop.md](../docs/linux-desktop.md#required-packages). The two
+[docs/linux/desktop.md](../docs/linux/desktop.md#required-packages). The two
 are independent audio runtimes by design; only the Flatpak is self-contained.
 
 ## Desktop entry

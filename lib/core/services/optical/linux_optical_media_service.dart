@@ -116,7 +116,7 @@ class LinuxOpticalMediaService implements OpticalMediaService {
   /// and saying so up front is more honest than opening a connection that is
   /// certain to be denied and reporting it as an error the user could fix.
   /// Whether that grant is worth making is #631's Flatpak PR; see
-  /// `docs/optical-media.md`.
+  /// `docs/linux/optical-media.md`.
   @override
   bool get isSupported => !_sandboxed;
 

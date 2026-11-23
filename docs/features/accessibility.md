@@ -174,7 +174,7 @@ Roughly fifteen minutes end to end.
 - ☐ Focusing the window, Alt+Tab, and the overview / task switcher all say
   **Linthra**, not "Flutter" or an empty caption. The runner sets
   `gtk_window_set_title` unconditionally — see
-  [Desktop identity](../linux-desktop.md#desktop-identity).
+  [Desktop identity](../linux/desktop.md#desktop-identity).
 - ☐ Shells that resolve an application id see `io.github.thezupzup.linthra`.
 
 ### Sidebar navigation
@@ -232,7 +232,7 @@ exists. Use Settings' existing connection forms.
   that opened it.
 
 The keyboard mechanics themselves are in
-[linux-desktop.md](../linux-desktop.md#keyboard-navigation). This section is
+[Linux desktop](../linux/desktop.md#keyboard-navigation). This section is
 whether those stops are *understandable* with the screen reader on.
 
 ### Desktop-specific limitations (not a fail)

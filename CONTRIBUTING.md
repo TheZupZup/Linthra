@@ -75,7 +75,7 @@ For the other areas:
 - `linux/` is the native Linux desktop runner (C++/GTK/CMake). Its setup —
   required distribution packages, how to run Linthra on Linux from source, and
   what is still unsupported there — is in
-  [docs/linux-desktop.md](./docs/linux-desktop.md); `./scripts/verify_linux.sh`
+  [docs/linux/desktop.md](docs/linux/desktop.md); `./scripts/verify_linux.sh`
   is the desktop twin of `verify_android.sh`.
 - `flatpak/` packages that Linux build as a Flatpak. Building, installing and
   debugging it locally — on Fedora Atomic (Kinoite/Silverblue) or anywhere

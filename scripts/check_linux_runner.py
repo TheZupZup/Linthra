@@ -233,7 +233,7 @@ REQUIRED_CATEGORIES = ("AudioVideo", "Audio", "Player")
 DESKTOP_ENTRY_GROUP = "Desktop Entry"
 
 # The CMake variable linux/CMakeLists.txt uses to accept an already-unpacked
-# SQLite amalgamation instead of downloading one. See docs/linux-desktop.md.
+# SQLite amalgamation instead of downloading one. See docs/linux/desktop.md.
 SQLITE_SOURCE_VARIABLE = "LINTHRA_SQLITE3_SOURCE_DIR"
 
 # The folder-picker channel (#438): one name on each side of the same wire,
@@ -435,7 +435,7 @@ DESKTOP_NAME_PATTERN = re.compile(
 # adding a second one is a deliberate edit to this table with a reason attached,
 # not something that slips in.
 #
-# See docs/desktop-compatibility-matrix.md, "Differences Linthra does not
+# See docs/linux/compatibility-matrix.md, "Differences Linthra does not
 # normalize".
 # (file, literal) -> (the whole statement it is excused in, reason). The
 # statement is what binds the allowance to *this* check rather than to the
@@ -2084,7 +2084,7 @@ def desktop_neutrality_problems(root: Path) -> list[str]:
             "Secret Service, freedesktop window properties), so reach for one of "
             "those instead. If there is genuinely no standard for it, add it to "
             "GRANDFATHERED_DESKTOP_NAME_CHECKS with the reason and document it "
-            "in docs/desktop-compatibility-matrix.md"
+            "in docs/linux/compatibility-matrix.md"
         )
 
     for (relative, literal), (_, reason) in GRANDFATHERED_DESKTOP_NAME_CHECKS.items():
@@ -2200,7 +2200,7 @@ def check(root: Path) -> list[str]:
         problems.append(
             f"{CMAKELISTS} no longer honours {SQLITE_SOURCE_VARIABLE}, so the "
             "Linux build cannot be made to skip the SQLite download "
-            "(see docs/linux-desktop.md)"
+            "(see docs/linux/desktop.md)"
         )
     elif "FETCHCONTENT_SOURCE_DIR_SQLITE3" not in cmakelists:
         problems.append(
