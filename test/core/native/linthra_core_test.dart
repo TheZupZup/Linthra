@@ -136,6 +136,27 @@ void main() {
       index.dispose();
       index.dispose();
       expect(() => index.search('bjork'), throwsStateError);
+      expect(() => index.matchPositions('bjork'), throwsStateError);
+    });
+
+    test('matchPositions gives every match as ascending build positions', () {
+      // jf:1 and nd:2 are Björk (positions 0 and 1), local:3 is Motörhead.
+      expect(index.matchPositions('bjork'), <int>[0, 1]);
+      expect(index.matchPositions('MOTORHEAD'), <int>[2]);
+      expect(index.matchPositions('homogenic hun'), <int>[1]);
+      expect(index.matchPositions(''), isEmpty);
+      expect(index.matchPositions('zzzz'), isEmpty);
+    });
+
+    test('matchPositions finds the same tracks as search, unranked', () {
+      for (final String query in <String>['bjork', 'homogenic', 'ace', 'o']) {
+        final List<String> ids = <String>['jf:1', 'nd:2', 'local:3'];
+        expect(
+          <String>{for (final int p in index.matchPositions(query)) ids[p]},
+          index.search(query, limit: 10).toSet(),
+          reason: query,
+        );
+      }
     });
   });
 }

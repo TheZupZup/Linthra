@@ -101,7 +101,73 @@ impl LibraryIndex {
     /// matches, then deterministically by title/id/provider/index for stable UI
     /// ordering even when providers expose otherwise-identical copies.
     pub fn search(&self, query: &str, limit: usize) -> Vec<SearchHit<'_>> {
-        if limit == 0 || self.tracks.is_empty() {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let mut ranked = self.scored_matches(query);
+        if ranked.is_empty() {
+            return Vec::new();
+        }
+        // A total order (the track index breaks the last tie), so selecting
+        // the best `limit` and sorting only those gives exactly what sorting
+        // everything and truncating would. A broad query ("m" while typing)
+        // matches the whole catalog; sorting all of it by title to keep 50
+        // was most of that query's time.
+        let order = |(left_index, left_score): &(usize, u32),
+                     (right_index, right_score): &(usize, u32)| {
+            right_score
+                .cmp(left_score)
+                .then_with(|| {
+                    self.tracks[*left_index]
+                        .title
+                        .cmp(&self.tracks[*right_index].title)
+                })
+                .then_with(|| {
+                    self.tracks[*left_index]
+                        .id
+                        .cmp(&self.tracks[*right_index].id)
+                })
+                .then_with(|| {
+                    self.tracks[*left_index]
+                        .provider
+                        .cmp(&self.tracks[*right_index].provider)
+                })
+                .then_with(|| left_index.cmp(right_index))
+        };
+        if ranked.len() > limit {
+            ranked.select_nth_unstable_by(limit - 1, order);
+            ranked.truncate(limit);
+        }
+        ranked.sort_unstable_by(order);
+
+        ranked
+            .into_iter()
+            .map(|(track_index, score)| SearchHit {
+                track: &self.tracks[track_index],
+                score,
+            })
+            .collect()
+    }
+
+    /// The positions (in build order) of every track that matches [query],
+    /// unranked and in ascending order. For filtering a list that keeps its
+    /// own order, like the Library tabs: it skips ranking entirely, which is
+    /// most of the cost of a broad query.
+    pub fn matching(&self, query: &str) -> Vec<usize> {
+        let mut positions: Vec<usize> = self
+            .scored_matches(query)
+            .into_iter()
+            .map(|(track, _)| track)
+            .collect();
+        positions.sort_unstable();
+        positions
+    }
+
+    /// Every track that matches [query] with its score, in no particular
+    /// order: the AND of every query term, each scored by the best field and
+    /// token it prefix-matches. Empty when anything rules the query out.
+    fn scored_matches(&self, query: &str) -> Vec<(usize, u32)> {
+        if self.tracks.is_empty() {
             return Vec::new();
         }
 
@@ -177,48 +243,9 @@ impl LibraryIndex {
             survivors = next;
         }
 
-        let mut ranked: Vec<(usize, u32)> = survivors
+        survivors
             .into_iter()
             .map(|track| (track, total[track]))
-            .collect();
-        // A total order (the track index breaks the last tie), so selecting
-        // the best `limit` and sorting only those gives exactly what sorting
-        // everything and truncating would. A broad query ("m" while typing)
-        // matches the whole catalog; sorting all of it by title to keep 50
-        // was most of that query's time.
-        let order = |(left_index, left_score): &(usize, u32),
-                     (right_index, right_score): &(usize, u32)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .title
-                        .cmp(&self.tracks[*right_index].title)
-                })
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .id
-                        .cmp(&self.tracks[*right_index].id)
-                })
-                .then_with(|| {
-                    self.tracks[*left_index]
-                        .provider
-                        .cmp(&self.tracks[*right_index].provider)
-                })
-                .then_with(|| left_index.cmp(right_index))
-        };
-        if ranked.len() > limit {
-            ranked.select_nth_unstable_by(limit - 1, order);
-            ranked.truncate(limit);
-        }
-        ranked.sort_unstable_by(order);
-
-        ranked
-            .into_iter()
-            .map(|(track_index, score)| SearchHit {
-                track: &self.tracks[track_index],
-                score,
-            })
             .collect()
     }
 
@@ -454,6 +481,47 @@ mod tests {
         let index = fixture();
         let hits = index.search("metallica", usize::MAX);
         assert_eq!(hits.len(), 2);
+    }
+
+    /// `matching` is the unranked view of `search`: the same tracks, as
+    /// ascending build positions.
+    #[test]
+    fn matching_finds_exactly_what_search_finds() {
+        let tracks: Vec<TrackRecord> = (0..120)
+            .map(|i| {
+                TrackRecord::new(
+                    format!("id-{i}"),
+                    ["Echo", "Lake", "Björk Song"][i % 3],
+                    if i % 4 == 0 { "Echo Artist" } else { "Other" },
+                    "Album",
+                    None,
+                    ["local", "plex"][i % 2],
+                )
+            })
+            .collect();
+        let index = LibraryIndex::build(tracks);
+        for query in ["echo", "e", "bjork", "album plex", "lake echo", "", "zzz"] {
+            let mut from_search: Vec<usize> = index
+                .search(query, usize::MAX)
+                .iter()
+                .map(|hit| {
+                    index
+                        .tracks
+                        .iter()
+                        .position(|track| std::ptr::eq(track, hit.track))
+                        .expect("a hit is a track of the index")
+                })
+                .collect();
+            from_search.sort_unstable();
+            assert_eq!(index.matching(query), from_search, "query {query:?}");
+        }
+    }
+
+    #[test]
+    fn matching_an_empty_index_finds_nothing() {
+        assert!(LibraryIndex::build(Vec::new())
+            .matching("anything")
+            .is_empty());
     }
 
     #[test]

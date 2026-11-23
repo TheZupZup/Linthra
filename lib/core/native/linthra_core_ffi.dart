@@ -110,3 +110,35 @@ external Pointer<Utf8> linthraSearchResultsId(
   symbol: 'linthra_search_results_free',
 )
 external void linthraSearchResultsFree(Pointer<LinthraSearchResults> results);
+
+/// `MatchResults` on the Rust side.
+final class LinthraMatchResults extends Opaque {}
+
+@Native<
+    Pointer<LinthraMatchResults> Function(
+        Pointer<LinthraIndex>, Pointer<Utf8>)>(
+  symbol: 'linthra_index_match',
+)
+external Pointer<LinthraMatchResults> linthraIndexMatch(
+  Pointer<LinthraIndex> index,
+  Pointer<Utf8> query,
+);
+
+@Native<Size Function(Pointer<LinthraMatchResults>)>(
+  symbol: 'linthra_match_results_len',
+  isLeaf: true,
+)
+external int linthraMatchResultsLen(Pointer<LinthraMatchResults> results);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraMatchResults>)>(
+  symbol: 'linthra_match_results_positions',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraMatchResultsPositions(
+  Pointer<LinthraMatchResults> results,
+);
+
+@Native<Void Function(Pointer<LinthraMatchResults>)>(
+  symbol: 'linthra_match_results_free',
+)
+external void linthraMatchResultsFree(Pointer<LinthraMatchResults> results);
