@@ -1,6 +1,6 @@
 # linthra_core (Rust)
 
-`linthra_core` is Linthra's high-performance library engine. Its first job is to make searching very large catalogs predictable without making Flutter walk 100,000–200,000 track objects for every keystroke.
+`linthra_core` is the Rust core that holds Linthra's decision logic. It searches very large catalogs without making Flutter walk 100,000–200,000 track objects for every keystroke, and decides which cached tracks to delete when a download needs room.
 
 ## Current scope
 
@@ -11,14 +11,15 @@
 - prefix search with AND semantics across query terms
 - deterministic ranking
 - synthetic 200,000-track regression benchmark
+- cache eviction policy (`src/cache_eviction.rs`): which cached tracks to delete so a download fits, held to the same cases as the Dart policy (`test/fixtures/cache_eviction_cases.json`)
 
 ## How Flutter uses it
 
 The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
 
 - `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
-- `src/ffi.rs` is the C ABI. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
-- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`.
+- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
+- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, so its callers need not know which path ran.
 
 The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux build has no `cc` to link with, or the Rust standard library for the target isn't installed, the hook skips the library and `LinthraCore.isAvailable` is false, so every caller has to keep a Dart fallback. A cargo build that starts and fails does fail the app build.
 

@@ -1,3 +1,4 @@
+import '../native/native_cache_eviction.dart';
 import '../repositories/download_store.dart';
 
 /// What to evict (and whether the incoming download fits at all) for one
@@ -47,8 +48,15 @@ class EvictionPlan {
 ///    oldest [CachedTrack.cachedAt] then track id for determinism.
 ///  - If even evicting every eligible track wouldn't make room, nothing is
 ///    evicted and the plan reports it doesn't fit.
+///
+/// [plan] runs in the Rust core (native/linthra_core/src/cache_eviction.rs)
+/// when the build has it, and on the Dart rules below otherwise. Both replay
+/// test/fixtures/cache_eviction_cases.json, so they answer the same.
 class CacheEvictionPolicy {
-  const CacheEvictionPolicy();
+  /// [useNative] false always takes the Dart path, for tests and benchmarks.
+  const CacheEvictionPolicy({this.useNative = true});
+
+  final bool useNative;
 
   EvictionPlan plan({
     required Iterable<CachedTrack> cached,
@@ -58,6 +66,50 @@ class CacheEvictionPolicy {
     Set<String> protectKeys = const <String>{},
     bool onlyPreloaded = false,
     String? incomingKey,
+  }) {
+    if (useNative) {
+      final List<CachedTrack> tracks = cached.toList(growable: false);
+      final NativeEvictionPlan? native = NativeCacheEviction.plan(
+        cached: tracks,
+        incomingBytes: incomingBytes,
+        maxBytes: maxBytes,
+        protectKeys: <String>{
+          ...protectKeys,
+          if (protectKey != null) protectKey
+        },
+        onlyPreloaded: onlyPreloaded,
+        incomingKey: incomingKey,
+      );
+      if (native != null) {
+        if (!native.fits) {
+          return const EvictionPlan(evict: <CachedTrack>[], fits: false);
+        }
+        if (native.evict.isEmpty) return EvictionPlan.empty;
+        return EvictionPlan(
+          evict: <CachedTrack>[for (final int i in native.evict) tracks[i]],
+          fits: true,
+        );
+      }
+    }
+    return _planInDart(
+      cached: cached,
+      incomingBytes: incomingBytes,
+      maxBytes: maxBytes,
+      protectKey: protectKey,
+      protectKeys: protectKeys,
+      onlyPreloaded: onlyPreloaded,
+      incomingKey: incomingKey,
+    );
+  }
+
+  EvictionPlan _planInDart({
+    required Iterable<CachedTrack> cached,
+    required int incomingBytes,
+    required int maxBytes,
+    required String? protectKey,
+    required Set<String> protectKeys,
+    required bool onlyPreloaded,
+    required String? incomingKey,
   }) {
     int used = 0;
     final List<CachedTrack> candidates = <CachedTrack>[];

@@ -189,7 +189,7 @@ impl Json {
         }
     }
 
-    fn key(&self) -> Option<CacheKey> {
+    fn key(&self) -> Option<CacheKey<'_>> {
         match self {
             Json::Null => None,
             _ => Some(CacheKey::new(
@@ -200,7 +200,7 @@ impl Json {
     }
 }
 
-fn entry(json: &Json) -> CachedEntry {
+fn entry(json: &Json) -> CachedEntry<'_> {
     CachedEntry {
         key: json.key().unwrap(),
         managed: json.get("managed").bool(),

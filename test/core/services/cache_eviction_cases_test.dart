@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/cache_eviction_policy.dart';
 
@@ -49,22 +50,36 @@ int _indexOf(List<CachedTrack> cached, CachedTrack track) {
 }
 
 void main() {
-  const CacheEvictionPolicy policy = CacheEvictionPolicy();
   final Map<String, dynamic> doc =
       jsonDecode(File(_casesPath).readAsStringSync()) as Map<String, dynamic>;
   final List<Map<String, dynamic>> cases =
       (doc['cases'] as List<dynamic>).cast<Map<String, dynamic>>();
 
-  group('cache eviction cases', () {
-    test('file is version 1 with unique case names', () {
-      expect(doc['version'], 1);
-      final List<String> names = <String>[
-        for (final Map<String, dynamic> c in cases) c['name'] as String,
-      ];
-      expect(names, isNotEmpty);
-      expect(names.toSet().length, names.length);
-    });
+  test('file is version 1 with unique case names', () {
+    expect(doc['version'], 1);
+    final List<String> names = <String>[
+      for (final Map<String, dynamic> c in cases) c['name'] as String,
+    ];
+    expect(names, isNotEmpty);
+    expect(names.toSet().length, names.length);
+  });
 
+  _replay('cache eviction cases (Dart)', cases,
+      const CacheEvictionPolicy(useNative: false));
+  // The Rust core is held to the same cases. Without it in this build (no
+  // Rust installed) the group is skipped; test/core/native/ fails the run
+  // instead when LINTHRA_REQUIRE_RUST=1.
+  _replay('cache eviction cases (Rust)', cases, const CacheEvictionPolicy(),
+      skip: LinthraCore.isAvailable ? false : 'Rust core not built');
+}
+
+void _replay(
+  String name,
+  List<Map<String, dynamic>> cases,
+  CacheEvictionPolicy policy, {
+  Object skip = false,
+}) {
+  group(name, skip: skip, () {
     for (final Map<String, dynamic> c in cases) {
       test(c['name'] as String, () {
         final List<dynamic> rawTracks = c['cached'] as List<dynamic>;
