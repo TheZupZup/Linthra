@@ -154,7 +154,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
   /// none can land in the keyring after one asked for later. Without this a
   /// selection save that checked the session just before Disconnect cleared
   /// the keyring wrote the token back after the clear, and set the session
-  /// again while the card said Disconnected (#750).
+  /// again while the card said Disconnected.
   ///
   /// [write] must not wait on another queued write, which would never start.
   Future<T> _queueSessionWrite<T>(Future<T> Function() write) {
@@ -686,7 +686,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     }
     if (previous != null && !sameServer) {
       // The old server's ratingKeys are other songs on this one: none of them
-      // may stay queued to be asked of it (#767).
+      // may stay queued to be asked of it.
       await _removeSongsFromQueue();
     }
 
@@ -1017,7 +1017,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     _restoreSuperseded = true;
     ref.read(plexPersistedClientIdentifierProvider.notifier).publish(null);
     // Its songs leave the queue with the library: the next server connected
-    // may be another one, whose ratingKeys are other songs (#767).
+    // may be another one, whose ratingKeys are other songs.
     await _removeSongsFromQueue();
     // The old "Synced N tracks" status described the session that just ended.
     ref.invalidate(plexSyncControllerProvider);
@@ -1085,7 +1085,7 @@ class PlexSettingsController extends Notifier<PlexSettingsState> {
     try {
       await ref.read(removeProviderSongsFromQueueProvider)(MusicProviders.plex);
     } catch (_) {
-      // They stay queued, as they did before #767.
+      // Best-effort: the songs stay queued.
     }
   }
 
@@ -1152,13 +1152,13 @@ final plexSettingsControllerProvider =
 /// The Plex library source for the current session, or `null` when not
 /// connected.
 ///
-/// The "register the provider" seam of the Plex plan (issue #178 /
-/// docs/servers/plex.md): the playback router and the render-time artwork resolver
-/// read this, so `plex:<ratingKey>` track URIs and `plex-thumb:` artwork
-/// references resolve end to end once a session exists. With no session it
-/// stays `null` — every `plex:` track fails resolution with a friendly "not
-/// signed in" and every `plex-thumb:` reference keeps its placeholder, exactly
-/// as before the connection UI shipped.
+/// The "register the provider" seam of the Plex design
+/// (docs/servers/plex.md): the playback router and the render-time artwork
+/// resolver read this, so `plex:<ratingKey>` track URIs and `plex-thumb:`
+/// artwork references resolve end to end once a session exists. With no
+/// session it stays `null`: every `plex:` track fails resolution with a
+/// friendly "not signed in", and every `plex-thumb:` reference keeps its
+/// placeholder.
 ///
 /// Watches the whole settings state (not just the connected flag) because a
 /// library-selection change also swaps the session behind the source — the
