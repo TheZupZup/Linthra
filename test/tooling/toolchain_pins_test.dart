@@ -263,7 +263,7 @@ const Map<String, Set<String>> _historicalVersions = <String, Set<String>>{
     '8.2.1'
   },
   'docs/distribution/f-droid/readiness.md': <String>{'3.27.4'},
-  'docs/dependency-license-audit.md': <String>{'3.27.4'},
+  'docs/audits/dependency-licenses.md': <String>{'3.27.4'},
   // Names the Flutter 3.44.7 bump as the worked example of an upgrade that
   // needed application changes, which is why the Dart dependency updater is
   // allowed to open red PRs. That sentence is about that past upgrade, so it

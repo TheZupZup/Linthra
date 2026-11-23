@@ -416,7 +416,7 @@ the canonical source of truth for what the bump must contain.
    (`flutter analyze`, `flutter test`, formatting) — this includes the
    version-drift test from step 2.
 7. **Confirm licensing** is still accurate if dependencies changed — re-run the
-   [dependency & license audit](../dependency-license-audit.md).
+   [dependency & license audit](../audits/dependency-licenses.md).
 8. **Merge the version-bump PR.** Do **not** tag yet — see the warning box
    below.
 9. **Pull latest `main` locally** so the tag points at the merged bump:
@@ -1016,7 +1016,7 @@ See [F-Droid readiness checklist](f-droid/readiness.md) for the broader F-Droid 
   and the recorded digests per release.
 - [docs/distribution/f-droid/readiness.md](f-droid/readiness.md) — F-Droid submission checklist.
 - [docs/distribution/f-droid/build-recipe.md](f-droid/build-recipe.md) — F-Droid build recipe.
-- [docs/dependency-license-audit.md](../dependency-license-audit.md) — dependency
+- [docs/audits/dependency-licenses.md](../audits/dependency-licenses.md) — dependency
   licensing.
 - [docs/distribution/listing-assets.md](listing-assets.md) — store icon / feature graphic /
   screenshots.

@@ -9,7 +9,7 @@ explanation cannot outlive the permission it explains.
 Three things are checked.
 
 1. **Every permission has a rationale, and every rationale has a permission.**
-   The table in docs/flatpak-permissions.md is compared against the finish-args
+   The table in docs/audits/flatpak-permissions.md is compared against the finish-args
    of both manifests. Either direction failing is a failure: an unexplained
    grant, or a page describing a sandbox that no longer exists.
 
@@ -46,7 +46,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RATIONALE = REPO_ROOT / "docs" / "flatpak-permissions.md"
+RATIONALE = REPO_ROOT / "docs" / "audits" / "flatpak-permissions.md"
 MANIFESTS = (
     REPO_ROOT / "flatpak" / "flatpak-flutter.yml",
     REPO_ROOT / "flatpak" / "io.github.thezupzup.linthra.yml",

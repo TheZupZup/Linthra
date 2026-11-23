@@ -9,7 +9,7 @@ the sound itself.
 
 This document is the user-and-contributor-facing summary. The read-only
 engineering audit of the media/CPU path lives in
-[docs/audio-bluetooth-cpu-audit.md](./audio-bluetooth-cpu-audit.md); the
+[docs/audits/bluetooth-and-cpu.md](audits/bluetooth-and-cpu.md); the
 streaming/buffering rationale is in [docs/streaming.md](./streaming.md), and the
 cache/pre-cache behaviour in [docs/offline-cache.md](./offline-cache.md).
 
@@ -290,7 +290,7 @@ Battery work is only safe if it's measurable. Useful levers:
 
 The most recent read-through of the whole playback path, with the numbers it
 produced and what was changed as a result, is in
-[docs/battery-playback-audit.md](./battery-playback-audit.md).
+[docs/audits/battery-playback.md](audits/battery-playback.md).
 
 ## Possible future work (not done here)
 

@@ -303,7 +303,7 @@ of this.
 | --- | --- | --- | --- |
 | G1 | **Flatpak install** | **Quit the native Linthra first**, not just remove its desktop entry: F9 ends by relaunching it, and a running native instance keeps `org.mpris.MediaPlayer2.linthra`. The sandboxed one then falls back to an `.instance…` name, and every later MPRIS row plus the `busctl` commands in D4, D5 and D12 would drive the *native* player while you record them as Flatpak results. Then `flatpak install --user <bundle>`, or through the desktop's software centre. | It installs, and the software centre shows the AppStream name, summary and icon. |
 | G2 | **Flatpak launch** | Launch it from the application launcher, not from a terminal. | Same as A1 and A2, from the sandbox. |
-| G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](./flatpak-permissions.md) is really about. |
+| G3 | **Flatpak portals** | Repeat C1, C2 and D8 inside the Flatpak, and for credentials use F2 plus F5 rather than F1: F1 is a `secret-tool` round trip against the host's Secret Service, which the sandbox does not use and which is marked `n/a` there. F6b is the storage-side half. | The chooser is the portal's, notifications arrive, and a provider sign-in persists across a restart with no extra D-Bus permission. This is the row the [permission audit](audits/flatpak-permissions.md) is really about. |
 | G4 | **Flatpak audio** | Repeat E1 and E2 inside the Flatpak. | Audio from the packaged libmpv, and the sink list matches the host's. |
 | G5 | **Flatpak uninstall** | `flatpak uninstall --user io.github.thezupzup.linthra`. | It goes cleanly, and the music files you added are still on disk untouched. This deliberately leaves `~/.var/app/io.github.thezupzup.linthra/` behind, so if another pass follows on this machine, see [Between desktops, start from the same state](#before-you-start). |
 
@@ -514,7 +514,7 @@ Work out which layer owns it before filing:
    Most likely Linthra or the toolkit. File it with the session facts from the
    top of this page, both results side by side, and the exact row number.
 3. **Does it fail only in the Flatpak?** Look at the sandbox first:
-   [flatpak-permissions.md](./flatpak-permissions.md) and
+   [flatpak-permissions.md](audits/flatpak-permissions.md) and
    [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) have the commands for
    inspecting it by hand.
 4. **Is it in the [differences](#differences-linthra-does-not-normalize)
@@ -533,7 +533,7 @@ difference, an upstream bug, or both.
 | Manual QA checklist (Android, plus the Linux passes) | [manual-test-checklist.md](./manual-test-checklist.md) |
 | HiDPI and fractional scaling | [hidpi-and-scaling.md](./hidpi-and-scaling.md) |
 | Flatpak development | [Flatpak development on Fedora Atomic](distribution/flatpak/development.md) |
-| Flatpak permission audit | [flatpak-permissions.md](./flatpak-permissions.md) |
+| Flatpak permission audit | [flatpak-permissions.md](audits/flatpak-permissions.md) |
 | Suspend / resume matrix | [linux-desktop.md](./linux-desktop.md#suspend--resume-manual-matrix) |
 | Closing the window (background mode) | [linux-desktop.md](./linux-desktop.md#closing-the-window) |
 | Reporting a bug | [reporting-bugs.md](./reporting-bugs.md) |

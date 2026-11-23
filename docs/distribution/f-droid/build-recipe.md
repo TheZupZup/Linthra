@@ -28,7 +28,7 @@ which tracks assets, anti-features, and overall submission status.
 - License is AGPL-3.0-or-later (see [`LICENSE`](../../../LICENSE)), an FSF/OSI-approved
   free license accepted by F-Droid. F-Droid expects the SPDX identifier
   `AGPL-3.0-or-later`. Linthra releases up to and including v0.2.4 were published
-  under MPL-2.0; see [`license-transition.md`](../../license-transition.md).
+  under MPL-2.0; see [`license-transition.md`](../../audits/license-transition.md).
 
 ## 2. Expected F-Droid metadata repo fields
 
@@ -140,7 +140,7 @@ the schema at the tagged commit (§4).
    and buildable from source on F-Droid's infrastructure — no Google Play
    Services, Firebase, or proprietary blobs. The per-package licenses and the
    native/bundled-component review are in
-   [dependency-license-audit.md](../../dependency-license-audit.md): all direct deps
+   [Dependency & license audit](../../audits/dependency-licenses.md): all direct deps
    are permissive (MIT/BSD-3-Clause). A mechanical **transitive** audit is still
    an open blocker (§6).
 5. **Toolchain pinning.** Reproducibility depends on the F-Droid build using the
@@ -221,7 +221,7 @@ are committed (the core set tracked by issue #77; see
 `v0.1.0-alpha.30`; the broken `v0.1.0-alpha.24` is excluded); the versionCode
 scheme is decided and now lives in `pubspec.yaml` (`0.1.0-alpha.30+100030`, §5.1),
 enabling auto-update (§2); and the full transitive dependency audit is complete
-([dependency-license-audit.md](../../dependency-license-audit.md)).
+([Dependency & license audit](../../audits/dependency-licenses.md)).
 
 ## 7. Draft F-Droid metadata recipe
 

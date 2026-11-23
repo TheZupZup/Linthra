@@ -796,7 +796,7 @@ omission waiting to be filled in.
 | What needs manual review? | **everything**, patch and minor included |
 | How are majors handled? | an issue, never a PR — for the SDK, Gradle, AGP and Kotlin alike |
 | How is the Flutter SDK handled? | detect newer stable → draft PR that changes `.flutter-version` and nothing else → full CI → human review → merge |
-| Required repository settings | `DEPENDENCY_UPDATE_TOKEN`, plus the `main` ruleset in [repository-hardening.md](./repository-hardening.md) |
+| Required repository settings | `DEPENDENCY_UPDATE_TOKEN`, plus the `main` ruleset in [repository-hardening.md](audits/repository-hardening.md) |
 | Is "Allow auto-merge" needed? | no — leave it off |
 
 ### Three independent reasons, not one policy
@@ -809,7 +809,7 @@ unattended. Three separate controls each stop it on their own:
    *Require review from Code Owners* and *Require approval of the most recent
    reviewable push*. Dependabot cannot approve its own pull request, and
    **Allow GitHub Actions to create and approve pull requests** is deliberately
-   left disabled ([repository-hardening.md](./repository-hardening.md)). So a
+   left disabled ([repository-hardening.md](audits/repository-hardening.md)). So a
    human approval is required on every dependency PR, by configuration.
 
 2. **The security surface guard.** `scripts/check_pr_security_surface.py`

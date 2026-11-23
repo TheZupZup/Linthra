@@ -117,7 +117,7 @@ dependencies:
   # does NOT use the proprietary Google Cast SDK or Google Play Services, so it
   # stays F-Droid/open-source compatible (MIT). `bonsoir` is pinned to 5.x for
   # Dart 3.6 compatibility (6.x+ needs Dart >=3.8). See
-  # docs/dependency-license-audit.md §"Cast" and docs/distribution/f-droid/readiness.md.
+  # docs/audits/dependency-licenses.md §"Cast" and docs/distribution/f-droid/readiness.md.
   cast: ^2.1.0
   bonsoir: ^5.1.11
   # Opens an external URL (the user's browser) for the "Report a bug" flow's
@@ -127,7 +127,7 @@ dependencies:
   # the UI never calls url_launcher directly. The official Flutter-team plugin
   # (BSD-3-Clause); on Android it fires a standard AOSP VIEW intent — no Google
   # Play Services. The app never auto-opens anything; every launch is an
-  # explicit user tap. See docs/dependency-license-audit.md §"Reporting a bug".
+  # explicit user tap. See docs/audits/dependency-licenses.md §"Reporting a bug".
   url_launcher: ^6.3.0
   # D-Bus client for the Linux MPRIS media session (#397), so GNOME's and KDE's
   # media controls, `playerctl` and the hardware media keys can drive Linthra.
@@ -135,7 +135,7 @@ dependencies:
   # declared here now that Linthra uses it deliberately. Pure Dart, MPL-2.0,
   # and Linux-only in practice — MprisMediaSessionBinding is the sole caller
   # and PlatformMediaSessionBinding only routes to it on Linux. See
-  # docs/dependency-license-audit.md §3.
+  # docs/audits/dependency-licenses.md §3.
   dbus: ^0.7.12
 
   # Reads audio tags off the filesystem on desktop/Linux, so a local library
@@ -146,7 +146,7 @@ dependencies:
   # art (embedded artwork is #408). Used ONLY by
   # FilesystemLocalMetadataReader behind the LocalMetadataReader seam; Android
   # keeps reading its tags in the native SAF walk and never loads this. See
-  # docs/dependency-license-audit.md §3.
+  # docs/audits/dependency-licenses.md §3.
   audio_metadata_reader: ^1.8.0
   # The Rust core (native/linthra_core). hooks and code_assets are the Dart
   # team's build-hook API: hook/build.dart runs cargo on the crate during

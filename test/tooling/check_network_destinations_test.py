@@ -197,7 +197,7 @@ class RealRepositoryTest(unittest.TestCase):
 
     def test_nothing_is_contacted_without_a_user_action(self) -> None:
         # PRIVACY.md says so. If this ever has to change, the policy text and
-        # docs/network-destinations.md change in the same pull request.
+        # docs/audits/network-destinations.md change in the same pull request.
         inventory = checker.load_inventory(INVENTORY_PATH)
         self.assertEqual(checker.automatic_hosts(inventory), [])
 

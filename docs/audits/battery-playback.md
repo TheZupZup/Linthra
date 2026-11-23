@@ -2,7 +2,7 @@
 
 This is the report for issue #344 ("Investigate high battery drain during normal
 playback"). It is a read-through of everything that runs while music is playing,
-checked against what [docs/battery.md](./battery.md) claims, plus the focused
+checked against what [docs/battery.md](../battery.md) claims, plus the focused
 fixes the read-through justified and the measurements behind them.
 
 **Scope:** the work the app does *around* the audio, in both listening shapes

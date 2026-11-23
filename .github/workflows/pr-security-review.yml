@@ -58,7 +58,7 @@ jobs:
       #
       # Closing that hole is a repository setting: a ruleset whose required
       # workflow is pinned to a trusted ref, so the definition that runs is the
-      # one a PR cannot edit. docs/pr-security-guard.md has the setup.
+      # one a PR cannot edit. docs/audits/pr-security-guard.md has the setup.
       #
       # What this workflow does guarantee on its own is narrower but real: the
       # *scanner* it runs is read from the trusted base commit, so a PR cannot

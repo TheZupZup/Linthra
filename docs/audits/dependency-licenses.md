@@ -6,7 +6,7 @@ project's licensing accurately. It is a planning/compliance aid.
 
 > **Linthra is _not_ on F-Droid and has _not_ been submitted.** Nothing here
 > publishes or submits anything. This audit records the licensing posture of the
-> code as it stands; see the [F-Droid readiness checklist](distribution/f-droid/readiness.md)
+> code as it stands; see the [F-Droid readiness checklist](../distribution/f-droid/readiness.md)
 > for the overall submission status and blockers.
 
 ## 1. Project license
@@ -15,14 +15,14 @@ Linthra is licensed under the **GNU Affero General Public License v3.0 or later*
 (`AGPL-3.0-or-later`), an
 [FSF/OSI-approved free license](https://www.gnu.org/licenses/license-list.html)
 accepted by F-Droid. The full text is the unmodified GNU AGPLv3 in
-[`LICENSE`](../LICENSE), and the SPDX identifier F-Droid expects is
+[`LICENSE`](../../LICENSE), and the SPDX identifier F-Droid expects is
 `AGPL-3.0-or-later`.
 
 Linthra was previously **MPL-2.0**. Releases up to and including **v0.2.4** were
 published under MPL-2.0 and remain under those terms; that text is preserved
-verbatim at [`licenses/MPL-2.0.txt`](./licenses/MPL-2.0.txt). See
-[`license-transition.md`](./license-transition.md) for the transition record and
-[`relicensing-consent.md`](./relicensing-consent.md) for contributor consent.
+verbatim at [`licenses/MPL-2.0.txt`](../licenses/MPL-2.0.txt). See
+[`license-transition.md`](license-transition.md) for the transition record and
+[`relicensing-consent.md`](relicensing-consent.md) for contributor consent.
 
 ### Why the dependency set is compatible
 
@@ -59,7 +59,7 @@ The specific combinations that need stating rather than assuming:
 
 ## 2. How this audit was produced (and its limits)
 
-- **Scope:** the **committed** [`pubspec.lock`](../pubspec.lock) — the exact
+- **Scope:** the **committed** [`pubspec.lock`](../../pubspec.lock) — the exact
   resolved set, not the `pubspec.yaml` constraints — plus the native components
   in the Android, Linux/Flatpak and Rust build paths (§5).
 - **Method (mechanical and reproducible).** For every package resolved from
@@ -111,7 +111,7 @@ The specific combinations that need stating rather than assuming:
 All entries below are permissive free-software licenses (MIT, BSD-3-Clause or
 Apache-2.0), compatible with AGPL-3.0-or-later (§1) and acceptable to F-Droid.
 The **Locked** column is the version in the committed
-[`pubspec.lock`](../pubspec.lock); the license is the one read from that exact
+[`pubspec.lock`](../../pubspec.lock); the license is the one read from that exact
 published archive (§2).
 
 | Package                  | Constraint   | Publisher (pub.dev) | License        | Purpose in Linthra |
@@ -214,9 +214,9 @@ source (no prebuilt proprietary blobs).
 This is the part of the build most likely to carry copyleft, and it is the part
 the earlier Flutter-only audit did not cover. Every component below is built
 **from pinned upstream source** by
-[`flatpak/io.github.thezupzup.linthra.yml`](../flatpak/io.github.thezupzup.linthra.yml)
+[`flatpak/io.github.thezupzup.linthra.yml`](../../flatpak/io.github.thezupzup.linthra.yml)
 (hash-pinned; the manifest is generated from
-[`flatpak/flatpak-flutter.yml`](../flatpak/flatpak-flutter.yml)). No prebuilt
+[`flatpak/flatpak-flutter.yml`](../../flatpak/flatpak-flutter.yml)). No prebuilt
 media binary is shipped.
 
 | Component | Pinned version | License as built | Why it is AGPL-compatible |
@@ -251,7 +251,7 @@ explicitly so a future SDK bump cannot silently add an undeclared backend.
 
 **mimalloc is not linked.** `media_kit_libs_linux` would otherwise download and
 statically link mimalloc during CMake configure.
-[`linux/CMakeLists.txt`](../linux/CMakeLists.txt) sets
+[`linux/CMakeLists.txt`](../../linux/CMakeLists.txt) sets
 `MIMALLOC_USE_STATIC_LIBS OFF ... FORCE` before the generated plugin CMake is
 included, so it is not built into Linthra. The pinned tarball still appears in
 `flatpak/generated/sources/pubspec.json` only so the network-isolated Flatpak
@@ -278,7 +278,7 @@ why relicensing it is unambiguous.
 
 ### 5.3 Vendored third-party code (`third_party/`)
 
-[`third_party/just_audio_media_kit`](../third_party/just_audio_media_kit) is a
+[`third_party/just_audio_media_kit`](../../third_party/just_audio_media_kit) is a
 vendored fork of the upstream package, carried with its upstream `LICENSE`
 (**the Unlicense** — public domain), plus `PATCHES.md`, `upstream.patch` and
 `upstream.sha256` recording provenance.
@@ -289,13 +289,13 @@ carries its upstream license file unmodified and a `PATCHES.md` +
 `upstream.sha256` provenance record, checked offline by
 `scripts/check_vendored_packages.sh`:
 
-- [`third_party/just_audio`](../third_party/just_audio) — just_audio 0.9.46,
+- [`third_party/just_audio`](../../third_party/just_audio) — just_audio 0.9.46,
   **MIT** (its `LICENSE` also carries ExoPlayer's Apache-2.0 notice). Android
   patch only.
-- [`third_party/media3_decoder_flac`](../third_party/media3_decoder_flac) —
+- [`third_party/media3_decoder_flac`](../../third_party/media3_decoder_flac) —
   AndroidX Media3 1.4.1's `decoder_flac` module, **Apache-2.0**. Not published
   to Maven by Google, so it is built from source.
-- [`third_party/libflac`](../third_party/libflac) — the decoder half of libFLAC
+- [`third_party/libflac`](../../third_party/libflac) — the decoder half of libFLAC
   1.5.0, **BSD-3-Clause** (`COPYING.Xiph`), unmodified.
 
 Apache-2.0, MIT and BSD-3-Clause are all compatible with AGPL-3.0-or-later.
@@ -327,7 +327,7 @@ The same applies to every other third-party notice in the tree.
   `androidx.media:media:1.7.0` and `androidx.core:core` (AndroidX, Apache-2.0).
   Media3's bundled manifest is the source of the merged `ACCESS_NETWORK_STATE`
   permission (it reads connectivity state for adaptive streaming); see the
-  permissions table in [F-Droid readiness checklist](distribution/f-droid/readiness.md).
+  permissions table in [F-Droid readiness checklist](../distribution/f-droid/readiness.md).
 - **No Google Play Services / Firebase / GMS.** Confirmed by the transitive walk
   (§2): no `com.google.android.gms`, `play-services`, Firebase, or other
   proprietary Google library appears in the resolved dependency tree. The
@@ -411,7 +411,7 @@ implications:
   **not** warrant the `NonFreeNet` anti-feature. This should still be **reviewed
   at submission time** — if any future source defaults to or promotes a non-free
   hosted service, it must be reassessed (the
-  [readiness doc](distribution/f-droid/readiness.md#5-anti-features-review) carries the same
+  [readiness doc](../distribution/f-droid/readiness.md#5-anti-features-review) carries the same
   caveat).
 
 ### Reporting a bug (browser hand-off, no auto-send)
@@ -487,11 +487,11 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
 
 ## 10. Related docs
 
-- [docs/distribution/f-droid/readiness.md](distribution/f-droid/readiness.md) — overall F-Droid submission
+- [docs/distribution/f-droid/readiness.md](../distribution/f-droid/readiness.md) — overall F-Droid submission
   checklist and blockers.
-- [docs/distribution/f-droid/build-recipe.md](distribution/f-droid/build-recipe.md) — build recipe and
+- [docs/distribution/f-droid/build-recipe.md](../distribution/f-droid/build-recipe.md) — build recipe and
   reproducible-build notes.
-- [docs/distribution/release-process.md](distribution/release-process.md) — release/tagging and
+- [docs/distribution/release-process.md](../distribution/release-process.md) — release/tagging and
   GitHub-Release process.
-- [docs/distribution/release-signing.md](distribution/release-signing.md) — how release builds are
+- [docs/distribution/release-signing.md](../distribution/release-signing.md) — how release builds are
   signed.

@@ -12,7 +12,7 @@ enum NotificationTransport {
   /// `org.freedesktop.portal.Notification` on the desktop portal. Tried first
   /// because it is the only route a Flatpak has: the sandbox may not talk to
   /// an arbitrary bus name, and Linthra deliberately asks for no
-  /// `--talk-name` (see docs/flatpak-permissions.md).
+  /// `--talk-name` (see docs/audits/flatpak-permissions.md).
   portal,
 
   /// `org.freedesktop.Notifications`, the freedesktop spec interface every

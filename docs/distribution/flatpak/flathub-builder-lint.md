@@ -231,5 +231,5 @@ does not.
 - [Flatpak CI validation](ci.md), the build this lints the output of
 - [flathub-update-process.md](flathub-update-process.md), where a lint result
   sits in a release
-- [flatpak-filesystem-audit.md](../../flatpak-filesystem-audit.md), the permission
+- [Flatpak filesystem sandbox audit](../../audits/flatpak-filesystem.md), the permission
   policy the manifest mode also checks

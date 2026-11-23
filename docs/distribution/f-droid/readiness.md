@@ -105,15 +105,15 @@ accepted on F-Droid:
 | `http`                   | HTTP client for the optional self-hosted sources | BSD-3-Clause | OK (network is opt-in; see §5) |
 | `crypto`                 | MD5 for the Subsonic/Navidrome token auth | BSD-3-Clause | OK (Dart-team package; hashing only) |
 | `flutter_secure_storage` | Encrypted Jellyfin/Subsonic session-token store | BSD-3-Clause | OK (Android Keystore; AOSP, not GMS) |
-| `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](../../dependency-license-audit.md#casting-chromecast--real-cast-without-google-play-services) |
+| `cast`                   | Real Chromecast (pure-Dart Cast v2 protocol) | MIT | OK — **no** GMS / Google Cast SDK; see [audit §5 (Casting)](../../audits/dependency-licenses.md#casting-chromecast--real-cast-without-google-play-services) |
 | `bonsoir`                | mDNS discovery used by `cast`            | MIT | OK — Android side is AOSP `NsdManager`, not GMS; pinned to 5.x for Dart 3.6 |
-| `url_launcher`           | Opens the browser for "Report a bug" → "Open GitHub issue" | BSD-3-Clause | OK — official Flutter plugin; AOSP `ACTION_VIEW` intent, no GMS; fired only on an explicit user tap. See [audit §7 (Reporting a bug)](../../dependency-license-audit.md#reporting-a-bug-browser-hand-off-no-auto-send) |
+| `url_launcher`           | Opens the browser for "Report a bug" → "Open GitHub issue" | BSD-3-Clause | OK — official Flutter plugin; AOSP `ACTION_VIEW` intent, no GMS; fired only on an explicit user tap. See [audit §7 (Reporting a bug)](../../audits/dependency-licenses.md#reporting-a-bug-browser-hand-off-no-auto-send) |
 
 Dev-only dependencies (`flutter_lints`, `flutter_test`, `drift_dev`,
 `build_runner`) are not shipped in the APK.
 
 The full per-package license breakdown, the native/bundled-component review, and
-the methodology live in [docs/dependency-license-audit.md](../../dependency-license-audit.md).
+the methodology live in [docs/audits/dependency-licenses.md](../../audits/dependency-licenses.md).
 All direct dependencies are permissive (MIT / BSD-3-Clause) and
 AGPL-3.0-or-later compatible.
 
@@ -128,7 +128,7 @@ MPL-2.0 package (`dbus`, via `bonsoir_linux`) is AGPL-compatible under MPL-2.0
 §3.3. The only native AAR is AndroidX Media3 (Apache-2.0, the playback engine —
 not GMS); the Linux/Flatpak media chain is LGPL-2.1-or-later built from pinned
 source. Full results and methodology in
-[dependency-license-audit.md §2 & §5](../../dependency-license-audit.md#2-how-this-audit-was-produced-and-its-limits).
+[Dependency & license audit §2 & §5](../../audits/dependency-licenses.md#2-how-this-audit-was-produced-and-its-limits).
 
 **Action items:**
 - Verify each plugin builds cleanly on the F-Droid build server (some Flutter
@@ -162,7 +162,7 @@ where applicable. Current assessment:
 > themselves free/open-source, and Linthra only speaks plain HTTP(S) to them. So
 > the optional remote sources do **not** warrant the `NonFreeNet` anti-feature.
 > Reviewed in detail in
-> [dependency-license-audit.md §7](../../dependency-license-audit.md#7-network-use--the-optional-self-hosted-sources).
+> [Dependency & license audit §7](../../audits/dependency-licenses.md#7-network-use--the-optional-self-hosted-sources).
 >
 > **Future caveat:** any further online provider must be reviewed individually
 > and may warrant `NonFreeNet` if it defaults to or promotes a non-free hosted
@@ -335,7 +335,7 @@ The full step-by-step submission flow and the ready-to-adapt MR text live in
 [docs/distribution/f-droid/submission.md](submission.md). Summary:
 
 1. ✅ **Dependency/license audit** — done (§4;
-   [audit doc](../../dependency-license-audit.md)). Re-run on any dependency change.
+   [audit doc](../../audits/dependency-licenses.md)). Re-run on any dependency change.
 2. ✅ **Fastlane `full_description.txt` refreshed** to match the current alpha,
    with the "unofficial / not affiliated" framing (§7).
 3. ✅ **Target tag + versionCode decided** — `v0.1.0-alpha.30` / `100030`, with a

@@ -143,7 +143,7 @@ FLATPAK_TEMPLATE = FLATPAK_DIR / "flatpak-flutter.yml"
 # window.
 #
 # Each entry's rationale (the feature that needs it, where that feature lives,
-# and why nothing narrower works) is the table in docs/flatpak-permissions.md,
+# and why nothing narrower works) is the table in docs/audits/flatpak-permissions.md,
 # which scripts/check_flatpak_permissions.py holds to this same set from the
 # other side (#455). Adding a permission therefore means editing two
 # independent checks and writing down why.

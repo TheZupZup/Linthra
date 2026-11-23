@@ -8,8 +8,8 @@
 | --- | --- |
 | Previous license | MPL-2.0 (through release **v0.2.4**) |
 | Current license | **AGPL-3.0-or-later** |
-| Active license text | [`LICENSE`](../LICENSE) — unmodified GNU AGPLv3 |
-| Preserved historical text | [`licenses/MPL-2.0.txt`](./licenses/MPL-2.0.txt) |
+| Active license text | [`LICENSE`](../../LICENSE) — unmodified GNU AGPLv3 |
+| Preserved historical text | [`licenses/MPL-2.0.txt`](../licenses/MPL-2.0.txt) |
 | Public consent record | [issue #503](https://github.com/TheZupZup/Linthra/issues/503) |
 
 ### The three things this transition does and does not do
@@ -19,11 +19,11 @@
    was published under MPL-2.0 and **remains under MPL-2.0**. Relicensing going
    forward cannot retroactively change the terms a user already received. The
    MPL-2.0 text is preserved verbatim at
-   [`licenses/MPL-2.0.txt`](./licenses/MPL-2.0.txt) so those rights stay
+   [`licenses/MPL-2.0.txt`](../licenses/MPL-2.0.txt) so those rights stay
    exercisable.
 2. **The current and future project is AGPL-3.0-or-later.** The top-level
    `LICENSE` is the unmodified GNU AGPLv3, and new contributions are accepted
-   under AGPL-3.0-or-later (see [`../CONTRIBUTING.md`](../CONTRIBUTING.md)).
+   under AGPL-3.0-or-later (see [`../CONTRIBUTING.md`](../../CONTRIBUTING.md)).
 3. **Contributor consent was additive, not a revocation.** Each contributor
    granted permission for their work to **also** be distributed under
    AGPL-3.0-or-later, *in addition to, and without withdrawing*, the MPL-2.0
@@ -34,7 +34,7 @@
 **Third-party code is not covered.** Vendored code under `third_party/` keeps
 its own upstream license, and third-party license and notice files are preserved
 unchanged. See
-[`dependency-license-audit.md` §5.3](./dependency-license-audit.md).
+[Dependency & license audit §5.3](dependency-licenses.md).
 
 ## Relicensing record
 
@@ -56,7 +56,7 @@ unchanged. See
   identified; automation-only commits (CI, Dependabot) add no human copyright
   holder to solicit.
 - **Dependency/build compatibility audit:** refreshed in
-  [`dependency-license-audit.md`](./dependency-license-audit.md) against the
+  [Dependency & license audit](dependency-licenses.md) against the
   committed `pubspec.lock` and the committed Flatpak source pins. No
   `GPL-2.0-only`, non-free, or unknown-license component was found in the
   declared build path.
@@ -85,7 +85,7 @@ A stronger software license does **not** make third-party binaries trustworthy.
 Someone can still publish a modified build, and an open-source license cannot guarantee
 that the modification is safe or malware-free.
 
-That is why the license transition is paired with [`TRADEMARKS.md`](../TRADEMARKS.md):
+That is why the license transition is paired with [`TRADEMARKS.md`](../../TRADEMARKS.md):
 modified builds must not be presented as official Linthra releases. Signed official
 builds and clear distribution channels remain the practical way for users to distinguish
 what the Linthra project actually shipped from third-party modifications.
@@ -148,8 +148,8 @@ The transition was made in one reviewable change. The surfaces updated:
 - `docs/distribution/f-droid/build-recipe.md`, `docs/distribution/f-droid/readiness.md`, `docs/distribution/f-droid/submission.md`
 - `docs/distribution/google-play/listing.md`, `docs/distribution/google-play/readiness.md`
 - `docs/privacy-policy.md`, `docs/index.html`, `docs/privacy.html`
-- `docs/dependency-license-audit.md` — refreshed against the current inventory
-- `docs/license-transition.md` (this file), `docs/relicensing-consent.md`
+- `docs/audits/dependency-licenses.md` — refreshed against the current inventory
+- `docs/audits/license-transition.md` (this file), `docs/audits/relicensing-consent.md`
 
 **Deliberately left stating MPL-2.0**
 
@@ -159,7 +159,7 @@ The transition was made in one reviewable change. The surfaces updated:
   the text it links to agree.
 - `third_party/**` — third-party licenses and notices, untouched.
 - Historical and compatibility discussion of MPL-2.0 in this file and in
-  `docs/dependency-license-audit.md`.
+  `docs/audits/dependency-licenses.md`.
 
 A repository-wide search for `MPL-2.0`, `MPL 2.0` and `Mozilla Public License`
 was re-run after the change, and every remaining occurrence was classified as
@@ -170,7 +170,7 @@ one of the intentional categories above.
 AGPL-3.0-or-later is a stronger copyleft than MPL-2.0, and compatibility with it is
 one-way for several common licenses. The audit was re-run against the current
 inventory before the switch and is recorded in
-[`dependency-license-audit.md`](./dependency-license-audit.md).
+[Dependency & license audit](dependency-licenses.md).
 
 Outcome, in brief:
 
@@ -234,14 +234,14 @@ for every current F-Droid build and needs a one-line manual merge request:
 
 Nothing else in the recipe changes: no `Builds` entry, commit or tag is
 edited. The ready-to-file merge request is in
-[F-Droid submission package (draft)](distribution/f-droid/submission.md) §11, and the sync is tracked in
+[F-Droid submission package (draft)](../distribution/f-droid/submission.md) §11, and the sync is tracked in
 [#659](https://github.com/TheZupZup/Linthra/issues/659).
 
 F-Droid's `License:` is a single app-level field with no per-build value (see
 F-Droid's Build Metadata Reference), so once it is corrected the F-Droid client
 will show AGPL-3.0-or-later next to any archived v0.2.4-or-older APK as well.
 That is a limit of the metadata format, not a relicensing of those builds: they
-remain MPL-2.0, and this file and [`licenses/`](./licenses/README.md) are the
+remain MPL-2.0, and this file and [`licenses/`](../licenses/README.md) are the
 authoritative record.
 
 Third-party listings that copied an older release (for example a page still
@@ -253,7 +253,7 @@ them to a current release, never to relabel the old version as AGPL.
 The software license and project identity are deliberately separate.
 
 AGPL controls the terms under which covered source and derivative works are distributed.
-[`TRADEMARKS.md`](../TRADEMARKS.md) controls whether a third-party build may present
+[`TRADEMARKS.md`](../../TRADEMARKS.md) controls whether a third-party build may present
 itself using Linthra's official identity.
 
 For a downstream build that materially changes Linthra's behaviour or user-facing
@@ -263,4 +263,4 @@ one reviewed and published by the Linthra project.
 
 Independent distributions that build Linthra from source without materially changing it —
 F-Droid, Flathub, and Linux distribution packaging — are explicitly not asked to rebrand.
-See [`TRADEMARKS.md`](../TRADEMARKS.md) for the packaging carve-out.
+See [`TRADEMARKS.md`](../../TRADEMARKS.md) for the packaging carve-out.

@@ -16,8 +16,8 @@ Linthra's current and future license is **AGPL-3.0-or-later**. The active text
 is the unmodified GNU Affero General Public License version 3 in the top-level
 [`LICENSE`](../../LICENSE) file.
 
-See [`../license-transition.md`](../license-transition.md) for the completed
-transition record and [`../relicensing-consent.md`](../relicensing-consent.md)
+See [`../license-transition.md`](../audits/license-transition.md) for the completed
+transition record and [`../relicensing-consent.md`](../audits/relicensing-consent.md)
 for the contributor-consent record.
 
 ## Why the old text is kept

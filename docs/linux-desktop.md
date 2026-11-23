@@ -1982,7 +1982,7 @@ anyway.
    because it is the only route a sandboxed Linthra has: the Flatpak asks for
    no `--talk-name` at all (`scripts/check_flatpak_permissions.py` refuses
    every spelling of one), and the portal is available to every Flatpak with no
-   finish-arg. See [docs/flatpak-permissions.md](./flatpak-permissions.md).
+   finish-arg. See [docs/audits/flatpak-permissions.md](audits/flatpak-permissions.md).
 2. **`org.freedesktop.Notifications`**, the spec interface every notification
    daemon implements, for a host that has no portal running: a bare window
    manager with `dunst`, say.

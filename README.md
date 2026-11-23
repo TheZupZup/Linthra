@@ -198,6 +198,6 @@ Linthra moved from MPL-2.0 to AGPL-3.0-or-later. Releases published before that
 change — up to and including **v0.2.4** — remain under the MPL-2.0 terms they
 were published under; that text is preserved at
 [docs/licenses/MPL-2.0.txt](./docs/licenses/MPL-2.0.txt). See
-[docs/license-transition.md](./docs/license-transition.md).
+[docs/audits/license-transition.md](docs/audits/license-transition.md).
 
 Vendored third-party code in `third_party/` keeps its own upstream license.

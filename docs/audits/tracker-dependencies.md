@@ -1,6 +1,6 @@
 # Tracker dependency audit
 
-Linthra's [privacy policy](../PRIVACY.md) says the app carries no third-party
+Linthra's [privacy policy](../../PRIVACY.md) says the app carries no third-party
 advertising trackers and reports nothing home. That is a promise. This page is
 about the part of it you can re-run yourself.
 
@@ -12,15 +12,15 @@ No network, no Flutter, no Android SDK, no Rust toolchain. Everything it reads
 is committed, so the result you get is the result CI gets.
 
 It runs on every pull request as the **Check for known tracker dependencies**
-step of the "Secret & privacy scan" job in [`ci.yml`](../.github/workflows/ci.yml), and
+step of the "Secret & privacy scan" job in [`ci.yml`](../../.github/workflows/ci.yml), and
 `./scripts/verify_android.sh` runs it locally alongside the other guardrails.
 
 This is one part of [#504](https://github.com/TheZupZup/Linthra/issues/504),
 which asks for several independent kinds of evidence. Fixed network destinations
-are covered by [network-destinations.md](./network-destinations.md). The others
+are covered by [network-destinations.md](network-destinations.md). The others
 (the Android manifest surface, a report tied to the release APK's SHA-256, and a
 runtime outbound-network smoke test) are separate work, and
-[PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) tracks where each one stands. **Nothing
+[PRIVACY_AUDIT.md](../../PRIVACY_AUDIT.md) tracks where each one stands. **Nothing
 on this page substitutes for them** — see [Limits](#limits).
 
 ## What it proves
@@ -48,9 +48,9 @@ rather than quietly reporting "none" about a file nobody read.
 
 | File | What is extracted | Why it is in scope |
 | --- | --- | --- |
-| [`pubspec.lock`](../pubspec.lock) | Package name and dependency kind for every resolved package | The exact Dart/Flutter set every build resolves, the closest thing the app has to a bill of materials |
-| [`flatpak/generated/sources/pubspec.json`](../flatpak/generated/sources/pubspec.json) | Pub package names of the archives fetched at build time | What the Linux/Flatpak package is actually built from |
-| [`linux/flutter/generated_plugins.cmake`](../linux/flutter/generated_plugins.cmake) | Flutter plugin names | What gets linked into the Linux binary |
+| [`pubspec.lock`](../../pubspec.lock) | Package name and dependency kind for every resolved package | The exact Dart/Flutter set every build resolves, the closest thing the app has to a bill of materials |
+| [`flatpak/generated/sources/pubspec.json`](../../flatpak/generated/sources/pubspec.json) | Pub package names of the archives fetched at build time | What the Linux/Flatpak package is actually built from |
+| [`linux/flutter/generated_plugins.cmake`](../../linux/flutter/generated_plugins.cmake) | Flutter plugin names | What gets linked into the Linux binary |
 | `android/**/*.gradle`, `*.gradle.kts` | Maven `group:artifact` coordinates and Gradle plugin ids | Where an Android-side SDK would be added. Linthra declares no Maven dependencies of its own today; the point is the line that adds the first one |
 | `native/**/Cargo.lock` | Crate names | The Rust core's resolved crates |
 
@@ -79,7 +79,7 @@ for generating false alarms, and `com.google.firebaseui` is not Firebase. There
 is deliberately no prefix rule and no regex rule.
 
 The reviewed data lives in
-[`scripts/tracker_policy.json`](../scripts/tracker_policy.json). Each entry
+[`scripts/tracker_policy.json`](../../scripts/tracker_policy.json). Each entry
 carries its ecosystem, match kind, identifier, category, vendor and the reason it
 is on the list, so a reviewer can disagree with a specific line rather than with
 the list as a whole. The loader is strict — an unknown key, a blank rationale, a
@@ -120,7 +120,7 @@ Specifically, this check:
   `com.google.android.gms` artifacts are listed, so this check stays about
   tracking. Keeping Google Play Services out of the build altogether is
   F-Droid's rule, tracked in
-  [F-Droid readiness checklist](distribution/f-droid/readiness.md).
+  [F-Droid readiness checklist](../distribution/f-droid/readiness.md).
 
 ## Reviewing a finding
 
@@ -173,15 +173,15 @@ feature that brought it, that is the cheapest fix and the best outcome.
 An exception is a claim that a human looked and decided, not a way to make the
 check green. It is scoped to the files it names, and the check **fails when an
 exception matches nothing**, so a reason can never outlive the dependency it
-explains. If you add one, update [`PRIVACY.md`](../PRIVACY.md) and the status
+explains. If you add one, update [`PRIVACY.md`](../../PRIVACY.md) and the status
 block above in the same pull request: the whole point is that the public
 statement and the check agree.
 
 **4. If the finding is wrong, fix the policy, not the symptom.** If an entry
 matches something innocent, that is a bug in
-[`scripts/tracker_policy.json`](../scripts/tracker_policy.json) — correct the
+[`scripts/tracker_policy.json`](../../scripts/tracker_policy.json) — correct the
 identifier and add a regression test in
-[`test/tooling/check_tracker_dependencies_test.py`](../test/tooling/check_tracker_dependencies_test.py)
+[`test/tooling/check_tracker_dependencies_test.py`](../../test/tooling/check_tracker_dependencies_test.py)
 so it stays fixed.
 
 ## Adding to the policy
@@ -222,14 +222,14 @@ python3 scripts/check_tracker_dependencies.py --json
 
 ## See also
 
-- [`PRIVACY.md`](../PRIVACY.md) — the policy this check backs up
-- [network-destinations.md](./network-destinations.md): the same question for
+- [`PRIVACY.md`](../../PRIVACY.md) — the policy this check backs up
+- [network-destinations.md](network-destinations.md): the same question for
   Linthra's own code
-- [dependency-license-audit.md](./dependency-license-audit.md) — the other audit
+- [Dependency & license audit](dependency-licenses.md) — the other audit
   of the same dependency set, for licensing
-- [dependency-updates.md](./dependency-updates.md) — how dependency bumps reach
+- [dependency-updates.md](../dependency-updates.md) — how dependency bumps reach
   the repository in the first place
-- [pr-security-guard.md](./pr-security-guard.md) — the security-surface guard on
+- [pr-security-guard.md](pr-security-guard.md) — the security-surface guard on
   pull requests
-- [F-Droid readiness checklist](distribution/f-droid/readiness.md) — why Linthra ships no Google Play
+- [F-Droid readiness checklist](../distribution/f-droid/readiness.md) — why Linthra ships no Google Play
   Services at all

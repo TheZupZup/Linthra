@@ -198,5 +198,5 @@ printf 'PASS: %s declares no filesystem/persist grant.\n' "$APP_ID"
 printf 'PASS: global/app user and system overrides add no filesystem/persist grant.\n'
 printf 'PASS: unrelated host file was invisible inside the sandbox.\n'
 printf 'PASS: sandbox-local XDG data and cache locations are writable.\n'
-printf 'PASS: the installed permission set matches docs/flatpak-permissions.md.\n'
-printf 'Manual portal-selected library validation: docs/flatpak-filesystem-audit.md\n'
+printf 'PASS: the installed permission set matches docs/audits/flatpak-permissions.md.\n'
+printf 'Manual portal-selected library validation: docs/audits/flatpak-filesystem.md\n'
