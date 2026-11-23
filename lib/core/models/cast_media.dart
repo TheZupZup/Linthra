@@ -14,7 +14,7 @@ import '../services/cast/cast_media_access.dart';
 /// [access] says what that URL actually delegates: a capability for this one
 /// item, or an account credential the receiver could reuse. It is the source's
 /// own declaration, so the handoff can be described honestly rather than assumed
-/// harmless (see [CastMediaAccess] and docs/cast-media-access.md).
+/// harmless (see [CastMediaAccess] and docs/design/cast-media-access.md).
 class CastMedia {
   const CastMedia({
     required this.url,

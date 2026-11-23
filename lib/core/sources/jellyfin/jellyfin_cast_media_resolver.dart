@@ -54,7 +54,7 @@ class JellyfinCastMediaResolver implements CastMediaResolver {
   /// Declaring that plainly is the point: pretending a token in a query string
   /// is a capability would be inventing a restriction the server does not
   /// enforce. What Jellyfin would need for [CastMediaDelegation.scopedCapability]
-  /// is in docs/cast-media-access.md.
+  /// is in docs/design/cast-media-access.md.
   static const CastMediaAccess access = CastMediaAccess(
     delegation: CastMediaDelegation.accountCredential,
     scope: CastMediaScope.account,

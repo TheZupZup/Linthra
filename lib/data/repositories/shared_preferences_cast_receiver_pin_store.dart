@@ -11,7 +11,7 @@ import '../../core/services/cast/cast_receiver_pinning.dart';
 /// [InMemoryCastReceiverPinStore] forgets every pin when the app closes, which
 /// makes each launch a first use: a swapped receiver is only caught within a
 /// single session. Persisting the fingerprint is what turns pinning into the
-/// check docs/cast-hardened-design.md describes, and it is the store a restored
+/// check docs/design/cast-hardened.md describes, and it is the store a restored
 /// cast feature is expected to be given
 /// ([#575](https://github.com/TheZupZup/Linthra/issues/575)).
 ///

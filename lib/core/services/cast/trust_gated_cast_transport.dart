@@ -27,7 +27,7 @@ import 'cast_transport.dart';
 /// proves the peer is *a* genuine receiver, not that it is the receiver the user
 /// meant, so the gate additionally pins each device to the certificate it first
 /// proved itself with ([CastReceiverPinStore]) and refuses a device that comes
-/// back as different hardware. See docs/cast-hardened-design.md.
+/// back as different hardware. See docs/design/cast-hardened.md.
 ///
 /// It also owns what the user is told. A refusal keeps its
 /// [CastTrustFailureKind] and nothing else: the message the sheet shows is

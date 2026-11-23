@@ -46,7 +46,7 @@ class SubsonicCastMediaResolver implements CastMediaResolver {
   ///
   /// Navidrome and some other servers can issue their own shorter-lived tokens
   /// for their own clients, but not through the Subsonic API Linthra speaks; see
-  /// docs/cast-media-access.md.
+  /// docs/design/cast-media-access.md.
   static const CastMediaAccess access = CastMediaAccess(
     delegation: CastMediaDelegation.accountCredential,
     scope: CastMediaScope.account,

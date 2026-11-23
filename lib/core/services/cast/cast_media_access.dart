@@ -44,7 +44,7 @@ enum CastMediaScope {
 /// exposure, and the app can eventually tell a user what a handoff costs.
 ///
 /// It carries no secret: it describes a URL's authority, never its contents.
-/// See docs/cast-media-access.md for the per-provider matrix and what each
+/// See docs/design/cast-media-access.md for the per-provider matrix and what each
 /// server would have to add for [CastMediaDelegation.scopedCapability] to become
 /// available.
 @immutable

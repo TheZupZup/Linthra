@@ -38,7 +38,7 @@ so no secret reaches the persisted catalog.
 | WebDAV / NAS          | `webdav`   |   📝   |  📝   | 📝 local  |    ❌     |   📝   |  ❌  |
 
 ✅ implemented · 🔜 planned follow-up · 📝 designed, not built
-([webdav.md](../webdav.md)) · ❌ not supported by design · — not applicable.
+([webdav.md](../design/webdav.md)) · ❌ not supported by design · — not applicable.
 "local" favourites/playlists stay on-device; "synced" ones mirror with the
 server (server is the source of truth on refresh). WebDAV favourites are local
 because a WebDAV share has no per-user state to sync, and WebDAV cast is off
@@ -305,13 +305,13 @@ can be added the same way Jellyfin and Subsonic were:
 
 - **WebDAV / NAS** (Nextcloud, Synology, QNAP, plain `mod_dav`): **designed**,
   not built yet. The full implementation-ready design lives in
-  [webdav.md](../webdav.md) (issue #86): connection and auth, the app-password
+  [webdav.md](../design/webdav.md) (issue #86): connection and auth, the app-password
   preference, the self-signed TLS policy, track identity, the directory scan,
   streaming and seeking, artwork, offline downloads, and the proposed capability
   row. See the [summary below](#webdav--nas-designed).
 - **SMB / NAS** (native file share): a different transport with its own auth and
   native dependencies. The identity, scan and capability model in
-  [webdav.md](../webdav.md) is reusable for it; the transport is not.
+  [webdav.md](../design/webdav.md) is reusable for it; the transport is not.
 - **DLNA / UPnP**: discover and play from a media server on the LAN.
 
 Each would implement `MusicSource` (and the narrow stream/download seams),
@@ -321,7 +321,7 @@ credentials are stored securely and never woven into a persisted URI.
 ## WebDAV / NAS (designed)
 
 WebDAV is the next provider on the roadmap and the only one with a settled
-design. It is worth reading [webdav.md](../webdav.md) before starting any of it,
+design. It is worth reading [webdav.md](../design/webdav.md) before starting any of it,
 because a few decisions are not obvious:
 
 - **WebDAV is a file protocol, not a music API.** There is no server-side song

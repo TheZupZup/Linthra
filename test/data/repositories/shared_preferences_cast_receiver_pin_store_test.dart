@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/data/repositories/shared_preferences_cast_receiver_pin_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The persistent half of receiver pinning (docs/cast-hardened-design.md,
+/// The persistent half of receiver pinning (docs/design/cast-hardened.md,
 /// layer 3). What is being pinned down here is not "a value round-trips" but
 /// the two ways this store is allowed to be wrong: it may refuse, and it may
 /// not quietly forget. Every case below is one of the rules the design states,

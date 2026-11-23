@@ -303,7 +303,7 @@ void main() {
     });
   });
 
-  /// Layer 3 of docs/cast-hardened-design.md reaches the user here. A receiver
+  /// Layer 3 of docs/design/cast-hardened.md reaches the user here. A receiver
   /// that authenticated but is not the one this device was pinned to gets
   /// refused with [CastTrustFailureKind.changedReceiver], whose message tells
   /// the user to forget the device "in the cast list". These tests are about

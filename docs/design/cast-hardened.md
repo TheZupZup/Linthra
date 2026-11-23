@@ -1,7 +1,7 @@
 # How casting could actually work again (the hardened design)
 
 Casting is switched off in shipped builds while a reported security issue is
-resolved ([cast.md](features/cast.md#temporary-containment)).
+resolved ([cast.md](../features/cast.md#temporary-containment)).
 [cast-receiver-trust.md](cast-receiver-trust.md) states the rule the app
 enforces: no verified identity, no session, no media. This page is the answer to
 the next question, the one that decides whether the feature ever comes back:
@@ -23,7 +23,7 @@ Five layers, each doing one job, and none of them a substitute for another:
 | --- | --- | --- |
 | 1. Transport | Is the channel private? | TLS exists today, and proves nothing about who is on the far end |
 | 2. Device authentication | Is this a genuine Cast receiver? | Not implemented anywhere in the tree, and the package we depend on cannot express the modern challenge |
-| 3. Device pinning | Is it *your* receiver, the same one as last time? | Plumbing built and tested (`cast_receiver_pinning.dart`, persistent, with the sheet's forget action), but keyed by the discovery id; trust by certificate fingerprint with a first-use confirmation is still open ([cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)) |
+| 3. Device pinning | Is it *your* receiver, the same one as last time? | Plumbing built and tested (`cast_receiver_pinning.dart`, persistent, with the sheet's forget action), but keyed by the discovery id; trust by certificate fingerprint with a first-use confirmation is still open ([The in-repo Cast client (design)](cast-client.md#binding-to-the-receiver-and-the-session)) |
 | 4. Least privilege | If it is, how little can it be handed? | Built and tested: the on-device relay keeps the server credential on the phone ([cast-media-access.md](cast-media-access.md)) |
 | 5. Fail-closed boundary | Does any doubt end in silence? | Built and tested (`trust_gated_cast_transport.dart`) |
 
@@ -86,7 +86,7 @@ The exchange, following Chromium's and Open Screen's implementation
 5. **Revocation.** The response carries a CRL. It is a Cast-specific protobuf,
    not an X.509 CRL, and it chains to a separate Cast CRL Root CA rather than to
    the device roots (see
-   [cast-client-design.md](cast-client-design.md#revocation)). Check every
+   [The in-repo Cast client (design)](cast-client.md#revocation)). Check every
    certificate in the path against it.
 6. **Signature.** Verify `signature` over the byte string
    `sender_nonce || peer_certificate_DER`, using the leaf's public key,
@@ -101,7 +101,7 @@ Only if all seven hold is there an identity, and even then it is the identity of
 The nonce equality in step 3, SHA-256 in step 6 and a device-supplied CRL in
 step 5 are the strict targets, not settled requirements: each is decided on the
 device matrix (see
-[cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix)),
+[The in-repo Cast client (design)](cast-client.md#strictness-decided-after-the-device-matrix)),
 and until then an implementation follows that section where the two differ.
 
 ### Where we would be stricter than upstream
@@ -121,10 +121,10 @@ apply to a music player shipping a fresh implementation:
   which tolerated a missing CRL; that is not the current behaviour.) We would
   require the device's own CRL, with the honest caveat below; whether to ship
   a bundled fallback like Chromium is an open item in
-  [cast-client-design.md](cast-client-design.md).
+  [The in-repo Cast client (design)](cast-client.md).
 - **Nonce echo.** Chromium does not enforce it: a missing or mismatched echo
   only sets a flag. Whether to enforce it is decided on the device matrix, see
-  [cast-client-design.md](cast-client-design.md#strictness-decided-after-the-device-matrix).
+  [The in-repo Cast client (design)](cast-client.md#strictness-decided-after-the-device-matrix).
 
 ### What the current dependency cannot do
 
@@ -269,7 +269,7 @@ affordance, have landed ahead of the protocol work and without touching the
 containment. Its keying has not: the store is keyed by the discovery id, which
 is unauthenticated, and has to move to certificate fingerprints with a
 first-use confirmation before the restoration (see
-[cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
+[The in-repo Cast client (design)](cast-client.md#binding-to-the-receiver-and-the-session)).
 
 The store is persistent in production
 (`lib/data/repositories/shared_preferences_cast_receiver_pin_store.dart`). An
@@ -358,13 +358,13 @@ Staged, so that each step is reviewable and none of them relaxes the containment
    existing gate applies its policy to that identity. This replaces a separate
    `CastReceiverAuthenticator` over a finished handle, which cannot see the
    peer certificate (see
-   [cast-client-design.md](cast-client-design.md#contract-changes)). Still not
+   [The in-repo Cast client (design)](cast-client.md#contract-changes)). Still not
    wired into production.
 5. **A persistent pin store and the sheet's forget affordance.** The store
    keyed by device id and the forget action are done (layer 3). Still open:
    trust keyed by certificate fingerprint with a first-use confirmation, which
    replaces keying by the unauthenticated discovery id (see
-   [cast-client-design.md](cast-client-design.md#binding-to-the-receiver-and-the-session)).
+   [The in-repo Cast client (design)](cast-client.md#binding-to-the-receiver-and-the-session)).
 6. **Device matrix by hand**, results to the advisory.
 7. **The restoration itself**, per the checklist in
    [cast-receiver-trust.md](cast-receiver-trust.md#restoration-checklist): the

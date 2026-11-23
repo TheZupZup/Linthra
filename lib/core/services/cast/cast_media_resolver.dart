@@ -57,6 +57,6 @@ abstract interface class CastMediaResolver {
   /// alternative to — so the exposure of a handoff is a property of the code
   /// rather than a thing to work out from a URL at review time. Callers can ask
   /// before casting; [CastMedia.access] carries the same answer afterwards. See
-  /// [CastMediaAccess] and docs/cast-media-access.md.
+  /// [CastMediaAccess] and docs/design/cast-media-access.md.
   CastMediaAccess accessFor(Track track);
 }

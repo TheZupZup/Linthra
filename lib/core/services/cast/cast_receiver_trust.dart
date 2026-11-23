@@ -127,7 +127,7 @@ class CastReceiverIdentity {
 /// the app enforces — no trusted identity, no session, no media — is written
 /// down, tested, and reviewable now, and the implementation choice (a maintained
 /// package, an auditable fork, or a narrowly scoped replacement) is reviewed on
-/// its own terms in the private advisory. See docs/cast-receiver-trust.md.
+/// its own terms in the private advisory. See docs/design/cast-receiver-trust.md.
 ///
 /// Implementations must:
 ///  * perform the check over the session they are handed, because that is the

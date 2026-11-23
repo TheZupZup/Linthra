@@ -1,13 +1,13 @@
 # The in-repo Cast client (design)
 
-Casting is contained in shipped builds ([cast.md](features/cast.md#temporary-containment),
+Casting is contained in shipped builds ([cast.md](../features/cast.md#temporary-containment),
 [#572](https://github.com/TheZupZup/Linthra/issues/572),
 [#575](https://github.com/TheZupZup/Linthra/issues/575)). This page is the
 design for the transport that replaces the `cast` package: how a connection
 becomes an authenticated, media-ready session, what the client refuses, and
 what has to be tested before any of it is trusted.
 
-It builds on [cast-hardened-design.md](cast-hardened-design.md), which covers
+It builds on [How casting could actually work again (the hardened design)](cast-hardened.md), which covers
 why each layer exists. This page is about how the client is put together. It
 does not change the containment, and nothing here is implemented yet.
 
@@ -33,7 +33,7 @@ exchange is not small:
 - the TLS socket is private to the package, so the peer certificate the proof
   must be bound to cannot be read;
 - its message definitions are the pre-nonce shape (see
-  [cast-hardened-design.md](cast-hardened-design.md#what-the-current-dependency-cannot-do));
+  [How casting could actually work again (the hardened design)](cast-hardened.md#what-the-current-dependency-cannot-do));
 - its framing assumes one socket read is one message, and it has no maximum
   frame size, no request correlation and no timeouts.
 
@@ -62,7 +62,7 @@ goodwill, never as a dependency of the fix.
   Dart is committed with a regeneration script, and `protobuf` (dart-lang,
   already in the lockfile) becomes a direct dependency.
 - **Trust anchors:** the Cast device roots listed in
-  [cast-hardened-design.md](cast-hardened-design.md#the-trust-anchors), plus the
+  [How casting could actually work again (the hardened design)](cast-hardened.md#the-trust-anchors), plus the
   separate **Cast CRL Root CA** that CRLs chain to (see
   [Revocation](#revocation)). Stored as DER with recorded digests; the CRL
   root's expected digest is fixed below, not taken from whatever file gets

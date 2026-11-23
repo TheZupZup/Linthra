@@ -15,7 +15,7 @@ import 'shared_preferences_cast_receiver_pin_store.dart';
 /// [CastTrustFailureKind.changedReceiver] points the user at. The reviewed
 /// restoration ([#575](https://github.com/TheZupZup/Linthra/issues/575)) hands
 /// it to [TrustGatedCastTransport], which is where it becomes a security
-/// boundary rather than a preference (see docs/cast-hardened-design.md).
+/// boundary rather than a preference (see docs/design/cast-hardened.md).
 final castReceiverPinStoreProvider = Provider<CastReceiverPinStore>((ref) {
   return InMemoryCastReceiverPinStore();
 });

@@ -171,12 +171,12 @@ an additional layer, not a substitute for it.
 The trust model, the contract already in the tree (`CastReceiverAuthenticator`
 and the fail-closed `TrustGatedCastTransport`), the implementation options and
 the test matrix are in
-[cast-receiver-trust.md](../cast-receiver-trust.md), and the concrete design for
+[cast-receiver-trust.md](../design/cast-receiver-trust.md), and the concrete design for
 what a real receiver check would have to do (the Cast device-authentication
 exchange, the pinned trust anchors, per-device pinning, and where the
 cryptography would come from) is in
-[cast-hardened-design.md](../cast-hardened-design.md). What a handoff delegates to a
-receiver, per server, is in [cast-media-access.md](../cast-media-access.md).
+[How casting could actually work again (the hardened design)](../design/cast-hardened.md). What a handoff delegates to a
+receiver, per server, is in [cast-media-access.md](../design/cast-media-access.md).
 
 The reviewed restoration updates `CastContainment`, the production wiring, the
 transport guards, and `scripts/check_cast_containment.py` in one pull request.
@@ -220,7 +220,7 @@ token-free `jellyfin:<id>` / `subsonic:<id>`, so the minted URL never lands in
 
 What each server would otherwise force a handoff to carry, and how the relay is
 guarded (exposure, token lifetime, what it relays back, what it costs), is in
-[cast-media-access.md](../cast-media-access.md). The relay does not replace
+[cast-media-access.md](../design/cast-media-access.md). The relay does not replace
 receiver authentication: casting stays contained until that lands.
 
 ## Resilience while casting

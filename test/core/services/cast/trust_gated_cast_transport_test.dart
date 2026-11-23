@@ -23,7 +23,7 @@ import 'package:linthra/core/services/cast/trust_gated_cast_transport.dart';
 ///
 /// Interoperability with real receivers is the other half, and it cannot be
 /// faked here: it needs supported hardware and the reviewed implementation. The
-/// scenarios for it are in docs/cast-receiver-trust.md and, in detail, the
+/// scenarios for it are in docs/design/cast-receiver-trust.md and, in detail, the
 /// private advisory.
 void main() {
   const CastDevice speaker = CastDevice(id: 'speaker-1', name: 'Kitchen');
