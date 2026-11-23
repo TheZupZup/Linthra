@@ -1067,6 +1067,29 @@ void main() {
         expect(await repository.statusFor('j2'), DownloadStatus.downloaded);
         expect(await repository.statusFor('j3'), DownloadStatus.notDownloaded);
       });
+
+      test('a held download keeps its protected tracks when it resumes',
+          () async {
+        final repository = buildLimited(maxBytes: 8);
+        await repository.requestDownload(_jellyfin('j1'));
+        await repository.requestDownload(_jellyfin('j2'));
+
+        // Offline: j3 is held, then asked again once back online.
+        connectivity.status = NetworkStatus.offline;
+        await repository.requestDownload(
+          _jellyfin('j3'),
+          protectKeys: <String>{
+            CachedTrack.cacheKeyForTrack(_jellyfin('j1')),
+            CachedTrack.cacheKeyForTrack(_jellyfin('j2')),
+          },
+        );
+        connectivity.status = NetworkStatus.wifi;
+        await repository.retryHeldDownloads();
+
+        expect(await repository.statusFor('j1'), DownloadStatus.downloaded);
+        expect(await repository.statusFor('j2'), DownloadStatus.downloaded);
+        expect(await repository.statusFor('j3'), DownloadStatus.failed);
+      });
     });
 
     group('parallel downloads', () {
