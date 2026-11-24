@@ -80,7 +80,9 @@ pub unsafe extern "C" fn linthra_library_group(
         let text = array(text, text_len)?;
         let spans = array(spans, count.checked_mul(8)?)?;
         let tracks = spans
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|span| {
                 Some(GroupingTrack {
                     album_id: part(text, span[0], span[1])?,
