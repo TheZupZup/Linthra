@@ -1,7 +1,7 @@
 // A measurement harness, not a regression test.
 //
-// Times FilesystemLocalMetadataReader over a folder of FLAC, Ogg Vorbis and
-// Opus files with covers, as a first scan reads them: once with the Rust
+// Times FilesystemLocalMetadataReader over a folder of FLAC, Ogg Vorbis, Opus
+// and MP3 files with covers, as a first scan reads them: once with the Rust
 // core reading the tags, once with the Dart path (the package, then a second
 // read for the FLAC artists). Each run gets an empty artwork cache, so every
 // cover is extracted and stored.
@@ -78,6 +78,17 @@ void main() {
             'track_$i.ogg',
             AudioTagFixtures.oggVorbis(
               comments: <String>['TITLE=Song $i', 'ARTIST=Artist ${i % 40}'],
+              coverImage: cover,
+            ),
+          ),
+          (
+            'track_$i.mp3',
+            AudioTagFixtures.mp3(
+              title: 'Song $i',
+              artist: 'Artist ${i % 40}',
+              albumArtist: 'Album Artist ${i % 20}',
+              album: 'Album ${i % 30}',
+              track: '${i % 12 + 1}/12',
               coverImage: cover,
             ),
           ),

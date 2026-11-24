@@ -102,7 +102,7 @@ final Map<String, Uint8List Function()> _cases = <String, Uint8List Function()>{
         preSkip: 3840,
         samples: 48000 * 61 + 7,
       ),
-  'not_audio.mp3': () => AudioTagFixtures.mp3(title: 'X'),
+  'not_vorbis.wav': () => AudioTagFixtures.wav(title: 'X'),
   'empty.flac': () => Uint8List(0),
   'truncated.flac': () =>
       Uint8List.sublistView(AudioTagFixtures.flac(title: 'Cut'), 0, 20),

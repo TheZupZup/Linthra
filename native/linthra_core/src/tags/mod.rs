@@ -1,7 +1,9 @@
-//! Reads the tags of FLAC, Ogg Vorbis and Opus files: title, artists, album,
-//! track number, length and cover.
+//! Reads the tags of FLAC, Ogg Vorbis, Opus and MP3 files: title, artists,
+//! album, track number, length and cover.
 //!
-//! The same reading as the Dart one that follows the spec
+//! MP3 follows the ID3v2, ID3v1 and MPEG audio specs ([mp3]), held to
+//! `test/fixtures/tags/mp3_cases.txt`. FLAC, Ogg and Opus give the same reading
+//! as the Dart one that follows the spec
 //! (`lib/core/sources/local/vorbis_tags_in_the_clear.dart` plus
 //! `FilesystemLocalMetadataReader.vorbisMetadata`), and held to it by the
 //! files and expectations in `test/fixtures/tags/`. Where Rust and Dart differ
@@ -15,6 +17,9 @@
 
 mod dart;
 mod flac;
+mod id3v2;
+mod mp3;
+mod mpeg;
 mod ogg;
 mod picture;
 #[cfg(test)]
@@ -61,14 +66,16 @@ pub fn read_file(path: &Path, with_cover: bool) -> io::Result<Option<AudioTags>>
 pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Option<AudioTags>> {
     source.seek(SeekFrom::Start(0))?;
     let magic = read_up_to(source, 4)?;
-    let raw = if flac::is_flac(&magic) {
-        flac::read(source, with_cover)?
-    } else if ogg::is_page(&magic, 0) {
-        ogg::read(source, with_cover)?
-    } else {
-        None
-    };
-    Ok(raw.map(AudioTags::from_vorbis))
+    if flac::is_flac(&magic) {
+        return Ok(flac::read(source, with_cover)?.map(AudioTags::from_vorbis));
+    }
+    if ogg::is_page(&magic, 0) {
+        return Ok(ogg::read(source, with_cover)?.map(AudioTags::from_vorbis));
+    }
+    if mp3::claims(&magic) {
+        return mp3::read(source, with_cover);
+    }
+    Ok(None)
 }
 
 impl AudioTags {
@@ -116,4 +123,8 @@ fn read_up_to<R: Read>(source: &mut R, n: u64) -> io::Result<Vec<u8>> {
 
 fn u32_le(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+fn u32_be(bytes: &[u8], at: usize) -> u32 {
+    u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
