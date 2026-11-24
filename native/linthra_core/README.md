@@ -35,7 +35,9 @@ The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux
 
 The Flatpak builds it through the `org.freedesktop.Sdk.Extension.rust-stable` SDK extension (`flatpak/flatpak-flutter.yml`).
 
-Not covered yet: the Android release builds (GitHub, Google Play, Sponsor) and F-Droid. The release workflows don't add the Android Rust targets, so those APKs ship without the Rust core and use the Dart fallback. They have to gain Rust together, with the same pinned toolchain, or the F-Droid build stops matching the signed APK it is checked against.
+The Android builds (GitHub, Google Play, Sponsor, and the CI debug APK) install the Rust pinned in `.rust-version` with the Android targets (`.github/actions/setup-rust-android`), and `scripts/check_apk_rust_core.py` fails a build whose APK lacks the library for an ABI.
+
+Not covered yet: F-Droid. Its recipe lives in fdroiddata and has to install the same `.rust-version` before the first release built this way, or its build stops matching the signed APK it is checked against.
 
 ## Run it
 

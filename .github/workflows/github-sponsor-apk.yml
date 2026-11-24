@@ -182,6 +182,12 @@ jobs:
       - name: Set up Flutter
         uses: ./.github/actions/setup-flutter
 
+      # The Rust pinned in .rust-version, with the Android targets, so the
+      # APK carries the Rust core (native/linthra_core) instead of the Dart
+      # fallback. The F-Droid recipe installs the same version.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust-android
+
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
 
@@ -203,6 +209,11 @@ jobs:
           flutter build apk --release \
             --dart-define=LINTHRA_DISTRIBUTION=github \
             --dart-define=LINTHRA_GITHUB_OAUTH_CLIENT_ID="$LINTHRA_GITHUB_OAUTH_CLIENT_ID"
+
+      # The Rust toolchain is installed above, so an APK without the Rust core
+      # means the build hook skipped it.
+      - name: Verify the APK carries the Rust core
+        run: python3 scripts/check_apk_rust_core.py build/app/outputs/flutter-apk/app-release.apk
 
       - name: Stage APK
         id: artifact

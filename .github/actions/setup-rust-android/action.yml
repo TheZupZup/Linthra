@@ -1,0 +1,38 @@
+name: Set up pinned Rust for Android
+description: >-
+  Installs the Rust toolchain pinned in .rust-version, with the standard
+  library for every Android ABI Linthra ships, so hook/build.dart builds the
+  Rust core (native/linthra_core) into the APK instead of skipping it.
+
+# Every workflow that builds an Android app uses this action, so the Rust that
+# goes into a release is one line in .rust-version. The F-Droid recipe reads
+# the same file: its build is checked byte for byte against the signed APK, and
+# a different rustc gives a different liblinthra_core.so.
+# rustup is already on GitHub's Ubuntu runners; nothing is downloaded but the
+# pinned toolchain itself.
+runs:
+  using: composite
+  steps:
+    - name: Install pinned Rust with the Android targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        version_file="$GITHUB_WORKSPACE/.rust-version"
+        [ -f "$version_file" ] || {
+          echo "::error::$version_file is missing (the pinned Rust version)."
+          exit 1
+        }
+        version="$(tr -d '[:space:]' < "$version_file")"
+        [ -n "$version" ] || {
+          echo "::error::.rust-version is empty."
+          exit 1
+        }
+        echo "Pinned Rust version: $version"
+        rustup toolchain install "$version" --profile minimal \
+          --target aarch64-linux-android \
+          --target armv7-linux-androideabi \
+          --target x86_64-linux-android \
+          --target i686-linux-android
+        rustup default "$version"
+        rustc --version
+        cargo --version

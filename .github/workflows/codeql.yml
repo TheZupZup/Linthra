@@ -80,6 +80,11 @@ jobs:
       if: matrix.language == 'java-kotlin'
       uses: ./.github/actions/setup-flutter
 
+    # The pinned Rust, so the APK built for analysis is the one releases build.
+    - name: Set up Rust for Kotlin
+      if: matrix.language == 'java-kotlin'
+      uses: ./.github/actions/setup-rust-android
+
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`
     # or others). This is typically only required for manual builds.
