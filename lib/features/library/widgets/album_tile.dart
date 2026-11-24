@@ -16,10 +16,19 @@ import 'collection_menu.dart';
 /// A tap opens the album. A long-press sends every album track through the
 /// shared bulk playlist flow, preserving ordering and existing safeguards.
 class AlbumTile extends ConsumerWidget {
-  const AlbumTile({required this.album, this.onTap, super.key});
+  const AlbumTile({
+    required this.album,
+    this.onTap,
+    this.kindLabel,
+    super.key,
+  });
 
   final Album album;
   final VoidCallback? onTap;
+
+  /// Put before the subtitle ("Album · …") where rows of several kinds share
+  /// one list, as the search's mixed results do. Null in the albums list.
+  final String? kindLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,7 +54,7 @@ class AlbumTile extends ConsumerWidget {
           ),
         ),
         subtitle: Text(
-          _subtitle(album),
+          _labelled(_subtitle(album)),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
@@ -70,6 +79,12 @@ class AlbumTile extends ConsumerWidget {
     if (tracks.isNotEmpty) {
       showAddToPlaylistSheet(context, tracks);
     }
+  }
+
+  String _labelled(String subtitle) {
+    final String? label = kindLabel;
+    if (label == null) return subtitle;
+    return subtitle.isEmpty ? label : '$label · $subtitle';
   }
 
   static String _subtitle(Album album) {

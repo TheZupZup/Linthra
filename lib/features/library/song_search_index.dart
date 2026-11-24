@@ -20,7 +20,12 @@ const int kIndexedSongSearchMinimum = 2000;
 /// Backed by the Rust core when the build has it, and by [DartSearchIndex]
 /// otherwise; both find the same songs (test/fixtures/search_cases.txt).
 class SongSearchIndex {
-  SongSearchIndex._(this.tracks, this._matchPositions, this._dispose);
+  SongSearchIndex._(
+    this.tracks,
+    this._matchPositions,
+    this._dispose, [
+    this._bestIds,
+  ]);
 
   /// The list the index was built from. Positions only mean something for
   /// this exact instance; a newer catalog needs a newer index.
@@ -28,6 +33,25 @@ class SongSearchIndex {
 
   final Uint32List Function(String query) _matchPositions;
   final void Function() _dispose;
+
+  /// The uris of the best matches, best first, when the index ranks (the
+  /// Rust one); null for the Dart one, which only filters.
+  final List<String> Function(String query, int limit)? _bestIds;
+
+  late final Map<String, Track> _byUri = <String, Track>{
+    for (final Track track in tracks) track.uri: track,
+  };
+
+  /// The best [limit] songs for [query], best first, or null when this index
+  /// does not rank (then the caller ranks what [filter] finds).
+  List<Track>? best(String query, int limit) {
+    final List<String> Function(String query, int limit)? bestIds = _bestIds;
+    if (bestIds == null) return null;
+    return <Track>[
+      for (final String uri in bestIds(query, limit))
+        if (_byUri[uri] case final Track track) track,
+    ];
+  }
 
   /// [tracks] that match [query], in their original order. A blank query
   /// keeps everything.
@@ -66,7 +90,12 @@ Future<SongSearchIndex> buildSongSearchIndex(
         await Isolate.run(() => NativeSearchIndex.buildDetached(records));
     if (address != null) {
       final NativeSearchIndex native = NativeSearchIndex.adopt(address);
-      return SongSearchIndex._(tracks, native.matchPositions, native.dispose);
+      return SongSearchIndex._(
+        tracks,
+        native.matchPositions,
+        native.dispose,
+        (String query, int limit) => native.search(query, limit: limit),
+      );
     }
     // The Rust core failed to load on the worker isolate: fall through.
   }

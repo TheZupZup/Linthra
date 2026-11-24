@@ -27,6 +27,9 @@ mod queue_edits_cases_test;
 pub mod queue_moves;
 #[cfg(test)]
 mod queue_moves_cases_test;
+pub mod search_rank;
+#[cfg(test)]
+mod search_rank_cases_test;
 #[cfg(test)]
 mod shared_cases_test;
 pub mod streaming;

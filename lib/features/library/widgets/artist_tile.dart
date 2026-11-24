@@ -16,10 +16,19 @@ import 'collection_menu.dart';
 /// A tap opens the artist. A long-press sends every artist track through the
 /// shared bulk playlist flow and its existing duplicate/source safeguards.
 class ArtistTile extends ConsumerWidget {
-  const ArtistTile({required this.artist, this.onTap, super.key});
+  const ArtistTile({
+    required this.artist,
+    this.onTap,
+    this.kindLabel,
+    super.key,
+  });
 
   final Artist artist;
   final VoidCallback? onTap;
+
+  /// Put before the subtitle ("Artist · …") where rows of several kinds share
+  /// one list, as the search's mixed results do. Null in the artists list.
+  final String? kindLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -43,7 +52,7 @@ class ArtistTile extends ConsumerWidget {
             ),
           ),
           subtitle: Text(
-            _subtitle(artist),
+            _labelled(_subtitle(artist)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
@@ -66,6 +75,12 @@ class ArtistTile extends ConsumerWidget {
     if (tracks.isNotEmpty) {
       showAddToPlaylistSheet(context, tracks);
     }
+  }
+
+  String _labelled(String subtitle) {
+    final String? label = kindLabel;
+    if (label == null) return subtitle;
+    return subtitle.isEmpty ? label : '$label · $subtitle';
   }
 
   static String _subtitle(Artist artist) {

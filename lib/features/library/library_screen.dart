@@ -44,6 +44,7 @@ import 'widgets/alphabet_track_list.dart';
 import 'widgets/artist_grid.dart';
 import 'widgets/library_search_field.dart';
 import 'widgets/local_root_problem_panel.dart';
+import 'widgets/search_all_results.dart';
 import 'widgets/selection_escape_scope.dart';
 import 'widgets/song_sort_button.dart';
 
@@ -107,6 +108,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
   int _lastTabIndex = 0;
+
+  /// What a search shows: every kind ranked in one list ("All"), or one tab's
+  /// matches. Back to All whenever the search is cleared.
+  _SearchView _searchView = _SearchView.all;
+
+  /// Set while a search chip moves the tabs, so the tab change keeps the
+  /// search instead of clearing it as a tap on a tab does.
+  bool _keepSearchOnTabChange = false;
 
   /// Whether the user has picked a tab themselves. The current index cannot
   /// answer that: Songs to Albums and back leaves it at zero again, and a
@@ -227,9 +236,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       // the box holds text while _query is still empty. Testing _query alone
       // left that text visible on the tab we just moved to, filtering nothing,
       // and the next keystroke would then apply the whole thing there.
-      if (_query.isNotEmpty || _searchController.text.isNotEmpty) {
+      if (!_keepSearchOnTabChange &&
+          (_query.isNotEmpty || _searchController.text.isNotEmpty)) {
         _query = '';
         _searchController.clear();
+        _searchView = _SearchView.all;
       }
     });
     // A restore is replaying what is already stored, so there is nothing new to
@@ -243,7 +254,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _debounce?.cancel();
     _debounce = Timer(
       const Duration(milliseconds: 300),
-      () => setState(() => _query = value),
+      () => setState(() {
+        _query = value;
+        // An emptied box is a search ended, as the clear button ends it.
+        if (value.isEmpty) _searchView = _SearchView.all;
+      }),
     );
   }
 
@@ -252,7 +267,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     setState(() {
       _query = '';
       _searchController.clear();
+      _searchView = _SearchView.all;
     });
+  }
+
+  /// Shows [view]'s results, keeping the search. A kind moves the tabs under
+  /// the search to its own.
+  void _showSearchView(_SearchView view) {
+    setState(() => _searchView = view);
+    final int? tab = view.tab;
+    if (tab == null || tab == _tabController.index) return;
+    _keepSearchOnTabChange = true;
+    try {
+      _tabController.index = tab;
+    } finally {
+      _keepSearchOnTabChange = false;
+    }
   }
 
   @override
@@ -303,7 +333,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ? _selectionAppBar(selected)
               : AppBar(
                   title: const Text('Library'),
-                  bottom: browsing ? _tabBar() : null,
+                  // While searching, the chips under the box choose what
+                  // shows, as on a music app's search screen.
+                  bottom: browsing && _query.isEmpty ? _tabBar() : null,
                 ),
           body: browsing
               ? _browseBody(songs, syncingSources)
@@ -469,21 +501,90 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ),
             ),
           ),
+        // One slot either way, like the search box above.
+        if (_selecting || _query.isEmpty)
+          const SizedBox.shrink()
+        else
+          _searchChips(),
         Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            // The tab bar is hidden while selecting, so a swipe would be an
-            // undocumented way out of selection mode (and onto rows the count
-            // in the app bar does not describe).
-            physics: _selecting ? const NeverScrollableScrollPhysics() : null,
-            children: <Widget>[
-              _songsTab(songs, syncHeadline),
-              _albumsTab(syncHeadline),
-              _artistsTab(syncHeadline),
-            ],
-          ),
+          child:
+              !_selecting && _query.isNotEmpty && _searchView == _SearchView.all
+                  ? _allResults(songs)
+                  : TabBarView(
+                      controller: _tabController,
+                      // The tab bar is hidden while selecting, so a swipe would
+                      // be an undocumented way out of selection mode (and onto
+                      // rows the count in the app bar does not describe). While
+                      // searching it is hidden too, and a swipe would clear the
+                      // search; the chips move between kinds instead.
+                      physics: _selecting || _query.isNotEmpty
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
+                      children: <Widget>[
+                        _songsTab(songs, syncHeadline),
+                        _albumsTab(syncHeadline),
+                        _artistsTab(syncHeadline),
+                      ],
+                    ),
         ),
       ],
+    );
+  }
+
+  // --- Search -----------------------------------------------------------
+
+  Widget _searchChips() {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: SingleChildScrollView(
+        key: const Key('library_search_chips'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        child: Row(
+          children: <Widget>[
+            for (final _SearchView view in _SearchView.values)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+                child: ChoiceChip(
+                  key: Key('library_search_chip_${view.name}'),
+                  label: Text(view.label),
+                  selected: _searchView == view,
+                  onSelected: (_) => _showSearchView(view),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The "All" view: artists, albums and songs ranked in one list.
+  Widget _allResults(List<Track> songs) {
+    final SongSearchIndex? index =
+        ref.watch(songSearchIndexProvider).valueOrNull;
+    // A ranking index hands over its best few songs. Without one, every match
+    // is ranked, up to a bound that keeps a keystroke cheap.
+    final List<Track>? best = index != null && identical(index.tracks, songs)
+        ? index.best(_query, 50)
+        : null;
+    final List<Track> candidates =
+        best ?? _filteredSongs(songs).take(2000).toList();
+    final List<Artist> artists =
+        filterArtists(ref.watch(libraryArtistsProvider), _query);
+    final List<Album> albums =
+        filterAlbums(ref.watch(libraryAlbumsProvider), _query);
+    if (candidates.isEmpty && artists.isEmpty && albums.isEmpty) {
+      return const _NoResults();
+    }
+    return SearchAllResults(
+      query: _query,
+      artists: artists,
+      albums: albums,
+      songs: candidates,
+      onOpenArtist: (Artist artist) =>
+          context.push(AppRoutes.artistDetailPath(artist.id)),
+      onOpenAlbum: (Album album) =>
+          context.push(AppRoutes.albumDetailPath(album.id)),
     );
   }
 
@@ -805,6 +906,20 @@ class _CatalogFilling extends StatelessWidget {
           'You can browse the connected server from Folders meanwhile.',
     );
   }
+}
+
+/// What a search shows, in chip order. [tab] is the tab a kind's results are
+/// in, or null for All.
+enum _SearchView {
+  all('All', null),
+  songs('Songs', 0),
+  albums('Albums', 1),
+  artists('Artists', 2);
+
+  const _SearchView(this.label, this.tab);
+
+  final String label;
+  final int? tab;
 }
 
 /// The "no search matches" state, shown when a query filters every row out of
