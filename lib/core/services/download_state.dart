@@ -1,3 +1,4 @@
+import '../native/native_downloads.dart';
 import '../repositories/download_repository.dart';
 
 /// What the cache holds for a track once its request is done.
@@ -21,7 +22,19 @@ enum CommittedCopy {
 /// there, or the row sticks and pre-cache skips the track: it goes back to not
 /// downloaded, unless its bytes were committed as a download before the cancel
 /// landed. A track with no row was already reset by whoever cancelled it.
-DownloadStatus? settleCanceled(DownloadStatus? row, CommittedCopy committed) {
+///
+/// Decided by the Rust core when the build has it. [useNative] false always
+/// takes the Dart path, for tests.
+DownloadStatus? settleCanceled(
+  DownloadStatus? row,
+  CommittedCopy committed, {
+  bool useNative = true,
+}) {
+  if (useNative) {
+    final ({DownloadStatus? settled})? native =
+        NativeDownloads.settleCanceled(row, committed);
+    if (native != null) return native.settled;
+  }
   if (row == null) return null;
   switch (committed) {
     case CommittedCopy.nothing:
@@ -53,11 +66,20 @@ enum HeldAction {
 /// still reads queued and no other request for it is running. The same rule
 /// as `held_action` in `native/linthra_core/src/download_state.rs`, held to it
 /// by `test/fixtures/download_held_cases.txt`.
+///
+/// Decided by the Rust core when the build has it. [useNative] false always
+/// takes the Dart path, for tests.
 HeldAction heldAction({
   required bool sameAccount,
   required bool inFlight,
   required DownloadStatus? row,
+  bool useNative = true,
 }) {
+  if (useNative) {
+    final HeldAction? native =
+        NativeDownloads.heldAction(sameAccount, inFlight, row);
+    if (native != null) return native;
+  }
   if (sameAccount) return HeldAction.retry;
   if (!inFlight && row == DownloadStatus.queued) return HeldAction.dropAndReset;
   return HeldAction.drop;

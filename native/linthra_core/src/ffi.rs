@@ -25,10 +25,11 @@ use std::ptr;
 use crate::{LibraryIndex, TrackRecord};
 
 pub mod cache_eviction;
+pub mod downloads;
 pub mod library_grouping;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;
