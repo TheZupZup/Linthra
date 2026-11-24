@@ -1,0 +1,34 @@
+# Shared cases: what becomes of a download held by the network policy
+# when it is asked again.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/download_held_cases_test.rs (Rust)
+#   - test/core/services/download_held_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <same account>  <in flight>  <row>  <action>
+#
+# row:    - (no row) | queued | downloading | downloaded | failed
+# action: retry | drop | dropAndReset
+
+true	false	-	retry
+true	false	queued	retry
+true	false	downloading	retry
+true	false	downloaded	retry
+true	false	failed	retry
+true	true	-	retry
+true	true	queued	retry
+true	true	downloading	retry
+true	true	downloaded	retry
+true	true	failed	retry
+false	false	-	drop
+false	false	queued	dropAndReset
+false	false	downloading	drop
+false	false	downloaded	drop
+false	false	failed	drop
+false	true	-	drop
+false	true	queued	drop
+false	true	downloading	drop
+false	true	downloaded	drop
+false	true	failed	drop
