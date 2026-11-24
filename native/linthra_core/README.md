@@ -37,7 +37,7 @@ The Flatpak builds it through the `org.freedesktop.Sdk.Extension.rust-stable` SD
 
 The Android builds (GitHub, Google Play, Sponsor, and the CI debug APK) install the Rust pinned in `.rust-version` with the Android targets (`.github/actions/setup-rust-android`), and `scripts/check_apk_rust_core.py` fails a build whose APK lacks the library for an ABI.
 
-Not covered yet: F-Droid. Its recipe lives in fdroiddata and has to install the same `.rust-version` before the first release built this way, or its build stops matching the signed APK it is checked against.
+Not covered yet: F-Droid. Its recipe lives in fdroiddata and has to install the same `.rust-version` before the first release built this way, or its build stops matching the signed APK it is checked against. The change is in [docs/distribution/f-droid/rust.md](../../docs/distribution/f-droid/rust.md).
 
 ## Run it
 

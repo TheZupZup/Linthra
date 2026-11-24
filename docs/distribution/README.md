@@ -31,6 +31,7 @@ signing releases, and publishing them on each store.
 | [Build recipe](f-droid/build-recipe.md) | The metadata recipe and reproducible-build notes |
 | [Submission package](f-droid/submission.md) | What goes into the fdroiddata merge request |
 | [arm64 / x86_64 reproducibility](f-droid/reproducibility-arm64.md) | Per-ABI reproducibility and the F-Droid-signed fallback |
+| [Building the Rust core](f-droid/rust.md) | The fdroiddata change that builds `liblinthra_core.so` with the pinned Rust |
 
 ## Flatpak and Flathub
 
