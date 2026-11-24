@@ -13,6 +13,7 @@ import '../../core/services/cache_eviction_policy.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/download_gate.dart';
 import '../../core/services/download_scheduler.dart';
+import '../../core/services/download_state.dart';
 import '../../core/services/offline_cache_manager.dart';
 import '../../core/services/offline_copy_origins.dart';
 import '../../core/services/remote_track_downloader.dart';
@@ -568,12 +569,16 @@ class CacheDownloadRepository
       if (!operation.admitted.isCompleted) operation.admitted.complete(outcome);
       final bool current = identical(_inFlight[key], operation);
       final CachedTrack? committed = _downloads[key];
-      if (current && operation.canceled && _statuses.containsKey(key)) {
-        if (committed == null || committed.preloaded) {
-          _set(key, DownloadStatus.notDownloaded);
-        } else if (_statuses[key] != DownloadStatus.downloaded) {
-          _set(key, DownloadStatus.downloaded);
-        }
+      if (current && operation.canceled) {
+        final DownloadStatus? settled = settleCanceled(
+          _statuses[key],
+          committed == null
+              ? CommittedCopy.nothing
+              : committed.preloaded
+                  ? CommittedCopy.preCache
+                  : CommittedCopy.download,
+        );
+        if (settled != null) _set(key, settled);
       }
       if (current) {
         _inFlight.remove(key);

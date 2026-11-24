@@ -13,6 +13,9 @@ mod cache_eviction_cases_test;
 pub mod download_gate;
 #[cfg(test)]
 mod download_gate_cases_test;
+#[cfg(test)]
+mod download_settle_cases_test;
+pub mod download_state;
 pub mod ffi;
 pub mod library_grouping;
 mod normalize;

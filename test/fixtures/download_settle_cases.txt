@@ -1,0 +1,29 @@
+# Shared cases: how a cancelled download settles its row.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/download_settle_cases_test.rs (Rust)
+#   - test/core/services/download_settle_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <row>  <committed copy>  <status to set>
+#
+# row:       - (no row) | queued | downloading | downloaded | failed
+# committed: nothing | preCache | download
+# result:    - (leave the row) | notDownloaded | downloaded
+
+-	nothing	-
+-	preCache	-
+-	download	-
+queued	nothing	notDownloaded
+queued	preCache	notDownloaded
+queued	download	downloaded
+downloading	nothing	notDownloaded
+downloading	preCache	notDownloaded
+downloading	download	downloaded
+downloaded	nothing	notDownloaded
+downloaded	preCache	notDownloaded
+downloaded	download	-
+failed	nothing	notDownloaded
+failed	preCache	notDownloaded
+failed	download	downloaded
