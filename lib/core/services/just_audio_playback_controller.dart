@@ -23,6 +23,7 @@ import 'playback_failure_classifier.dart';
 import 'playback_recovery_policy.dart';
 import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
+import 'track_end.dart';
 
 /// Notified when a track finishes playing (reaches its natural end), so play
 /// history can be recorded. Carries only the catalog [Track] — never a resolved
@@ -2407,22 +2408,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // Record the completed play once, regardless of what plays next.
     final Track? finished = _queue.current;
     if (finished != null) _onTrackCompleted?.call(finished);
-    switch (_repeatMode) {
-      case RepeatMode.one:
+    switch (trackEndAction(_repeatMode, hasNext: _queue.hasNext)) {
+      case TrackEndAction.replay:
         unawaited(sourceReleased ? _playCurrent() : _replayCurrent());
-      case RepeatMode.all:
-        if (_queue.hasNext) {
-          skipToNext();
-        } else {
-          _queue = _queue.restarted();
-          unawaited(_playCurrent());
-        }
-      case RepeatMode.off:
-        if (_queue.hasNext) {
-          skipToNext();
-        } else {
-          _emit(_state.copyWith(status: PlaybackStatus.completed));
-        }
+      case TrackEndAction.next:
+        skipToNext();
+      case TrackEndAction.restart:
+        _queue = _queue.restarted();
+        unawaited(_playCurrent());
+      case TrackEndAction.stop:
+        _emit(_state.copyWith(status: PlaybackStatus.completed));
     }
   }
 

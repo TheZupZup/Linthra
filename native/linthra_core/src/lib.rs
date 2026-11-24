@@ -24,6 +24,9 @@ mod normalize;
 #[cfg(test)]
 mod shared_cases_test;
 pub mod streaming;
+pub mod track_end;
+#[cfg(test)]
+mod track_end_cases_test;
 
 use normalize::normalized_tokens;
 
