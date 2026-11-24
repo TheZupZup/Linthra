@@ -78,7 +78,9 @@ class FilesystemLocalMetadataReader
   /// longer drops the file's tags.
   /// 6: MP4 too, album artist (`aART`) included. An MP4 the package would
   /// loop on, or one with a CDDB track number of `A1`, keeps its tags.
-  static const int revision = 6;
+  /// 7: WAV, AIFF and Monkey's Audio too, and APE tags on MP3. A WAV's `id3 `
+  /// chunk is read, cover included, and a Monkey's Audio file has a length.
+  static const int revision = 7;
 
   @override
   int get tagRevision => revision;
@@ -285,8 +287,8 @@ class FilesystemLocalMetadataReader
     bool Function(File file) guard,
     bool useNativeTags,
   ) {
-    // The Rust core reads FLAC, Ogg Vorbis, Opus, MP3 and MP4 by their specs,
-    // in one pass, and keeps a file whose tags the package would give up on.
+    // The Rust core reads FLAC, Ogg Vorbis, Opus, MP3, MP4, WAV, AIFF and
+    // Monkey's Audio by their specs, in one pass, and keeps a file whose tags the package would give up on.
     // It goes first, before the guard: it reads the MP4s the package would
     // loop on, so an interrupted encode keeps its tags. Anything else it
     // hands back to the guard and the package below.

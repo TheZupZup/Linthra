@@ -49,6 +49,11 @@ fn mp4_tags_match_their_cases() {
     assert_eq!(replay("mp4_cases.txt"), 13);
 }
 
+#[test]
+fn wav_aiff_and_ape_tags_match_their_cases() {
+    assert_eq!(replay("lossless_cases.txt"), 13);
+}
+
 /// Checks every line of `cases`, and returns how many there were.
 fn replay(cases: &str) -> usize {
     let cases = std::fs::read_to_string(fixtures().join(cases)).unwrap();

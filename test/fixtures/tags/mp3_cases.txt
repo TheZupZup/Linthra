@@ -24,8 +24,8 @@ id3v23_info.mp3	Info	-	-	-	-	1306122	-
 mpeg2_xing.mp3	Mpeg2	-	-	-	-	2612244	-
 id3v23_blank_values.mp3	-	Present	-	-	-	52125	-
 id3v23_no_audio.mp3	Tag only	-	-	-	-	-	-
+ape_tagged.mp3	-	-	-	-	-	104250	-
 leading_junk.mp3	Junk first	-	-	-	-	104250	-
-ape_tagged.mp3	NONE
 id3_before_flac.mp3	NONE
 id3v25.mp3	NONE
 no_mpeg.bin	NONE

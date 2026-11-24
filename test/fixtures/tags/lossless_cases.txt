@@ -1,0 +1,22 @@
+# What reading each WAV, AIFF and APE fixture in this folder gives, written
+# from the RIFF/WAVE, AIFF/AIFF-C, APEv2 and Monkey's Audio layouts
+# (tool/make_lossless_tag_fixtures.py builds the files and says what each one
+# tests). Replayed by native/linthra_core/src/tags/shared_cases_test.rs.
+#
+# Same columns as cases.txt. WAV: an id3 chunk's frames, else LIST/INFO;
+# length is the data that is there over the byte rate. AIFF: COMM's frames
+# over its rate. MP3 tags: ID3v2, then APE, then ID3v1. Monkey's Audio: its
+# header's frames and blocks over its rate.
+wav_info.wav	Wave	Wav Artist	-	Wav Album	4	2000000	-
+wav_id3.wav	From ID3	Info Artist	AA	-	-	1000000	0102030405
+wav_info_encodings.wav	Café	Café	-	-	-	1000000	-
+wav_odd_chunk.wav	After junk	-	-	-	-	500000	-
+wav_cut_short.wav	Cut	-	-	-	-	500000	-
+aiff_basic.aiff	Aiff	Apple	-	-	-	2000000	-
+aifc_id3.aifc	Aifc ID3	-	-	Album	-	3000000	0102030405
+aiff_22050.aiff	Half rate	-	-	-	-	1500000	-
+mp3_with_ape.mp3	Ape Title	Ape Artist	Ape AA	-	5	104250	0102030405
+mp3_id3_and_ape.mp3	ID3 wins	-	-	From Ape	-	52125	-
+monkeys_new.ape	Monkey	-	-	-	-	7687346	-
+monkeys_old.ape	-	-	-	-	-	1000000	-
+ape_bad_footer.mp3	Still read	-	-	-	-	54125	-

@@ -1,9 +1,11 @@
-//! Reads the tags of FLAC, Ogg Vorbis, Opus, MP3 and MP4 (M4A) files: title,
-//! artists, album, track number, length and cover.
+//! Reads the tags of FLAC, Ogg Vorbis, Opus, MP3, MP4 (M4A), WAV, AIFF and
+//! Monkey's Audio files: title, artists, album, track number, length and
+//! cover.
 //!
-//! MP3 follows the ID3v2, ID3v1 and MPEG audio specs ([mp3]), and MP4 ISO/IEC
-//! 14496-12 with the iTunes tags ([mp4]), held to `mp3_cases.txt` and
-//! `mp4_cases.txt` in `test/fixtures/tags/`. FLAC, Ogg and Opus give the same reading
+//! MP3 follows the ID3v2, ID3v1, APE and MPEG audio specs ([mp3], [ape]), MP4
+//! ISO/IEC 14496-12 with the iTunes tags ([mp4]), and WAV and AIFF their chunk
+//! layouts ([riff]), held to `mp3_cases.txt`, `mp4_cases.txt` and
+//! `lossless_cases.txt` in `test/fixtures/tags/`. FLAC, Ogg and Opus give the same reading
 //! as the Dart one that follows the spec
 //! (`lib/core/sources/local/vorbis_tags_in_the_clear.dart` plus
 //! `FilesystemLocalMetadataReader.vorbisMetadata`), and held to it by the
@@ -16,6 +18,7 @@
 //! it: an I/O error is returned, never read around, since a read that could
 //! not finish says nothing about the tags.
 
+mod ape;
 mod dart;
 mod flac;
 mod id3v2;
@@ -24,6 +27,7 @@ mod mp4;
 mod mpeg;
 mod ogg;
 mod picture;
+mod riff;
 #[cfg(test)]
 mod shared_cases_test;
 mod vorbis_comments;
@@ -67,7 +71,7 @@ pub fn read_file(path: &Path, with_cover: bool) -> io::Result<Option<AudioTags>>
 /// Reads tags from `source`, from its start.
 pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Option<AudioTags>> {
     source.seek(SeekFrom::Start(0))?;
-    let head = read_up_to(source, 8)?;
+    let head = read_up_to(source, 12)?;
     let magic = &head[..head.len().min(4)];
     if flac::is_flac(magic) {
         // The FLAC walk starts right after its magic.
@@ -79,6 +83,15 @@ pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Opti
     }
     if mp4::claims(&head) {
         return mp4::read(source, with_cover);
+    }
+    if riff::claims_wav(&head) {
+        return riff::read_wav(source, with_cover);
+    }
+    if riff::claims_aiff(&head) {
+        return riff::read_aiff(source, with_cover);
+    }
+    if ape::claims_monkeys_audio(&head) {
+        return ape::read_monkeys_audio(source, with_cover);
     }
     if mp3::claims(magic) {
         return mp3::read(source, with_cover);
@@ -159,6 +172,20 @@ fn joined(values: &Option<Vec<String>>) -> Option<String> {
         .filter(|value| !value.is_empty())
         .collect();
     (!kept.is_empty()).then(|| kept.join(", "))
+}
+
+/// Bytes as Latin-1: one character each.
+fn latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| char::from(*b)).collect()
+}
+
+/// UTF-8, or Latin-1 when the bytes aren't UTF-8: what a tagger that writes
+/// the system's legacy code page produces.
+fn utf8_or_latin1(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => latin1(bytes),
+    }
 }
 
 /// Up to `n` bytes from `source`: fewer only at the end of the file.

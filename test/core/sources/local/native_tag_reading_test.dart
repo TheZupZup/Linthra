@@ -1,5 +1,5 @@
 // FilesystemLocalMetadataReader asks the Rust core first for FLAC, Ogg Vorbis,
-// Opus, MP3 and MP4. These tell its answer from the package's, so they show which path
+// Opus, MP3, MP4, WAV, AIFF and Monkey's Audio. These tell its answer from the package's, so they show which path
 // ran. Skipped in a build without the Rust core, where the package path is
 // covered by the rest of this folder.
 import 'dart:io';
@@ -147,6 +147,44 @@ void main() {
       expect(tags!.albumArtist, 'Various Artists');
       expect(tags.trackNumber, 3);
       expect(tags.duration, const Duration(seconds: 3));
+    });
+  });
+
+  group('WAV, AIFF and APE', () {
+    test("a WAV's id3 chunk wins over its INFO list", skip: skip, () async {
+      final LocalAudioMetadata? tags =
+          await reader.readFromPath('test/fixtures/tags/wav_id3.wav');
+
+      expect(tags!.title, 'From ID3');
+      expect(tags.artist, 'Info Artist');
+      expect(tags.albumArtist, 'AA');
+      expect(tags.duration, const Duration(seconds: 1));
+    });
+
+    test('an AIFF has its length from its 80-bit sample rate', skip: skip,
+        () async {
+      final LocalAudioMetadata? tags =
+          await reader.readFromPath('test/fixtures/tags/aiff_22050.aiff');
+
+      expect(tags!.title, 'Half rate');
+      expect(tags.duration, const Duration(milliseconds: 1500));
+    });
+
+    test('an MP3 with only an APE tag keeps it', skip: skip, () async {
+      final LocalAudioMetadata? tags =
+          await reader.readFromPath('test/fixtures/tags/mp3_with_ape.mp3');
+
+      expect(tags!.title, 'Ape Title');
+      expect(tags.albumArtist, 'Ape AA');
+      expect(tags.trackNumber, 5);
+    });
+
+    test("a Monkey's Audio file has a length", skip: skip, () async {
+      final LocalMetadataRead read =
+          await reader.readWithOutcome('test/fixtures/tags/monkeys_new.ape');
+
+      expect(read.metadata!.title, 'Monkey');
+      expect(read.metadata!.duration, const Duration(microseconds: 7687346));
     });
   });
 }

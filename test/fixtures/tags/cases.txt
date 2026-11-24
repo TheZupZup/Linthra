@@ -19,6 +19,6 @@ vorbis_invalid_utf8.ogg	Kept	-	-	-	-	3000000	-
 vorbis_48k.ogg	Half	-	-	-	-	2500000	-
 opus_tagged.opus	Opus	-	AA	-	-	3000000	0909
 opus_long.opus	Long	-	-	-	-	61000145	-
-not_vorbis.wav	NONE
+not_audio.bin	NONE
 empty.flac	NONE
 truncated.flac	NONE
