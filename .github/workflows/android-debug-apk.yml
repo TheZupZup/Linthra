@@ -33,6 +33,12 @@ jobs:
       - name: Set up Flutter
         uses: ./.github/actions/setup-flutter
 
+      # The Rust pinned in .rust-version, with the Android targets, so the
+      # APK carries the Rust core (native/linthra_core) instead of the Dart
+      # fallback. The F-Droid recipe installs the same version.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust-android
+
       # --enforce-lockfile builds the APK from the exact committed dependency
       # set (same as the CI quality job and the reproducible F-Droid build),
       # failing loudly if pubspec.lock has drifted rather than resolving anew.
@@ -51,6 +57,14 @@ jobs:
 
       - name: Build debug APK
         run: flutter build apk --debug
+
+      # The same check as the release builds, so a change that stops the Rust
+      # core reaching the APK fails on the PR rather than on a tag.
+      - name: Verify the APK carries the Rust core
+        run: python3 scripts/check_apk_rust_core.py build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Test the Rust core APK check
+        run: python3 test/tooling/check_apk_rust_core_test.py
 
       # A debug APK does not execute lintVitalRelease. Run that task explicitly
       # so invalid release-only Android resources fail on the PR instead of

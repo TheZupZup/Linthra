@@ -5,11 +5,12 @@ import 'package:path/path.dart' as p;
 
 /// Toolchain pin guardrails.
 ///
-/// Linthra pins its build toolchain in four files, and those files are the only
+/// Linthra pins its build toolchain in five files, and those files are the only
 /// place a version number is allowed to live:
 ///
 ///   * `.flutter-version` .............................. Flutter SDK
 ///   * `.java-version` ................................. JDK
+///   * `.rust-version` ................................. Rust (Android builds)
 ///   * `android/gradle/wrapper/gradle-wrapper.properties` Gradle
 ///   * `android/settings.gradle` ....................... AGP + Kotlin plugin
 ///
@@ -32,6 +33,7 @@ void main() {
   // The pins, read from the files that own them.
   late final String flutterPin = _readPin(root, '.flutter-version');
   late final String javaPin = _readPin(root, '.java-version');
+  late final String rustPin = _readPin(root, '.rust-version');
   late final String gradlePin = _match(
     _read(root,
         p.join('android', 'gradle', 'wrapper', 'gradle-wrapper.properties')),
@@ -136,6 +138,38 @@ void main() {
               'different SDK than the rest of CI.',
         );
       }
+    });
+
+    test('.rust-version holds one bare stable version', () {
+      expect(rustPin, matches(RegExp(r'^\d+\.\d+\.\d+$')),
+          reason: '.rust-version must hold exactly the stable Rust version '
+              'the Android builds (and F-Droid) compile the Rust core with.');
+    });
+
+    test('every workflow that builds an Android app sets up the pinned Rust',
+        () {
+      final RegExp buildsAndroid =
+          RegExp(r'\bflutter\s+build\s+(apk|appbundle)\b');
+      for (final _RepoFile f in _workflowFiles(root)) {
+        if (!buildsAndroid.hasMatch(f.text)) continue;
+        expect(
+          f.text,
+          contains('uses: ./.github/actions/setup-rust-android'),
+          reason: '${f.path} builds an Android app without '
+              '.github/actions/setup-rust-android, so its APK would ship '
+              'without the Rust core, or with a different rustc than F-Droid.',
+        );
+      }
+    });
+
+    test('the Rust action installs the version it read from .rust-version', () {
+      final String action = File(p.join(
+              root, '.github', 'actions', 'setup-rust-android', 'action.yml'))
+          .readAsStringSync();
+      expect(action, contains('.rust-version'));
+      expect(action, contains(r'rustup toolchain install "$version"'));
+      expect(action, isNot(contains(rustPin)),
+          reason: 'The action must read the version, not repeat it.');
     });
 
     test('no workflow hardcodes the JDK version', () {
