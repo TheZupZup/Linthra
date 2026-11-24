@@ -436,3 +436,9 @@ external Pointer<Int64> linthraQueueEditOriginalSources(
   isLeaf: true,
 )
 external void linthraQueueEditFree(Pointer<LinthraQueueEditResult> result);
+
+@Native<Uint8 Function(Uint8, Bool)>(
+  symbol: 'linthra_track_end_action',
+  isLeaf: true,
+)
+external int linthraTrackEndAction(int repeat, bool hasNext);
