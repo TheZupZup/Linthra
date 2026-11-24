@@ -1,10 +1,10 @@
 // A measurement harness, not a regression test.
 //
-// Times FilesystemLocalMetadataReader over a folder of FLAC, Ogg Vorbis, Opus
-// and MP3 files with covers, as a first scan reads them: once with the Rust
-// core reading the tags, once with the Dart path (the package, then a second
-// read for the FLAC artists). Each run gets an empty artwork cache, so every
-// cover is extracted and stored.
+// Times FilesystemLocalMetadataReader over a folder of FLAC, Ogg Vorbis,
+// Opus, MP3 and M4A files (all but the M4A with covers), as a first scan
+// reads them: once with the Rust core reading the tags, once with the Dart
+// path (the package, then a second read for the FLAC artists). Each run gets
+// an empty artwork cache, so every cover is extracted and stored.
 //
 // Named `_bench.dart` so `flutter test` does not pick it up. Run it with:
 //
@@ -90,6 +90,16 @@ void main() {
               album: 'Album ${i % 30}',
               track: '${i % 12 + 1}/12',
               coverImage: cover,
+            ),
+          ),
+          (
+            // No cover: AudioTagFixtures.m4a has no way to embed one.
+            'track_$i.m4a',
+            AudioTagFixtures.m4a(
+              title: 'Song $i',
+              artist: 'Artist ${i % 40}',
+              album: 'Album ${i % 30}',
+              track: i % 12 + 1,
             ),
           ),
           (

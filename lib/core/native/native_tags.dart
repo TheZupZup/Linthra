@@ -13,8 +13,8 @@ enum NativeTagOutcome {
   /// Its tags were read: [NativeTagRead.tags] holds them.
   read,
 
-  /// Not a format the Rust reader handles (today FLAC, Ogg Vorbis, Opus and
-  /// MP3), or one whose tags don't hold together: read it another way.
+  /// Not a format the Rust reader handles (today FLAC, Ogg Vorbis, Opus, MP3
+  /// and MP4), or one whose tags don't hold together: read it another way.
   notHandled,
 
   /// The file could not be read, so nothing is known about its tags.

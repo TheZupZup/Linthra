@@ -1,8 +1,9 @@
-//! Reads the tags of FLAC, Ogg Vorbis, Opus and MP3 files: title, artists,
-//! album, track number, length and cover.
+//! Reads the tags of FLAC, Ogg Vorbis, Opus, MP3 and MP4 (M4A) files: title,
+//! artists, album, track number, length and cover.
 //!
-//! MP3 follows the ID3v2, ID3v1 and MPEG audio specs ([mp3]), held to
-//! `test/fixtures/tags/mp3_cases.txt`. FLAC, Ogg and Opus give the same reading
+//! MP3 follows the ID3v2, ID3v1 and MPEG audio specs ([mp3]), and MP4 ISO/IEC
+//! 14496-12 with the iTunes tags ([mp4]), held to `mp3_cases.txt` and
+//! `mp4_cases.txt` in `test/fixtures/tags/`. FLAC, Ogg and Opus give the same reading
 //! as the Dart one that follows the spec
 //! (`lib/core/sources/local/vorbis_tags_in_the_clear.dart` plus
 //! `FilesystemLocalMetadataReader.vorbisMetadata`), and held to it by the
@@ -19,6 +20,7 @@ mod dart;
 mod flac;
 mod id3v2;
 mod mp3;
+mod mp4;
 mod mpeg;
 mod ogg;
 mod picture;
@@ -65,14 +67,20 @@ pub fn read_file(path: &Path, with_cover: bool) -> io::Result<Option<AudioTags>>
 /// Reads tags from `source`, from its start.
 pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Option<AudioTags>> {
     source.seek(SeekFrom::Start(0))?;
-    let magic = read_up_to(source, 4)?;
-    if flac::is_flac(&magic) {
+    let head = read_up_to(source, 8)?;
+    let magic = &head[..head.len().min(4)];
+    if flac::is_flac(magic) {
+        // The FLAC walk starts right after its magic.
+        source.seek(SeekFrom::Start(4))?;
         return Ok(flac::read(source, with_cover)?.map(AudioTags::from_vorbis));
     }
-    if ogg::is_page(&magic, 0) {
+    if ogg::is_page(magic, 0) {
         return Ok(ogg::read(source, with_cover)?.map(AudioTags::from_vorbis));
     }
-    if mp3::claims(&magic) {
+    if mp4::claims(&head) {
+        return mp4::read(source, with_cover);
+    }
+    if mp3::claims(magic) {
         return mp3::read(source, with_cover);
     }
     Ok(None)
@@ -114,6 +122,45 @@ fn non_blank(values: Option<&Vec<String>>) -> Vec<String> {
         .collect()
 }
 
+/// A TRCK (MP3) or CDDB (MP4) track: `3` or `3/12`, the forms ID3 gives it. `3 of
+/// 12`, `1/` or a vinyl side's `A1` don't say which track it is, so they give
+/// none, as with the package the app read MP3 with before.
+fn track_number(value: &str) -> Option<i64> {
+    let value = dart::trim(value);
+    let number = match value.split_once('/') {
+        Some((number, total)) if !total.is_empty() && total.bytes().all(|b| b.is_ascii_digit()) => {
+            number
+        }
+        Some(_) => return None,
+        None => value,
+    };
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    number.parse().ok().filter(|n| *n > 0)
+}
+
+/// The first non-blank value.
+fn first(values: &Option<Vec<String>>) -> Option<String> {
+    values
+        .iter()
+        .flatten()
+        .map(|value| dart::trim(value))
+        .find(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// Every non-blank value, joined: several artists are a joint credit.
+fn joined(values: &Option<Vec<String>>) -> Option<String> {
+    let kept: Vec<&str> = values
+        .iter()
+        .flatten()
+        .map(|value| dart::trim(value))
+        .filter(|value| !value.is_empty())
+        .collect();
+    (!kept.is_empty()).then(|| kept.join(", "))
+}
+
 /// Up to `n` bytes from `source`: fewer only at the end of the file.
 fn read_up_to<R: Read>(source: &mut R, n: u64) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -127,4 +174,19 @@ fn u32_le(bytes: &[u8], at: usize) -> u32 {
 
 fn u32_be(bytes: &[u8], at: usize) -> u32 {
     u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_number;
+
+    #[test]
+    fn a_track_is_a_number_or_a_number_out_of_a_total() {
+        assert_eq!(track_number("3"), Some(3));
+        assert_eq!(track_number(" 3/12 "), Some(3));
+        assert_eq!(track_number("03"), Some(3));
+        for odd in ["A1", "3 of 12", "1/", "1 / 10", "/12", "0", "", "x3/4"] {
+            assert_eq!(track_number(odd), None, "{odd:?}");
+        }
+    }
 }
