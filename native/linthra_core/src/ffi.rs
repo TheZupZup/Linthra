@@ -29,10 +29,11 @@ pub mod downloads;
 pub mod library_grouping;
 pub mod queue;
 pub mod search_rank;
+pub mod tags;
 pub mod track_end;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;
