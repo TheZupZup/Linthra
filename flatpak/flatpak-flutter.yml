@@ -25,8 +25,13 @@ sdk: org.gnome.Sdk
 # flutter_secure_storage_linux is scoped to Clang specifically. This is the
 # same LLVM version flatpak-flutter's own generated template defaults to for
 # freedesktop-sdk 26.08.
+# rust-stable puts cargo on the linthra module's PATH, so hook/build.dart
+# builds the Rust core (native/linthra_core) into the bundle instead of
+# skipping it. The crate has no dependencies, so the offline build needs no
+# vendored crates.
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm22
+  - org.freedesktop.Sdk.Extension.rust-stable
 # linux/CMakeLists.txt: BINARY_NAME "linthra" — check_linux_runner.py asserts
 # this matches pubspec.yaml's `name:`.
 command: linthra
@@ -332,7 +337,7 @@ modules:
     build-options:
       # Rewritten by flatpak-flutter to /var/lib/flutter/bin, where the
       # generated Flutter SDK module installs the activated toolchain.
-      append-path: /usr/lib/sdk/llvm22/bin:flutter/bin
+      append-path: /usr/lib/sdk/llvm22/bin:/usr/lib/sdk/rust-stable/bin:flutter/bin
       prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
     build-commands:
       - flutter pub get --enforce-lockfile

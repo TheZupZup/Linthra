@@ -12,6 +12,7 @@ runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm22
+  - org.freedesktop.Sdk.Extension.rust-stable
 command: linthra
 finish-args:
   - --socket=wayland
@@ -109,7 +110,7 @@ modules:
   - name: linthra
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/llvm22/bin:/var/lib/flutter/bin
+      append-path: /usr/lib/sdk/llvm22/bin:/usr/lib/sdk/rust-stable/bin:/var/lib/flutter/bin
       prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
       env:
         PUB_CACHE: /run/build/linthra/.pub-cache
