@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, HashSet};
 pub mod cache_eviction;
 #[cfg(test)]
 mod cache_eviction_cases_test;
+pub mod download_gate;
+#[cfg(test)]
+mod download_gate_cases_test;
 pub mod ffi;
 pub mod library_grouping;
 mod normalize;
