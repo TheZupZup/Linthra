@@ -1,0 +1,54 @@
+# Shared cases: the playback queue's edits and shuffle, on entry ids.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/queue_edits_cases_test.rs (Rust)
+#   - test/core/models/queue_edits_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <ids> <current> <original>  <op> <a> <b>  <ids> <current> <original>
+#
+# A queue is its entry ids in play order, the position of the current one
+# (-1 when empty), and the ids before shuffle (- when not shuffled). Lists are
+# comma-separated, `.` is an empty list. The result is a lone `-` (then the
+# last two fields are absent) when the edit leaves the queue alone.
+#
+# op: insertNext <count> | append <count> | removeUpNextAt <index>
+#     | reorderUpNext <from> <to> | removeWhere <ids to remove>
+#     | shuffle <seed> | unshuffle
+# Unused arguments are `-`.
+
+0,1,2	0	-	insertNext	1	-	0,3,1,2	0	-
+0,1,2	1	-	append	2	-	0,1,2,3,4	1	-
+2,0,1	0	0,1,2	insertNext	1	-	2,3,0,1	0	0,1,2,3
+2,0,1	0	0,1,2	insertNext	2	-	2,3,4,0,1	0	0,1,2,3,4
+2,0,1	0	0,1,2	append	1	-	2,0,1,3	0	0,1,2,3
+5,0	0	0	insertNext	1	-	5,6,0	0	0,6
+0,1,2	0	-	insertNext	0	-	-
+0,1,2,3	1	-	removeUpNextAt	1	-	0,1,2	1	-
+0,1,2,3	1	-	removeUpNextAt	2	-	-
+0,1,2,3	1	-	removeUpNextAt	-1	-	-
+2,0,1	0	0,1,2	removeUpNextAt	0	-	2,1	0	1,2
+5,0	0	0	removeUpNextAt	0	-	5	0	.
+0,1,2,3,4	0	-	reorderUpNext	0	3	0,2,3,4,1	0	-
+0,1,2,3,4	2	-	reorderUpNext	1	0	0,1,2,4,3	2	-
+0,1,2,3,4	0	-	reorderUpNext	1	1	-
+0,1,2,3,4	0	-	reorderUpNext	0	4	-
+2,0,1	0	0,1,2	reorderUpNext	0	1	2,1,0	0	0,1,2
+0,1,2,3	2	-	removeWhere	1	-	0,2,3	1	-
+0,1,2,3	1	-	removeWhere	1	-	0,2,3	1	-
+0,1,2	2	-	removeWhere	2	-	0,1	1	-
+0,1,2,3	2	-	removeWhere	0,2,3	-	1	0	-
+0,1	0	-	removeWhere	0,1	-	.	-1	-
+0,1	0	-	removeWhere	7	-	-
+2,0,1	0	0,1,2	removeWhere	0	-	2,1	0	1,2
+2,0,1	0	0,1,2	removeWhere	2	-	0,1	0	0,1
+2,0,1	0	0,1,2	unshuffle	-	-	0,1,2	2	-
+0,1,2	0	-	unshuffle	-	-	-
+5,0	0	0	unshuffle	-	-	0	0	-
+5	0	.	unshuffle	-	-	.	-1	-
+.	-1	-	shuffle	1	-	-
+0,1,2,3,4	2	-	shuffle	1	-	2,3,1,4,0	0	0,1,2,3,4
+0,1,2,3,4,5,6,7	0	-	shuffle	42	-	0,1,2,6,7,5,4,3	0	0,1,2,3,4,5,6,7
+0,1,2,3,4,5,6,7,8,9	9	-	shuffle	18446744073709551615	-	9,7,2,0,1,5,6,3,8,4	0	0,1,2,3,4,5,6,7,8,9
+2,0,1	1	0,1,2	shuffle	7	-	0,2,1	0	0,1,2

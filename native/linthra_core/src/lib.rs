@@ -21,6 +21,12 @@ pub mod download_state;
 pub mod ffi;
 pub mod library_grouping;
 mod normalize;
+pub mod queue_edits;
+#[cfg(test)]
+mod queue_edits_cases_test;
+pub mod queue_moves;
+#[cfg(test)]
+mod queue_moves_cases_test;
 #[cfg(test)]
 mod shared_cases_test;
 pub mod streaming;

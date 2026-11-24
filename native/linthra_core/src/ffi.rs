@@ -27,9 +27,10 @@ use crate::{LibraryIndex, TrackRecord};
 pub mod cache_eviction;
 pub mod downloads;
 pub mod library_grouping;
+pub mod queue;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;

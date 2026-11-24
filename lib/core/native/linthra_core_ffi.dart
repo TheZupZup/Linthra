@@ -319,3 +319,120 @@ external int linthraDownloadSettleCanceled(int row, int committed);
 )
 external int linthraDownloadHeldAction(
     bool sameAccount, bool inFlight, int row);
+
+/// `QueueEditResult` on the Rust side (native/linthra_core/src/ffi/queue.rs).
+final class LinthraQueueEditResult extends Opaque {}
+
+/// [linthraQueueMove]'s answers besides a position.
+abstract final class LinthraQueueMove {
+  static const int none = -1;
+  static const int invalid = -2;
+}
+
+@Native<Int64 Function(Int64, Int64, Uint8, Int64)>(
+  symbol: 'linthra_queue_move',
+  isLeaf: true,
+)
+external int linthraQueueMove(int length, int current, int move, int index);
+
+@Native<
+    Pointer<LinthraQueueEditResult> Function(
+      Uint8,
+      Int64,
+      Int64,
+      Uint64,
+      Pointer<Int64>,
+      Size,
+      Int64,
+      Bool,
+      Pointer<Int64>,
+      Size,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+    )>(symbol: 'linthra_queue_edit', isLeaf: true)
+external Pointer<LinthraQueueEditResult> linthraQueueEdit(
+  int op,
+  int a,
+  int b,
+  int seed,
+  Pointer<Int64> ids,
+  int length,
+  int current,
+  bool hasOriginal,
+  Pointer<Int64> original,
+  int originalLength,
+  Pointer<Uint8> removed,
+  Pointer<Uint8> removedOriginal,
+);
+
+@Native<Bool Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_changed',
+  isLeaf: true,
+)
+external bool linthraQueueEditChanged(Pointer<LinthraQueueEditResult> result);
+
+@Native<Size Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_len',
+  isLeaf: true,
+)
+external int linthraQueueEditLen(Pointer<LinthraQueueEditResult> result);
+
+@Native<Pointer<Int64> Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_ids',
+  isLeaf: true,
+)
+external Pointer<Int64> linthraQueueEditIds(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Pointer<Int64> Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_sources',
+  isLeaf: true,
+)
+external Pointer<Int64> linthraQueueEditSources(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Int64 Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_current',
+  isLeaf: true,
+)
+external int linthraQueueEditCurrent(Pointer<LinthraQueueEditResult> result);
+
+@Native<Bool Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_has_original',
+  isLeaf: true,
+)
+external bool linthraQueueEditHasOriginal(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Size Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_original_len',
+  isLeaf: true,
+)
+external int linthraQueueEditOriginalLen(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Pointer<Int64> Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_original_ids',
+  isLeaf: true,
+)
+external Pointer<Int64> linthraQueueEditOriginalIds(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Pointer<Int64> Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_original_sources',
+  isLeaf: true,
+)
+external Pointer<Int64> linthraQueueEditOriginalSources(
+  Pointer<LinthraQueueEditResult> result,
+);
+
+@Native<Void Function(Pointer<LinthraQueueEditResult>)>(
+  symbol: 'linthra_queue_edit_free',
+  isLeaf: true,
+)
+external void linthraQueueEditFree(Pointer<LinthraQueueEditResult> result);

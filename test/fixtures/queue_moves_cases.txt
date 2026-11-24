@@ -1,0 +1,46 @@
+# Shared cases: where the queue's current track lands after a move.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/queue_moves_cases_test.rs (Rust)
+#   - test/core/models/queue_moves_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <length>  <current>  <move>  <index>  <new current>
+#
+# current:     position of the current track, -1 for an empty queue
+# move:        next | previous | restart | moveTo | jumpToUpNext | jumpToHistory
+# index:       the move's argument (moveTo: into the queue, jumpToUpNext: into
+#              up next, jumpToHistory: into history), or - when it takes none
+# new current: the new position, or - when the move does nothing
+
+3	0	next	-	1
+3	2	next	-	-
+1	0	next	-	-
+0	-1	next	-	-
+3	1	previous	-	0
+3	0	previous	-	-
+1	0	previous	-	-
+0	-1	previous	-	-
+3	2	restart	-	0
+1	0	restart	-	0
+0	-1	restart	-	-
+3	0	moveTo	2	2
+3	1	moveTo	1	1
+3	0	moveTo	3	-
+3	1	moveTo	-1	-
+0	-1	moveTo	0	-
+3	0	jumpToUpNext	1	2
+5	1	jumpToUpNext	2	4
+3	1	jumpToUpNext	0	2
+3	0	jumpToUpNext	2	-
+3	2	jumpToUpNext	0	-
+3	0	jumpToUpNext	-1	-
+0	-1	jumpToUpNext	0	-
+3	2	jumpToHistory	0	0
+3	2	jumpToHistory	1	1
+5	4	jumpToHistory	3	3
+3	2	jumpToHistory	2	-
+3	0	jumpToHistory	0	-
+3	1	jumpToHistory	-1	-
+0	-1	jumpToHistory	0	-

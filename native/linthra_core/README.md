@@ -14,14 +14,15 @@
 - cache eviction policy (`src/cache_eviction.rs`): which cached tracks to delete so a download fits, held to the same cases as the Dart policy (`test/fixtures/cache_eviction_cases.json`)
 - album and artist grouping (`src/library_grouping.rs`): the Library's albums and artists, their order, and the same ids `albumIdForTrack` / `artistIdForTrack` compute in Dart. Dart lower-cases the names before they cross, because its case table is not Rust's. `test/core/catalog/library_grouping_native_test.dart` checks both paths agree, on every code point
 - download rules (`src/download_gate.rs`, `src/download_state.rs`): whether the network lets a download run, how a cancelled download settles its row, and whether a held download is retried or dropped, each held to the same cases as Dart (`test/fixtures/download_*_cases.txt`)
+- playback queue (`src/queue_moves.rs`, `src/queue_edits.rs`): next/previous/jumps, play next, add to queue, remove, reorder, remove-where, shuffle and unshuffle, on entry ids. The shuffle is splitmix64-driven Fisher-Yates, seeded by Dart, so both sides give the same order (`test/fixtures/queue_*_cases.txt`)
 
 ## How Flutter uses it
 
 The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
 
 - `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
-- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`, the grouping call in `src/ffi/library_grouping.rs` and the download rules in `src/ffi/downloads.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
-- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, and `downloadGate` / `settleCanceled` / `heldAction` call `lib/core/native/native_downloads.dart`, so their callers need not know which path ran.
+- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`, the grouping call in `src/ffi/library_grouping.rs` the download rules in `src/ffi/downloads.rs` and the queue in `src/ffi/queue.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
+- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, and `downloadGate` / `settleCanceled` / `heldAction` call `lib/core/native/native_downloads.dart`, and `PlaybackQueue` calls `lib/core/native/native_queue.dart`, so their callers need not know which path ran.
 
 The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux build has no `cc` to link with, or the Rust standard library for the target isn't installed, the hook skips the library and `LinthraCore.isAvailable` is false, so every caller has to keep a Dart fallback. A cargo build that starts and fails does fail the app build.
 
@@ -32,7 +33,9 @@ The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux
 
 `cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
 
-Not covered yet: the Flatpak (it needs the `rust-stable` SDK extension) and F-Droid (its recipe needs Rust). Both currently ship without the Rust core and use the Dart fallback.
+The Flatpak builds it through the `org.freedesktop.Sdk.Extension.rust-stable` SDK extension (`flatpak/flatpak-flutter.yml`).
+
+Not covered yet: the Android release builds (GitHub, Google Play, Sponsor) and F-Droid. The release workflows don't add the Android Rust targets, so those APKs ship without the Rust core and use the Dart fallback. They have to gain Rust together, with the same pinned toolchain, or the F-Droid build stops matching the signed APK it is checked against.
 
 ## Run it
 
