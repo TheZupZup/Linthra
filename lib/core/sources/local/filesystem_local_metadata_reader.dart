@@ -376,18 +376,8 @@ class FilesystemLocalMetadataReader
     final VorbisTagsInTheClear? found =
         await VorbisTagsInTheClear.read(file, withCover: cachedArtwork == null);
     if (found == null) return null;
-    final Map<String, List<String>> fields = found.fields;
-    final List<String> artists = _nonBlank(fields['ARTIST']);
-    final List<String> albumArtists = _albumArtists(fields);
-    final LocalAudioMetadata tags = _metadata(
-          title: _nonBlank(fields['TITLE']).firstOrNull,
-          artist: artists.isEmpty ? null : artists.join(', '),
-          albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
-          album: _nonBlank(fields['ALBUM']).firstOrNull,
-          trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
-          duration: found.duration,
-        ) ??
-        LocalAudioMetadata.empty;
+    final LocalAudioMetadata tags =
+        vorbisMetadata(found.fields, found.duration);
 
     Uri? artworkUri =
         cachedArtwork == null ? null : Uri.file(cachedArtwork.path);
@@ -406,6 +396,30 @@ class FilesystemLocalMetadataReader
       artworkUri: artworkUri,
     );
     return (metadata: result.isEmpty ? null : result, failed: false);
+  }
+
+  /// The tags Vorbis comments [fields] and a stream [duration] give: the
+  /// first non-blank TITLE and ALBUM, every ARTIST and ALBUMARTIST (or
+  /// ALBUM_ARTIST) joined, the number TRACKNUMBER starts with. Blank values
+  /// and a zero track or length count as absent. The Rust core reads the
+  /// same way (native/linthra_core/src/tags/), held to the cases in
+  /// test/fixtures/tags/cases.txt.
+  @visibleForTesting
+  static LocalAudioMetadata vorbisMetadata(
+    Map<String, List<String>> fields,
+    Duration? duration,
+  ) {
+    final List<String> artists = _nonBlank(fields['ARTIST']);
+    final List<String> albumArtists = _albumArtists(fields);
+    return _metadata(
+          title: _nonBlank(fields['TITLE']).firstOrNull,
+          artist: artists.isEmpty ? null : artists.join(', '),
+          albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
+          album: _nonBlank(fields['ALBUM']).firstOrNull,
+          trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
+          duration: duration,
+        ) ??
+        LocalAudioMetadata.empty;
   }
 
   /// The number a track field starts with: `3` from `3` or `3/12`, and none
