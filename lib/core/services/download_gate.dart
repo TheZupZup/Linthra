@@ -1,3 +1,4 @@
+import '../native/native_downloads.dart';
 import 'connectivity_service.dart';
 
 /// Whether the network lets a download run now, and why not when it doesn't.
@@ -19,10 +20,18 @@ enum DownloadGate {
 ///  - Metered, or metering unknown: allowed only when the user turned on
 ///    "Allow mobile data". An unknown link is never assumed to be free.
 ///  - Offline: never; the download waits for a connection.
+///
+/// Decided by the Rust core when the build has it. [useNative] false always
+/// takes the Dart path, for tests.
 DownloadGate downloadGate(
   NetworkStatus network, {
   required bool allowMobileData,
+  bool useNative = true,
 }) {
+  if (useNative) {
+    final DownloadGate? native = NativeDownloads.gate(network, allowMobileData);
+    if (native != null) return native;
+  }
   switch (network) {
     case NetworkStatus.wifi:
       return DownloadGate.allowed;

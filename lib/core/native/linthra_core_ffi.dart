@@ -290,3 +290,32 @@ external LinthraLibraryGroupsView linthraGroupingResultView(
   isLeaf: true,
 )
 external void linthraGroupingResultFree(Pointer<LinthraGroupingResult> result);
+
+/// The `u8` codes the download calls (native/linthra_core/src/ffi/downloads.rs)
+/// use besides an enum's `index`.
+abstract final class LinthraDownloadCode {
+  /// A row with no status, as an argument or a result.
+  static const int none = 255;
+
+  /// An argument the Rust side did not know.
+  static const int invalid = 254;
+}
+
+@Native<Uint8 Function(Uint8, Bool)>(
+  symbol: 'linthra_download_gate',
+  isLeaf: true,
+)
+external int linthraDownloadGate(int network, bool allowMobileData);
+
+@Native<Uint8 Function(Uint8, Uint8)>(
+  symbol: 'linthra_download_settle_canceled',
+  isLeaf: true,
+)
+external int linthraDownloadSettleCanceled(int row, int committed);
+
+@Native<Uint8 Function(Bool, Bool, Uint8)>(
+  symbol: 'linthra_download_held_action',
+  isLeaf: true,
+)
+external int linthraDownloadHeldAction(
+    bool sameAccount, bool inFlight, int row);
