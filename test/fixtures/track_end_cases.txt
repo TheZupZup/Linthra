@@ -1,0 +1,19 @@
+# Shared cases: what plays when a track reaches its end.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/track_end_cases_test.rs (Rust)
+#   - test/core/services/track_end_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <repeat mode>  <has next>  <action>
+#
+# repeat mode: off | all | one
+# action:      replay | next | restart | stop
+
+off	true	next
+off	false	stop
+all	true	next
+all	false	restart
+one	true	replay
+one	false	replay
