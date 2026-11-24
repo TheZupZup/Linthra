@@ -464,3 +464,73 @@ external int linthraSearchRank(
   int count,
   Pointer<Uint32> out,
 );
+
+/// `TagsResult` on the Rust side (native/linthra_core/src/ffi/tags.rs).
+final class LinthraTagsResult extends Opaque {}
+
+/// [linthraTagsStatus] values and [linthraTagsText] field indices, as in
+/// native/linthra_core/src/ffi/tags.rs.
+abstract final class LinthraTags {
+  static const int read = 0;
+  static const int notHandled = 1;
+  static const int ioError = 2;
+
+  static const int title = 0;
+  static const int artist = 1;
+  static const int albumArtist = 2;
+  static const int album = 3;
+}
+
+// Not a leaf call: it reads the file, which can take a while on a slow drive.
+@Native<Pointer<LinthraTagsResult> Function(Pointer<Uint8>, Size, Bool)>(
+  symbol: 'linthra_tags_read',
+)
+external Pointer<LinthraTagsResult> linthraTagsRead(
+  Pointer<Uint8> path,
+  int pathLength,
+  bool withCover,
+);
+
+@Native<Uint8 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_status',
+  isLeaf: true,
+)
+external int linthraTagsStatus(Pointer<LinthraTagsResult> result);
+
+@Native<
+    Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Uint8, Pointer<Size>)>(
+  symbol: 'linthra_tags_text',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraTagsText(
+  Pointer<LinthraTagsResult> result,
+  int field,
+  Pointer<Size> length,
+);
+
+@Native<Int64 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_track_number',
+  isLeaf: true,
+)
+external int linthraTagsTrackNumber(Pointer<LinthraTagsResult> result);
+
+@Native<Int64 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_duration_micros',
+  isLeaf: true,
+)
+external int linthraTagsDurationMicros(Pointer<LinthraTagsResult> result);
+
+@Native<Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Pointer<Size>)>(
+  symbol: 'linthra_tags_cover',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraTagsCover(
+  Pointer<LinthraTagsResult> result,
+  Pointer<Size> length,
+);
+
+@Native<Void Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_free',
+  isLeaf: true,
+)
+external void linthraTagsFree(Pointer<LinthraTagsResult> result);
