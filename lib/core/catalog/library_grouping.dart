@@ -1,8 +1,13 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import '../models/album.dart';
 import '../models/artist.dart';
 import '../models/track.dart';
+import '../native/linthra_core_ffi.dart' show LinthraGrouping;
+import '../native/native_library_grouping.dart';
 import 'text_folding.dart';
 
 /// Derives [Album] and [Artist] groupings from the flat track catalog.
@@ -108,8 +113,45 @@ String artistIdForTrack(Track track) {
   return 'ar-${_encode(artist)}';
 }
 
+/// Every album and artist in [tracks], sorted as [groupAlbums] and
+/// [groupArtists] sort them. Cheaper than calling both when a screen needs
+/// both: the Rust core groups them in one pass.
+({List<Album> albums, List<Artist> artists}) groupLibrary(List<Track> tracks) {
+  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
+  if (native != null) {
+    return (
+      albums: _nativeAlbums(tracks, native),
+      artists: _nativeArtists(tracks, native),
+    );
+  }
+  return (
+    albums: groupAlbumsInDart(tracks),
+    artists: groupArtistsInDart(tracks),
+  );
+}
+
 /// All albums in [tracks], sorted by title then artist (then id), ascending.
+///
+/// Runs in the Rust core (native/linthra_core/src/library_grouping.rs) when
+/// the build carries it, and in [groupAlbumsInDart] otherwise. Both give the
+/// same albums, in the same order, with the same ids.
 List<Album> groupAlbums(List<Track> tracks) {
+  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
+  if (native != null) return _nativeAlbums(tracks, native);
+  return groupAlbumsInDart(tracks);
+}
+
+/// All artists in [tracks], sorted by name (then id), ascending. Runs in the
+/// Rust core when it can, like [groupAlbums].
+List<Artist> groupArtists(List<Track> tracks) {
+  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
+  if (native != null) return _nativeArtists(tracks, native);
+  return groupArtistsInDart(tracks);
+}
+
+/// [groupAlbums] without the Rust core: the reference rules.
+@visibleForTesting
+List<Album> groupAlbumsInDart(List<Track> tracks) {
   final Map<String, _AlbumAgg> byId = <String, _AlbumAgg>{};
   for (final Track track in tracks) {
     byId.putIfAbsent(albumIdForTrack(track), () => _AlbumAgg()).add(track);
@@ -122,8 +164,9 @@ List<Album> groupAlbums(List<Track> tracks) {
   return albums;
 }
 
-/// All artists in [tracks], sorted by name (then id), ascending.
-List<Artist> groupArtists(List<Track> tracks) {
+/// [groupArtists] without the Rust core: the reference rules.
+@visibleForTesting
+List<Artist> groupArtistsInDart(List<Track> tracks) {
   final Map<String, _ArtistAgg> byId = <String, _ArtistAgg>{};
   for (final Track track in tracks) {
     byId.putIfAbsent(artistIdForTrack(track), () => _ArtistAgg()).add(track);
@@ -134,6 +177,66 @@ List<Artist> groupArtists(List<Track> tracks) {
   ];
   artists.sort(_artistCompare);
   return artists;
+}
+
+/// Builds the albums the Rust core grouped. It names which track labels each
+/// album, so every display string is read from [tracks] exactly as
+/// [_AlbumAgg] would read it.
+List<Album> _nativeAlbums(List<Track> tracks, NativeLibraryGroups native) {
+  final List<Uri?> artwork = _firstArtwork(
+    tracks,
+    native.trackAlbum,
+    native.albumIds.length,
+  );
+  const int width = LinthraGrouping.albumFields;
+  final Uint32List fields = native.albumFields;
+  return <Album>[
+    for (int i = 0; i < native.albumIds.length; i++)
+      Album(
+        id: native.albumIds[i],
+        title: _track(tracks, fields[width * i])?.albumName ?? kUnknownAlbum,
+        artistName:
+            _nonBlank(_track(tracks, fields[width * i + 1])?.albumArtistName) ??
+                _nonBlank(_track(tracks, fields[width * i + 2])?.artistName),
+        artworkUri: artwork[i],
+        trackCount: fields[width * i + 3],
+      ),
+  ];
+}
+
+/// Builds the artists the Rust core grouped, like [_nativeAlbums].
+List<Artist> _nativeArtists(List<Track> tracks, NativeLibraryGroups native) {
+  final List<Uri?> artwork = _firstArtwork(
+    tracks,
+    native.trackArtist,
+    native.artistIds.length,
+  );
+  const int width = LinthraGrouping.artistFields;
+  final Uint32List fields = native.artistFields;
+  return <Artist>[
+    for (int i = 0; i < native.artistIds.length; i++)
+      Artist(
+        id: native.artistIds[i],
+        name: _track(tracks, fields[width * i])?.artistName ?? kUnknownArtist,
+        albumCount: fields[width * i + 1],
+        trackCount: fields[width * i + 2],
+        artworkUri: artwork[i],
+      ),
+  ];
+}
+
+/// The track at [index], or null for [LinthraGrouping.noTrack].
+Track? _track(List<Track> tracks, int index) =>
+    index == LinthraGrouping.noTrack ? null : tracks[index];
+
+/// The first artwork among each group's tracks, in track order, the way
+/// [_AlbumAgg] and [_ArtistAgg] pick it.
+List<Uri?> _firstArtwork(List<Track> tracks, Uint32List groupOf, int groups) {
+  final List<Uri?> artwork = List<Uri?>.filled(groups, null);
+  for (int i = 0; i < tracks.length; i++) {
+    artwork[groupOf[i]] ??= tracks[i].artworkUri;
+  }
+  return artwork;
 }
 
 /// The album with [albumId] in [tracks], or null when no track belongs to it.

@@ -11,6 +11,10 @@
 /// Common single-codepoint Latin diacritics mapped to their unaccented base, so
 /// folding stays a cheap table lookup. Keys are lower-case; callers lower-case
 /// first. Anything not listed passes through unchanged.
+///
+/// The Rust grouping keeps a copy (`diacritic` in
+/// native/linthra_core/src/library_grouping.rs): change both together.
+/// test/core/catalog/library_grouping_native_test.dart fails when they drift.
 const Map<String, String> _diacritics = <String, String>{
   'á': 'a',
   'à': 'a',

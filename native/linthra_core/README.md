@@ -1,6 +1,6 @@
 # linthra_core (Rust)
 
-`linthra_core` is the Rust core that holds Linthra's decision logic. It searches very large catalogs without making Flutter walk 100,000–200,000 track objects for every keystroke, and decides which cached tracks to delete when a download needs room.
+`linthra_core` is the Rust core that holds Linthra's decision logic. It searches very large catalogs without making Flutter walk 100,000–200,000 track objects for every keystroke, groups the catalog into albums and artists, and decides which cached tracks to delete when a download needs room.
 
 ## Current scope
 
@@ -12,14 +12,15 @@
 - deterministic ranking
 - synthetic 200,000-track regression benchmark
 - cache eviction policy (`src/cache_eviction.rs`): which cached tracks to delete so a download fits, held to the same cases as the Dart policy (`test/fixtures/cache_eviction_cases.json`)
+- album and artist grouping (`src/library_grouping.rs`): the Library's albums and artists, their order, and the same ids `albumIdForTrack` / `artistIdForTrack` compute in Dart. Dart lower-cases the names before they cross, because its case table is not Rust's. `test/core/catalog/library_grouping_native_test.dart` checks both paths agree, on every code point
 
 ## How Flutter uses it
 
 The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
 
 - `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
-- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
-- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, so its callers need not know which path ran.
+- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs` and the grouping call in `src/ffi/library_grouping.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
+- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, so their callers need not know which path ran.
 
 The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux build has no `cc` to link with, or the Rust standard library for the target isn't installed, the hook skips the library and `LinthraCore.isAvailable` is false, so every caller has to keep a Dart fallback. A cargo build that starts and fails does fail the app build.
 
@@ -57,4 +58,4 @@ Folding is **not** fuzzy matching. It removes accents; it does not make near-mis
 
 ## Good contribution areas
 
-Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, cross-provider duplicate candidates, album grouping primitives, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.
+Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, cross-provider duplicate candidates, per-album and per-artist track lookups, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.

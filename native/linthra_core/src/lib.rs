@@ -11,6 +11,7 @@ pub mod cache_eviction;
 #[cfg(test)]
 mod cache_eviction_cases_test;
 pub mod ffi;
+pub mod library_grouping;
 mod normalize;
 #[cfg(test)]
 mod shared_cases_test;
