@@ -19,7 +19,7 @@
 //! not finish says nothing about the tags.
 
 mod ape;
-mod dart;
+pub(crate) mod dart;
 mod flac;
 mod id3v2;
 mod mp3;

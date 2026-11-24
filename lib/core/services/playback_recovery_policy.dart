@@ -1,4 +1,5 @@
 import '../models/playback_failure.dart';
+import '../native/native_playback_rules.dart';
 import 'provider_reachability.dart';
 
 /// What the player does next, on its own, after a track failed.
@@ -117,7 +118,13 @@ class PlaybackRecoveryPolicy {
     this.advanceDelay = const Duration(seconds: 5),
     this.maxAdvanceDelay = const Duration(seconds: 5),
     this.maxConsecutiveFailures = 6,
+    this.useNative = true,
   }) : assert(maxConsecutiveFailures >= 1);
+
+  /// Whether [decide] asks the Rust core (native/linthra_core/src/
+  /// playback_rules.rs) when the build has it. False keeps to the Dart rules
+  /// below, for the tests that hold the two to the same answers.
+  final bool useNative;
 
   /// How long to wait before the one automatic retry of a failed track.
   final Duration retryDelay;
@@ -163,6 +170,33 @@ class PlaybackRecoveryPolicy {
     required String? nextUri,
     required PlaybackFailureStreak streak,
   }) {
+    if (useNative) {
+      final (int, Duration)? native = NativePlaybackRules.recoveryDecision(
+        kind: kind.index,
+        failuresBefore: streak.length,
+        retrySpent: streak.retrySpent,
+        next: nextUri == null
+            ? NativeNextTrack.none
+            : nextUri == failedUri
+                ? NativeNextTrack.same
+                : streak.contains(nextUri)
+                    ? NativeNextTrack.failedBefore
+                    : NativeNextTrack.fresh,
+        retryDelay: retryDelay,
+        advanceDelay: advanceDelay,
+        maxAdvanceDelay: maxAdvanceDelay,
+        maxConsecutiveFailures: maxConsecutiveFailures,
+      );
+      if (native != null) {
+        return switch (PlaybackRecoveryStep.values[native.$1]) {
+          PlaybackRecoveryStep.retry =>
+            PlaybackRecoveryDecision.retry(native.$2),
+          PlaybackRecoveryStep.advance =>
+            PlaybackRecoveryDecision.advance(native.$2),
+          PlaybackRecoveryStep.settle => PlaybackRecoveryDecision.settle,
+        };
+      }
+    }
     if (!movesPast(kind)) return PlaybackRecoveryDecision.settle;
     if (streak.isEmpty && !streak.retrySpent && retriesAutomatically(kind)) {
       return PlaybackRecoveryDecision.retry(retryDelay);

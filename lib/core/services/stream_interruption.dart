@@ -1,3 +1,4 @@
+import '../native/native_playback_rules.dart';
 import 'linux_playback_runtime.dart';
 
 /// Why a remote stream stopped mid-playback, classified from the audio engine's
@@ -74,7 +75,18 @@ final RegExp _notALocation =
 /// session. So locations are taken out before the text is read, all but the
 /// slashes that aren't one: a status line's `HTTP/1.1` and an `I/O`, which
 /// would otherwise take the status or the reason after them along.
-StreamInterruption classifyEngineError(Object error) {
+///
+/// The Rust core reads the text when the build has it
+/// (native/linthra_core/src/playback_rules.rs); [useNative] false keeps to the
+/// Dart rule below, for the tests that hold the two to the same answers.
+StreamInterruption classifyEngineError(Object error, {bool useNative = true}) {
+  final int? native =
+      useNative ? NativePlaybackRules.classifyError(error.toString()) : null;
+  if (native != null &&
+      native < StreamInterruptionKind.values.length &&
+      native != StreamInterruptionKind.localFileUnavailable.index) {
+    return _interruptions[StreamInterruptionKind.values[native]]!;
+  }
   final String text = LinuxPlaybackRuntime.redactLocations(
     error.toString().replaceAll(_notALocation, ' '),
   ).toLowerCase();
@@ -84,11 +96,7 @@ StreamInterruption classifyEngineError(Object error) {
   // an engine error as "(<code>) <message>". Checked before anything else so no
   // digit or word in the message can route it elsewhere.
   if (text.startsWith('($unsupportedAudioFormatErrorCode)')) {
-    return const StreamInterruption(
-      StreamInterruptionKind.formatUnsupported,
-      "This track's format isn't supported on this device.",
-      retryable: false,
-    );
+    return _interruptions[StreamInterruptionKind.formatUnsupported]!;
   }
 
   bool mentions(List<String> needles) =>
@@ -96,11 +104,7 @@ StreamInterruption classifyEngineError(Object error) {
 
   // Auth first: a rejected session is not worth retrying — prompt a sign-in.
   if (mentions(<String>['401', '403', 'unauthor', 'forbidden'])) {
-    return const StreamInterruption(
-      StreamInterruptionKind.sessionExpired,
-      'Your session expired. Sign in again to keep streaming.',
-      retryable: false,
-    );
+    return _interruptions[StreamInterruptionKind.sessionExpired]!;
   }
   // A decode failure won't fix itself by retrying the same bytes.
   if (mentions(<String>[
@@ -110,11 +114,7 @@ StreamInterruption classifyEngineError(Object error) {
     'unable to instantiate',
     'parse',
   ])) {
-    return const StreamInterruption(
-      StreamInterruptionKind.formatUnsupported,
-      "This track's format isn't supported on this device.",
-      retryable: false,
-    );
+    return _interruptions[StreamInterruptionKind.formatUnsupported]!;
   }
   // The server isn't answering at all — worth one retry, then a friendly notice.
   if (mentions(<String>[
@@ -124,11 +124,7 @@ StreamInterruption classifyEngineError(Object error) {
     'no address',
     'name resolution',
   ])) {
-    return const StreamInterruption(
-      StreamInterruptionKind.serverUnreachable,
-      "Couldn't reach your music server. Check your connection and try again.",
-      retryable: true,
-    );
+    return _interruptions[StreamInterruptionKind.serverUnreachable]!;
   }
   // A transient network drop mid-stream — the common case to recover from.
   if (mentions(<String>[
@@ -142,19 +138,42 @@ StreamInterruption classifyEngineError(Object error) {
     'broken pipe',
     'eof',
   ])) {
-    return const StreamInterruption(
-      StreamInterruptionKind.networkDropped,
-      // Terminal-safe wording: the Now Playing UI shows "Reconnecting…" while
-      // [PlaybackStatus.reconnecting] is active; this message is for a
-      // permanent failure after the bounded retry is spent.
-      'The connection dropped while streaming. Check your connection and try again.',
-      retryable: true,
-    );
+    return _interruptions[StreamInterruptionKind.networkDropped]!;
   }
   // Unknown: assume a transient glitch and allow a single retry.
-  return const StreamInterruption(
+  return _interruptions[StreamInterruptionKind.unknown]!;
+}
+
+/// The one message and retry rule for each kind [classifyEngineError]
+/// returns: fixed strings, so nothing of the engine's own text is ever shown.
+const Map<StreamInterruptionKind, StreamInterruption> _interruptions =
+    <StreamInterruptionKind, StreamInterruption>{
+  StreamInterruptionKind.sessionExpired: StreamInterruption(
+    StreamInterruptionKind.sessionExpired,
+    'Your session expired. Sign in again to keep streaming.',
+    retryable: false,
+  ),
+  StreamInterruptionKind.formatUnsupported: StreamInterruption(
+    StreamInterruptionKind.formatUnsupported,
+    "This track's format isn't supported on this device.",
+    retryable: false,
+  ),
+  StreamInterruptionKind.serverUnreachable: StreamInterruption(
+    StreamInterruptionKind.serverUnreachable,
+    "Couldn't reach your music server. Check your connection and try again.",
+    retryable: true,
+  ),
+  // Terminal-safe wording: the Now Playing UI shows "Reconnecting…" while
+  // [PlaybackStatus.reconnecting] is active; this message is for a permanent
+  // failure after the bounded retry is spent.
+  StreamInterruptionKind.networkDropped: StreamInterruption(
+    StreamInterruptionKind.networkDropped,
+    'The connection dropped while streaming. Check your connection and try again.',
+    retryable: true,
+  ),
+  StreamInterruptionKind.unknown: StreamInterruption(
     StreamInterruptionKind.unknown,
     'Playback was interrupted. Trying again…',
     retryable: true,
-  );
-}
+  ),
+};

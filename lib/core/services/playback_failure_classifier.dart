@@ -1,7 +1,12 @@
 import '../models/playback_failure.dart';
+import '../native/native_playback_rules.dart';
 import 'playable_uri_resolver.dart';
 import 'stream_interruption.dart';
 
+/// The Rust core answers when the build has it
+/// (native/linthra_core/src/playback_rules.rs); each switch below is the
+/// fallback, and `useNative: false` keeps to it for the parity tests.
+///
 /// Bridges the two typed failure vocabularies playback already has,
 /// [PlaybackResolutionErrorKind] (couldn't produce a playable URI) and
 /// [StreamInterruptionKind] (the engine stopped mid-stream), onto the single
@@ -12,8 +17,12 @@ import 'stream_interruption.dart';
 /// the wrong recovery. Nothing in this file touches an error's *text*, so no
 /// message, URL, or token can leak through the mapping.
 PlaybackFailureKind playbackFailureKindForResolution(
-  PlaybackResolutionErrorKind kind,
-) {
+  PlaybackResolutionErrorKind kind, {
+  bool useNative = true,
+}) {
+  final (int, int)? native =
+      useNative ? NativePlaybackRules.failureForResolution(kind.index) : null;
+  if (native != null) return PlaybackFailureKind.values[native.$1];
   switch (kind) {
     // No session, or one the server no longer accepts: another attempt with the
     // same credentials gets the same answer.
@@ -48,8 +57,12 @@ PlaybackFailureKind playbackFailureKindForResolution(
 
 /// The [PlaybackFailureKind] a classified mid-stream interruption implies.
 PlaybackFailureKind playbackFailureKindForInterruption(
-  StreamInterruptionKind kind,
-) {
+  StreamInterruptionKind kind, {
+  bool useNative = true,
+}) {
+  final (int, int)? native =
+      useNative ? NativePlaybackRules.failureForInterruption(kind.index) : null;
+  if (native != null) return PlaybackFailureKind.values[native.$1];
   switch (kind) {
     case StreamInterruptionKind.sessionExpired:
       return PlaybackFailureKind.sourceSignInRequired;
@@ -69,8 +82,12 @@ PlaybackFailureKind playbackFailureKindForInterruption(
 
 /// The [PlaybackFailureCause] a resolution or load failure of [kind] records.
 PlaybackFailureCause playbackFailureCauseForResolution(
-  PlaybackResolutionErrorKind kind,
-) {
+  PlaybackResolutionErrorKind kind, {
+  bool useNative = true,
+}) {
+  final (int, int)? native =
+      useNative ? NativePlaybackRules.failureForResolution(kind.index) : null;
+  if (native != null) return PlaybackFailureCause.values[native.$2];
   switch (kind) {
     case PlaybackResolutionErrorKind.notSignedIn:
       return PlaybackFailureCause.notSignedIn;
@@ -95,8 +112,12 @@ PlaybackFailureCause playbackFailureCauseForResolution(
 
 /// The [PlaybackFailureCause] a mid-stream interruption of [kind] records.
 PlaybackFailureCause playbackFailureCauseForInterruption(
-  StreamInterruptionKind kind,
-) {
+  StreamInterruptionKind kind, {
+  bool useNative = true,
+}) {
+  final (int, int)? native =
+      useNative ? NativePlaybackRules.failureForInterruption(kind.index) : null;
+  if (native != null) return PlaybackFailureCause.values[native.$2];
   switch (kind) {
     case StreamInterruptionKind.networkDropped:
       return PlaybackFailureCause.connectionDropped;
