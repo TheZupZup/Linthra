@@ -34,7 +34,19 @@ fn line(file: &str, tags: Option<AudioTags>) -> String {
 
 #[test]
 fn tags_match_the_shared_cases() {
-    let cases = std::fs::read_to_string(fixtures().join("cases.txt")).unwrap();
+    assert_eq!(replay("cases.txt"), 17);
+}
+
+/// The MP3 cases, written from the specs rather than shared with a Dart
+/// reader: the one the app has for MP3 is a package's.
+#[test]
+fn mp3_tags_match_their_cases() {
+    assert_eq!(replay("mp3_cases.txt"), 22);
+}
+
+/// Checks every line of `cases`, and returns how many there were.
+fn replay(cases: &str) -> usize {
+    let cases = std::fs::read_to_string(fixtures().join(cases)).unwrap();
     let mut seen = 0;
     for expected in cases
         .lines()
@@ -45,7 +57,7 @@ fn tags_match_the_shared_cases() {
         assert_eq!(line(file, tags), expected, "file {file}");
         seen += 1;
     }
-    assert_eq!(seen, 17);
+    seen
 }
 
 #[test]

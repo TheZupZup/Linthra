@@ -74,7 +74,9 @@ class FilesystemLocalMetadataReader
   /// album artist.
   /// 4: FLAC, OGG and Opus are read by the Rust core when the build has it:
   /// the first non-blank title and album, and a length read from the stream.
-  static const int revision = 4;
+  /// 5: MP3 too. A UTF-8 frame holding Latin-1, or an ID3v1 tag alone, no
+  /// longer drops the file's tags.
+  static const int revision = 5;
 
   @override
   int get tagRevision => revision;
@@ -290,8 +292,8 @@ class FilesystemLocalMetadataReader
       // nothing is known about its tags.
       return null;
     }
-    // The Rust core reads FLAC, Ogg Vorbis and Opus by their spec, in one
-    // pass, and keeps a file whose comments the package would give up on.
+    // The Rust core reads FLAC, Ogg Vorbis, Opus and MP3 by their specs, in
+    // one pass, and keeps a file whose tags the package would give up on.
     // Anything else it hands back to the package below.
     final NativeTagRead? native =
         useNativeTags ? NativeTags.read(path, withCover: getImage) : null;

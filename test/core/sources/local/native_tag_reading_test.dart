@@ -1,5 +1,5 @@
-// FilesystemLocalMetadataReader asks the Rust core first for FLAC, Ogg Vorbis
-// and Opus. These tell its answer from the package's, so they show which path
+// FilesystemLocalMetadataReader asks the Rust core first for FLAC, Ogg Vorbis,
+// Opus and MP3. These tell its answer from the package's, so they show which path
 // ran. Skipped in a build without the Rust core, where the package path is
 // covered by the rest of this folder.
 import 'dart:io';
@@ -11,6 +11,7 @@ import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
+import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 
 import 'audio_tag_fixtures.dart';
 
@@ -85,7 +86,7 @@ void main() {
     expect(File(tags.artworkUri!.toFilePath()).existsSync(), isTrue);
   });
 
-  test('an MP3 is left to the package', skip: skip, () async {
+  test('an MP3 is read by the Rust core too', skip: skip, () async {
     final String path =
         write('song.mp3', AudioTagFixtures.mp3(title: 'Mp3', artist: 'A'));
 
@@ -93,5 +94,28 @@ void main() {
 
     expect(tags!.title, 'Mp3');
     expect(tags.artist, 'A');
+    expect(tags.duration, isNotNull);
+  });
+
+  group('#855: odd text in an MP3 tag no longer drops the file', () {
+    test('a UTF-8 frame holding Latin-1 bytes', skip: skip, () async {
+      final LocalMetadataRead read = await reader
+          .readWithOutcome('test/fixtures/tags/id3v24_invalid_utf8.mp3');
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Caf\u00e9');
+      expect(read.metadata!.albumArtist, 'Caf\u00e9 Society');
+      expect(read.metadata!.duration, isNotNull);
+    });
+
+    test('only an ID3v1 tag, Latin-1 and NUL-padded', skip: skip, () async {
+      final LocalMetadataRead read =
+          await reader.readWithOutcome('test/fixtures/tags/id3v1_only.mp3');
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Caf\u00e9');
+      expect(read.metadata!.artist, 'Old Rip');
+      expect(read.metadata!.trackNumber, 7);
+    });
   });
 }

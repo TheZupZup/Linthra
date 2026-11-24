@@ -224,10 +224,10 @@ mod tests {
 
     #[test]
     fn tells_not_handled_from_unreadable() {
-        let mp3 = fixture("not_audio.mp3");
+        let wav = fixture("not_vorbis.wav");
         let gone = fixture("gone.flac");
         unsafe {
-            let result = linthra_tags_read(mp3.as_ptr(), mp3.len(), false);
+            let result = linthra_tags_read(wav.as_ptr(), wav.len(), false);
             assert_eq!(linthra_tags_status(result), TAGS_NOT_HANDLED);
             assert_eq!(text(result, TAGS_TITLE), None);
             assert_eq!(linthra_tags_track_number(result), 0);
