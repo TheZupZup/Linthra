@@ -33,6 +33,7 @@ mod search_rank_cases_test;
 #[cfg(test)]
 mod shared_cases_test;
 pub mod streaming;
+pub mod tags;
 pub mod track_end;
 #[cfg(test)]
 mod track_end_cases_test;
