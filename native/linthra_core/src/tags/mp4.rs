@@ -9,7 +9,7 @@
 
 use std::io::{self, Read, Seek, SeekFrom};
 
-use super::{first, joined, read_up_to, track_number, u32_be, AudioTags};
+use super::{first, joined, read_up_to, track_number, u32_be, utf8_or_latin1, AudioTags};
 
 /// The largest `moov` read into memory. A long file's sample tables and a
 /// big cover make a few megabytes; anything past this is not tags.
@@ -248,10 +248,7 @@ fn text(kind: u32, value: &[u8]) -> String {
             .collect();
         return String::from_utf16_lossy(&units);
     }
-    match std::str::from_utf8(value) {
-        Ok(text) => text.to_owned(),
-        Err(_) => value.iter().map(|b| char::from(*b)).collect(),
-    }
+    utf8_or_latin1(value)
 }
 
 #[cfg(test)]

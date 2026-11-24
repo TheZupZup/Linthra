@@ -2,12 +2,12 @@
 //! in the last 128 bytes.
 //!
 //! A file is read as MP3 when it opens with an ID3v2 tag or with an MPEG
-//! frame. One that carries an APE tag, or whose ID3v2 tag sits in front of a
-//! FLAC or Ogg stream, is left to the reader that handles those.
+//! frame. An APE tag before the ID3v1 one fills in what ID3v2 lacks. One whose
+//! ID3v2 tag sits in front of a FLAC or Ogg stream is left to another reader.
 
 use std::io::{self, Read, Seek, SeekFrom};
 
-use super::{dart, first, id3v2, joined, mpeg, picture, read_up_to, track_number, AudioTags};
+use super::{ape, dart, first, id3v2, joined, mpeg, picture, read_up_to, track_number, AudioTags};
 
 /// Whether `head` (a file's first bytes) opens like an MP3.
 pub fn claims(head: &[u8]) -> bool {
@@ -17,9 +17,10 @@ pub fn claims(head: &[u8]) -> bool {
 pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Option<AudioTags>> {
     let length = source.seek(SeekFrom::End(0))?;
     let v1 = id3v1(source, length)?;
-    let audio_end = length - if v1.is_some() { 128 } else { 0 };
-    if has_ape_tag(source, audio_end)? {
-        return Ok(None);
+    let mut audio_end = length - if v1.is_some() { 128 } else { 0 };
+    let ape = ape::read_tag(source, audio_end, with_cover)?;
+    if let Some(ape) = &ape {
+        audio_end = ape.start;
     }
 
     source.seek(SeekFrom::Start(0))?;
@@ -67,21 +68,24 @@ pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Opti
             .and_then(|ms| ms.checked_mul(1000)),
     };
 
+    // ID3v2 first, then APE, then ID3v1, whose fields are cut at 30 bytes.
     let v1 = v1.unwrap_or_default();
+    let ape = ape.unwrap_or_default();
     let track = tag
         .track
         .as_ref()
         .and_then(|values| values.first())
         .and_then(|value| track_number(value))
+        .or_else(|| ape.track_number())
         .or(v1.track);
     Ok(Some(AudioTags {
-        title: first(&tag.title).or(v1.title),
-        artist: joined(&tag.artist).or(v1.artist),
-        album_artist: joined(&tag.album_artist),
-        album: first(&tag.album).or(v1.album),
+        title: first(&tag.title).or_else(|| ape.title()).or(v1.title),
+        artist: joined(&tag.artist).or_else(|| ape.artist()).or(v1.artist),
+        album_artist: joined(&tag.album_artist).or_else(|| ape.album_artist()),
+        album: first(&tag.album).or_else(|| ape.album()).or(v1.album),
         track_number: track,
         duration_micros: duration_micros.filter(|micros| *micros > 0),
-        cover: picture::cover(tag.pictures),
+        cover: picture::cover(tag.pictures).or(ape.cover),
     }))
 }
 
@@ -107,28 +111,19 @@ fn skip_appended_tags<R: Read + Seek>(source: &mut R, mut at: u64, length: u64) 
     Ok(at)
 }
 
-/// Whether an APE tag ends at `end`: its footer's `APETAGEX` 32 bytes back.
-fn has_ape_tag<R: Read + Seek>(source: &mut R, end: u64) -> io::Result<bool> {
-    if end < 32 {
-        return Ok(false);
-    }
-    source.seek(SeekFrom::Start(end - 32))?;
-    Ok(read_up_to(source, 8)? == b"APETAGEX")
-}
-
 /// What an ID3v1 tag holds.
 #[derive(Default)]
-struct Id3v1 {
-    title: Option<String>,
-    artist: Option<String>,
-    album: Option<String>,
-    track: Option<i64>,
+pub struct Id3v1 {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track: Option<i64>,
 }
 
 /// The ID3v1 tag in the last 128 bytes, when there is one: `TAG`, then
 /// Latin-1 fields padded with NUL or spaces; a v1.1 tag ends its comment with
 /// a zero and the track number.
-fn id3v1<R: Read + Seek>(source: &mut R, length: u64) -> io::Result<Option<Id3v1>> {
+pub fn id3v1<R: Read + Seek>(source: &mut R, length: u64) -> io::Result<Option<Id3v1>> {
     if length < 128 {
         return Ok(None);
     }

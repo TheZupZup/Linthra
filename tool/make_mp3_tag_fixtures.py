@@ -253,8 +253,8 @@ def build() -> dict[str, bytes]:
         tag(3, frame23("TIT2", latin1("Junk first"))) + bytes(300) + audio(4)
     )
 
-    # An APE tag at the end: the package merges APE fields, so this one is
-    # left to it.
+    # An empty APE tag at the end: a tag, not audio, so the length leaves it
+    # out.
     ape_footer = b"APETAGEX" + struct.pack("<IIII", 2000, 32, 0, 0) + bytes(8)
     files["ape_tagged.mp3"] = audio(4) + ape_footer
 

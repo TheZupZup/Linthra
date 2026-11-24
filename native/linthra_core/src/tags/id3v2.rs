@@ -8,7 +8,7 @@
 //! Compressed and encrypted frames are skipped, never guessed at.
 
 use super::picture::Picture;
-use super::u32_be;
+use super::{latin1, u32_be, utf8_or_latin1};
 
 /// What a tag says, each text field as the values its frame holds (v2.4
 /// separates several with NUL).
@@ -165,17 +165,6 @@ pub fn text_values(encoding: u8, bytes: &[u8]) -> Vec<String> {
         values.pop();
     }
     values
-}
-
-fn latin1(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| char::from(*b)).collect()
-}
-
-fn utf8_or_latin1(bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_owned(),
-        Err(_) => latin1(bytes),
-    }
 }
 
 /// UTF-16 values separated by a NUL code unit. Each may open with a
