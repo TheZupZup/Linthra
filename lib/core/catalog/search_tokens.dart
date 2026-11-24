@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'search_typos.dart';
+
 /// Library search in Dart: the fallback for builds without the Rust core.
 ///
 /// It has to find exactly what native/linthra_core finds, or a search would
@@ -157,23 +159,29 @@ class DartSearchIndex {
 
   final List<List<String>> _tokens;
 
+  /// Every token of every track, for deciding which query words match
+  /// within their typos (see search_typos.dart). Built on first use.
+  late final Set<String> _allTokens = <String>{
+    for (final List<String> tokens in _tokens) ...tokens,
+  };
+
   /// Number of tracks in the index.
   int get length => _tokens.length;
 
   /// The positions, in the order the tracks were given, of every track where
-  /// each word of [query] starts one of its tokens. Ascending; empty for an
+  /// each word of [query] starts one of its tokens (or, for a word that starts
+  /// no token at all, matches one within its typos). Ascending; empty for an
   /// empty or whitespace-only query.
   Uint32List matchPositions(String query) {
     final List<String> terms = searchTokens(query);
     if (terms.isEmpty) return Uint32List(0);
+    final List<bool Function(String token)>? matchers =
+        termMatchers(terms, _allTokens);
+    if (matchers == null) return Uint32List(0);
     final List<int> positions = <int>[];
     for (int position = 0; position < _tokens.length; position++) {
       final List<String> tokens = _tokens[position];
-      if (terms.every(
-        (String term) => tokens.any((String token) => token.startsWith(term)),
-      )) {
-        positions.add(position);
-      }
+      if (matchers.every(tokens.any)) positions.add(position);
     }
     return Uint32List.fromList(positions);
   }

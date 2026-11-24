@@ -351,6 +351,9 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
+      // A search opens on All; the songs chip shows the tab's own results.
+      await tester.tap(find.byKey(const Key('library_search_chip_songs')));
+      await tester.pumpAndSettle();
       expect(_rows(tester), <String>['Around the World', 'Linger', 'Zombie']);
 
       await _sortBy(tester, SongSort.artistDescending);
@@ -404,6 +407,9 @@ void main() {
         'interlude',
       );
       await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      // A search opens on All; the songs chip shows the tab's own results.
+      await tester.tap(find.byKey(const Key('library_search_chip_songs')));
       await tester.pumpAndSettle();
 
       expect(_rows(tester), <String>['Interlude']);

@@ -17,7 +17,14 @@
 #      count R lines from 0, in file order.
 #
 #   M  <query>  <positions of every matching track, ascending>
-#      Every query term must start a token of some field of the track.
+#      Every query term must start a token of some field of the track. A
+#      term that starts no token of any track may instead match one within
+#      its typos (F below).
+#
+#   F  <term>  <token>  <true | false>
+#      Whether a folded query term matches a token, or the start of one,
+#      within its typos: none under 4 characters, one up to 6, two from 7;
+#      the first character must match; a swap of two neighbours is one typo.
 
 # --- Tokens -------------------------------------------------------------
 
@@ -102,10 +109,37 @@ M	track 1994	7
 M	artist 421	7
 M	421 artist	7
 M	ica	-
-M	puppetz	-
+M	puppetz	3 4
+# Typos, for a word that starts no token anywhere (see the F cases).
+M	motorhed	2
+M	bjrok	0 1
+M	metalica	3 4
+M	metalic	3 4
+M	jgoa	0
+M	batery	4
+M	master puppetz	3 4
+M	blastr	5
+M	mta	-
+M	xetallica	-
+M	metxxxca	-
 M	-	-
 M	   	-
 M	!!!	-
 M	bjork metallica	-
 M	ac/dc	-
 M	ace, of: spades!	2
+
+# --- Typos --------------------------------------------------------------
+
+F	motorhed	motorhead	true
+F	bjrok	bjork	true
+F	metalic	metallica	true
+F	jgoa	joga	true
+F	puppetz	puppets	true
+F	abcd	abce	true
+F	abcd	abxy	false
+F	mta	metallica	false
+F	xetallica	metallica	false
+F	metxxxca	metallica	false
+F	motorhead	motorhead	true
+F	kino	кино	false

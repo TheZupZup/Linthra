@@ -215,17 +215,76 @@ void main() {
       expect(find.text('New playlist'), findsOneWidget);
     });
 
-    testWidgets('switching tabs clears the active search', (tester) async {
+    testWidgets('a search swaps the tabs for chips that keep the search',
+        (tester) async {
       await _pump(tester);
+      expect(find.byKey(const Key('library_tabs')), findsOneWidget);
       await _enter(tester, 'alpha');
       expect(find.text('Beta'), findsNothing);
+      expect(find.byKey(const Key('library_tabs')), findsNothing);
+      expect(find.byKey(const Key('search_all_results')), findsOneWidget);
 
-      await tester.tap(find.text('Albums'));
+      await tester.tap(find.byKey(const Key('library_search_chip_albums')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Songs'));
+      await tester.tap(find.byKey(const Key('library_search_chip_songs')));
       await tester.pumpAndSettle();
 
+      expect(find.widgetWithText(TextField, 'alpha'), findsOneWidget);
       expect(find.text('Alpha'), findsOneWidget);
+      expect(find.text('Beta'), findsNothing);
+    });
+
+    testWidgets(
+        'All ranks the artist named as typed above its songs, '
+        'each row saying what it is', (tester) async {
+      await _pump(
+        tester,
+        tracks: const <Track>[
+          Track(
+            id: 's1',
+            title: 'Battery',
+            uri: 'file:///s1.mp3',
+            artistName: 'Metallica',
+            albumName: 'Master of Puppets',
+          ),
+          Track(
+            id: 's2',
+            title: 'Metal Heart',
+            uri: 'file:///s2.mp3',
+            artistName: 'Accept',
+            albumName: 'Metal Heart',
+          ),
+        ],
+      );
+      await _enter(tester, 'metallica');
+
+      final Finder rows = find.descendant(
+        of: find.byKey(const Key('search_all_results')),
+        matching: find.byType(ListTile),
+      );
+      final List<String> titles = <String>[
+        for (final Element row in rows.evaluate())
+          ((row.widget as ListTile).title! as Text).data!,
+      ];
+      // The artist is the query word for word; Battery is found by its artist.
+      expect(titles.first, 'Metallica');
+      expect(titles, contains('Battery'));
+      expect(titles, isNot(contains('Metal Heart')));
+      expect(find.textContaining('Artist'), findsWidgets);
+    });
+
+    testWidgets('clearing the search brings the tabs back, on All next time',
+        (tester) async {
+      await _pump(tester);
+      await _enter(tester, 'alpha');
+      await tester.tap(find.byKey(const Key('library_search_chip_songs')));
+      await tester.pumpAndSettle();
+
+      await _enter(tester, '');
+      // Past the search box's debounce.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('library_tabs')), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
       expect(find.text('Gamma'), findsOneWidget);
     });

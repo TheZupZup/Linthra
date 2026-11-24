@@ -442,3 +442,25 @@ external void linthraQueueEditFree(Pointer<LinthraQueueEditResult> result);
   isLeaf: true,
 )
 external int linthraTrackEndAction(int repeat, bool hasNext);
+
+@Native<
+    Int32 Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint8>,
+      Pointer<Uint32>,
+      Size,
+      Pointer<Uint32>,
+    )>(symbol: 'linthra_search_rank', isLeaf: true)
+external int linthraSearchRank(
+  Pointer<Uint8> query,
+  int queryLength,
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint8> kinds,
+  Pointer<Uint32> spans,
+  int count,
+  Pointer<Uint32> out,
+);

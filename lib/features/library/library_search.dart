@@ -1,4 +1,5 @@
 import '../../core/catalog/search_tokens.dart';
+import '../../core/catalog/search_typos.dart';
 import '../../core/models/album.dart';
 import '../../core/models/artist.dart';
 import '../../core/models/track.dart';
@@ -6,22 +7,18 @@ import '../../core/models/track.dart';
 /// The Library search box's matching rules, shared by every tab: each word
 /// typed must start a word of the item, in any order, ignoring case and
 /// accents. "puppets metal" finds "Master of Puppets" by Metallica; "ica"
-/// does not, since it starts no word.
+/// does not, since it starts no word. A word that starts no word of any item
+/// is matched within its typos instead, so "metalica" finds Metallica.
 ///
 /// They are the Rust core's rules (see search_tokens.dart). The Songs tab of
 /// a large library answers from an index instead (song_search_index.dart);
 /// these direct filters are what it falls back to, so both must agree.
 
-/// True when every one of [terms] starts a token of one of [fields].
-bool _matchesAll(List<String> terms, Iterable<String?> fields) {
-  final List<String> tokens = <String>[
-    for (final String? field in fields)
-      if (field != null && field.isNotEmpty) ...searchTokens(field),
-  ];
-  return terms.every(
-    (String term) => tokens.any((String token) => token.startsWith(term)),
-  );
-}
+/// The tokens of [fields], as the search sees them.
+List<String> _tokensOf(Iterable<String?> fields) => <String>[
+      for (final String? field in fields)
+        if (field != null && field.isNotEmpty) ...searchTokens(field),
+    ];
 
 /// [items] whose [fields] match [query]. A blank query keeps everything (the
 /// same list instance); a query with no words in it ("!!!") matches nothing.
@@ -33,9 +30,18 @@ List<T> _filter<T>(
   if (query.trim().isEmpty) return items;
   final List<String> terms = searchTokens(query);
   if (terms.isEmpty) return <T>[];
+  final List<List<String>> tokens = <List<String>>[
+    for (final T item in items) _tokensOf(fields(item)),
+  ];
+  // A word that starts no token of any item is matched within its typos.
+  final List<bool Function(String token)>? matchers = termMatchers(
+    terms,
+    <String>{for (final List<String> t in tokens) ...t},
+  );
+  if (matchers == null) return <T>[];
   return <T>[
-    for (final T item in items)
-      if (_matchesAll(terms, fields(item))) item,
+    for (int i = 0; i < items.length; i++)
+      if (matchers.every(tokens[i].any)) items[i],
   ];
 }
 

@@ -307,6 +307,9 @@ void main() {
         'adele',
       );
       await tester.pumpAndSettle();
+      // A search opens on All; the albums chip shows the tab's own results.
+      await tester.tap(find.byKey(const Key('library_search_chip_albums')));
+      await tester.pumpAndSettle();
 
       expect(find.byType(AlbumGridCard), findsOneWidget);
       expect(find.text('25'), findsOneWidget);

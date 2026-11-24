@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/search_tokens.dart';
+import 'package:linthra/core/catalog/search_typos.dart';
 
 /// Replays test/fixtures/search_cases.txt, the cases the Rust core
 /// (native/linthra_core/src/shared_cases_test.rs) replays too. Rust is the
@@ -64,6 +65,20 @@ void main() {
     expect(seen, greaterThan(0), reason: 'no T cases read');
   });
 
+  test('typos match the shared cases', () {
+    int seen = 0;
+    for (final List<String> fields in _cases()) {
+      if (fields[0] != 'F') continue;
+      expect(
+        matchesWithTypos(_unescape(fields[1]), _unescape(fields[2])),
+        bool.parse(fields[3]),
+        reason: 'typo case $fields',
+      );
+      seen++;
+    }
+    expect(seen, greaterThan(0), reason: 'no F cases read');
+  });
+
   test('matches match the shared cases', () {
     final List<SearchableTrack> tracks = <SearchableTrack>[];
     final List<(String, List<int>)> queries = <(String, List<int>)>[];
@@ -86,6 +101,7 @@ void main() {
                 const <int>[],
           ));
         case 'T':
+        case 'F':
           break;
         default:
           fail('unknown case kind ${fields[0]}');

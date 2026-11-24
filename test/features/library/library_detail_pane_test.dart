@@ -217,6 +217,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'Moon');
       await tester.pumpAndSettle(const Duration(seconds: 1));
+      // A search opens on All; the albums chip shows the tab's own results.
+      await tester.tap(find.byKey(const Key('library_search_chip_albums')));
+      await tester.pumpAndSettle();
 
       // The pane cannot keep showing an album the grid beside it says is not
       // there.

@@ -1,0 +1,30 @@
+# Shared cases: the order of the search's mixed results.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/search_rank_cases_test.rs (Rust)
+#   - test/core/catalog/search_rank_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+#   <query>  <results>  <expected order>
+#
+# results: kind:name entries separated by `|`, kind being artist, album or
+#          song. The expected order lists their positions (from 0), best first.
+#
+# Tiers, by the result's own name: the name is the query word for word; every
+# word typed is a whole word of it; every word typed starts a word of it; the
+# same with typos; not at all (found by another field). Within a tier: artist,
+# album, song, then the order given.
+
+metallica	song:Battery|album:Master of Puppets|artist:Metallica	2 1 0
+metallica	song:Metallica|album:Metallica|artist:Metallica	2 1 0
+master of puppets	song:Master of Puppets|album:Master of Puppets|song:Battery	1 0 2
+puppets	song:Master of Puppets|album:Master of Puppets|artist:Metallica	1 0 2
+master	song:Master Blaster|album:Masterpiece|artist:Mastermind	0 2 1
+one	song:One|song:Someone Like You|album:One by One	0 2 1
+metalica	artist:Metallica|song:Battery	0 1
+metal	artist:Metallica|song:Metal Heart|album:Heavy Metal	2 1 0
+bjork	song:Jóga|artist:Björk	1 0
+bjork homogenic	song:Jóga|album:Homogenic	1 0
+a	song:A|artist:Abba|album:A	2 0 1
+zzz	song:B|artist:A|album:C	1 2 0
