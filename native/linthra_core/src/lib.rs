@@ -33,6 +33,7 @@ pub mod streaming;
 pub mod track_end;
 #[cfg(test)]
 mod track_end_cases_test;
+pub mod typos;
 
 use normalize::normalized_tokens;
 
@@ -203,17 +204,25 @@ impl LibraryIndex {
         // such as "199421" wastes both CPU and memory. Counting posting lengths
         // is cheap, then subsequent common terms only keep the candidates that
         // already survived the selective terms.
-        let mut planned_terms: Vec<(String, usize)> = terms
-            .into_iter()
-            .map(|term| {
-                let estimated_postings = self.estimated_postings(&term);
-                (term, estimated_postings)
-            })
-            .collect();
-        if planned_terms.iter().any(|(_, count)| *count == 0) {
-            return Vec::new();
+        //
+        // A term that starts no token at all is matched against the tokens a
+        // few typos away instead (see typos.rs); only when there are none
+        // either does it rule the query out.
+        let mut planned_terms: Vec<(String, Option<Vec<&String>>, usize)> = Vec::new();
+        for term in terms {
+            let estimated_postings = self.estimated_postings(&term);
+            if estimated_postings > 0 {
+                planned_terms.push((term, None, estimated_postings));
+                continue;
+            }
+            let near = self.tokens_with_typos(&term);
+            if near.is_empty() {
+                return Vec::new();
+            }
+            let count = near.iter().map(|token| self.postings[*token].len()).sum();
+            planned_terms.push((term, Some(near), count));
         }
-        planned_terms.sort_unstable_by_key(|(_, count)| *count);
+        planned_terms.sort_unstable_by_key(|(_, _, count)| *count);
 
         // Scratch indexed by track rather than hash maps: a broad term ("m")
         // matches the whole catalog, and then hashing every posting was most
@@ -230,28 +239,46 @@ impl LibraryIndex {
         let mut total: Vec<u32> = vec![0; track_count];
         let mut survivors: Vec<usize> = Vec::new();
 
-        for (round, (term, _)) in planned_terms.into_iter().enumerate() {
+        for (round, (term, near, _)) in planned_terms.into_iter().enumerate() {
             let round = round as u32;
             let mut next: Vec<usize> = Vec::with_capacity(survivors.len());
 
-            for (token, token_postings) in self.postings.range(term.clone()..) {
-                if !token.starts_with(&term) {
-                    break;
+            // (token, its postings, the score a posting of it earns)
+            // Records one posting of this term: the track's first hit for it
+            // if it matched every earlier term, else a better score for it.
+            let mut take = |track: usize, score: u16| {
+                if matched[track] == round {
+                    matched[track] = round + 1;
+                    best_for_term[track] = score;
+                    next.push(track);
+                } else if matched[track] == round + 1 {
+                    best_for_term[track] = best_for_term[track].max(score);
                 }
-                let exact_bonus: u16 = if token == &term { 3 } else { 0 };
-                for posting in token_postings {
-                    let track = posting.track_index;
-                    let score = posting.weight.saturating_add(exact_bonus);
-                    if matched[track] == round {
-                        // This term's first hit on a track that matched every
-                        // earlier term.
-                        matched[track] = round + 1;
-                        best_for_term[track] = score;
-                        next.push(track);
-                    } else if matched[track] == round + 1 {
-                        best_for_term[track] = best_for_term[track].max(score);
+                // Otherwise it missed an earlier term and is out.
+            };
+
+            match near {
+                None => {
+                    for (token, token_postings) in self.postings.range(term.clone()..) {
+                        if !token.starts_with(&term) {
+                            break;
+                        }
+                        let exact_bonus: u16 = if token == &term { 3 } else { 0 };
+                        for posting in token_postings {
+                            take(
+                                posting.track_index,
+                                posting.weight.saturating_add(exact_bonus),
+                            );
+                        }
                     }
-                    // Otherwise it missed an earlier term and is out.
+                }
+                // A match with typos ranks below any exact one of its field.
+                Some(near) => {
+                    for token in near {
+                        for posting in &self.postings[token] {
+                            take(posting.track_index, (posting.weight / 2).max(1));
+                        }
+                    }
                 }
             }
 
@@ -267,6 +294,25 @@ impl LibraryIndex {
         survivors
             .into_iter()
             .map(|track| (track, total[track]))
+            .collect()
+    }
+
+    /// The indexed tokens [term] matches within its typos, for a term that
+    /// starts none. Only tokens sharing its first character can, so only that
+    /// range of the token map is read.
+    fn tokens_with_typos(&self, term: &str) -> Vec<&String> {
+        let Some(first) = term.chars().next() else {
+            return Vec::new();
+        };
+        if typos::max_typos(term.chars().count()) == 0 {
+            return Vec::new();
+        }
+        let start = first.to_string();
+        self.postings
+            .range(start.clone()..)
+            .take_while(|(token, _)| token.starts_with(&start))
+            .filter(|(token, _)| typos::matches_with_typos(term, token))
+            .map(|(token, _)| token)
             .collect()
     }
 
@@ -477,7 +523,15 @@ mod tests {
         // near-misses match.
         let index = accented_fixture();
         assert!(index.search("bjor k", 10).is_empty());
-        assert!(index.search("motorhed", 10).is_empty());
+    }
+
+    #[test]
+    fn a_word_that_starts_nothing_is_matched_within_its_typos() {
+        let index = accented_fixture();
+        let typo = index.search("motorhed", 10);
+        let exact = index.search("motorhead", 10);
+        assert!(!typo.is_empty());
+        assert_eq!(ids(&typo), ids(&exact));
     }
 
     // --- #343: search edge cases -------------------------------------------

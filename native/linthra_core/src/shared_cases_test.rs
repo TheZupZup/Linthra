@@ -96,7 +96,7 @@ fn matches_match_the_shared_cases() {
                     .unwrap_or_default();
                 queries.push((query, expected));
             }
-            'T' => {}
+            'T' | 'F' => {}
             other => panic!("unknown case kind {other:?}"),
         }
     }
@@ -120,4 +120,26 @@ fn matches_match_the_shared_cases() {
         // The unranked view the Library filter uses must agree too.
         assert_eq!(index.matching(&query), expected, "matching for {query:?}");
     }
+}
+
+#[test]
+fn typos_match_the_shared_cases() {
+    let mut seen = 0;
+    for (kind, fields) in cases() {
+        if kind != 'F' {
+            continue;
+        }
+        let expected = match fields[2].as_str() {
+            "true" => true,
+            "false" => false,
+            other => panic!("bad boolean {other:?}"),
+        };
+        assert_eq!(
+            crate::typos::matches_with_typos(&unescape(&fields[0]), &unescape(&fields[1])),
+            expected,
+            "typo case {fields:?}"
+        );
+        seen += 1;
+    }
+    assert!(seen > 0, "no F cases read");
 }

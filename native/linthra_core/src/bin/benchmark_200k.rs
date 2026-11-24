@@ -56,12 +56,33 @@ fn main() {
         broad_average.as_micros()
     );
 
+    // Queries whose words start no token, so each is matched within its
+    // typos: the token range sharing its first letter is scanned for near
+    // spellings before the postings are read.
+    let typo_queries = ["midnigth", "sginal midnight", "trakc 1994", "albmu 42"];
+    let typo_started = Instant::now();
+    let mut typo_hits = 0usize;
+    for iteration in 0..BROAD_ITERATIONS {
+        let query = typo_queries[iteration % typo_queries.len()];
+        typo_hits += index.search(query, 50).len();
+    }
+    let typo_average = typo_started.elapsed() / BROAD_ITERATIONS as u32;
+    println!(
+        "{BROAD_ITERATIONS} searches with typos: avg {} µs, {typo_hits} hits",
+        typo_average.as_micros()
+    );
+    assert!(typo_hits > 0, "no search with typos found anything");
+
     // This is a regression smoke threshold, not a marketing benchmark. It is
     // deliberately generous enough for shared CI runners while still catching
     // an accidental O(catalog × query) implementation.
     assert!(
         average < Duration::from_millis(50),
         "average search exceeded the 50 ms large-library budget: {average:?}"
+    );
+    assert!(
+        typo_average < Duration::from_millis(50),
+        "average search with typos exceeded the 50 ms budget: {typo_average:?}"
     );
 }
 

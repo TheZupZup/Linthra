@@ -60,7 +60,17 @@ Both spellings of the same text fold to the same token, whether the accent arriv
 
 This is also why the crate still has no dependencies. A full Unicode normalization crate would buy correctness for the scripts the fold deliberately leaves alone, at the cost of the one property that makes this core easy to vendor and audit.
 
-Folding is **not** fuzzy matching. It removes accents; it does not make near-misses match, and `motorhed` still finds nothing.
+Folding is **not** fuzzy matching. It removes accents; it does not make near-misses match.
+
+## Typos
+
+A query word that starts no token anywhere in the catalog is matched instead against tokens a few typos away (`src/typos.rs`), so `motorhed`, `bjrok` and `metalica` find Motörhead, Björk and Metallica. A word that starts some token is never matched this way, so every search that found something before finds exactly the same tracks.
+
+- Under 4 characters: no typo. 4 to 6: one. 7 and more: two.
+- The first character must match.
+- A typo is one character inserted, deleted or replaced, or two neighbours swapped.
+- The word may be a mistyped start of the token (`metalic` while typing `metallica`).
+- A match with typos scores half its field's weight, below any exact match of the same field.
 
 ## Good contribution areas
 
