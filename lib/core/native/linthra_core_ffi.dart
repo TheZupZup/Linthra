@@ -215,3 +215,78 @@ external Pointer<Uint32> linthraEvictionResultIndices(
   isLeaf: true,
 )
 external void linthraEvictionResultFree(Pointer<LinthraEvictionResult> result);
+
+/// `GroupingResult` on the Rust side
+/// (native/linthra_core/src/ffi/library_grouping.rs).
+final class LinthraGroupingResult extends Opaque {}
+
+/// `LibraryGroupsView` on the Rust side: borrowed arrays, valid until the
+/// [LinthraGroupingResult] they came from is freed.
+final class LinthraLibraryGroupsView extends Struct {
+  @Size()
+  external int albumCount;
+
+  @Size()
+  external int artistCount;
+
+  external Pointer<Uint8> ids;
+
+  /// `albumCount + 1` offsets into [ids].
+  external Pointer<Uint32> albumIds;
+
+  /// `artistCount + 1` offsets into [ids].
+  external Pointer<Uint32> artistIds;
+
+  /// [LinthraGrouping.albumFields] values per album.
+  external Pointer<Uint32> albumFields;
+
+  /// [LinthraGrouping.artistFields] values per artist.
+  external Pointer<Uint32> artistFields;
+
+  external Pointer<Uint32> trackAlbum;
+
+  external Pointer<Uint32> trackArtist;
+}
+
+/// Constants of the grouping ABI, as in
+/// native/linthra_core/src/ffi/library_grouping.rs.
+abstract final class LinthraGrouping {
+  /// A track index that names no track.
+  static const int noTrack = 0xFFFFFFFF;
+
+  /// Title track, album artist track, artist track, track count.
+  static const int albumFields = 4;
+
+  /// Name track, album count, track count.
+  static const int artistFields = 3;
+}
+
+// Not a leaf call: a large catalog takes long enough that it should not hold
+// up the garbage collector.
+@Native<
+    Pointer<LinthraGroupingResult> Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Size,
+    )>(symbol: 'linthra_library_group')
+external Pointer<LinthraGroupingResult> linthraLibraryGroup(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  int count,
+);
+
+@Native<LinthraLibraryGroupsView Function(Pointer<LinthraGroupingResult>)>(
+  symbol: 'linthra_grouping_result_view',
+  isLeaf: true,
+)
+external LinthraLibraryGroupsView linthraGroupingResultView(
+  Pointer<LinthraGroupingResult> result,
+);
+
+@Native<Void Function(Pointer<LinthraGroupingResult>)>(
+  symbol: 'linthra_grouping_result_free',
+  isLeaf: true,
+)
+external void linthraGroupingResultFree(Pointer<LinthraGroupingResult> result);

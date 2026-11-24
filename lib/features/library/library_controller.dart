@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/library_grouping.dart';
+import '../../core/models/album.dart';
+import '../../core/models/artist.dart';
 import '../../core/models/local_file_stamp.dart';
 import '../../core/models/track.dart';
 import '../../core/repositories/music_library_repository.dart';
@@ -208,11 +210,13 @@ class LibraryController extends Notifier<LibraryState> {
               final List<Track> tracks = <Track>[
                 for (final StampedTrack stamped in kept) stamped.track,
               ];
+              final ({List<Album> albums, List<Artist> artists}) groups =
+                  groupLibrary(tracks);
               await repository.upsertCatalog(
                 sourceId: _localSourceId,
                 tracks: tracks,
-                albums: groupAlbums(tracks),
-                artists: groupArtists(tracks),
+                albums: groups.albums,
+                artists: groups.artists,
               );
             }
           }
@@ -414,11 +418,13 @@ class LibraryController extends Notifier<LibraryState> {
               tracks: scan.tracks,
             );
           } else {
+            final ({List<Album> albums, List<Artist> artists}) groups =
+                groupLibrary(tracks);
             await repository.upsertCatalog(
               sourceId: _localSourceId,
               tracks: tracks,
-              albums: groupAlbums(tracks),
-              artists: groupArtists(tracks),
+              albums: groups.albums,
+              artists: groups.artists,
             );
           }
         }
