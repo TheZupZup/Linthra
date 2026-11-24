@@ -33,3 +33,32 @@ DownloadStatus? settleCanceled(DownloadStatus? row, CommittedCopy committed) {
           : DownloadStatus.downloaded;
   }
 }
+
+/// What to do with a download the network policy held, now that it is asked
+/// again.
+enum HeldAction {
+  /// Ask for it again under the same account.
+  retry,
+
+  /// Forget it and leave its row alone.
+  drop,
+
+  /// Forget it and put its row back to not downloaded.
+  dropAndReset,
+}
+
+/// A held download is asked again only under the account it was asked under:
+/// the session signed in now would fetch another account's item, or nothing,
+/// under this track. Dropped, its row goes back to not downloaded when it
+/// still reads queued and no other request for it is running. The same rule
+/// as `held_action` in `native/linthra_core/src/download_state.rs`, held to it
+/// by `test/fixtures/download_held_cases.txt`.
+HeldAction heldAction({
+  required bool sameAccount,
+  required bool inFlight,
+  required DownloadStatus? row,
+}) {
+  if (sameAccount) return HeldAction.retry;
+  if (!inFlight && row == DownloadStatus.queued) return HeldAction.dropAndReset;
+  return HeldAction.drop;
+}

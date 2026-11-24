@@ -42,3 +42,29 @@ pub fn settle_canceled(
         CommittedCopy::Download => Some(DownloadStatus::Downloaded),
     }
 }
+
+/// What to do with a download the network policy held, now that it is asked
+/// again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldAction {
+    /// Ask for it again under the same account.
+    Retry,
+    /// Forget it and leave its row alone.
+    Drop,
+    /// Forget it and put its row back to not downloaded.
+    DropAndReset,
+}
+
+/// A held download is asked again only under the account it was asked under:
+/// the session signed in now would fetch another account's item, or nothing,
+/// under this track. Dropped, its row goes back to not downloaded when it
+/// still reads queued and no other request for it is running.
+pub fn held_action(same_account: bool, in_flight: bool, row: Option<DownloadStatus>) -> HeldAction {
+    if same_account {
+        HeldAction::Retry
+    } else if !in_flight && row == Some(DownloadStatus::Queued) {
+        HeldAction::DropAndReset
+    } else {
+        HeldAction::Drop
+    }
+}

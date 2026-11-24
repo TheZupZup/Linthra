@@ -620,12 +620,18 @@ class CacheDownloadRepository
     Set<String> protectKeys,
   ) async {
     final String key = _keyForTrack(track);
-    if (_scopeOf(track) != scope) {
-      if (!_inFlight.containsKey(key) &&
-          _statuses[key] == DownloadStatus.queued) {
+    switch (heldAction(
+      sameAccount: _scopeOf(track) == scope,
+      inFlight: _inFlight.containsKey(key),
+      row: _statuses[key],
+    )) {
+      case HeldAction.retry:
+        break;
+      case HeldAction.drop:
+        return;
+      case HeldAction.dropAndReset:
         _set(key, DownloadStatus.notDownloaded);
-      }
-      return;
+        return;
     }
     try {
       await requestDownload(track, protectKeys: protectKeys);
