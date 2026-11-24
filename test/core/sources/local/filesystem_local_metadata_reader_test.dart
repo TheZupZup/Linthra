@@ -16,6 +16,11 @@ import 'package:linthra/core/sources/local/mp4_box_guard.dart';
 
 import 'audio_tag_fixtures.dart';
 
+// Every reader here takes the Dart path (useNativeTags: false), the one a
+// build without the Rust core takes: the package, the MP4 guard in front of
+// it, and the parser isolate that stops a parse that runs away. With the Rust
+// core, FLAC, Ogg, Opus, MP3 and MP4 never reach that path; they are covered
+// by native_tag_reading_test.dart and the shared cases in test/fixtures/tags/.
 void main() {
   late FilesystemLocalMetadataReader reader;
   late Directory root;
@@ -25,6 +30,7 @@ void main() {
     root = await Directory.systemTemp.createTemp('linthra_tag_reader_');
     artworkDir = await Directory.systemTemp.createTemp('linthra_tag_artwork_');
     reader = FilesystemLocalMetadataReader(
+      useNativeTags: false,
       artworkCache: LocalArtworkCache(directory: () async => artworkDir),
     );
   });
@@ -335,6 +341,7 @@ void main() {
       );
       final FilesystemLocalMetadataReader failing =
           FilesystemLocalMetadataReader(
+        useNativeTags: false,
         artworkCache: LocalArtworkCache(directory: () async => artworkDir),
         guard: (File file) => throw FileSystemException(
             'Input/output error', file.path, const OSError('I/O error', 5)),
@@ -976,6 +983,7 @@ void main() {
       // Answered when the isolate goes, not when the limit runs out.
       const Duration limit = Duration(seconds: 20);
       final FilesystemLocalMetadataReader dying = FilesystemLocalMetadataReader(
+        useNativeTags: false,
         artworkCache: LocalArtworkCache(directory: () async => artworkDir),
         parseLimit: limit,
         guard: _exitOnDiesFiles,
@@ -1093,6 +1101,7 @@ void main() {
       // kept in memory between them, only the cache on disk.
       final FilesystemLocalMetadataReader restarted =
           FilesystemLocalMetadataReader(
+        useNativeTags: false,
         artworkCache: LocalArtworkCache(directory: () async => artworkDir),
       );
       addTearDown(restarted.close);
@@ -1303,6 +1312,7 @@ Future<void> _readWhileRewritingEntry(
   final (SendPort reply, (String path, String artworkPath, Uint8List looping)) =
       message;
   final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
+    useNativeTags: false,
     artworkCache: _RewritingArtworkCache(
       directory: () async => Directory(artworkPath),
       rewrite: () => File(path).writeAsBytesSync(looping, flush: true),
@@ -1360,6 +1370,7 @@ Uint8List _unfinishedEncode() => Uint8List.fromList(<int>[
 /// the parser and loop.
 FilesystemLocalMetadataReader _unguardedReader(String artworkPath) =>
     FilesystemLocalMetadataReader(
+      useNativeTags: false,
       artworkCache: LocalArtworkCache(
         directory: () async => Directory(artworkPath),
       ),
@@ -1419,6 +1430,7 @@ class _RewritingArtworkCache extends LocalArtworkCache {
 Future<void> _readFromPathEntry((SendPort, String, String) message) async {
   final (SendPort reply, String path, String artworkPath) = message;
   final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
+    useNativeTags: false,
     artworkCache: LocalArtworkCache(
       directory: () async => Directory(artworkPath),
     ),

@@ -76,7 +76,9 @@ class FilesystemLocalMetadataReader
   /// the first non-blank title and album, and a length read from the stream.
   /// 5: MP3 too. A UTF-8 frame holding Latin-1, or an ID3v1 tag alone, no
   /// longer drops the file's tags.
-  static const int revision = 5;
+  /// 6: MP4 too, album artist (`aART`) included. An MP4 the package would
+  /// loop on, or one with a CDDB track number of `A1`, keeps its tags.
+  static const int revision = 6;
 
   @override
   int get tagRevision => revision;
@@ -283,18 +285,11 @@ class FilesystemLocalMetadataReader
     bool Function(File file) guard,
     bool useNativeTags,
   ) {
-    final File file = File(path);
-    try {
-      if (!guard(file)) return null;
-    } catch (_) {
-      // The guard reads the file first, so this is the file that couldn't be
-      // read (a drive or a share answering with an I/O error, a file gone):
-      // nothing is known about its tags.
-      return null;
-    }
-    // The Rust core reads FLAC, Ogg Vorbis, Opus and MP3 by their specs, in
-    // one pass, and keeps a file whose tags the package would give up on.
-    // Anything else it hands back to the package below.
+    // The Rust core reads FLAC, Ogg Vorbis, Opus, MP3 and MP4 by their specs,
+    // in one pass, and keeps a file whose tags the package would give up on.
+    // It goes first, before the guard: it reads the MP4s the package would
+    // loop on, so an interrupted encode keeps its tags. Anything else it
+    // hands back to the guard and the package below.
     final NativeTagRead? native =
         useNativeTags ? NativeTags.read(path, withCover: getImage) : null;
     switch (native?.outcome) {
@@ -309,11 +304,20 @@ class FilesystemLocalMetadataReader
           complete: true,
         );
       case NativeTagOutcome.ioError:
-        // As for the guard: nothing is known about the tags.
+        // Nothing is known about the tags.
         return null;
       case NativeTagOutcome.notHandled:
       case null:
         break;
+    }
+    final File file = File(path);
+    try {
+      if (!guard(file)) return null;
+    } catch (_) {
+      // The guard reads the file first, so this is the file that couldn't be
+      // read (a drive or a share answering with an I/O error, a file gone):
+      // nothing is known about its tags.
+      return null;
     }
     try {
       // Format-specific rather than the package's unified `readMetadata`:

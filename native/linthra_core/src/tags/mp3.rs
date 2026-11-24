@@ -7,7 +7,7 @@
 
 use std::io::{self, Read, Seek, SeekFrom};
 
-use super::{dart, id3v2, mpeg, picture, read_up_to, AudioTags};
+use super::{dart, first, id3v2, joined, mpeg, picture, read_up_to, track_number, AudioTags};
 
 /// Whether `head` (a file's first bytes) opens like an MP3.
 pub fn claims(head: &[u8]) -> bool {
@@ -85,45 +85,6 @@ pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Opti
     }))
 }
 
-/// A TRCK value's track: `3` or `3/12`, the forms the spec gives it. `3 of
-/// 12`, `1/` or a vinyl side's `A1` don't say which track it is, so they give
-/// none, as with the package the app read MP3 with before.
-fn track_number(value: &str) -> Option<i64> {
-    let value = dart::trim(value);
-    let number = match value.split_once('/') {
-        Some((number, total)) if !total.is_empty() && total.bytes().all(|b| b.is_ascii_digit()) => {
-            number
-        }
-        Some(_) => return None,
-        None => value,
-    };
-    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    number.parse().ok().filter(|n| *n > 0)
-}
-
-/// The first non-blank value.
-fn first(values: &Option<Vec<String>>) -> Option<String> {
-    values
-        .iter()
-        .flatten()
-        .map(|value| dart::trim(value))
-        .find(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-/// Every non-blank value, joined: several artists are a joint credit.
-fn joined(values: &Option<Vec<String>>) -> Option<String> {
-    let kept: Vec<&str> = values
-        .iter()
-        .flatten()
-        .map(|value| dart::trim(value))
-        .filter(|value| !value.is_empty())
-        .collect();
-    (!kept.is_empty()).then(|| kept.join(", "))
-}
-
 /// Past any further ID3v2 tags written right after the first one.
 fn skip_appended_tags<R: Read + Seek>(source: &mut R, mut at: u64, length: u64) -> io::Result<u64> {
     while at + 10 <= length {
@@ -189,19 +150,4 @@ fn id3v1<R: Read + Seek>(source: &mut R, length: u64) -> io::Result<Option<Id3v1
         album: field(63..93),
         track: (tag[125] == 0 && tag[126] != 0).then(|| i64::from(tag[126])),
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::track_number;
-
-    #[test]
-    fn a_track_is_a_number_or_a_number_out_of_a_total() {
-        assert_eq!(track_number("3"), Some(3));
-        assert_eq!(track_number(" 3/12 "), Some(3));
-        assert_eq!(track_number("03"), Some(3));
-        for odd in ["A1", "3 of 12", "1/", "1 / 10", "/12", "0", "", "x3/4"] {
-            assert_eq!(track_number(odd), None, "{odd:?}");
-        }
-    }
 }

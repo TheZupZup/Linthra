@@ -1,0 +1,20 @@
+# What reading each MP4 (M4A) fixture in this folder gives, written from
+# ISO/IEC 14496-12 and the iTunes metadata layout
+# (tool/make_mp4_tag_fixtures.py builds the files and says what each one
+# tests). Replayed by native/linthra_core/src/tags/shared_cases_test.rs.
+#
+# Same columns as cases.txt. The length is mvhd's duration over its
+# timescale; the track is trkn's, else a CDDB track number that is a number.
+m4a_basic.m4a	Hello	Alice	Various Artists	Album	3	3000000	0102030405
+m4a_meta_without_version.m4a	Quick	-	-	-	-	3000000	-
+m4a_mvhd_v1.m4a	Long	-	-	-	-	61000000	-
+m4a_cddb_vinyl.m4a	Vinyl	-	-	-	-	3000000	-
+m4a_cddb_track.m4a	Cddb	-	-	-	7	3000000	-
+m4a_invalid_utf8.m4a	Café	-	-	-	-	3000000	-
+m4a_utf16.m4a	Été	-	-	-	-	3000000	-
+m4a_two_artists.m4a	-	A, B	-	-	-	3000000	-
+m4a_moov_last.m4a	Last	-	-	-	-	3000000	-
+m4a_largesize.m4a	Large	-	-	-	-	3000000	-
+m4a_mdat_size_zero.m4a	Unfinished	-	-	-	-	3000000	-
+m4a_no_moov.m4a	-	-	-	-	-	-	-
+m4a_blank_values.m4a	-	-	-	Kept	-	-	-

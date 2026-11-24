@@ -1,5 +1,5 @@
 // FilesystemLocalMetadataReader asks the Rust core first for FLAC, Ogg Vorbis,
-// Opus and MP3. These tell its answer from the package's, so they show which path
+// Opus, MP3 and MP4. These tell its answer from the package's, so they show which path
 // ran. Skipped in a build without the Rust core, where the package path is
 // covered by the rest of this folder.
 import 'dart:io';
@@ -116,6 +116,37 @@ void main() {
       expect(read.metadata!.title, 'Caf\u00e9');
       expect(read.metadata!.artist, 'Old Rip');
       expect(read.metadata!.trackNumber, 7);
+    });
+  });
+
+  group('MP4', () {
+    test('an unfinished encode keeps its tags', skip: skip, () async {
+      // Its `mdat` is still sized 0, the box the package looped on; the MP4
+      // guard refuses it on the Dart path.
+      final LocalMetadataRead read = await reader
+          .readWithOutcome('test/fixtures/tags/m4a_mdat_size_zero.m4a');
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Unfinished');
+    });
+
+    test('#855: a CDDB track number of A1 no longer drops the file', skip: skip,
+        () async {
+      final LocalMetadataRead read =
+          await reader.readWithOutcome('test/fixtures/tags/m4a_cddb_vinyl.m4a');
+
+      expect(read.failed, isFalse);
+      expect(read.metadata!.title, 'Vinyl');
+      expect(read.metadata!.trackNumber, isNull);
+    });
+
+    test('the album artist is read', skip: skip, () async {
+      final LocalAudioMetadata? tags =
+          await reader.readFromPath('test/fixtures/tags/m4a_basic.m4a');
+
+      expect(tags!.albumArtist, 'Various Artists');
+      expect(tags.trackNumber, 3);
+      expect(tags.duration, const Duration(seconds: 3));
     });
   });
 }
