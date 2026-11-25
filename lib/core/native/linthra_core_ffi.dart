@@ -683,3 +683,50 @@ external Pointer<Uint32> linthraUnifyIndices(
   isLeaf: true,
 )
 external void linthraUnifyFree(Pointer<LinthraUnifyResult> result);
+
+/// `Sorted` on the Rust side (native/linthra_core/src/ffi/song_sort.rs).
+final class LinthraSongSort extends Opaque {}
+
+@Native<
+    Pointer<LinthraSongSort> Function(
+        Pointer<Uint8>,
+        Size,
+        Pointer<Uint32>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Size,
+        Size,
+        Uint8,
+        Bool)>(symbol: 'linthra_song_sort')
+external Pointer<LinthraSongSort> linthraSongSort(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Int64> discs,
+  Pointer<Int64> tracks,
+  Pointer<Int64> added,
+  int count,
+  int catalogCount,
+  int field,
+  bool descending,
+);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_order',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraSongSortOrder(Pointer<LinthraSongSort> result);
+
+@Native<Pointer<Uint8> Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_sections',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraSongSortSections(
+    Pointer<LinthraSongSort> result);
+
+@Native<Void Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_free',
+  isLeaf: true,
+)
+external void linthraSongSortFree(Pointer<LinthraSongSort> result);

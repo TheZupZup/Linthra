@@ -130,6 +130,20 @@ pub fn group(tracks: &[GroupingTrack]) -> LibraryGroups {
     }
 }
 
+/// `albumIdForTrack` for each of `tracks`, index for index. Each album's id is
+/// built once, however many tracks share it.
+pub(crate) fn album_ids(tracks: &[GroupingTrack]) -> Vec<String> {
+    let mut names = Names::default();
+    let keys: Vec<AlbumKey> = tracks
+        .iter()
+        .map(|t| names.track(t).album_key(&names))
+        .collect();
+    let mut ids: HashMap<AlbumKey, String> = HashMap::new();
+    keys.into_iter()
+        .map(|key| ids.entry(key).or_insert_with(|| key.id(&names)).clone())
+        .collect()
+}
+
 /// The rest of Dart's `foldText` once the text is lower-cased: runs of space,
 /// tab, CR and LF become one space, common Latin diacritics fold to their base
 /// letter, and the ends are trimmed as Dart's `trim` does.
