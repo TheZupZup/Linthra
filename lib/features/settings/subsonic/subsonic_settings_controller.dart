@@ -240,9 +240,9 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
   /// playlists (scoped to Subsonic, so a still-connected Jellyfin account keeps
   /// its own); on-device favourites and local-only playlists are kept.
   ///
-  /// The synced library itself stays, so it can still be browsed offline. It
-  /// stays as this account's: a different account signing in next clears it
-  /// before its own sync.
+  /// The synced songs leave the library (#939): none of them can play
+  /// signed out. Their downloaded files stay on this device, set aside until
+  /// this server is connected again.
   Future<void> clear() async {
     final SubsonicSession? signingOut = _session;
     try {
@@ -261,7 +261,7 @@ class SubsonicSettingsController extends Notifier<SubsonicSettingsState> {
     if (signingOut != null) {
       await ref
           .read(subsonicSyncControllerProvider.notifier)
-          .rememberCatalogOwner(subsonicAccountFingerprint(signingOut));
+          .leaveLibrary(subsonicAccountFingerprint(signingOut));
     }
     try {
       await ref

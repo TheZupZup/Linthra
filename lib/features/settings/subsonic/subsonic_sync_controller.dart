@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/album.dart';
@@ -125,8 +127,9 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// The manual [sync] stays available for an on-demand refresh. Never throws.
   ///
   /// It runs on every sign-in, so it is also where the library stops showing
-  /// another account's tracks: signing out keeps them, and they go here,
-  /// before this account's walk, which may write nothing.
+  /// another account's tracks left from before signing out took them (a
+  /// library synced by an older version, say): they go here, before this
+  /// account's walk, which may write nothing.
   Future<void> autoSyncIfNeeded() async {
     final SubsonicMusicSource? source = ref.read(subsonicMusicSourceProvider);
     if (source == null) {
@@ -246,10 +249,52 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
     }
   }
 
-  /// Called on sign-out, which keeps the library: makes sure the tracks it
-  /// keeps are recorded as [account]'s, so the next account to sign in clears
-  /// them rather than inheriting them. Only fills in a missing record, which
-  /// is what a library synced by an older version has. Never throws.
+  /// Called on sign-out: the Subsonic songs leave the library (#939).
+  ///
+  /// None of them can play signed out. A Subsonic id only means something on
+  /// its own server, so even a downloaded copy is set aside until that server
+  /// is connected again (see `OfflineCopyOrigins`); the file stays on this
+  /// device and comes back with the server. The account's sync record goes
+  /// too, so signing back in syncs the library again.
+  ///
+  /// The songs leave in turn with the catalog writes, so a walk still
+  /// finishing can't put them back after; the sign-out doesn't wait for that
+  /// write. Never throws: the sign-out has happened.
+  Future<void> leaveLibrary(String account) async {
+    await rememberCatalogOwner(account);
+    try {
+      await ref.read(subsonicAutoSyncStoreProvider).clear();
+    } catch (_) {
+      // Best-effort: signing back in then finds the account already synced.
+    }
+    unawaited(_dropLibrary());
+  }
+
+  Future<void> _dropLibrary() async {
+    try {
+      final MusicLibraryRepository library =
+          ref.read(musicLibraryRepositoryProvider);
+      final bool removed = await _writeInTurn(() async {
+        final List<String> gone = <String>[
+          for (final Track track in await library.getAllTracks())
+            if (MusicProviders.forTrackUri(track.uri) ==
+                MusicProviders.subsonic)
+              track.uri,
+        ];
+        if (gone.isEmpty) return false;
+        await library.removeTracks(gone);
+        return true;
+      });
+      if (removed) await ref.read(libraryControllerProvider.notifier).refresh();
+    } catch (_) {
+      // Best-effort: what stays is replaced by the next sync.
+    }
+  }
+
+  /// Records the library's tracks as [account]'s, so the next account to sign
+  /// in clears them rather than inheriting them. Only fills in a missing
+  /// record, which is what a library synced by an older version has. Never
+  /// throws.
   Future<void> rememberCatalogOwner(String account) async {
     try {
       final RemoteCatalogOwnerStore owners =
@@ -267,10 +312,11 @@ class SubsonicSyncController extends Notifier<SubsonicSyncState> {
   /// anything is written for it, and returns whether another account's
   /// tracks had to go.
   ///
-  /// Signing out keeps the slice, so the library stays there offline, but its
-  /// rows are still the previous account's, and the next account's walk only
-  /// prunes them once it completes with something in it. An empty library, or
-  /// a first walk that failed or stopped, left them under the new account:
+  /// Signing out takes the slice out, but a library an older version kept, or
+  /// a sign-out whose cleanup failed, leaves rows that are still the previous
+  /// account's, and the next account's walk only prunes them once it completes
+  /// with something in it. An empty library, or a first walk that failed or
+  /// stopped, left them under the new account:
   /// unplayable, or worse, on a server with sequential ids, playing the new
   /// server's song with the same id under the old title.
   ///

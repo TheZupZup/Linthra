@@ -239,9 +239,9 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
   /// favourites and local-only playlists are kept), and the now-stale
   /// "Synced N tracks" status is reset.
   ///
-  /// The synced library itself stays, so it can still be browsed offline. It
-  /// stays as this account's: a different account signing in next clears it
-  /// before its own sync.
+  /// Of the synced library, the songs downloaded on this device stay and
+  /// play offline; the rest leave it (#939). What stays is this account's: a
+  /// different account signing in next clears it before its own sync.
   Future<void> clear() async {
     final JellyfinSession? signingOut = _session;
     try {
@@ -260,7 +260,7 @@ class JellyfinSettingsController extends Notifier<JellyfinSettingsState> {
     if (signingOut != null) {
       await ref
           .read(jellyfinSyncControllerProvider.notifier)
-          .rememberCatalogOwner(jellyfinAccountFingerprint(signingOut));
+          .leaveLibrary(jellyfinAccountFingerprint(signingOut));
     }
     try {
       // Scope the drop to Jellyfin so a still-connected Subsonic/Navidrome

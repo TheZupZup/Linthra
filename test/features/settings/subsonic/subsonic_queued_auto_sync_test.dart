@@ -107,21 +107,7 @@ void main() {
     };
     expect(uris, server.urisFor('bob'));
 
-    // ...so signing out and back in walks nothing again.
-    final int albumCallsAfterFirstSync = server.albumCalls;
-    await settings.clear();
-    await signIn('bob');
-    await pumpEventQueue(times: 50);
-    for (int i = 0; i < 100; i++) {
-      if (!container.read(subsonicSyncControllerProvider).isSyncing) break;
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    expect(
-      server.albumCalls,
-      albumCallsAfterFirstSync,
-      reason: "bob's first sync already ran; signing in again must not walk "
-          'his whole library again',
-    );
+    // ...and recorded as his, so his next sign-in doesn't walk it again.
     expect(await autoSync.read(), _account('bob'));
   });
 }
