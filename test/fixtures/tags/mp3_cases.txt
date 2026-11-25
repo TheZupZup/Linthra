@@ -1,0 +1,31 @@
+# What reading each MP3 fixture in this folder gives, written from the
+# ID3v2.2/2.3/2.4, ID3v1 and MPEG audio specs (tool/make_mp3_tag_fixtures.py
+# builds the files and says what each one tests). Replayed by
+# native/linthra_core/src/tags/shared_cases_test.rs.
+#
+# Same columns as cases.txt: file, title, artist, album artist, album, track
+# number, duration in microseconds, cover as hex; `-` is absent, NONE is a
+# file left to another reader. Durations: a Xing, Info or VBRI frame count,
+# else TLEN in milliseconds, else the bytes of audio over the bitrate.
+id3v23_basic.mp3	Hello	Alice	Various Artists	Album	3	2612244	0102030405
+id3v24_invalid_utf8.mp3	Café	Björk	Café Society	-	-	104250	-
+id3v24_multi_values.mp3	Real title	Alice, Bob	-	First	-	52125	-
+id3v23_utf16.mp3	Été	Ünï	-	Ålbum	-	52125	0102030405
+id3v22.mp3	Old	Two Two	-	Vintage	9	52125	0102030405
+id3v23_unsync.mp3	ÿàZ	Sync	-	-	-	52125	-
+id3v23_extended_header.mp3	Extended	-	-	-	-	52125	-
+id3v24_frame_flags.mp3	Sized	-	-	Grouped	-	52125	-
+id3v24_plain_sizes.mp3	LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL	After	-	-	-	52125	-
+id3v1_only.mp3	Café	Old Rip	-	-	7	521250	-
+id3v23_with_v1.mp3	From v2	Artist v1	-	Album v1	2	521250	-
+id3v23_tlen.mp3	Timed	-	-	-	-	5000000	-
+id3v23_vbri.mp3	Vbri	-	-	-	-	5224489	-
+id3v23_info.mp3	Info	-	-	-	-	1306122	-
+mpeg2_xing.mp3	Mpeg2	-	-	-	-	2612244	-
+id3v23_blank_values.mp3	-	Present	-	-	-	52125	-
+id3v23_no_audio.mp3	Tag only	-	-	-	-	-	-
+ape_tagged.mp3	-	-	-	-	-	104250	-
+leading_junk.mp3	Junk first	-	-	-	-	104250	-
+id3_before_flac.mp3	NONE
+id3v25.mp3	NONE
+no_mpeg.bin	NONE

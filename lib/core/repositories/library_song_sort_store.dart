@@ -1,5 +1,6 @@
-/// Persists the order the Library's Songs list was last sorted in, so it
-/// reopens the way the user left it instead of always by title.
+/// Persists the order a Library list (Songs, or the Albums grid) was last
+/// sorted in, so it reopens the way the user left it instead of always by
+/// title. Each list has its own store.
 ///
 /// The stored value is a single non-secret order name (`titleAscending`,
 /// `newestAdded`, …), never an index. An absent or unrecognised value reads as

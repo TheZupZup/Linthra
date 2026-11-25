@@ -60,7 +60,7 @@ class SmartPlaylistResolver {
     }
   }
 
-  /// Tracks newest-first by first-seen time. Tracks with no recorded timestamp
+  /// Tracks newest-first by the time they were added ([libraryAddedAt]). Tracks with no recorded timestamp
   /// (e.g. before timestamping was wired) sort oldest, so they still appear but
   /// never crowd out genuinely new additions.
   List<Track> _recentlyAdded(
@@ -73,15 +73,13 @@ class SmartPlaylistResolver {
     return _bounded(sorted);
   }
 
-  /// First-seen time for [track] (the newest-first sort key). Reads the
-  /// provider-namespaced [Track.uri] key written by
-  /// RecordingMusicLibraryRepository so two providers' same-id tracks don't share
-  /// a timestamp, with [firstSeenAt]'s legacy bare-`id` fallback, which keeps
-  /// Recently Added in order immediately after an upgrade instead of collapsing
-  /// the whole library to catalog order until the next sync. Unknown tracks sort
-  /// oldest (at [_epoch]).
+  /// When [track] was added (the newest-first sort key): its server's date
+  /// when it has one, otherwise the first-seen time RecordingMusicLibraryRepository
+  /// stored under the provider-namespaced [Track.uri], so two providers'
+  /// same-id tracks don't share a timestamp, with [firstSeenAt]'s legacy
+  /// bare-`id` fallback. Unknown tracks sort oldest (at [_epoch]).
   DateTime _addedTime(Track track, Map<String, DateTime> addedAt) =>
-      firstSeenAt(track, addedAt) ?? _epoch;
+      libraryAddedAt(track, addedAt) ?? _epoch;
 
   /// Resolves [orderedUris] (provider-namespaced play-history keys) against the
   /// catalog, preserving the given order and dropping uris the catalog no longer

@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+pub mod audio_focus;
 pub mod cache_eviction;
 #[cfg(test)]
 mod cache_eviction_cases_test;
@@ -21,6 +22,7 @@ pub mod download_state;
 pub mod ffi;
 pub mod library_grouping;
 mod normalize;
+pub mod playback_rules;
 pub mod queue_edits;
 #[cfg(test)]
 mod queue_edits_cases_test;
@@ -32,7 +34,10 @@ pub mod search_rank;
 mod search_rank_cases_test;
 #[cfg(test)]
 mod shared_cases_test;
+pub mod song_sort;
+pub mod stream_recovery;
 pub mod streaming;
+pub mod tags;
 pub mod track_end;
 #[cfg(test)]
 mod track_end_cases_test;

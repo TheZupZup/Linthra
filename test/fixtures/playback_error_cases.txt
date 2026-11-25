@@ -1,0 +1,31 @@
+# Engine errors and the StreamInterruptionKind each one reads as. Written from
+# the Dart rule by test/core/services/playback_rules_parity_test.dart, which
+# holds the Rust core to it too, as does
+# native/linthra_core/src/playback_rules.rs. TAB-separated: the error (\t,
+# \n and \\ escaped), then the kind.
+(4005) Source error	formatUnsupported
+ (4005) Source error	networkDropped
+HTTP/1.1 403 Forbidden	sessionExpired
+HTTP/1.1x 403	sessionExpired
+http/2 stream reset by peer	networkDropped
+I/O error	unknown
+I/O error 401	sessionExpired
+ClientException: Connection closed while receiving data, uri=https://music.example/Items/401abc/stream?api_key=403	networkDropped
+Failed host lookup: 'jellyfin.local'	serverUnreachable
+Connection refused	serverUnreachable
+Network is unreachable	serverUnreachable
+SocketException: OS Error: Connection reset by peer, errno = 104	networkDropped
+Unable to instantiate decoder	formatUnsupported
+Parse error in /tmp/stream	formatUnsupported
+UnrecognizedInputFormatException: None of the available extractors	unknown
+Source error	networkDropped
+Timeout\nafter /storage/emulated/401/x	networkDropped
+UNAUTHORIZED	sessionExpired
+EOF	networkDropped
+file:///sdcard/Music/403.mp3 not found	unknown
+open '/home/Ada Lovelace/401/song.flac': Permission denied	unknown
+/home/Ada Lovelace/403.flac: no such file	unknown
+a / 401 b	sessionExpired
+Ünicode timeout	networkDropped
+something odd happened	unknown
+	unknown

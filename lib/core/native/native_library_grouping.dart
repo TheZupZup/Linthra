@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -6,7 +7,6 @@ import 'package:ffi/ffi.dart';
 import '../models/track.dart';
 import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
-import 'native_text.dart';
 
 /// The Rust core's grouping of a catalog, as raw arrays. Track indices point
 /// into the list that was grouped, and [LinthraGrouping.noTrack] means none.
@@ -42,7 +42,7 @@ abstract final class NativeLibraryGrouping {
   static NativeLibraryGroups? group(List<Track> tracks) {
     if (!LinthraCore.isAvailable) return null;
     final int count = tracks.length;
-    final NativeTextWriter text = NativeTextWriter(count);
+    final _Utf8Writer text = _Utf8Writer(count);
 
     return using((Arena arena) {
       final Pointer<Uint32> spans = arena<Uint32>(8 * count + 8);
@@ -68,7 +68,7 @@ abstract final class NativeLibraryGrouping {
 
       final Pointer<LinthraGroupingResult> result =
           linthraLibraryGroup(textPointer, bytes.length, spans, count);
-      // Every span was written by [NativeTextWriter] from Dart strings, so a
+      // Every span was written by [_Utf8Writer] from Dart strings, so a
       // refusal means the two sides of the ABI disagree.
       if (result == nullptr) {
         throw StateError('linthra_library_group refused its input');
@@ -107,4 +107,67 @@ abstract final class NativeLibraryGrouping {
       trackArtist: Uint32List.fromList(view.trackArtist.asTypedList(count)),
     );
   }
+}
+
+/// One UTF-8 buffer holding every field, and the spans that point into it.
+///
+/// ASCII (most metadata) is written byte by byte with no allocation; anything
+/// else goes through the codec.
+class _Utf8Writer {
+  /// Sized for [tracks] typical tracks, so a normal catalog never grows it.
+  _Utf8Writer(int tracks) : _bytes = Uint8List(64 + tracks * 48);
+
+  Uint8List _bytes;
+  int _length = 0;
+
+  /// Whether a string held an unpaired surrogate, which UTF-8 cannot carry:
+  /// the codec writes U+FFFD instead, so Rust would see different text.
+  bool lossy = false;
+
+  /// Writes [part] and its span (start, length) into [spans] at [at].
+  void add(Uint32List spans, int at, String part) {
+    final int start = _length;
+    spans[at] = start;
+    // At most three UTF-8 bytes per UTF-16 code unit.
+    _reserve(part.length * 3);
+    for (int i = 0; i < part.length; i++) {
+      final int unit = part.codeUnitAt(i);
+      if (unit >= 0x80) {
+        _length = start;
+        if (_hasUnpairedSurrogate(part, i)) lossy = true;
+        final Uint8List encoded = utf8.encode(part);
+        _bytes.setRange(_length, _length + encoded.length, encoded);
+        _length += encoded.length;
+        break;
+      }
+      _bytes[_length++] = unit;
+    }
+    spans[at + 1] = _length - start;
+  }
+
+  void _reserve(int more) {
+    if (_length + more <= _bytes.length) return;
+    int capacity = _bytes.length * 2;
+    while (capacity < _length + more) {
+      capacity *= 2;
+    }
+    _bytes = Uint8List(capacity)..setRange(0, _length, _bytes);
+  }
+
+  /// The bytes written so far, as a view (no copy).
+  Uint8List bytes() => Uint8List.sublistView(_bytes, 0, _length);
+}
+
+/// Whether [text], from [from] on, has a surrogate without its other half.
+bool _hasUnpairedSurrogate(String text, int from) {
+  for (int i = from; i < text.length; i++) {
+    final int unit = text.codeUnitAt(i);
+    if (unit < 0xD800 || unit > 0xDFFF) continue;
+    if (unit > 0xDBFF) return true;
+    if (i + 1 == text.length) return true;
+    final int next = text.codeUnitAt(i + 1);
+    if (next < 0xDC00 || next > 0xDFFF) return true;
+    i++;
+  }
+  return false;
 }

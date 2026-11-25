@@ -154,8 +154,8 @@ report** issue template.
 - [ ] **Cast** a track to a Chromecast (if available) → it plays on the
       receiver.
 - [ ] Sign out & clear → session cleared and a stale "Synced N" line is gone.
-      The synced library stays (browsable offline) until another account
-      signs in.
+      The synced songs leave the library; downloaded files stay on the
+      device, set aside, and come back when this server is connected again.
 - [ ] Sign in as a **different** user (or to another server) whose library is
       empty → none of the previous account's tracks are left.
 - [ ] With the previous account's songs queued (one playing), sign in as a

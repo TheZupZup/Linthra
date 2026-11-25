@@ -247,10 +247,13 @@ ask the new server for its own song 101, under the old song's title, and its
 scrobble, favourite, cover and lyrics would go there too. So the queue follows
 the library:
 
-- **Jellyfin or Navidrome/Subsonic:** signing out keeps the library and the
-  queue. When **another** account (or another server address) signs in, the
+- **Jellyfin or Navidrome/Subsonic:** signing out takes the songs that can't
+  play signed out out of the library: every Navidrome/Subsonic song, and the
+  Jellyfin songs not downloaded on this device. The queue keeps them. When
+  **another** account (or another server address) signs in, what stayed of the
   previous account's library is removed, and its songs leave the queue at the
-  same moment. Signing back in to the same account keeps both.
+  same moment. Signing back in to the same account syncs its library again
+  and keeps the queue.
 - **Plex:** disconnecting removes the synced library, and its songs leave the
   queue with it. Connecting to a **different** server does the same;
   reconnecting to the same server keeps them.

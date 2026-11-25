@@ -1,7 +1,3 @@
-import 'dart:typed_data';
-
-import 'package:flutter/foundation.dart';
-
 import '../models/track.dart';
 import '../native/native_track_unifier.dart';
 import 'logical_track.dart';
@@ -44,52 +40,15 @@ import 'track_identity.dart';
 /// Output order follows the first appearance of each logical track in [tracks],
 /// so a caller that relied on the catalog's order (before re-sorting for the A–Z
 /// list, say) sees the same ordering it always did.
-///
-/// Runs in the Rust core (native/linthra_core/src/track_unifier.rs) when the
-/// build carries it, and in [unifyTracksInDart] otherwise. Both give the same
-/// logical tracks, with the same candidates in the same order.
-List<LogicalTrack> unifyTracks(List<Track> tracks, SourcePriority priority) {
-  final List<String> sourceIds = <String>[
-    for (final Track track in tracks) trackSourceId(track),
-  ];
-  // Providers cross as small numbers: their position in first-seen order.
-  final Map<String, int> sourceNumbers = <String, int>{};
-  final List<int> sources = <int>[
-    for (final String id in sourceIds)
-      sourceNumbers.putIfAbsent(id, () => sourceNumbers.length),
-  ];
-  final Map<int, int> rankOf = <int, int>{
-    for (final MapEntry<String, int> e in sourceNumbers.entries)
-      e.value: priority.rankOf(e.key),
-  };
-  final ({Uint32List offsets, Uint32List members})? native =
-      NativeTrackUnifier.unify(
-    tracks,
-    sources,
-    <int>[for (final int source in sources) rankOf[source]!],
-  );
-  if (native == null) return unifyTracksInDart(tracks, priority);
-  TrackSourceCandidate candidate(int i) =>
-      TrackSourceCandidate(track: tracks[i], sourceId: sourceIds[i]);
-  final Uint32List offsets = native.offsets;
-  final Uint32List members = native.members;
-  return <LogicalTrack>[
-    for (int l = 0; l + 1 < offsets.length; l++)
-      offsets[l + 1] - offsets[l] == 1
-          ? LogicalTrack.single(candidate(members[offsets[l]]))
-          : LogicalTrack(<TrackSourceCandidate>[
-              for (int m = offsets[l]; m < offsets[l + 1]; m++)
-                candidate(members[m]),
-            ]),
-  ];
-}
-
-/// [unifyTracks] without the Rust core: the reference rules.
-@visibleForTesting
-List<LogicalTrack> unifyTracksInDart(
+List<LogicalTrack> unifyTracks(
   List<Track> tracks,
-  SourcePriority priority,
-) {
+  SourcePriority priority, {
+  bool useNative = true,
+}) {
+  if (useNative) {
+    final List<LogicalTrack>? native = _unifyNatively(tracks, priority);
+    if (native != null) return native;
+  }
   // First pass: bucket eligible tracks by block key, then resolve each block
   // into same-song groups. groupByUri maps a track's provider-namespaced uri to
   // the members of its group (a group of one for a track that matched nothing).
@@ -203,4 +162,40 @@ int Function(Track, Track) _byPriorityThenId(SourcePriority priority) {
     if (byRank != 0) return byRank;
     return a.uri.compareTo(b.uri);
   };
+}
+
+/// [unifyTracks] in the Rust core (native/linthra_core/src/track_unifier.rs),
+/// or null without it. The rules are the same; the parity test
+/// (test/core/catalog/track_unifier_native_test.dart) holds the two together.
+List<LogicalTrack>? _unifyNatively(
+  List<Track> tracks,
+  SourcePriority priority,
+) {
+  final List<String> sourceIds = <String>[
+    for (final Track t in tracks) trackSourceId(t),
+  ];
+  final Map<String, int> sourceCodes = <String, int>{};
+  final List<List<int>>? rows = NativeTrackUnifier.unify(<NativeUnifyTrack>[
+    for (int i = 0; i < tracks.length; i++)
+      (
+        uri: tracks[i].uri,
+        title: tracks[i].title,
+        artist: tracks[i].artistName ?? '',
+        album: tracks[i].albumName ?? '',
+        source: sourceCodes.putIfAbsent(sourceIds[i], () => sourceCodes.length),
+        rank: priority.rankOf(sourceIds[i]),
+        durationSeconds: tracks[i].duration.inSeconds,
+        trackNumber: tracks[i].trackNumber,
+      ),
+  ]);
+  if (rows == null) return null;
+  return <LogicalTrack>[
+    for (final List<int> row in rows)
+      row.length == 1
+          ? LogicalTrack.single(_candidate(tracks[row.first]))
+          : LogicalTrack(<TrackSourceCandidate>[
+              for (final int i in row)
+                TrackSourceCandidate(track: tracks[i], sourceId: sourceIds[i]),
+            ]),
+  ];
 }

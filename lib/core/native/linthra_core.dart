@@ -14,7 +14,7 @@ import 'linthra_core_ffi.dart';
 abstract final class LinthraCore {
   /// The C ABI version this Dart code was written against. Must match
   /// `ABI_VERSION` in native/linthra_core/src/ffi.rs.
-  static const int abiVersion = 9;
+  static const int abiVersion = 14;
 
   static bool? _available;
 

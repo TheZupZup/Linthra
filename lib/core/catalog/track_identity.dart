@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/track.dart';
 import '../sources/music_provider.dart';
-import 'text_folding.dart';
+import 'search_tokens.dart';
 
 /// Cross-provider identity for a [Track]: the `sourceId` that owns it and a
 /// conservative "is this the same song?" decision used to unify duplicates that
@@ -30,11 +30,6 @@ import 'text_folding.dart';
 /// overlap, and track number — and merge only when the weighted score clears a
 /// high threshold *and* no veto fires. The guiding rule is unchanged: prefer
 /// keeping two rows separate over merging songs that might be different.
-
-// The Rust core keeps a copy of these rules (native/linthra_core/src/
-// track_unifier.rs), which `unifyTracks` runs when the build carries it:
-// change both together. test/core/catalog/track_unifier_native_test.dart
-// fails when they drift.
 
 /// The `sourceId` of the provider that owns [track], derived from its opaque
 /// `scheme:` URI (`jellyfin:` / `subsonic:` / a local path). This is the same
@@ -83,8 +78,8 @@ bool canMatchAcrossProviders(Track track) => matchBlockKey(track) != null;
 /// while the block stays small. Scoring inside the block does the precise work.
 String? matchBlockKey(Track track) {
   if (track.duration.inSeconds <= 0) return null;
-  final List<String> artist = _tokenize(foldText(track.artistName ?? ''));
-  final List<String> album = _tokenize(foldText(track.albumName ?? ''));
+  final List<String> artist = searchTokens(track.artistName ?? '');
+  final List<String> album = searchTokens(track.albumName ?? '');
   final List<String> title = _coreTitleTokens(track.title);
   if (artist.isEmpty || album.isEmpty || title.isEmpty) return null;
   // A separator so two tokens can never run together into a third key
@@ -117,8 +112,8 @@ double trackMatchScore(Track a, Track b) {
 
   final double title = _titleScore(a.title, b.title);
   final double album = _containment(
-    _tokenize(foldText(a.albumName ?? '')),
-    _tokenize(foldText(b.albumName ?? '')),
+    searchTokens(a.albumName ?? ''),
+    searchTokens(b.albumName ?? ''),
   );
   final double artist = _containment(
     _artistTokens(a.artistName),
@@ -148,18 +143,21 @@ double _titleScore(String a, String b) {
 /// `feat.`/`ft.`/`featuring` qualifiers anywhere in the title, in `(parens)` or
 /// `[brackets]` or trailing bare — but stopping at an opening bracket so a
 /// following version marker (`(Live)`) is preserved.
-final RegExp _parenFeat =
-    RegExp(r'[\(\[][^\)\]]*\b(?:feat|ft|featuring)\b[^\)\]]*[\)\]]');
-final RegExp _trailingFeat = RegExp(r'\b(?:feat|ft|featuring)\b[^\(\[]*$');
+final RegExp _parenFeat = RegExp(
+    r'[\(\[][^\)\]]*\b(?:feat|ft|featuring)\b[^\)\]]*[\)\]]',
+    caseSensitive: false);
+final RegExp _trailingFeat =
+    RegExp(r'\b(?:feat|ft|featuring)\b[^\(\[]*$', caseSensitive: false);
 
-/// The folded title with featured-artist qualifiers removed, tokenized. So
+/// The title with featured-artist qualifiers removed, tokenized. So
 /// `CAREFUL`, `CAREFUL feat. Cordae`, and `Careful (feat. Cordae)` all reduce to
 /// `[careful]`, while `Hello (Live)` keeps `[hello, live]`.
 List<String> _coreTitleTokens(String title) {
-  String s = foldText(title);
-  s = s.replaceAll(_parenFeat, ' ');
+  // Case is left to [searchTokens], which folds it the way the Rust core
+  // does (see native/linthra_core/src/track_unifier.rs).
+  String s = title.replaceAll(_parenFeat, ' ');
   s = s.replaceAll(_trailingFeat, ' ');
-  return _tokenize(s);
+  return searchTokens(s);
 }
 
 /// Connective words dropped from artist tokens so `NF feat. Cordae`, `NF, Cordae`
@@ -172,7 +170,7 @@ const Set<String> _artistStopwords = <String>{'feat', 'ft', 'featuring', 'and'};
 /// `{nf}`; `NF, Cordae` → `{nf, cordae}`; `Hall & Oates` → `{hall, oates}`.
 Set<String> _artistTokens(String? artist) {
   return <String>{
-    for (final String t in _tokenize(foldText(artist ?? '')))
+    for (final String t in searchTokens(artist ?? ''))
       if (!_artistStopwords.contains(t)) t,
   };
 }
@@ -207,10 +205,3 @@ double _containment(Iterable<String> a, Iterable<String> b) {
   final int smaller = sa.length < sb.length ? sa.length : sb.length;
   return smaller == 0 ? 0.0 : intersection / smaller;
 }
-
-/// Splits folded text into alphanumeric tokens, dropping all punctuation and
-/// whitespace. `"25 (deluxe)"` → `["25", "deluxe"]`.
-List<String> _tokenize(String folded) => folded
-    .split(RegExp(r'[^a-z0-9]+'))
-    .where((String t) => t.isNotEmpty)
-    .toList();

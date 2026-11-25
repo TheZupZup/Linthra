@@ -1,6 +1,7 @@
 import '../../core/catalog/library_grouping.dart';
 import '../../core/catalog/text_folding.dart';
 import '../../core/models/track.dart';
+import '../../core/native/native_song_sort.dart';
 
 /// Choose how to sort songs.
 enum SongSortField { title, artist, album, dateAdded }
@@ -78,13 +79,35 @@ class SortedSongs {
 /// pass the catalog's when [tracks] is a search of it, so a search that hides
 /// the song carrying an album's name doesn't move the rest to Unknown Album.
 /// Without it the albums are worked out from [tracks] alone.
+///
+/// The Rust core sorts when the build has it
+/// (native/linthra_core/src/song_sort.rs); [useNative] false keeps to the Dart
+/// rules below, which song_sort_native_test.dart holds it to.
 SortedSongs sortSongs(
   List<Track> tracks,
   SongSort sort, {
   Map<String, DateTime> addedAt = const <String, DateTime>{},
   SongAlbums? albums,
+  bool useNative = true,
 }) {
   final SongSortField field = sort.field;
+  if (useNative) {
+    final bool filesByAlbum =
+        field == SongSortField.artist || field == SongSortField.album;
+    final (List<int>, List<String>?)? native = NativeSongSort.sort(
+      tracks,
+      catalog: filesByAlbum ? albums?.catalog : null,
+      field: field.index,
+      descending: sort.descending,
+      addedAt: addedAt,
+    );
+    if (native != null) {
+      return SortedSongs(
+        <Track>[for (final int i in native.$1) tracks[i]],
+        native.$2,
+      );
+    }
+  }
   final SongAlbums? filing =
       field == SongSortField.artist || field == SongSortField.album
           ? albums ?? SongAlbums.of(tracks)
@@ -142,8 +165,19 @@ typedef _Album = ({String id, String? name, String? artist});
 /// the album's own artist when any song carries one, otherwise its first
 /// track artist, so neither depends on the order the catalog came in.
 class SongAlbums {
-  factory SongAlbums.of(List<Track> catalog) {
-    final SongAlbums albums = SongAlbums._();
+  /// Cheap: the albums are worked out when a sort first needs them, and in
+  /// the Rust core, which files a sort against [catalog] itself, never here.
+  SongAlbums.of(this.catalog);
+
+  /// The catalog the albums come from.
+  final List<Track> catalog;
+
+  bool _built = false;
+
+  void _build() {
+    if (_built) return;
+    _built = true;
+    final SongAlbums albums = this;
     for (final Track track in catalog) {
       final String id = albumIdForTrack(track);
       albums._idByUri[track.uri] = id;
@@ -155,10 +189,7 @@ class SongAlbums {
       );
       _keepFirst(albums._trackArtists, id, _SongKey._fold(track.artistName));
     }
-    return albums;
   }
-
-  SongAlbums._();
 
   final Map<String, String> _idByUri = <String, String>{};
   final Map<String, String> _names = <String, String>{};
@@ -178,6 +209,7 @@ class SongAlbums {
   /// [track]'s album. A song the catalog doesn't hold falls back on its own
   /// tags rather than on nothing.
   _Album _albumOf(Track track) {
+    _build();
     final String id = _idByUri[track.uri] ?? albumIdForTrack(track);
     return (
       id: id,

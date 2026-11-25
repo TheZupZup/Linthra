@@ -9,7 +9,7 @@ like a regular playlist or album.
 
 | Mix | What it contains | Signal it's built from |
 | --- | --- | --- |
-| **Recently added** | Newest tracks in your library, newest first | First-seen timestamp recorded on each scan/sync |
+| **Recently added** | Newest tracks in your library, newest first | The date the server says the track was added, or else the first-seen time recorded on each scan/sync |
 | **Recently played** | Tracks you've finished, most recent first | On-device play history (`lastPlayedAt`) |
 | **Most played** | The songs you reach for most | On-device play history (`playCount`) |
 | **Favorites** | Everything you've liked | The existing favourites repository |

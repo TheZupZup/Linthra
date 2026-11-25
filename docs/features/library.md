@@ -17,7 +17,9 @@ The Library is organised into three tabs:
   plays it and queues the rest of the visible list, in the order shown.
 - **Albums** — tracks grouped into albums. Each row shows the album artwork (or
   a placeholder), the album title, the album artist, and the track count.
-  Tapping an album opens its detail view.
+  The sort button above the grid orders it by title, artist (A to Z or Z to A)
+  or date added (newest or oldest first), remembered apart from the Songs
+  order. Tapping an album opens its detail view.
 - **Artists** — tracks grouped by artist. Each row shows an avatar placeholder,
   the artist name, and the album/track counts. Tapping an artist opens its
   detail view.
@@ -164,11 +166,13 @@ date added order has no letters to index, so it shows neither section headers
 nor the rail. The Albums and Artists tabs are short, grouped lists and don't
 use the rail.
 
-"Date added" is the first-seen time Linthra records when a scan or sync first
-finds a track, the same one behind the Recently added mix. It is not the
-release date or the file's modification time. A song held by more than one
-server takes its earliest copy's time, and songs with no recorded time come
-last.
+"Date added" is when the song was added to its server: Jellyfin's
+`DateCreated`, or Subsonic's `created` (Navidrome's date added). A song whose
+server doesn't say, a local file among them, takes the first-seen time Linthra
+records when a scan or sync first finds it. The same date is behind the
+Recently added mix. It is not the release date or the file's modification
+time. A song held by more than one server takes its earliest copy's date, an
+album takes its earliest song's, and anything with no date comes last.
 
 ## How grouping works
 

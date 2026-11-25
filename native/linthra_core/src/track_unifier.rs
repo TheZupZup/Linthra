@@ -1,198 +1,173 @@
-//! Cross-provider duplicate merging: the rules of `unifyTracks`
-//! (lib/core/catalog/track_unifier.dart) and `trackMatchScore`
-//! (lib/core/catalog/track_identity.dart), for the whole catalog in one call.
+//! Merging one song's copies from different servers into one library row.
 //!
-//! The Dart files hold the reasoning behind every rule; this module only has
-//! to give the same answer. What makes that hard is text: Dart lower-cases the
-//! title, artist and album before they cross (its case table is the one the
-//! Dart rules run on), the rest of `foldText` is [fold], and the two
-//! featured-artist regexes are matched by hand in [core_title_tokens] with the
-//! ASCII word boundary Dart's non-unicode `RegExp` uses.
+//! The same rules as `lib/core/catalog/track_identity.dart` and
+//! `track_unifier.dart`, which are the fallback; `track_unifier_native_test`
+//! on the Dart side compares the two. Conservative by design: two rows stay
+//! apart unless their title, album and artist agree closely, their lengths
+//! are within two seconds, their track numbers don't conflict, and they come
+//! from different servers.
 //!
-//! Where the Dart code compares `String`s (the uri tiebreak), Rust compares in
-//! UTF-16 code unit order ([dart_compare]) so both sort the same way.
-//!
-//! `test/core/catalog/track_unifier_native_test.dart` replays random and
-//! tricky catalogs through both and fails on any difference.
+//! Text is read with the search tokenizer ([crate::normalize]), which keeps
+//! the letters of every script, so a song tagged in Cyrillic, Greek or CJK
+//! merges like a Latin-tagged one.
 
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use crate::library_grouping::fold;
+use crate::normalize::normalized_tokens;
 
-/// One catalog row as the unifier sees it.
-pub struct UnifierTrack<'a> {
-    /// The title, lower-cased by Dart's `String.toLowerCase`.
-    pub title: &'a str,
-    /// The artist, lower-cased the same way (empty when none).
-    pub artist: &'a str,
-    /// The album, lower-cased the same way (empty when none).
-    pub album: &'a str,
-    /// The provider-namespaced uri, as the source gave it.
+/// What the unifier needs to know about one catalog row.
+#[derive(Clone, Debug)]
+pub struct UnifyTrack<'a> {
     pub uri: &'a str,
-    /// `Duration.inSeconds`.
-    pub duration_seconds: i64,
-    pub track_number: Option<i64>,
-    /// Which provider owns the track. Equal values mean the same provider.
+    /// The server it comes from; two copies from one server never merge.
     pub source: u32,
-    /// `SourcePriority.rankOf` for that provider, lower is preferred.
+    /// Its server's place in the listener's preference, lower first.
     pub rank: u32,
+    pub title: &'a str,
+    pub artist: &'a str,
+    pub album: &'a str,
+    pub duration_secs: i64,
+    pub track_number: Option<i64>,
 }
 
-const NEAR_DURATION_SECONDS: i64 = 2;
+/// Copies whose lengths differ by more than this are different songs (a radio
+/// edit and an extended mix); a re-encode can move a length by a second.
+const NEAR_DURATION_SECS: i64 = 2;
 const W_TITLE: f64 = 0.45;
 const W_ALBUM: f64 = 0.30;
 const W_ARTIST: f64 = 0.25;
-const MATCH_SCORE: f64 = 0.9;
+/// The score two copies must reach to merge: high, so a single strong field
+/// disagreeing keeps them apart.
+pub const MATCH_SCORE: f64 = 0.9;
+
+const FEAT_WORDS: [&str; 3] = ["feat", "ft", "featuring"];
 const ARTIST_STOPWORDS: [&str; 4] = ["feat", "ft", "featuring", "and"];
 
-/// What scoring needs from a track, worked out once instead of per pair.
-/// Tokens are [Interner] ids.
-struct Features {
-    /// The feat-stripped title tokens, in order.
-    title: Vec<u32>,
-    /// The same tokens, sorted and deduplicated.
-    title_set: Vec<u32>,
-    album_set: Vec<u32>,
-    /// Artist tokens without the connective stopwords, sorted and deduplicated.
-    artist_set: Vec<u32>,
-    /// `matchBlockKey` (first artist token, first title token), or None for a
-    /// track that can never merge.
-    block: Option<(u32, u32)>,
+/// One row's tokens, worked out once.
+struct Identity {
+    title: Vec<String>,
+    album: HashSet<String>,
+    artist: HashSet<String>,
+    block: Option<String>,
 }
 
-/// Numbers each distinct token, so tokens compare as `u32`s and each one is
-/// allocated once per call rather than once per track.
-#[derive(Default)]
-struct Interner {
-    ids: HashMap<Box<[u8]>, u32>,
-}
-
-impl Interner {
-    fn id(&mut self, token: &[u8]) -> u32 {
-        if let Some(&id) = self.ids.get(token) {
-            return id;
+impl Identity {
+    fn of(track: &UnifyTrack) -> Self {
+        let artist_tokens = normalized_tokens(track.artist);
+        let album_tokens = normalized_tokens(track.album);
+        let title = core_title_tokens(track.title);
+        let block = (track.duration_secs > 0
+            && !artist_tokens.is_empty()
+            && !album_tokens.is_empty()
+            && !title.is_empty())
+        .then(|| format!("{}|{}", artist_tokens[0], title[0]));
+        Identity {
+            artist: artist_tokens
+                .into_iter()
+                .filter(|t| !ARTIST_STOPWORDS.contains(&t.as_str()))
+                .collect(),
+            album: album_tokens.into_iter().collect(),
+            title,
+            block,
         }
-        let id = self.ids.len() as u32;
-        self.ids.insert(token.into(), id);
-        id
-    }
-
-    fn tokens(&mut self, text: &[u8]) -> Vec<u32> {
-        tokens(text).map(|t| self.id(t)).collect()
     }
 }
 
-/// The logical tracks of `tracks`, each as the positions of its copies,
-/// best-first. Logical tracks come in order of first appearance, exactly as
-/// `unifyTracks` emits them.
-pub fn unify(tracks: &[UnifierTrack]) -> Vec<Vec<usize>> {
-    let mut interner = Interner::default();
-    let stopwords = ARTIST_STOPWORDS.map(|w| interner.id(w.as_bytes()));
-    let features: Vec<Features> = tracks
-        .iter()
-        .map(|t| features(t, &mut interner, &stopwords))
-        .collect();
+/// `\w` in a Dart regular expression: ASCII letters, digits and `_`.
+fn is_word(c: Option<char>) -> bool {
+    c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+}
 
-    // Blocks in order of first appearance, as Dart's insertion-ordered map
-    // walks them. The order matters only for duplicate uris, see below.
-    let mut block_of: HashMap<(u32, u32), usize> = HashMap::new();
-    let mut blocks: Vec<Vec<usize>> = Vec::new();
-    for (i, f) in features.iter().enumerate() {
-        let Some(key) = f.block else {
-            continue;
-        };
-        let next = blocks.len();
-        let at = *block_of.entry(key).or_insert(next);
-        if at == next {
-            blocks.push(Vec::new());
-        }
-        blocks[at].push(i);
+/// Where a whole word `feat`, `ft` or `featuring` starts in `chars` at or
+/// after `from`, and its length: `\b(?:feat|ft|featuring)\b`.
+fn feat_word_at(chars: &[char], at: usize) -> Option<usize> {
+    if is_word(at.checked_sub(1).and_then(|i| chars.get(i).copied())) {
+        return None;
     }
+    // The alternation tries `feat` before `featuring`, then backtracks when
+    // no boundary follows, as the regex does.
+    FEAT_WORDS.iter().find_map(|word| {
+        let len = word.chars().count();
+        let matches = word.chars().enumerate().all(|(k, w)| {
+            chars
+                .get(at + k)
+                .is_some_and(|c| c.eq_ignore_ascii_case(&w))
+        });
+        (matches && !is_word(chars.get(at + len).copied())).then_some(len)
+    })
+}
 
-    // Keyed by uri like Dart's `groupByUri`: a uri that appears twice ends up
-    // in whichever group was written last.
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut group_by_uri: HashMap<&str, usize> = HashMap::new();
-    for block in &blocks {
-        for group in group_block(block, tracks, &features) {
-            let id = groups.len();
-            for &member in &group {
-                group_by_uri.insert(tracks[member].uri, id);
-            }
-            groups.push(group);
-        }
-    }
-
-    let merges: Vec<bool> = groups
-        .iter()
-        .map(|g| distinct_sources(g, tracks) >= 2)
-        .collect();
-    let mut emitted_anchors: HashSet<&str> = HashSet::new();
-    let mut result = Vec::with_capacity(tracks.len());
-    for (i, track) in tracks.iter().enumerate() {
-        match group_by_uri.get(track.uri) {
-            Some(&g) if merges[g] => {
-                if emitted_anchors.insert(tracks[groups[g][0]].uri) {
-                    // Members joined in (rank, uri) order, which is already
-                    // the order Dart sorts the candidates into.
-                    result.push(groups[g].clone());
+/// The title with featured-artist qualifiers taken out, matched without
+/// regard to ASCII case:
+/// `[\(\[][^\)\]]*\b(?:feat|ft|featuring)\b[^\)\]]*[\)\]]` anywhere, then
+/// `\b(?:feat|ft|featuring)\b[^\(\[]*$` at the end, each replaced with a
+/// space. So `Careful (feat. Cordae)` and `CAREFUL feat. Cordae` both read as
+/// `careful`, while `Hello (Live)` keeps its version marker. Case is left to
+/// the tokenizer: lower-casing here would apply Rust's final-sigma rule,
+/// which Dart's `toLowerCase` doesn't.
+fn strip_featured(title: &str) -> String {
+    let chars: Vec<char> = title.chars().collect();
+    let mut kept = String::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if matches!(chars[i], '(' | '[') {
+            if let Some(close) = chars[i + 1..].iter().position(|c| matches!(c, ')' | ']')) {
+                let end = i + 1 + close;
+                if (i + 1..end).any(|k| feat_word_at(&chars, k).is_some_and(|len| k + len <= end)) {
+                    kept.push(' ');
+                    i = end + 1;
+                    continue;
                 }
             }
-            _ => result.push(vec![i]),
+        }
+        kept.push(chars[i]);
+        i += 1;
+    }
+    let chars: Vec<char> = kept.chars().collect();
+    for at in 0..chars.len() {
+        if let Some(len) = feat_word_at(&chars, at) {
+            if !chars[at + len..].iter().any(|c| matches!(c, '(' | '[')) {
+                let mut out: String = chars[..at].iter().collect();
+                out.push(' ');
+                return out;
+            }
         }
     }
-    result
+    kept
 }
 
-/// `_groupBlock`: each track, in (rank, uri) order, joins the first group
-/// whose anchor it matches and whose provider it does not already have.
-fn group_block(block: &[usize], tracks: &[UnifierTrack], features: &[Features]) -> Vec<Vec<usize>> {
-    let mut ordered = block.to_vec();
-    // Stable, so equal (rank, uri) keep their catalog order, as Dart's
-    // insertion sort does for the small lists blocks are.
-    ordered.sort_by(|&a, &b| {
-        tracks[a]
-            .rank
-            .cmp(&tracks[b].rank)
-            .then_with(|| dart_compare(tracks[a].uri, tracks[b].uri))
-    });
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for &i in &ordered {
-        let target = groups.iter().position(|group| {
-            !group.iter().any(|&m| tracks[m].source == tracks[i].source)
-                && is_likely_same(group[0], i, tracks, features)
-        });
-        match target {
-            Some(g) => groups[g].push(i),
-            None => groups.push(vec![i]),
-        }
+fn core_title_tokens(title: &str) -> Vec<String> {
+    normalized_tokens(&strip_featured(title))
+}
+
+fn jaccard(a: &HashSet<&String>, b: &HashSet<&String>) -> f64 {
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
     }
-    groups
-}
-
-fn distinct_sources(group: &[usize], tracks: &[UnifierTrack]) -> usize {
-    let source = |k: usize| tracks[group[k]].source;
-    (0..group.len())
-        .filter(|&k| (0..k).all(|j| source(j) != source(k)))
-        .count()
-}
-
-fn is_likely_same(a: usize, b: usize, tracks: &[UnifierTrack], features: &[Features]) -> bool {
-    match_score(&tracks[a], &features[a], &tracks[b], &features[b]) >= MATCH_SCORE
-}
-
-/// `trackMatchScore`, summed in the same order so the doubles agree.
-fn match_score(a: &UnifierTrack, fa: &Features, b: &UnifierTrack, fb: &Features) -> f64 {
-    if fa.block.is_none() || fb.block.is_none() {
+    if a.is_empty() || b.is_empty() {
         return 0.0;
     }
-    // Dart's int arithmetic wraps; so does this.
-    if a.duration_seconds
-        .wrapping_sub(b.duration_seconds)
-        .wrapping_abs()
-        > NEAR_DURATION_SECONDS
-    {
+    let intersection = a.iter().filter(|t| b.contains(*t)).count();
+    let union = a.len() + b.len() - intersection;
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
+}
+
+fn containment(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let intersection = a.iter().filter(|t| b.contains(*t)).count();
+    intersection as f64 / a.len().min(b.len()) as f64
+}
+
+/// How confidently two eligible rows are the same song, in [0, 1]; 0 for a
+/// veto (lengths more than two seconds apart, or conflicting track numbers).
+fn score(a: &UnifyTrack, ia: &Identity, b: &UnifyTrack, ib: &Identity) -> f64 {
+    if (a.duration_secs - b.duration_secs).abs() > NEAR_DURATION_SECS {
         return 0.0;
     }
     if let (Some(na), Some(nb)) = (a.track_number, b.track_number) {
@@ -200,168 +175,108 @@ fn match_score(a: &UnifierTrack, fa: &Features, b: &UnifierTrack, fb: &Features)
             return 0.0;
         }
     }
-    let title = if fa.title == fb.title {
+    let title = if ia.title == ib.title {
         1.0
     } else {
-        jaccard(&fa.title_set, &fb.title_set)
+        jaccard(&ia.title.iter().collect(), &ib.title.iter().collect())
     };
-    let album = containment(&fa.album_set, &fb.album_set);
-    let artist = containment(&fa.artist_set, &fb.artist_set);
-    W_TITLE * title + W_ALBUM * album + W_ARTIST * artist
+    W_TITLE * title
+        + W_ALBUM * containment(&ia.album, &ib.album)
+        + W_ARTIST * containment(&ia.artist, &ib.artist)
 }
 
-fn features(track: &UnifierTrack, interner: &mut Interner, stopwords: &[u32]) -> Features {
-    let title = interner.tokens(&core_title(track.title));
-    let artist = interner.tokens(fold(track.artist).as_bytes());
-    let album = interner.tokens(fold(track.album).as_bytes());
-    let eligible =
-        track.duration_seconds > 0 && !artist.is_empty() && !album.is_empty() && !title.is_empty();
-    let block = eligible.then(|| (artist[0], title[0]));
-    let artist_set = sorted_set(
-        artist
-            .into_iter()
-            .filter(|t| !stopwords.contains(t))
-            .collect(),
-    );
-    Features {
-        title_set: sorted_set(title.clone()),
-        title,
-        album_set: sorted_set(album),
-        artist_set,
-        block,
+/// Dart orders strings by UTF-16 code units.
+fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    a.encode_utf16().cmp(b.encode_utf16())
+}
+
+/// The library rows `tracks` make: each a list of indices into `tracks`. A
+/// row of one for a track that merges with nothing; for a song found on two
+/// or more servers, every copy, best-preferred first. Rows come in the order
+/// of each one's first track.
+pub fn unify(tracks: &[UnifyTrack]) -> Vec<Vec<u32>> {
+    let identities: Vec<Identity> = tracks.iter().map(Identity::of).collect();
+
+    // Block: only rows that share an artist's first word and a title's first
+    // word are ever compared.
+    let mut blocks: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut block_order: Vec<&str> = Vec::new();
+    for (i, identity) in identities.iter().enumerate() {
+        if let Some(key) = identity.block.as_deref() {
+            blocks
+                .entry(key)
+                .or_insert_with(|| {
+                    block_order.push(key);
+                    Vec::new()
+                })
+                .push(i);
+        }
     }
-}
 
-fn sorted_set(mut tokens: Vec<u32>) -> Vec<u32> {
-    tokens.sort_unstable();
-    tokens.dedup();
-    tokens
-}
+    let by_preference = |&a: &usize, &b: &usize| {
+        tracks[a]
+            .rank
+            .cmp(&tracks[b].rank)
+            .then_with(|| utf16_cmp(tracks[a].uri, tracks[b].uri))
+    };
 
-/// `|a ∩ b|` of two sorted, deduplicated token lists.
-fn intersection(a: &[u32], b: &[u32]) -> usize {
-    let (mut i, mut j, mut n) = (0, 0, 0);
-    while i < a.len() && j < b.len() {
-        match a[i].cmp(&b[j]) {
-            Ordering::Less => i += 1,
-            Ordering::Greater => j += 1,
-            Ordering::Equal => {
-                n += 1;
-                i += 1;
-                j += 1;
+    // Within a block: each row joins the first group whose anchor (its most
+    // preferred copy) it confidently matches and whose server it doesn't
+    // already have, else starts its own.
+    let mut group_of_uri: HashMap<&str, usize> = HashMap::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for key in block_order {
+        let mut members = blocks.remove(key).unwrap_or_default();
+        members.sort_by(by_preference);
+        let first_group = groups.len();
+        for i in members {
+            let target = (first_group..groups.len()).find(|&g| {
+                let group = &groups[g];
+                let anchor = group[0];
+                !group.iter().any(|&m| tracks[m].source == tracks[i].source)
+                    && score(
+                        &tracks[anchor],
+                        &identities[anchor],
+                        &tracks[i],
+                        &identities[i],
+                    ) >= MATCH_SCORE
+            });
+            match target {
+                Some(g) => groups[g].push(i),
+                None => groups.push(vec![i]),
+            }
+        }
+        for (g, group) in groups.iter().enumerate().skip(first_group) {
+            for &m in group {
+                group_of_uri.insert(tracks[m].uri, g);
             }
         }
     }
-    n
-}
 
-fn jaccard(a: &[u32], b: &[u32]) -> f64 {
-    if a.is_empty() && b.is_empty() {
-        return 1.0;
-    }
-    if a.is_empty() || b.is_empty() {
-        return 0.0;
-    }
-    let both = intersection(a, b);
-    let union = a.len() + b.len() - both;
-    both as f64 / union as f64
-}
-
-fn containment(a: &[u32], b: &[u32]) -> f64 {
-    if a.is_empty() || b.is_empty() {
-        return 0.0;
-    }
-    intersection(a, b) as f64 / a.len().min(b.len()) as f64
-}
-
-/// What `_coreTitleTokens` tokenizes: the folded title without `feat.`
-/// qualifiers, first the bracketed ones, then a trailing one.
-fn core_title(lower_title: &str) -> Vec<u8> {
-    let folded = fold(lower_title);
-    strip_trailing_feat(strip_bracketed_feat(folded.as_bytes()))
-}
-
-/// `\w` in a non-unicode Dart `RegExp`. Every byte of a multi-byte UTF-8
-/// character is >= 0x80, so none of them is a word byte, as none of those
-/// characters is a word character.
-fn is_word(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-/// Where `\b(?:feat|ft|featuring)\b` matching at `at` ends, if it does.
-fn feat_word_end(text: &[u8], at: usize) -> Option<usize> {
-    if at > 0 && is_word(text[at - 1]) {
-        return None;
-    }
-    let rest = &text[at..];
-    ["feat", "ft", "featuring"].iter().find_map(|word| {
-        let end = at + word.len();
-        let bounded = text.get(end).is_none_or(|&b| !is_word(b));
-        (rest.starts_with(word.as_bytes()) && bounded).then_some(end)
-    })
-}
-
-/// `replaceAll(RegExp(r'[\(\[][^\)\]]*\b(?:feat|ft|featuring)\b[^\)\]]*[\)\]]'), ' ')`.
-///
-/// Neither run in the pattern may cross a closing bracket, so a match from
-/// an opener always ends at the first closer after it, and it matches when a
-/// feat word sits somewhere in between.
-fn strip_bracketed_feat(text: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(text.len());
-    let mut i = 0;
-    while i < text.len() {
-        if matches!(text[i], b'(' | b'[') {
-            let closer = text[i + 1..]
+    let mut emitted: HashSet<usize> = HashSet::new();
+    let mut rows = Vec::new();
+    for (i, track) in tracks.iter().enumerate() {
+        let group = group_of_uri.get(track.uri).map(|&g| (g, &groups[g]));
+        let merges = group.is_some_and(|(_, members)| {
+            members
                 .iter()
-                .position(|&b| matches!(b, b')' | b']'))
-                .map(|p| i + 1 + p);
-            if let Some(closer) = closer {
-                if (i + 1..closer).any(|k| feat_word_end(text, k).is_some()) {
-                    out.push(b' ');
-                    i = closer + 1;
-                    continue;
+                .map(|&m| tracks[m].source)
+                .collect::<HashSet<_>>()
+                .len()
+                >= 2
+        });
+        match group {
+            Some((g, members)) if merges => {
+                if emitted.insert(g) {
+                    let mut ordered = members.clone();
+                    ordered.sort_by(by_preference);
+                    rows.push(ordered.into_iter().map(|m| m as u32).collect());
                 }
             }
-        }
-        out.push(text[i]);
-        i += 1;
-    }
-    out
-}
-
-/// `replaceAll(RegExp(r'\b(?:feat|ft|featuring)\b[^\(\[]*$'), ' ')`: from the
-/// first feat word with no opening bracket after it, to the end.
-fn strip_trailing_feat(mut text: Vec<u8>) -> Vec<u8> {
-    let from = text
-        .iter()
-        .rposition(|&b| matches!(b, b'(' | b'['))
-        .map_or(0, |p| p + 1);
-    if let Some(at) = (from..text.len()).find(|&k| feat_word_end(&text, k).is_some()) {
-        text.truncate(at);
-        text.push(b' ');
-    }
-    text
-}
-
-/// `_tokenize`: the runs of `[a-z0-9]`.
-fn tokens(text: &[u8]) -> impl Iterator<Item = &[u8]> {
-    text.split(|b| !matches!(b, b'a'..=b'z' | b'0'..=b'9'))
-        .filter(|t| !t.is_empty())
-}
-
-/// Dart's `String.compareTo`: UTF-16 code unit order. It differs from code
-/// point order only where a character above U+FFFF (a surrogate pair,
-/// D800..DBFF first) meets one in U+E000..U+FFFF.
-pub fn dart_compare(a: &str, b: &str) -> Ordering {
-    fn unit_order(ch: char) -> u32 {
-        let c = ch as u32;
-        if (0xE000..=0xFFFF).contains(&c) {
-            c + 0x11_0000
-        } else {
-            c
+            _ => rows.push(vec![i as u32]),
         }
     }
-    a.chars().map(unit_order).cmp(b.chars().map(unit_order))
+    rows
 }
 
 #[cfg(test)]
@@ -370,86 +285,76 @@ mod tests {
 
     fn track<'a>(
         uri: &'a str,
+        source: u32,
         title: &'a str,
         artist: &'a str,
         album: &'a str,
-        source: u32,
-    ) -> UnifierTrack<'a> {
-        UnifierTrack {
+    ) -> UnifyTrack<'a> {
+        UnifyTrack {
+            uri,
+            source,
+            rank: source,
             title,
             artist,
             album,
-            uri,
-            duration_seconds: 180,
+            duration_secs: 200,
             track_number: None,
-            source,
-            rank: source,
         }
     }
 
-    fn core_title_tokens(lower_title: &str) -> Vec<String> {
-        let title = core_title(lower_title);
-        tokens(&title)
-            .map(|t| String::from_utf8(t.to_vec()).unwrap())
-            .collect()
+    #[test]
+    fn strips_featured_artists_but_keeps_versions() {
+        assert_eq!(core_title_tokens("Careful (feat. Cordae)"), ["careful"]);
+        assert_eq!(core_title_tokens("CAREFUL feat. Cordae"), ["careful"]);
+        assert_eq!(core_title_tokens("Song [ft. X] (Live)"), ["song", "live"]);
+        assert_eq!(core_title_tokens("Hello (Live)"), ["hello", "live"]);
+        // A word that only starts with "feat" is not one.
+        assert_eq!(core_title_tokens("Feather"), ["feather"]);
+        // A trailing feat before a bracket keeps the bracket.
+        assert_eq!(
+            core_title_tokens("A feat. B (Remix)"),
+            ["a", "feat", "b", "remix"]
+        );
     }
 
     #[test]
-    fn strips_featured_artists_from_titles() {
-        assert_eq!(core_title_tokens("careful"), ["careful"]);
-        assert_eq!(core_title_tokens("careful feat. cordae"), ["careful"]);
-        assert_eq!(core_title_tokens("careful (feat. cordae)"), ["careful"]);
-        assert_eq!(
-            core_title_tokens("careful [ft cordae] (live)"),
-            ["careful", "live"]
-        );
-        assert_eq!(core_title_tokens("hello (live)"), ["hello", "live"]);
-        // A word that only starts with feat is no qualifier.
-        assert_eq!(core_title_tokens("feature film"), ["feature", "film"]);
-        // `_` is a word character for the boundary but not for tokens.
-        assert_eq!(core_title_tokens("x_feat y"), ["x", "feat", "y"]);
-        // A trailing feat with a bracket after it is left alone.
-        assert_eq!(
-            core_title_tokens("a feat b (live"),
-            ["a", "feat", "b", "live"]
-        );
-        assert_eq!(core_title_tokens("söng feat. x"), ["song"]);
-    }
-
-    #[test]
-    fn merges_copies_from_two_providers_only() {
+    fn merges_copies_from_two_servers_only() {
         let tracks = [
-            track("jellyfin:1", "careful", "nf", "the search", 0),
+            track("jellyfin:1", 0, "Careful", "NF", "Hope"),
             track(
                 "subsonic:9",
-                "careful feat. cordae",
-                "nf, cordae",
-                "the search (deluxe)",
                 1,
+                "Careful (feat. Cordae)",
+                "NF, Cordae",
+                "Hope (Deluxe)",
             ),
-            track("jellyfin:2", "careful", "nf", "the search", 0),
+            track("jellyfin:2", 0, "Careful", "NF", "Hope"),
         ];
+        // The two Jellyfin rows never merge with each other; the Subsonic one
+        // joins the first.
         assert_eq!(unify(&tracks), vec![vec![0, 1], vec![2]]);
     }
 
     #[test]
-    fn keeps_versions_and_ineligible_tracks_apart() {
-        let mut short = track("subsonic:2", "hello", "adele", "25", 1);
-        short.duration_seconds = 0;
+    fn issue_877_non_latin_songs_merge_too() {
         let tracks = [
-            track("jellyfin:1", "hello", "adele", "25", 0),
-            track("subsonic:1", "hello (live)", "adele", "25", 1),
-            short,
+            track("jellyfin:1", 0, "Группа крови", "Кино", "Группа крови"),
+            track("subsonic:1", 1, "Группа крови", "Кино", "Группа крови"),
+            track("jellyfin:2", 0, "夜に駆ける", "YOASOBI", "THE BOOK"),
+            track("subsonic:2", 1, "夜に駆ける", "YOASOBI", "THE BOOK"),
         ];
-        assert_eq!(unify(&tracks), vec![vec![0], vec![1], vec![2]]);
+        assert_eq!(unify(&tracks), vec![vec![0, 1], vec![2, 3]]);
     }
 
     #[test]
-    fn compares_like_dart_strings() {
-        assert_eq!(dart_compare("a", "b"), Ordering::Less);
-        assert_eq!(dart_compare("ab", "a"), Ordering::Greater);
-        // U+1F600 is D83D DE00 in UTF-16, before U+FF01.
-        assert_eq!(dart_compare("\u{1F600}", "\u{FF01}"), Ordering::Less);
-        assert_eq!(dart_compare("\u{D7FF}", "\u{1F600}"), Ordering::Less);
+    fn vetoes_keep_different_songs_apart() {
+        let mut a = track("jellyfin:1", 0, "Song", "Artist", "Album");
+        let mut b = track("subsonic:1", 1, "Song", "Artist", "Album");
+        b.duration_secs = 260;
+        assert_eq!(unify(&[a.clone(), b.clone()]), vec![vec![0], vec![1]]);
+        b.duration_secs = 201;
+        a.track_number = Some(1);
+        b.track_number = Some(2);
+        assert_eq!(unify(&[a, b]), vec![vec![0], vec![1]]);
     }
 }

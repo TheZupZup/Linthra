@@ -1,0 +1,148 @@
+//! MP3: an ID3v2 tag at the start, MPEG audio frames, and maybe an ID3v1 tag
+//! in the last 128 bytes.
+//!
+//! A file is read as MP3 when it opens with an ID3v2 tag or with an MPEG
+//! frame. An APE tag before the ID3v1 one fills in what ID3v2 lacks. One whose
+//! ID3v2 tag sits in front of a FLAC or Ogg stream is left to another reader.
+
+use std::io::{self, Read, Seek, SeekFrom};
+
+use super::{ape, dart, first, id3v2, joined, mpeg, picture, read_up_to, track_number, AudioTags};
+
+/// Whether `head` (a file's first bytes) opens like an MP3.
+pub fn claims(head: &[u8]) -> bool {
+    head.starts_with(b"ID3") || mpeg::is_header(head)
+}
+
+pub fn read<R: Read + Seek>(source: &mut R, with_cover: bool) -> io::Result<Option<AudioTags>> {
+    let length = source.seek(SeekFrom::End(0))?;
+    let v1 = id3v1(source, length)?;
+    let mut audio_end = length - if v1.is_some() { 128 } else { 0 };
+    let ape = ape::read_tag(source, audio_end, with_cover)?;
+    if let Some(ape) = &ape {
+        audio_end = ape.start;
+    }
+
+    source.seek(SeekFrom::Start(0))?;
+    let head = read_up_to(source, 10)?;
+    let mut tag = None;
+    let mut audio_start = 0;
+    if head.starts_with(b"ID3") {
+        if head.len() < 10
+            || !(2..=4).contains(&head[3])
+            || head[6..10].iter().any(|b| b & 0x80 != 0)
+        {
+            return Ok(None);
+        }
+        let size = u64::from(id3v2::synchsafe(&head[6..10]));
+        let footer = if head[3] == 4 && head[5] & 0x10 != 0 {
+            10
+        } else {
+            0
+        };
+        let body = read_up_to(source, size)?;
+        tag = Some(id3v2::parse(head[3], head[5], &body, with_cover));
+        audio_start = skip_appended_tags(source, 10 + size + footer, length)?;
+        source.seek(SeekFrom::Start(audio_start))?;
+        let next = read_up_to(source, 4)?;
+        if next.starts_with(b"fLaC") || next.starts_with(b"OggS") {
+            return Ok(None);
+        }
+    }
+
+    let frame = mpeg::first_frame(source, audio_start)?;
+    // Without an ID3v2 tag, only a file whose first bytes are a frame is MP3.
+    if tag.is_none() && frame.is_none_or(|f| f.offset != 0) {
+        return Ok(None);
+    }
+    let tag = tag.unwrap_or_default();
+    let length_ms = tag
+        .length_ms
+        .as_ref()
+        .and_then(|values| values.first())
+        .and_then(|value| dart::leading_number(value));
+    let duration_micros = match frame {
+        Some(frame) => frame.duration_micros(source, audio_end, length_ms)?,
+        None => length_ms
+            .filter(|ms| *ms > 0)
+            .and_then(|ms| ms.checked_mul(1000)),
+    };
+
+    // ID3v2 first, then APE, then ID3v1, whose fields are cut at 30 bytes.
+    let v1 = v1.unwrap_or_default();
+    let ape = ape.unwrap_or_default();
+    let track = tag
+        .track
+        .as_ref()
+        .and_then(|values| values.first())
+        .and_then(|value| track_number(value))
+        .or_else(|| ape.track_number())
+        .or(v1.track);
+    Ok(Some(AudioTags {
+        title: first(&tag.title).or_else(|| ape.title()).or(v1.title),
+        artist: joined(&tag.artist).or_else(|| ape.artist()).or(v1.artist),
+        album_artist: joined(&tag.album_artist).or_else(|| ape.album_artist()),
+        album: first(&tag.album).or_else(|| ape.album()).or(v1.album),
+        track_number: track,
+        duration_micros: duration_micros.filter(|micros| *micros > 0),
+        cover: picture::cover(tag.pictures).or(ape.cover),
+    }))
+}
+
+/// Past any further ID3v2 tags written right after the first one.
+fn skip_appended_tags<R: Read + Seek>(source: &mut R, mut at: u64, length: u64) -> io::Result<u64> {
+    while at + 10 <= length {
+        source.seek(SeekFrom::Start(at))?;
+        let header = read_up_to(source, 10)?;
+        if !header.starts_with(b"ID3") || header[6..10].iter().any(|b| b & 0x80 != 0) {
+            break;
+        }
+        let footer = if header[3] == 4 && header[5] & 0x10 != 0 {
+            10
+        } else {
+            0
+        };
+        let total = 10 + u64::from(id3v2::synchsafe(&header[6..10])) + footer;
+        if total > length - at {
+            break;
+        }
+        at += total;
+    }
+    Ok(at)
+}
+
+/// What an ID3v1 tag holds.
+#[derive(Default)]
+pub struct Id3v1 {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track: Option<i64>,
+}
+
+/// The ID3v1 tag in the last 128 bytes, when there is one: `TAG`, then
+/// Latin-1 fields padded with NUL or spaces; a v1.1 tag ends its comment with
+/// a zero and the track number.
+pub fn id3v1<R: Read + Seek>(source: &mut R, length: u64) -> io::Result<Option<Id3v1>> {
+    if length < 128 {
+        return Ok(None);
+    }
+    source.seek(SeekFrom::Start(length - 128))?;
+    let tag = read_up_to(source, 128)?;
+    if tag.len() < 128 || !tag.starts_with(b"TAG") {
+        return Ok(None);
+    }
+    let field = |range: std::ops::Range<usize>| {
+        let bytes = &tag[range];
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+        let text: String = bytes[..end].iter().map(|b| char::from(*b)).collect();
+        let text = dart::trim(&text);
+        (!text.is_empty()).then(|| text.to_owned())
+    };
+    Ok(Some(Id3v1 {
+        title: field(3..33),
+        artist: field(33..63),
+        album: field(63..93),
+        track: (tag[125] == 0 && tag[126] != 0).then(|| i64::from(tag[126])),
+    }))
+}

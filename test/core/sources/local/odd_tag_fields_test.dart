@@ -363,17 +363,30 @@ void main() {
     // The parse itself runs on an isolate of its own, which reads the real
     // file; what is read around it on this isolate goes through a file that
     // gives an I/O error on any read touching [failFrom, failTo).
+    //
+    // These hold the Dart path to it, the one a build without the Rust core
+    // takes: the Rust core reads the file itself, past [IOOverrides], and
+    // its own I/O errors are tested in native/linthra_core/src/ffi/tags.rs.
     Future<(LocalMetadataRead, List<Symbol>)> readFailing(
       String path, {
       required int failFrom,
       int failTo = 1 << 40,
     }) async {
-      final _FaultyFiles faults = _FaultyFiles(path, failFrom, failTo);
-      final LocalMetadataRead read = await IOOverrides.runWithIOOverrides(
-        () => reader.readWithOutcome(path),
-        faults,
+      final FilesystemLocalMetadataReader dartOnly =
+          FilesystemLocalMetadataReader(
+        artworkCache: LocalArtworkCache(directory: () async => artworkDir),
+        useNativeTags: false,
       );
-      return (read, faults.unexpected);
+      final _FaultyFiles faults = _FaultyFiles(path, failFrom, failTo);
+      try {
+        final LocalMetadataRead read = await IOOverrides.runWithIOOverrides(
+          () => dartOnly.readWithOutcome(path),
+          faults,
+        );
+        return (read, faults.unexpected);
+      } finally {
+        await dartOnly.close();
+      }
     }
 
     Future<int> offsetOf(String path, List<int> marker) async {

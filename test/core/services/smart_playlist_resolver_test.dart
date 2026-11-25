@@ -84,6 +84,30 @@ void main() {
       expect(_ids(result), <String>['b', 'a']);
     });
 
+    test("recently added follows the server's date over first seen (#909)", () {
+      // 'a' was only synced yesterday, but has been on the server for years;
+      // 'b' went up on the server this week. Without a server date, 'c' falls
+      // back on when Linthra first saw it.
+      final List<Track> result =
+          const SmartPlaylistResolver(maxTracks: 100).resolve(
+        SmartPlaylistKind.recentlyAdded,
+        allTracks: <Track>[
+          _t('a').copyWith(serverAddedAt: DateTime.utc(2019)),
+          _t('b').copyWith(serverAddedAt: DateTime.utc(2026, 11, 20)),
+          _t('c'),
+        ],
+        history: history,
+        addedAt: <String, DateTime>{
+          'jellyfin:a': DateTime.utc(2026, 11, 23),
+          'jellyfin:b': DateTime.utc(2026, 11, 23),
+          'jellyfin:c': DateTime.utc(2024),
+        },
+        favoriteIds: const <String>{},
+        downloadedKeys: const <String>{},
+      );
+      expect(_ids(result), <String>['b', 'c', 'a']);
+    });
+
     test('recently played is most-recently-played first, played-only', () {
       // a@Jan1, b@Jan3, c@Jan2 → b, c, a; d was never played so it's excluded.
       expect(_ids(resolve(SmartPlaylistKind.recentlyPlayed)),

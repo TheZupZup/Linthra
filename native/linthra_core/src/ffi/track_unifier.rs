@@ -1,150 +1,138 @@
-//! C ABI for [crate::track_unifier]: one call merges the whole catalog.
+//! C ABI for [crate::track_unifier]: the whole catalog in one call.
 //!
-//! As for the grouping, strings do not cross one by one. Every track's title,
-//! artist, album and uri go into one UTF-8 buffer, and each track is a span of
-//! eight `u32`s into it (start and length of each field, in that order). The
-//! numbers come in two more arrays: three `i64`s per track (duration in
-//! seconds, 1 or 0 for whether it has a track number, the track number) and
-//! two `u32`s (provider, provider rank).
-//!
-//! The answer is the logical tracks, flattened: `count + 1` offsets into one
-//! array of track positions.
+//! Every track's uri, title, artist and album go into one UTF-8 buffer, each
+//! a span of two `u32`s (start, length), eight per track in that order. The
+//! numbers go as parallel arrays; a track with no number is `i64::MIN`. The
+//! rows come back as one array of indices and the offsets where each row
+//! starts.
 
 use std::ptr;
 
-use crate::track_unifier::{unify, UnifierTrack};
+use crate::track_unifier::{unify, UnifyTrack};
 
-/// The logical tracks, kept alive until freed.
+/// The library rows, kept until freed.
 pub struct UnifyResult {
-    offsets: Vec<u32>,
-    members: Vec<u32>,
+    /// `rows + 1` offsets into `indices`.
+    starts: Vec<u32>,
+    indices: Vec<u32>,
 }
 
-/// Borrowed pointers into a [UnifyResult]. Both arrays are non-null, even
-/// when empty, and valid until the result is freed.
-#[repr(C)]
-pub struct UnifyView {
-    pub count: usize,
-    /// `count + 1` offsets into `members`; logical track `i` is
-    /// `members[offsets[i]..offsets[i + 1]]`, best copy first.
-    pub offsets: *const u32,
-    pub members: *const u32,
-}
-
-/// Merges `count` tracks. The title, artist and album must already be
-/// lower-cased with Dart's `String.toLowerCase`; the uri is passed as is.
-///
-/// Returns null when an array is null while its length is not zero, a span
-/// falls outside `text` or is not UTF-8, or there are more tracks than a `u32`
-/// can index. Free the result with [linthra_unify_result_free].
+/// Unifies `count` tracks. Returns null when an array is null while `count`
+/// is not 0, or a span falls outside `text` or isn't UTF-8. Free the result
+/// with [linthra_unify_free].
 ///
 /// # Safety
 ///
-/// Each pointer must be null or valid for reads of the length given above
-/// (`8 * count` spans, `3 * count` numbers, `2 * count` sources), for the
-/// duration of the call.
+/// `text` must be valid for `text_len` bytes, `spans` for `8 * count`
+/// values, and `sources`, `ranks`, `durations` and `track_numbers` for
+/// `count` each.
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn linthra_unify_tracks(
     text: *const u8,
     text_len: usize,
     spans: *const u32,
-    numbers: *const i64,
     sources: *const u32,
+    ranks: *const u32,
+    durations: *const i64,
+    track_numbers: *const i64,
     count: usize,
 ) -> *mut UnifyResult {
-    let input = || -> Option<UnifyResult> {
-        u32::try_from(count).ok()?;
-        let text = array(text, text_len)?;
-        let spans = array(spans, count.checked_mul(8)?)?;
-        let numbers = array(numbers, count.checked_mul(3)?)?;
-        let sources = array(sources, count.checked_mul(2)?)?;
-        let tracks = (0..count)
-            .map(|i| {
-                let span = &spans[8 * i..8 * i + 8];
-                let number = &numbers[3 * i..3 * i + 3];
-                Some(UnifierTrack {
-                    title: part(text, span[0], span[1])?,
-                    artist: part(text, span[2], span[3])?,
-                    album: part(text, span[4], span[5])?,
-                    uri: part(text, span[6], span[7])?,
-                    duration_seconds: number[0],
-                    track_number: (number[1] != 0).then_some(number[2]),
-                    source: sources[2 * i],
-                    rank: sources[2 * i + 1],
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let logical = unify(&tracks);
-        let mut offsets = Vec::with_capacity(logical.len() + 1);
-        let mut members = Vec::with_capacity(count);
-        offsets.push(0);
-        for copies in logical {
-            members.extend(copies.into_iter().map(|i| i as u32));
-            offsets.push(members.len() as u32);
+    let slice = |p: *const u8, n: usize| {
+        if n == 0 {
+            Some(&[][..])
+        } else if p.is_null() {
+            None
+        } else {
+            Some(std::slice::from_raw_parts(p, n))
         }
-        Some(UnifyResult { offsets, members })
     };
-    match input() {
-        Some(result) => Box::into_raw(Box::new(result)),
-        None => ptr::null_mut(),
+    let Some(text) = slice(text, text_len) else {
+        return ptr::null_mut();
+    };
+    if count > 0
+        && (spans.is_null()
+            || sources.is_null()
+            || ranks.is_null()
+            || durations.is_null()
+            || track_numbers.is_null())
+    {
+        return ptr::null_mut();
     }
+    let read = |i: usize| -> Option<UnifyTrack> {
+        let span = std::slice::from_raw_parts(spans.add(8 * i), 8);
+        let part = |k: usize| {
+            let start = span[2 * k] as usize;
+            let bytes = text.get(start..start.checked_add(span[2 * k + 1] as usize)?)?;
+            std::str::from_utf8(bytes).ok()
+        };
+        let number = *track_numbers.add(i);
+        Some(UnifyTrack {
+            uri: part(0)?,
+            title: part(1)?,
+            artist: part(2)?,
+            album: part(3)?,
+            source: *sources.add(i),
+            rank: *ranks.add(i),
+            duration_secs: *durations.add(i),
+            track_number: (number != i64::MIN).then_some(number),
+        })
+    };
+    let Some(tracks) = (0..count).map(read).collect::<Option<Vec<_>>>() else {
+        return ptr::null_mut();
+    };
+    let rows = unify(&tracks);
+    let mut starts = Vec::with_capacity(rows.len() + 1);
+    let mut indices = Vec::with_capacity(count);
+    for row in rows {
+        starts.push(indices.len() as u32);
+        indices.extend(row);
+    }
+    starts.push(indices.len() as u32);
+    Box::into_raw(Box::new(UnifyResult { starts, indices }))
 }
 
-/// The arrays of `result`. Zero and null for a null `result`.
+/// How many rows. 0 for a null `result`.
 ///
 /// # Safety
 ///
 /// `result` must be null or a live pointer from [linthra_unify_tracks].
 #[no_mangle]
-pub unsafe extern "C" fn linthra_unify_result_view(result: *const UnifyResult) -> UnifyView {
-    match result.as_ref() {
-        Some(r) => UnifyView {
-            count: r.offsets.len() - 1,
-            offsets: r.offsets.as_ptr(),
-            members: r.members.as_ptr(),
-        },
-        None => UnifyView {
-            count: 0,
-            offsets: ptr::null(),
-            members: ptr::null(),
-        },
-    }
+pub unsafe extern "C" fn linthra_unify_rows(result: *const UnifyResult) -> usize {
+    result.as_ref().map_or(0, |r| r.starts.len() - 1)
+}
+
+/// The rows' start offsets, rows + 1 of them, valid until freed.
+///
+/// # Safety
+///
+/// As for [linthra_unify_rows].
+#[no_mangle]
+pub unsafe extern "C" fn linthra_unify_starts(result: *const UnifyResult) -> *const u32 {
+    result.as_ref().map_or(ptr::null(), |r| r.starts.as_ptr())
+}
+
+/// The track indices of every row, back to back, valid until freed.
+///
+/// # Safety
+///
+/// As for [linthra_unify_rows].
+#[no_mangle]
+pub unsafe extern "C" fn linthra_unify_indices(result: *const UnifyResult) -> *const u32 {
+    result.as_ref().map_or(ptr::null(), |r| r.indices.as_ptr())
 }
 
 /// Frees a result. Null is a no-op.
 ///
 /// # Safety
 ///
-/// `result` must be null or a pointer from [linthra_unify_tracks] that has
-/// not been freed yet.
+/// `result` must be null or a pointer from [linthra_unify_tracks] that has not
+/// been freed yet.
 #[no_mangle]
-pub unsafe extern "C" fn linthra_unify_result_free(result: *mut UnifyResult) {
+pub unsafe extern "C" fn linthra_unify_free(result: *mut UnifyResult) {
     if !result.is_null() {
         drop(Box::from_raw(result));
     }
-}
-
-/// `len` items at `data`, or None for a null `data` with a non-zero `len`.
-///
-/// # Safety
-///
-/// As for [std::slice::from_raw_parts] when `data` is not null.
-unsafe fn array<'a, T>(data: *const T, len: usize) -> Option<&'a [T]> {
-    if len == 0 {
-        Some(&[])
-    } else if data.is_null() {
-        None
-    } else {
-        Some(std::slice::from_raw_parts(data, len))
-    }
-}
-
-/// The text a span names, or None when it falls outside `text` or is not
-/// UTF-8.
-fn part(text: &[u8], start: u32, len: u32) -> Option<&str> {
-    let start = start as usize;
-    let bytes = text.get(start..start.checked_add(len as usize)?)?;
-    std::str::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
@@ -152,63 +140,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn merges_through_the_abi() {
+    fn unifies_across_the_boundary() {
         let fields = [
-            ["hello", "adele", "25", "jellyfin:1"],
-            ["hello", "adele", "25 (deluxe)", "subsonic:1"],
+            ["jellyfin:1", "Song", "Artist", "Album"],
+            ["subsonic:1", "Song", "Artist", "Album"],
         ];
         let mut text = Vec::new();
         let mut spans = Vec::new();
-        for field in fields.iter().flatten() {
-            spans.extend([text.len() as u32, field.len() as u32]);
-            text.extend_from_slice(field.as_bytes());
+        for track in fields {
+            for part in track {
+                spans.push(text.len() as u32);
+                spans.push(part.len() as u32);
+                text.extend_from_slice(part.as_bytes());
+            }
         }
-        let numbers = [180i64, 0, 0, 181, 0, 0];
-        let sources = [0u32, 0, 1, 1];
         unsafe {
             let result = linthra_unify_tracks(
                 text.as_ptr(),
                 text.len(),
                 spans.as_ptr(),
-                numbers.as_ptr(),
-                sources.as_ptr(),
+                [0u32, 1].as_ptr(),
+                [0u32, 1].as_ptr(),
+                [200i64, 200].as_ptr(),
+                [i64::MIN, i64::MIN].as_ptr(),
                 2,
             );
-            assert!(!result.is_null());
-            let view = linthra_unify_result_view(result);
-            assert_eq!(view.count, 1);
-            assert_eq!(std::slice::from_raw_parts(view.offsets, 2), [0, 2]);
-            assert_eq!(std::slice::from_raw_parts(view.members, 2), [0, 1]);
-            linthra_unify_result_free(result);
-        }
-    }
-
-    #[test]
-    fn refuses_a_span_outside_the_text() {
-        let spans = [0u32, 9, 0, 0, 0, 0, 0, 0];
-        let numbers = [1i64, 0, 0];
-        let sources = [0u32, 0];
-        let result = unsafe {
-            linthra_unify_tracks(
-                b"abc".as_ptr(),
+            assert_eq!(linthra_unify_rows(result), 1);
+            assert_eq!(
+                std::slice::from_raw_parts(linthra_unify_starts(result), 2),
+                [0, 2]
+            );
+            assert_eq!(
+                std::slice::from_raw_parts(linthra_unify_indices(result), 2),
+                [0, 1]
+            );
+            linthra_unify_free(result);
+            assert!(linthra_unify_tracks(
+                text.as_ptr(),
                 3,
                 spans.as_ptr(),
-                numbers.as_ptr(),
-                sources.as_ptr(),
-                1,
+                [0u32, 1].as_ptr(),
+                [0u32, 1].as_ptr(),
+                [200i64, 200].as_ptr(),
+                [i64::MIN, i64::MIN].as_ptr(),
+                2
             )
-        };
-        assert!(result.is_null());
-    }
-
-    #[test]
-    fn handles_an_empty_catalog() {
-        unsafe {
-            let result =
-                linthra_unify_tracks(ptr::null(), 0, ptr::null(), ptr::null(), ptr::null(), 0);
-            let view = linthra_unify_result_view(result);
-            assert_eq!(view.count, 0);
-            linthra_unify_result_free(result);
+            .is_null());
         }
     }
 }

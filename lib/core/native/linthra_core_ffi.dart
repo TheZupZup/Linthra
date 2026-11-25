@@ -465,51 +465,268 @@ external int linthraSearchRank(
   Pointer<Uint32> out,
 );
 
-/// `UnifyResult` on the Rust side
-/// (native/linthra_core/src/ffi/track_unifier.rs).
-final class LinthraUnifyResult extends Opaque {}
+/// `TagsResult` on the Rust side (native/linthra_core/src/ffi/tags.rs).
+final class LinthraTagsResult extends Opaque {}
 
-/// `UnifyView`: the logical tracks, as offsets into one array of track
-/// positions. Valid until the result is freed.
-final class LinthraUnifyView extends Struct {
-  @Size()
-  external int count;
+/// [linthraTagsStatus] values and [linthraTagsText] field indices, as in
+/// native/linthra_core/src/ffi/tags.rs.
+abstract final class LinthraTags {
+  static const int read = 0;
+  static const int notHandled = 1;
+  static const int ioError = 2;
 
-  /// `count + 1` offsets into [members].
-  external Pointer<Uint32> offsets;
-
-  external Pointer<Uint32> members;
+  static const int title = 0;
+  static const int artist = 1;
+  static const int albumArtist = 2;
+  static const int album = 3;
 }
 
-// Not a leaf call, for the same reason as the grouping.
+// Not a leaf call: it reads the file, which can take a while on a slow drive.
+@Native<Pointer<LinthraTagsResult> Function(Pointer<Uint8>, Size, Bool)>(
+  symbol: 'linthra_tags_read',
+)
+external Pointer<LinthraTagsResult> linthraTagsRead(
+  Pointer<Uint8> path,
+  int pathLength,
+  bool withCover,
+);
+
+@Native<Uint8 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_status',
+  isLeaf: true,
+)
+external int linthraTagsStatus(Pointer<LinthraTagsResult> result);
+
+@Native<
+    Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Uint8, Pointer<Size>)>(
+  symbol: 'linthra_tags_text',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraTagsText(
+  Pointer<LinthraTagsResult> result,
+  int field,
+  Pointer<Size> length,
+);
+
+@Native<Int64 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_track_number',
+  isLeaf: true,
+)
+external int linthraTagsTrackNumber(Pointer<LinthraTagsResult> result);
+
+@Native<Int64 Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_duration_micros',
+  isLeaf: true,
+)
+external int linthraTagsDurationMicros(Pointer<LinthraTagsResult> result);
+
+@Native<Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Pointer<Size>)>(
+  symbol: 'linthra_tags_cover',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraTagsCover(
+  Pointer<LinthraTagsResult> result,
+  Pointer<Size> length,
+);
+
+@Native<Void Function(Pointer<LinthraTagsResult>)>(
+  symbol: 'linthra_tags_free',
+  isLeaf: true,
+)
+external void linthraTagsFree(Pointer<LinthraTagsResult> result);
+
+// The player's rules (native/linthra_core/src/ffi/playback_rules.rs). Codes
+// are numbered like the Dart enums; 255 (or 0xFFFF) is a code Rust didn't know.
+
+@Native<Uint8 Function(Pointer<Uint8>, Size)>(
+  symbol: 'linthra_playback_classify_error',
+  isLeaf: true,
+)
+external int linthraPlaybackClassifyError(Pointer<Uint8> text, int length);
+
+@Native<Uint16 Function(Uint8)>(
+  symbol: 'linthra_playback_failure_for_resolution',
+  isLeaf: true,
+)
+external int linthraPlaybackFailureForResolution(int kind);
+
+@Native<Uint16 Function(Uint8)>(
+  symbol: 'linthra_playback_failure_for_interruption',
+  isLeaf: true,
+)
+external int linthraPlaybackFailureForInterruption(int kind);
+
+@Native<
+    Uint8 Function(Uint8, Uint32, Bool, Uint8, Uint64, Uint64, Uint64, Uint32,
+        Pointer<Uint64>)>(
+  symbol: 'linthra_playback_recovery_decide',
+  isLeaf: true,
+)
+external int linthraPlaybackRecoveryDecide(
+  int kind,
+  int failuresBefore,
+  bool retrySpent,
+  int next,
+  int retryDelayMs,
+  int advanceDelayMs,
+  int maxAdvanceDelayMs,
+  int maxConsecutiveFailures,
+  Pointer<Uint64> delayMs,
+);
+
+@Native<Uint8 Function(Bool, Uint8)>(
+  symbol: 'linthra_playback_focus_action',
+  isLeaf: true,
+)
+external int linthraPlaybackFocusAction(bool begin, int interruption);
+
+@Native<
+    Uint16 Function(Uint8, Uint8, Uint8, Pointer<Uint8>, Size, Pointer<Size>)>(
+  symbol: 'linthra_audio_focus_step',
+  isLeaf: true,
+)
+external int linthraAudioFocusStep(
+  int state,
+  int event,
+  int context,
+  Pointer<Uint8> steps,
+  int capacity,
+  Pointer<Size> count,
+);
+
+// Stream recovery (native/linthra_core/src/ffi/stream_recovery.rs). Times are
+// microseconds; a missing last position is the smallest Int64.
+
+@Native<Bool Function(Uint32, Uint32, Bool)>(
+  symbol: 'linthra_reconnect_claim',
+  isLeaf: true,
+)
+external bool linthraReconnectClaim(int spent, int max, bool retryable);
+
+@Native<
+    Uint8 Function(Uint32, Pointer<Int64>, Pointer<Int64>, Int64, Bool,
+        Int64)>(symbol: 'linthra_reconnect_progress', isLeaf: true)
+external int linthraReconnectProgress(
+  int spent,
+  Pointer<Int64> playedUs,
+  Pointer<Int64> lastUs,
+  int positionUs,
+  bool counting,
+  int refillAfterUs,
+);
+
+@Native<Uint8 Function(Uint8, Bool, Bool, Uint8, Int64, Int64)>(
+  symbol: 'linthra_source_end',
+  isLeaf: true,
+)
+external int linthraSourceEnd(int gone, bool engineReportsFailureAsIdle,
+    bool stream, int status, int positionUs, int durationUs);
+
+@Native<Uint8 Function(Uint8, Uint8, Bool)>(
+  symbol: 'linthra_watchdog_arms',
+  isLeaf: true,
+)
+external int linthraWatchdogArms(int reported, int current, bool hasPlayed);
+
+@Native<Uint8 Function(Uint8, Bool, Bool)>(
+  symbol: 'linthra_watchdog_fails',
+  isLeaf: true,
+)
+external int linthraWatchdogFails(
+    int current, bool recoveryUnderway, bool hasTrack);
+
+/// `UnifyResult` on the Rust side (native/linthra_core/src/ffi/track_unifier.rs).
+final class LinthraUnifyResult extends Opaque {}
+
 @Native<
     Pointer<LinthraUnifyResult> Function(
-      Pointer<Uint8>,
-      Size,
-      Pointer<Uint32>,
-      Pointer<Int64>,
-      Pointer<Uint32>,
-      Size,
-    )>(symbol: 'linthra_unify_tracks')
+        Pointer<Uint8>,
+        Size,
+        Pointer<Uint32>,
+        Pointer<Uint32>,
+        Pointer<Uint32>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Size)>(symbol: 'linthra_unify_tracks')
 external Pointer<LinthraUnifyResult> linthraUnifyTracks(
   Pointer<Uint8> text,
   int textLength,
   Pointer<Uint32> spans,
-  Pointer<Int64> numbers,
   Pointer<Uint32> sources,
+  Pointer<Uint32> ranks,
+  Pointer<Int64> durations,
+  Pointer<Int64> trackNumbers,
   int count,
 );
 
-@Native<LinthraUnifyView Function(Pointer<LinthraUnifyResult>)>(
-  symbol: 'linthra_unify_result_view',
+@Native<Size Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_rows',
   isLeaf: true,
 )
-external LinthraUnifyView linthraUnifyResultView(
-  Pointer<LinthraUnifyResult> result,
-);
+external int linthraUnifyRows(Pointer<LinthraUnifyResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_starts',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraUnifyStarts(Pointer<LinthraUnifyResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_indices',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraUnifyIndices(
+    Pointer<LinthraUnifyResult> result);
 
 @Native<Void Function(Pointer<LinthraUnifyResult>)>(
-  symbol: 'linthra_unify_result_free',
+  symbol: 'linthra_unify_free',
   isLeaf: true,
 )
-external void linthraUnifyResultFree(Pointer<LinthraUnifyResult> result);
+external void linthraUnifyFree(Pointer<LinthraUnifyResult> result);
+
+/// `Sorted` on the Rust side (native/linthra_core/src/ffi/song_sort.rs).
+final class LinthraSongSort extends Opaque {}
+
+@Native<
+    Pointer<LinthraSongSort> Function(
+        Pointer<Uint8>,
+        Size,
+        Pointer<Uint32>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Size,
+        Size,
+        Uint8,
+        Bool)>(symbol: 'linthra_song_sort')
+external Pointer<LinthraSongSort> linthraSongSort(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Int64> discs,
+  Pointer<Int64> tracks,
+  Pointer<Int64> added,
+  int count,
+  int catalogCount,
+  int field,
+  bool descending,
+);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_order',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraSongSortOrder(Pointer<LinthraSongSort> result);
+
+@Native<Pointer<Uint8> Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_sections',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraSongSortSections(
+    Pointer<LinthraSongSort> result);
+
+@Native<Void Function(Pointer<LinthraSongSort>)>(
+  symbol: 'linthra_song_sort_free',
+  isLeaf: true,
+)
+external void linthraSongSortFree(Pointer<LinthraSongSort> result);

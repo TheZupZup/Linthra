@@ -1,3 +1,6 @@
+// Merging one song's copies from different servers gives the same library
+// rows in Dart and in the Rust core (native/linthra_core/src/track_unifier.rs),
+// and songs tagged in any script merge (#877).
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,251 +10,103 @@ import 'package:linthra/core/catalog/track_unifier.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/native/linthra_core.dart';
 
-/// The Rust merge has to give exactly what the Dart rules give: the same
-/// logical tracks, in the same order, with the same copies best first. A
-/// drift either merges two different songs or shows one song twice.
-///
-/// Runs through the real Rust library hook/build.dart builds for the test
-/// host, and is skipped without it (CI sets LINTHRA_REQUIRE_RUST=1, which
-/// fails linthra_core_test.dart instead).
-void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
+const List<String> _schemes = <String>['jellyfin', 'subsonic', 'plex'];
 
-  const List<SourcePriority> priorities = <SourcePriority>[
-    SourcePriority.fallback,
-    SourcePriority(<String>['subsonic', 'local']),
-    SourcePriority(<String>['plex', 'jellyfin', 'subsonic']),
-  ];
-
-  group('native track unifier', skip: skip, () {
-    test('matches Dart on titles that are easy to get wrong', () {
-      for (final SourcePriority priority in priorities) {
-        _expectSameAsDart(_tricky(), priority);
-      }
-    });
-
-    test('matches Dart on random catalogs', () {
-      for (int seed = 0; seed < 300; seed++) {
-        final Random random = Random(seed);
-        _expectSameAsDart(
-          _randomCatalog(random),
-          priorities[seed % priorities.length],
-        );
-      }
-    });
-
-    test('matches Dart on blocks larger than an insertion sort', () {
-      // Dozens of copies of one song share a block, past the size where
-      // Dart's sort stops being an insertion sort.
-      final List<Track> tracks = <Track>[
-        for (int i = 0; i < 120; i++)
-          _track(
-            _schemes[i % _schemes.length],
-            '${119 - i}',
-            title: 'Hello',
-            artist: 'Adele',
-            album: i.isEven ? '25' : '25 (Deluxe)',
-            seconds: 180 + i % 4,
-          ),
-      ];
-      for (final SourcePriority priority in priorities) {
-        _expectSameAsDart(tracks, priority);
-      }
-    });
-
-    test('merges a real-world featured-artist drift', () {
-      final List<LogicalTrack> merged = unifyTracks(<Track>[
-        _track('jellyfin:', '1',
-            title: 'CAREFUL', artist: 'NF', album: 'The Search'),
-        _track(
-          'subsonic:',
-          '1',
-          title: 'CAREFUL (feat. Cordae)',
-          artist: 'NF, Cordae',
-          album: 'The Search (Deluxe)',
-        ),
-      ], SourcePriority.fallback);
-      expect(merged, hasLength(1));
-      expect(merged.single.sourceIds, <String>['jellyfin', 'subsonic']);
-    });
-
-    test('leaves text with an unpaired surrogate to Dart', () {
-      final List<Track> tracks = <Track>[
-        _track('jellyfin:', '1',
-            title: 'Hello \uD800', artist: 'Adele', album: '25'),
-        _track('subsonic:', '1', title: 'Hello', artist: 'Adele', album: '25'),
-      ];
-      _expectSameAsDart(tracks, SourcePriority.fallback);
-    });
-  });
-}
-
-const List<String> _schemes = <String>[
-  'jellyfin:',
-  'subsonic:',
-  'plex:',
-  '/music/',
-];
-
-Track _track(
-  String scheme,
-  String id, {
-  required String title,
-  String? artist,
-  String? album,
-  int seconds = 180,
-  int? number,
-}) =>
-    Track(
-      id: id,
-      title: title,
-      uri: '$scheme$id',
-      artistName: artist,
-      albumName: album,
-      duration: Duration(seconds: seconds),
-      trackNumber: number,
-    );
-
-void _expectSameAsDart(List<Track> tracks, SourcePriority priority) {
-  final List<LogicalTrack> dart = unifyTracksInDart(tracks, priority);
-  final List<LogicalTrack> rust = unifyTracks(tracks, priority);
-  expect(
-    _describe(rust),
-    _describe(dart),
-    reason: 'priority ${priority.preferredOrder}',
-  );
-  expect(rust, dart);
-}
-
-/// The uris of each logical track's copies, readable in a failure.
-List<String> _describe(List<LogicalTrack> logical) => <String>[
-      for (final LogicalTrack l in logical) l.allTrackUris.join(' + '),
+/// Every row as the uris of its copies, in order.
+List<String> _rows(List<LogicalTrack> rows) => <String>[
+      for (final LogicalTrack row in rows)
+        row.candidates.map((c) => c.track.uri).join(' + '),
     ];
 
-/// Titles, artists and albums around every rule: feat qualifiers in and out
-/// of brackets, word boundaries, `_`, accents and case Dart folds, versions,
-/// editions, stopwords, and uris whose order differs between UTF-8 and
-/// UTF-16.
-List<Track> _tricky() {
-  const List<String> titles = <String>[
-    'Careful',
-    'CAREFUL feat. Cordae',
-    'Careful (feat. Cordae)',
-    'Careful [ft Cordae] (Live)',
-    'Careful (Live)',
-    'Careful ft',
-    'Careful_feat x',
-    'Careful (featuring x',
-    'Careful feat x (Remix)',
-    'Careful (x) feat y',
-    'Careful ((feat y)',
-    'Careful (Feat y)',
-    'Careful (Featuring Ÿ)',
-    'Cäreful',
-    'CAREFUL',
-    'Ｃareful',
-    'İstanbul',
-    'istanbul',
-    'Feature Film',
-    'Ft. Lauderdale',
-    'feat',
-    '(feat x)',
-    'Song 2',
-    'Song  2',
+/// A catalog where most songs sit on two or three servers, each copy drifting
+/// the ways real servers drift, among songs that must stay apart.
+List<Track> _catalog(int songs, int seed) {
+  final Random random = Random(seed);
+  const List<(String, String, String)> base = <(String, String, String)>[
+    ('Careful', 'NF', 'Hope'),
+    ('Hello', 'Adele', '25'),
+    ('Группа крови', 'Кино', 'Группа крови'),
+    ('夜に駆ける', 'YOASOBI', 'THE BOOK'),
+    ('ΟΔΟΣ', 'ΣΩΚΡΑΤΗΣ', 'ΑΠΟΣ'),
+    ('Café del Mar', 'Energy 52', 'Café del Mar'),
+    ('Song', 'Hall & Oates', 'Album'),
+    ('', 'Nobody', 'Untagged'),
   ];
-  const List<String> artists = <String>[
-    'NF',
-    'NF, Cordae',
-    'NF feat. Cordae',
-    'Hall & Oates',
-    'Hall and Oates',
-    'and',
-    'Björk',
-    'Bjork',
-    'Ⅻ',
-  ];
-  const List<String> albums = <String>[
-    'The Search',
-    'The Search (Deluxe)',
-    'Other',
-    'Œuvre',
-    'oeuvre'
-  ];
-  const List<String> ids = <String>['1', 'a', '\u{1F600}', '！', '', 'b'];
+  String drift(String title) => switch (random.nextInt(7)) {
+        0 => '$title (feat. Someone)',
+        1 => '$title feat. Someone',
+        2 => '$title (Live)',
+        3 => title.toUpperCase(),
+        4 => '$title [FT. X] (Remix)',
+        _ => title,
+      };
   final List<Track> tracks = <Track>[];
-  int n = 0;
-  for (final String title in titles) {
-    for (final String artist in artists) {
-      final String scheme = _schemes[n % _schemes.length];
-      tracks.add(
-        _track(
-          scheme,
-          '${ids[n % ids.length]}$n',
-          title: title,
-          artist: artist,
-          album: albums[n % albums.length],
-          seconds: 180 + n % 5,
-          number: n % 7 == 0 ? null : 1 + n % 2,
-        ),
-      );
-      n++;
+  for (int s = 0; s < songs; s++) {
+    final (String title, String artist, String album) = base[s % base.length];
+    final int copies = 1 + random.nextInt(3);
+    for (int c = 0; c < copies; c++) {
+      final String scheme = _schemes[(s + c) % _schemes.length];
+      tracks.add(Track(
+        id: '$s-$c',
+        title: c == 0 ? '$title $s' : drift('$title $s'),
+        uri: '$scheme:$s-$c',
+        artistName: random.nextInt(5) == 0 ? '$artist, Guest' : artist,
+        albumName: random.nextInt(5) == 0 ? '$album (Deluxe)' : album,
+        duration: Duration(seconds: 200 + random.nextInt(4)),
+        trackNumber: random.nextInt(4) == 0 ? null : 1 + random.nextInt(2),
+      ));
     }
   }
+  tracks.shuffle(random);
   return tracks;
 }
 
-List<Track> _randomCatalog(Random random) {
-  const List<String> titleWords = <String>[
-    'hello',
-    'Hello',
-    'feat.',
-    'ft',
-    'featuring',
-    '(feat.',
-    '(Live)',
-    '[ft',
-    'x)',
-    'y]',
-    '(',
-    ')',
-    'Café',
-    'cafe',
-    'Ǆ',
-    'İ',
-    '_feat',
-    'Remix',
-    '2',
-  ];
-  const List<String> artists = <String>[
-    'Adele',
-    'adele',
-    'Adele feat. NF',
-    'NF and Adele',
-    'Ädele',
-    '',
-  ];
-  const List<String> albums = <String>['25', '25 (Deluxe)', 'Hits', 'hits', ''];
-  final int count = random.nextInt(60);
-  return <Track>[
-    for (int i = 0; i < count; i++)
-      _track(
-        _schemes[random.nextInt(_schemes.length)],
-        // Few ids, so uris sometimes repeat.
-        '${random.nextInt(count + 5)}',
-        title: <String>[
-          for (int w = 0; w <= random.nextInt(3); w++)
-            titleWords[random.nextInt(titleWords.length)],
-        ].join(' '),
-        artist: random.nextInt(10) == 0
-            ? null
-            : artists[random.nextInt(artists.length)],
-        album: random.nextInt(10) == 0
-            ? null
-            : albums[random.nextInt(albums.length)],
-        seconds: random.nextInt(6) - 1 + 178,
-        number: random.nextBool() ? null : random.nextInt(3),
-      ),
-  ];
+void main() {
+  final Object skip =
+      LinthraCore.isAvailable ? false : 'Rust core not built in this build';
+  const SourcePriority priority =
+      SourcePriority(<String>['jellyfin', 'subsonic', 'plex']);
+
+  test('the Rust core and Dart build the same library rows', skip: skip, () {
+    for (int seed = 0; seed < 5; seed++) {
+      final List<Track> catalog = _catalog(400, seed);
+      final List<String> rust = _rows(unifyTracks(catalog, priority));
+      final List<String> dart =
+          _rows(unifyTracks(catalog, priority, useNative: false));
+      expect(rust, dart, reason: 'seed $seed');
+      // Something merged, and something stayed apart.
+      expect(rust.length, lessThan(catalog.length));
+      expect(rust.length, greaterThan(400 ~/ 4));
+    }
+  });
+
+  for (final bool useNative in <bool>[false, true]) {
+    test(
+        '#877: songs tagged in any script merge (${useNative ? 'Rust' : 'Dart'})',
+        skip: useNative ? skip : false, () {
+      Track copy(String scheme, String title, String artist, String album) =>
+          Track(
+            id: '$scheme-$title',
+            title: title,
+            uri: '$scheme:$title',
+            artistName: artist,
+            albumName: album,
+            duration: const Duration(seconds: 250),
+          );
+      final List<LogicalTrack> rows = unifyTracks(<Track>[
+        copy('jellyfin', 'Группа крови', 'Кино', 'Группа крови'),
+        copy('subsonic', 'Группа крови', 'Кино', 'Группа крови'),
+        copy('jellyfin', '夜に駆ける', 'YOASOBI', 'THE BOOK'),
+        copy('subsonic', '夜に駆ける', 'YOASOBI', 'THE BOOK'),
+        // One server upper-cases its tags: a final sigma either way.
+        copy('jellyfin', 'Οδός', 'Σωκράτης', 'Άλμπουμ'),
+        copy('subsonic', 'ΟΔΌΣ', 'ΣΩΚΡΆΤΗΣ', 'ΆΛΜΠΟΥΜ'),
+      ], priority, useNative: useNative);
+
+      expect(rows, hasLength(3));
+      for (final LogicalTrack row in rows) {
+        expect(row.candidates, hasLength(2));
+      }
+    });
+  }
 }

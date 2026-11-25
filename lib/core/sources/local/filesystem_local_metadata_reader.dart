@@ -7,6 +7,7 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../models/local_file_stamp.dart';
+import '../../native/native_tags.dart';
 import '../../services/local_artwork_cache.dart';
 import 'local_audio_metadata.dart';
 import 'local_metadata_reader.dart';
@@ -49,9 +50,11 @@ class FilesystemLocalMetadataReader
     Duration parseLimit = const Duration(seconds: 10),
     @visibleForTesting
     bool Function(File file) guard = Mp4BoxGuard.isSafeToParse,
+    @visibleForTesting bool useNativeTags = true,
   })  : _artworkCache = artworkCache ?? LocalArtworkCache(),
         _parseLimit = parseLimit,
-        _guard = guard;
+        _guard = guard,
+        _useNativeTags = useNativeTags;
 
   final LocalArtworkCache _artworkCache;
 
@@ -69,7 +72,15 @@ class FilesystemLocalMetadataReader
   /// 3: `audio_metadata_reader` 1.8.0. An MP3 with an odd track number
   /// (`A1`, `3 of 12`) keeps its other tags, and OGG and Opus files their
   /// album artist.
-  static const int revision = 3;
+  /// 4: FLAC, OGG and Opus are read by the Rust core when the build has it:
+  /// the first non-blank title and album, and a length read from the stream.
+  /// 5: MP3 too. A UTF-8 frame holding Latin-1, or an ID3v1 tag alone, no
+  /// longer drops the file's tags.
+  /// 6: MP4 too, album artist (`aART`) included. An MP4 the package would
+  /// loop on, or one with a CDDB track number of `A1`, keeps its tags.
+  /// 7: WAV, AIFF and Monkey's Audio too, and APE tags on MP3. A WAV's `id3 `
+  /// chunk is read, cover included, and a Monkey's Audio file has a length.
+  static const int revision = 7;
 
   @override
   int get tagRevision => revision;
@@ -80,6 +91,12 @@ class FilesystemLocalMetadataReader
   /// stopped. Must be a top-level or static function, to cross to the
   /// isolate.
   final bool Function(File file) _guard;
+
+  /// Whether the parser isolate asks the Rust core first ([NativeTags]).
+  /// False only in tests of the Dart path, such as the ones that fail a
+  /// file's reads through [IOOverrides], which the Rust core's reads don't
+  /// go through.
+  final bool _useNativeTags;
 
   /// The isolate parses run on: started by the first read, kept for the next
   /// one, and replaced only after a parse runs past [_parseLimit] or the
@@ -174,8 +191,11 @@ class FilesystemLocalMetadataReader
       final LocalAudioMetadata? parsedTags = parsed.tags;
       // FLAC's comment block is readable in the clear, and its real
       // ARTIST/ALBUMARTIST are taken from there (see [VorbisCommentFields]).
+      // Not needed when the Rust core read the file: it read these already.
       final Map<String, List<String>>? vorbisFields =
-          parsedTags == null ? null : await VorbisCommentFields.read(file);
+          parsedTags == null || parsed.complete
+              ? null
+              : await VorbisCommentFields.read(file);
       final LocalAudioMetadata textMetadata = parsedTags == null
           ? LocalAudioMetadata.empty
           : _withVorbisArtists(parsedTags, vorbisFields);
@@ -237,7 +257,8 @@ class FilesystemLocalMetadataReader
   Future<_Parsed?> _parseNext(String path, bool getImage) async {
     _ParserIsolate? parser = _parser;
     if (parser == null || !parser.isRunning) {
-      parser = _parser = await _ParserIsolate.start(_guard, _parseLimit);
+      parser = _parser =
+          await _ParserIsolate.start(_guard, _useNativeTags, _parseLimit);
       _parsersStarted++;
     }
     return parser.parse(path, getImage, _parseLimit);
@@ -246,11 +267,11 @@ class FilesystemLocalMetadataReader
   /// The parser isolate's entry point: hands back the port it listens on,
   /// then answers each request (a path, and whether to pull out the cover)
   /// with [_parse].
-  static void _serve((SendPort, bool Function(File)) message) {
-    final (SendPort replies, guard) = message;
+  static void _serve((SendPort, bool Function(File), bool) message) {
+    final (SendPort replies, guard, useNativeTags) = message;
     final RawReceivePort requests = RawReceivePort((Object? request) {
       final (String path, bool getImage) = request! as (String, bool);
-      replies.send(_parse(path, getImage, guard));
+      replies.send(_parse(path, getImage, guard, useNativeTags));
     });
     replies.send(requests.sendPort);
   }
@@ -264,7 +285,33 @@ class FilesystemLocalMetadataReader
     String path,
     bool getImage,
     bool Function(File file) guard,
+    bool useNativeTags,
   ) {
+    // The Rust core reads FLAC, Ogg Vorbis, Opus, MP3, MP4, WAV, AIFF and
+    // Monkey's Audio by their specs, in one pass, and keeps a file whose tags the package would give up on.
+    // It goes first, before the guard: it reads the MP4s the package would
+    // loop on, so an interrupted encode keeps its tags. Anything else it
+    // hands back to the guard and the package below.
+    final NativeTagRead? native =
+        useNativeTags ? NativeTags.read(path, withCover: getImage) : null;
+    switch (native?.outcome) {
+      case NativeTagOutcome.read:
+        final Uint8List? cover = native!.cover;
+        return (
+          tags: native.tags,
+          cover: cover == null
+              ? null
+              : TransferableTypedData.fromList(<TypedData>[cover]),
+          rejected: false,
+          complete: true,
+        );
+      case NativeTagOutcome.ioError:
+        // Nothing is known about the tags.
+        return null;
+      case NativeTagOutcome.notHandled:
+      case null:
+        break;
+    }
     final File file = File(path);
     try {
       if (!guard(file)) return null;
@@ -286,12 +333,13 @@ class FilesystemLocalMetadataReader
             ? null
             : TransferableTypedData.fromList(<TypedData>[cover.bytes]),
         rejected: false,
+        complete: false,
       );
     } catch (_) {
       // The parser gave up, which one field it can't parse is enough for (see
       // [_inTheClear]). It wraps an I/O error the same way, so this can be
       // one too: what is read in the clear after it never reads around one.
-      return (tags: null, cover: null, rejected: true);
+      return (tags: null, cover: null, rejected: true, complete: false);
     }
   }
 
@@ -376,18 +424,8 @@ class FilesystemLocalMetadataReader
     final VorbisTagsInTheClear? found =
         await VorbisTagsInTheClear.read(file, withCover: cachedArtwork == null);
     if (found == null) return null;
-    final Map<String, List<String>> fields = found.fields;
-    final List<String> artists = _nonBlank(fields['ARTIST']);
-    final List<String> albumArtists = _albumArtists(fields);
-    final LocalAudioMetadata tags = _metadata(
-          title: _nonBlank(fields['TITLE']).firstOrNull,
-          artist: artists.isEmpty ? null : artists.join(', '),
-          albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
-          album: _nonBlank(fields['ALBUM']).firstOrNull,
-          trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
-          duration: found.duration,
-        ) ??
-        LocalAudioMetadata.empty;
+    final LocalAudioMetadata tags =
+        vorbisMetadata(found.fields, found.duration);
 
     Uri? artworkUri =
         cachedArtwork == null ? null : Uri.file(cachedArtwork.path);
@@ -406,6 +444,30 @@ class FilesystemLocalMetadataReader
       artworkUri: artworkUri,
     );
     return (metadata: result.isEmpty ? null : result, failed: false);
+  }
+
+  /// The tags Vorbis comments [fields] and a stream [duration] give: the
+  /// first non-blank TITLE and ALBUM, every ARTIST and ALBUMARTIST (or
+  /// ALBUM_ARTIST) joined, the number TRACKNUMBER starts with. Blank values
+  /// and a zero track or length count as absent. The Rust core reads the
+  /// same way (native/linthra_core/src/tags/), held to the cases in
+  /// test/fixtures/tags/cases.txt.
+  @visibleForTesting
+  static LocalAudioMetadata vorbisMetadata(
+    Map<String, List<String>> fields,
+    Duration? duration,
+  ) {
+    final List<String> artists = _nonBlank(fields['ARTIST']);
+    final List<String> albumArtists = _albumArtists(fields);
+    return _metadata(
+          title: _nonBlank(fields['TITLE']).firstOrNull,
+          artist: artists.isEmpty ? null : artists.join(', '),
+          albumArtist: albumArtists.isEmpty ? null : albumArtists.join(', '),
+          album: _nonBlank(fields['ALBUM']).firstOrNull,
+          trackNumber: _leadingNumber(fields['TRACKNUMBER']?.firstOrNull),
+          duration: duration,
+        ) ??
+        LocalAudioMetadata.empty;
   }
 
   /// The number a track field starts with: `3` from `3` or `3/12`, and none
@@ -529,11 +591,13 @@ class FilesystemLocalMetadataReader
 
 /// What a parse sends back: the file's tags, and the picture picked as its
 /// cover when one was asked for and there is one. [rejected] when the parser
-/// gave up on the file's contents, which it read.
+/// gave up on the file's contents, which it read. [complete] when the Rust
+/// core read them, artists included, so nothing needs reading again.
 typedef _Parsed = ({
   LocalAudioMetadata? tags,
   TransferableTypedData? cover,
   bool rejected,
+  bool complete,
 });
 
 /// The reply [_ParserIsolate] gets when its isolate is gone. Never a parse's
@@ -568,6 +632,7 @@ final class _ParserIsolate {
 
   static Future<_ParserIsolate> start(
     bool Function(File file) guard,
+    bool useNativeTags,
     Duration limit,
   ) async {
     final Completer<Object?> hello = Completer<Object?>();
@@ -580,7 +645,7 @@ final class _ParserIsolate {
       // Started paused, so the exit listener is on before it can exit.
       isolate = await Isolate.spawn(
         FilesystemLocalMetadataReader._serve,
-        (inbox.sendPort, guard),
+        (inbox.sendPort, guard, useNativeTags),
         paused: true,
         debugName: 'tag parser',
       );

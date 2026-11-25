@@ -22,6 +22,7 @@ import '../data/repositories/jellyfin_session_store_provider.dart';
 import '../data/repositories/keyboard_shortcut_preferences_provider.dart';
 import '../data/repositories/launcher_icon_service_provider.dart';
 import '../data/repositories/library_added_store_provider.dart';
+import '../data/repositories/library_album_sort_store_provider.dart';
 import '../data/repositories/library_song_sort_store_provider.dart';
 import '../data/repositories/library_tab_store_provider.dart';
 import '../data/repositories/local_tag_revision_store_provider.dart';
@@ -72,6 +73,7 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesLocalTagRevisionStoreOverride,
     sharedPreferencesLibraryTabStoreOverride,
     sharedPreferencesLibrarySongSortStoreOverride,
+    sharedPreferencesLibraryAlbumSortStoreOverride,
     sharedPreferencesSelectedMusicFolderRepositoryOverride,
     sharedPreferencesPreferredSourceStoreOverride,
     sharedPreferencesDefaultProviderStoreOverride,
