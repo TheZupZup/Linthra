@@ -634,3 +634,52 @@ external int linthraWatchdogArms(int reported, int current, bool hasPlayed);
 )
 external int linthraWatchdogFails(
     int current, bool recoveryUnderway, bool hasTrack);
+
+/// `UnifyResult` on the Rust side (native/linthra_core/src/ffi/track_unifier.rs).
+final class LinthraUnifyResult extends Opaque {}
+
+@Native<
+    Pointer<LinthraUnifyResult> Function(
+        Pointer<Uint8>,
+        Size,
+        Pointer<Uint32>,
+        Pointer<Uint32>,
+        Pointer<Uint32>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Size)>(symbol: 'linthra_unify_tracks')
+external Pointer<LinthraUnifyResult> linthraUnifyTracks(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Uint32> sources,
+  Pointer<Uint32> ranks,
+  Pointer<Int64> durations,
+  Pointer<Int64> trackNumbers,
+  int count,
+);
+
+@Native<Size Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_rows',
+  isLeaf: true,
+)
+external int linthraUnifyRows(Pointer<LinthraUnifyResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_starts',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraUnifyStarts(Pointer<LinthraUnifyResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_indices',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraUnifyIndices(
+    Pointer<LinthraUnifyResult> result);
+
+@Native<Void Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_free',
+  isLeaf: true,
+)
+external void linthraUnifyFree(Pointer<LinthraUnifyResult> result);

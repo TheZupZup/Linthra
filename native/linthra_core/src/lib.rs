@@ -40,6 +40,7 @@ pub mod tags;
 pub mod track_end;
 #[cfg(test)]
 mod track_end_cases_test;
+pub mod track_unifier;
 pub mod typos;
 
 use normalize::normalized_tokens;

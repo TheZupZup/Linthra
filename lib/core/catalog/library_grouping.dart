@@ -333,6 +333,10 @@ int _trackForArtistCompare(Track a, Track b) {
   final int byAlbum =
       foldText(a.albumName ?? '').compareTo(foldText(b.albumName ?? ''));
   if (byAlbum != 0) return byAlbum;
+  // Two albums can share a title (self-titled albums, Peter Gabriel 1-4):
+  // keep each one's songs together rather than interleaving them.
+  final int byAlbumId = albumIdForTrack(a).compareTo(albumIdForTrack(b));
+  if (byAlbumId != 0) return byAlbumId;
   return _trackInAlbumCompare(a, b);
 }
 
