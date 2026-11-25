@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+pub mod audio_focus;
 pub mod cache_eviction;
 #[cfg(test)]
 mod cache_eviction_cases_test;
