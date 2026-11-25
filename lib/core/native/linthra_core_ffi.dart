@@ -579,3 +579,17 @@ external int linthraPlaybackRecoveryDecide(
   isLeaf: true,
 )
 external int linthraPlaybackFocusAction(bool begin, int interruption);
+
+@Native<
+    Uint16 Function(Uint8, Uint8, Uint8, Pointer<Uint8>, Size, Pointer<Size>)>(
+  symbol: 'linthra_audio_focus_step',
+  isLeaf: true,
+)
+external int linthraAudioFocusStep(
+  int state,
+  int event,
+  int context,
+  Pointer<Uint8> steps,
+  int capacity,
+  Pointer<Size> count,
+);

@@ -15,6 +15,7 @@ import '../models/repeat_mode.dart';
 import '../models/replay_gain.dart';
 import '../models/track.dart';
 import '../native/native_playback_rules.dart';
+import 'audio_focus_machine.dart';
 import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
@@ -369,9 +370,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// a plain screen-on, or a track the user had paused never auto-resumes, while
   /// a brief transient interruption to background playback recovers.
   ///
-  /// Always write it through [_armTransientResume]: arming is also what holds
-  /// the Android foreground media service across the pause.
-  bool _resumeAfterTransientLoss = false;
+  /// Kept by [_focus], which arms the foreground hold with it: arming is also
+  /// what holds the Android foreground media service across the pause.
+  bool get _resumeAfterTransientLoss => _focus.resumeArmed;
+
+  /// The audio focus machine ([AudioFocusMachine], run in the Rust core when
+  /// the build has it): it holds the transient-resume, debounce, duck and
+  /// foreground-hold state, and [_focusEvent] carries out what it decides.
+  final AudioFocusMachine _focus = AudioFocusMachine();
 
   /// Whether the media session is currently asked to keep its foreground service
   /// alive across a pause, mirrored onto every emitted state as
@@ -380,7 +386,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// Tracks [_resumeAfterTransientLoss], except that it also drops on its own
   /// once [focusHoldTimeout] elapses, so a focus loss whose `AUDIOFOCUS_GAIN`
   /// never arrives (the app holding focus died) cannot hold a wake lock forever.
-  bool _foregroundHeldForFocus = false;
+  bool get _foregroundHeldForFocus => _focus.held;
 
   /// Releases [_foregroundHeldForFocus] when the hold outlives [focusHoldTimeout].
   /// Null when no hold is active.
@@ -405,7 +411,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// regain or a pause. So a navigation prompt / assistant lowers the music
   /// briefly instead of either silencing it or leaving it stuck quiet once
   /// focus returns. Exposed read-only for tests via [isDuckedForTesting].
-  bool _ducked = false;
+  bool get _ducked => _focus.ducked;
 
   /// The fraction of the normal engine volume used while another app holds a
   /// duckable transient focus. Audible (not silent), so Linthra "keeps playing
@@ -835,140 +841,74 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// breadcrumb so a field report can tell exactly which event paused/resumed.
   void _onAudioInterruption(AudioInterruptionEvent event) {
     if (_suspended) return;
-    switch (audioFocusAction(event)) {
-      case AudioFocusAction.pauseTransient:
-        // Resume afterwards only if this interrupted active playback; never
-        // arm a resume for something the user had already paused. Crucially,
-        // keep an already-armed resume armed: a single voice session can emit
-        // *several* transient losses in a row (an app grabbing may-duck focus
-        // then escalating to exclusive mic/voice focus, which — with the
-        // session configured to pause when ducked — all surface as transient
-        // pauses). Re-reading `isPlaying` on the 2nd event would see the
-        // already-paused state and wrongly disarm, so the eventual regain would
-        // never resume (the "voice ends and Linthra stays silent" bug).
-        //
-        // Busy is not enough on its own: a track still loading reads busy
-        // after the listener paused it (the old source's paused report is not
-        // this track's), so there their latest intent decides.
-        _armTransientResume(_state.isPlaying ||
-            (_state.isBusy && _playWhenLoaded) ||
-            _resumeAfterTransientLoss);
-        // A real transient loss supersedes a duck: clear it so the resume (or a
-        // later manual play) is at full volume, never stuck at the duck level.
-        _restoreDuckedVolume();
-        // Debounced: a brief screen-off / Doze focus blip is absorbed by the
-        // matching regain before this fires, so it never pauses (and so never
-        // demotes the foreground service). Only a loss that lasts past the
-        // window actually pauses.
-        _scheduleTransientPause();
+    // What the machine needs to know: whether this interrupts playback (or a
+    // load the listener wants to sound, which reads busy rather than
+    // playing), and whether an automatic recovery step will start its own
+    // track once focus comes back.
+    _focusEvent(
+      FocusEvent.of(audioFocusAction(event)),
+      context: FocusContext(
+        playing: _state.isPlaying,
+        loadingToPlay: _state.isBusy && _playWhenLoaded,
+        recoveryUnderway: _automaticRecoveryUnderway,
+      ),
+    );
+  }
+
+  /// Runs [event] through the audio focus machine and carries out the steps
+  /// it returns, in order: its timers, the transport and volume queued on the
+  /// serialized focus chain, a re-published state for a hold change, and the
+  /// diagnostics breadcrumbs.
+  ///
+  /// The debounce absorbs a brief screen-off / Doze focus blip: a transient
+  /// loss pauses only once it outlasts [focusPauseDebounce], so the
+  /// foreground media service is never demoted for one. The hold keeps that
+  /// service up across a real transient pause, bounded by [focusHoldTimeout]
+  /// so a loss whose regain never comes can't hold a wake lock forever.
+  void _focusEvent(
+    FocusEvent event, {
+    FocusContext context = const FocusContext(),
+  }) {
+    for (final int step in _focus.handle(event, context: context)) {
+      if (step >= diagnosticBase) {
         StabilityDiagnostics.audioFocus(
-            'loss-transient:scheduled armed=$_resumeAfterTransientLoss');
-      case AudioFocusAction.pausePermanent:
-        _armTransientResume(false);
-        // Nothing resumes this one, so a track still loading must not start.
-        _setPlayWhenLoaded(false);
-        _cancelPendingFocusPause();
-        // Another app owns audio now: don't move on and start a track under it.
-        _haltAutomaticRecovery(settle: true);
-        StabilityDiagnostics.audioFocus('loss-permanent:paused');
-        _restoreDuckedVolume();
-        _enqueueFocusPause();
-      case AudioFocusAction.duck:
-        // A duckable transient (a navigation prompt, an assistant, another app
-        // opening with may-duck focus): lower the volume to an audible level and
-        // keep playing — instead of letting the OS silently auto-duck us into a
-        // stuck-quiet state it may never restore. Undone on the unduck/regain.
-        _ducked = true;
-        StabilityDiagnostics.audioFocus('loss-duck:ducked');
-        _enqueueFocusVolume();
-      case AudioFocusAction.unduck:
-        // The duckable transient ended: bring the volume back to normal.
-        StabilityDiagnostics.audioFocus(
-            _ducked ? 'unduck:restored' : 'unduck:ignored');
-        _restoreDuckedVolume();
-      case AudioFocusAction.resume:
-        // Focus regained. Restore the volume unconditionally (a safety net so a
-        // prior duck can never leave us quiet), then decide on transport. A
-        // resume below bumps the epoch (superseding any stale queued pause); a
-        // no-op `ignored` leaves a resume another path may have just queued
-        // intact, so two recovery paths racing still converge on playing.
-        _restoreDuckedVolume();
-        final bool wasPending = _cancelPendingFocusPause();
-        if (wasPending) {
-          // The transient loss never outlasted the debounce window — a brief
-          // screen-off / Doze focus blip. We never paused, so just keep playing
-          // and disarm the now-moot resume. Pausing+resuming here would demote
-          // the foreground service and risk an OS freeze with the screen off.
-          _armTransientResume(false);
-          StabilityDiagnostics.audioFocus('regain:churn-absorbed');
-        } else if (_resumeAfterTransientLoss) {
-          // The resume is consumed here, but the foreground hold is not: it
-          // stays until the engine reports playing again (see [_emit]). Lifted
-          // first, the session would report paused for the moment between
-          // now and the resume, and audio_service would take the media
-          // service out of the foreground just as the resume asks Android for
-          // audio focus from the background. Android 17 refuses that focus
-          // request (and silences the audio) without a foreground service.
-          _resumeAfterTransientLoss = false;
-          if (_automaticRecoveryUnderway) {
-            // The engine still holds the source that failed (or the track
-            // before it). The waiting or loading step starts its own track
-            // once it lands, now that it may; playing the engine here would
-            // sound the old source until the step replaced it. Its own
-            // reconnecting/loading state keeps the session playing meanwhile.
-            _setForegroundHeldForFocus(false);
-            StabilityDiagnostics.audioFocus('regain:recovery-starts');
-          } else {
-            StabilityDiagnostics.audioFocus('regain:resumed');
-            _enqueueFocusResume();
-          }
-        } else {
-          // Focus came back but the loss was permanent (or we weren't playing):
-          // the screen-wake / app-return / exit-Doze case — never auto-resume.
-          StabilityDiagnostics.audioFocus('regain:ignored');
-        }
+            FocusDiagnostic.values[step - diagnosticBase].label);
+        continue;
+      }
+      switch (FocusCommand.values[step]) {
+        case FocusCommand.startPauseTimer:
+          _pendingFocusPause = Timer(focusPauseDebounce, () {
+            _pendingFocusPause = null;
+            _focusEvent(FocusEvent.pauseDebounceFired);
+          });
+        case FocusCommand.cancelPauseTimer:
+          _pendingFocusPause?.cancel();
+          _pendingFocusPause = null;
+        case FocusCommand.bumpEpoch:
+          _focusEpoch++;
+        case FocusCommand.enqueuePause:
+          _enqueueFocusPause();
+        case FocusCommand.enqueueResume:
+          _enqueueFocusResume();
+        case FocusCommand.applyVolume:
+          _enqueueFocusVolume();
+        case FocusCommand.startHoldTimer:
+          _focusHoldExpiry?.cancel();
+          _focusHoldExpiry = Timer(focusHoldTimeout, () {
+            _focusHoldExpiry = null;
+            _focusEvent(FocusEvent.holdExpired);
+          });
+        case FocusCommand.cancelHoldTimer:
+          _focusHoldExpiry?.cancel();
+          _focusHoldExpiry = null;
+        case FocusCommand.emitState:
+          _emit(_state);
+        case FocusCommand.clearPlayWhenLoaded:
+          _setPlayWhenLoaded(false);
+        case FocusCommand.haltRecovery:
+          _haltAutomaticRecovery(settle: true);
+      }
     }
-  }
-
-  /// Schedules the pause for a transient focus loss after [focusPauseDebounce]
-  /// rather than pausing immediately, so a brief screen-off / Doze focus blip (a
-  /// loss the matching regain supersedes straight away) is absorbed without ever
-  /// pausing — the foreground media service stays up and background playback
-  /// can't be frozen. A loss that persists past the window (a real call / voice
-  /// session) still pauses. Idempotent: a repeated loss while one is already
-  /// pending keeps the single in-flight timer. When it fires it enqueues the
-  /// pause onto the serialized chain at the *current* epoch, so a regain that
-  /// arrives moments later (bumping the epoch) makes the pause a no-op instead
-  /// of racing the resume.
-  void _scheduleTransientPause() {
-    if (_pendingFocusPause != null) return;
-    _pendingFocusPause = Timer(focusPauseDebounce, () {
-      _pendingFocusPause = null;
-      StabilityDiagnostics.audioFocus(_resumeAfterTransientLoss
-          ? 'loss-transient:paused'
-          : 'loss-transient:already-paused');
-      _enqueueFocusPause();
-    });
-  }
-
-  /// Cancels a not-yet-fired transient-loss pause. Returns whether one was
-  /// pending (so a regain can tell an absorbed blip — we never paused — from a
-  /// regain after a real, already-applied pause).
-  bool _cancelPendingFocusPause() {
-    final Timer? pending = _pendingFocusPause;
-    if (pending == null) return false;
-    pending.cancel();
-    _pendingFocusPause = null;
-    return true;
-  }
-
-  /// Marks any queued or in-flight focus transport as superseded — without
-  /// enqueueing a new one — and cancels a pending debounce pause. Used by an
-  /// explicit user/media-session transport so a stale focus pause/resume can't
-  /// fight it.
-  void _supersedeFocusTransport() {
-    _focusEpoch++;
-    _cancelPendingFocusPause();
   }
 
   /// Queues a serialized transport action and bumps [_focusEpoch], so this
@@ -996,8 +936,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// absorbs a blip. A load landing meanwhile waits for that resume rather
   /// than starting over the call. Unlike a pause, this does not change what
   /// the listener asked for.
-  bool get _heldForTransientFocus =>
-      _resumeAfterTransientLoss && _pendingFocusPause == null;
+  bool get _heldForTransientFocus => _focus.heldForTransientFocus;
 
   /// Queues a transport resume for a focus regain. A cast receiver owns audio
   /// while suspended, so it is a no-op then.
@@ -1055,74 +994,6 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }).catchError((Object _) {});
   }
 
-  /// Arms (or disarms) the resume-on-regain intent, and with it the foreground
-  /// hold that keeps the media service — and the isolate that processes focus
-  /// events — alive across the pause.
-  ///
-  /// The two are the same fact: "a transient loss interrupted playback we mean
-  /// to resume". Every write goes through here so the emitted state can never
-  /// disagree with the intent, and so an ordinary user pause (which disarms) is
-  /// free to demote the service and drop the wake lock.
-  void _armTransientResume(bool armed) {
-    _resumeAfterTransientLoss = armed;
-    _setForegroundHeldForFocus(armed);
-  }
-
-  /// Applies [held] to the foreground hold, (re)starting or cancelling the
-  /// [focusHoldTimeout] bound, and re-stamps the current state so the media
-  /// session sees the change immediately.
-  void _setForegroundHeldForFocus(bool held) {
-    if (_foregroundHeldForFocus == held) return;
-    _foregroundHeldForFocus = held;
-    _focusHoldExpiry?.cancel();
-    _focusHoldExpiry = null;
-    if (held) {
-      _focusHoldExpiry = Timer(focusHoldTimeout, () {
-        _focusHoldExpiry = null;
-        if (!_resumeAfterTransientLoss) {
-          // Focus already came back and its resume is under way, still
-          // loading or rebuffering: that resume was asked for while the
-          // service was held, and a busy engine on its way to sound keeps the
-          // session playing by itself. Only the hold goes.
-          StabilityDiagnostics.audioFocus('hold:expired-after-regain');
-          _setForegroundHeldForFocus(false);
-          return;
-        }
-        // The resume goes with the hold. Once the media service has left the
-        // foreground, a resume on a later regain would start audio from the
-        // background with no foreground service: Android 12 and later can
-        // refuse to bring the service back, and Android 17 refuses the focus
-        // request and silences the audio. Past this point the listener
-        // presses Play, which Android allows from a notification, a headset
-        // or the app. Like a permanent loss, nothing else may start sound on
-        // its own either: not a track still loading, and not an automatic
-        // retry, which only held back while the resume was armed.
-        StabilityDiagnostics.audioFocus('hold:expired');
-        _armTransientResume(false);
-        _setPlayWhenLoaded(false);
-        _haltAutomaticRecovery(settle: true);
-      });
-    }
-    _emit(_state);
-  }
-
-  /// Drops the foreground hold without emitting, for [_emit] to stamp onto the
-  /// state it is about to publish.
-  void _releaseFocusHoldQuietly() {
-    _foregroundHeldForFocus = false;
-    _focusHoldExpiry?.cancel();
-    _focusHoldExpiry = null;
-  }
-
-  /// Clears an active duck and pushes the normal (un-attenuated) volume back to
-  /// the engine. A no-op when not ducked, so calling it on every regain/pause is
-  /// safe and guarantees Linthra is never left in a ducked/muted state.
-  void _restoreDuckedVolume() {
-    if (!_ducked) return;
-    _ducked = false;
-    _enqueueFocusVolume();
-  }
-
   /// Drives [_onAudioInterruption] from a test (an injected player turns off the
   /// real audio_session wiring), so the duck/restore and pause/resume contract
   /// can be exercised without a platform channel.
@@ -1145,7 +1016,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   @override
   void onAppForegrounded() {
     if (_suspended) return;
-    _restoreDuckedVolume();
+    _focusEvent(FocusEvent.appForegrounded);
   }
 
   /// The machine slept while this player was playing, and has woken (#799).
@@ -1267,18 +1138,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// never auto-resumes when they're plugged back in.
   void _onBecomingNoisy() {
     if (_suspended) return;
-    _armTransientResume(false);
-    // Nor may a track still loading start through the speaker when it lands.
-    _setPlayWhenLoaded(false);
-    // Headphones really were pulled: cancel a pending debounce pause and pause
-    // now (the enqueued pause bumps the epoch, superseding any queued resume).
-    _cancelPendingFocusPause();
-    // Nor may an automatic retry or move start a track through the speaker.
-    _haltAutomaticRecovery(settle: true);
-    StabilityDiagnostics.audioFocus('noisy:paused');
-    // Clear any active duck so the next play is at full volume, not stuck quiet.
-    _restoreDuckedVolume();
-    _enqueueFocusPause();
+    // Paused for good: no armed resume when they're plugged back in, and no
+    // load or automatic retry may start through the speaker.
+    _focusEvent(FocusEvent.becomingNoisy);
   }
 
   /// Drives [_onBecomingNoisy] from a test (an injected player turns off the
@@ -1848,7 +1710,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (_foregroundHeldForFocus &&
         !_resumeAfterTransientLoss &&
         next.status == PlaybackStatus.playing) {
-      _releaseFocusHoldQuietly();
+      _focusEvent(FocusEvent.enginePlaying);
     }
     // Stamp the foreground focus hold on from one place, so no emit path can
     // publish a state that disagrees with the current hold.
@@ -2358,8 +2220,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   }) {
     double level = volumeFor(track, normalizeVolume: normalizeVolume);
     level *= muted ? 0.0 : volume;
-    // [_restoreDuckedVolume] clears the duck and re-applies the listener's level
-    // on the unduck/regain, so the engine is never left attenuated.
+    // The focus machine clears the duck and re-applies the listener's level on
+    // the unduck or regain, so the engine is never left attenuated.
     if (ducked) level *= _duckVolumeFactor;
     return level;
   }
@@ -3559,9 +3421,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // still held would otherwise have the focus regain call play() on whatever
     // source the engine last had, underneath the error. A hold still bridging
     // a regain's resume goes too: that resume ended in this error.
-    if (_resumeAfterTransientLoss || _foregroundHeldForFocus) {
-      _armTransientResume(false);
-    }
+    _focusEvent(FocusEvent.error);
     // Keep where the track stopped: Retry and Play resume from there, as the
     // failure panel promises, rather than from the top of a half-heard song.
     final bool sameTrack = _state.currentTrack?.uri == track.uri;
@@ -3669,7 +3529,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _suspended = true;
     // A cast receiver owns the audio now, so a local focus loss is nothing to
     // recover from: drop any hold rather than keeping the service foreground.
-    _armTransientResume(false);
+    _focusEvent(FocusEvent.suspend);
     // A cast receiver now owns position; stop flushing local ticks underneath it.
     _resetPositionFlush();
     // The receiver owns playback from here; nothing local moves on its own.
@@ -3734,9 +3594,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // the resume arming and supersede any pending or already-queued focus pause
     // so a stale focus action can't undo the user's play, then restore full
     // volume in case a duck was active.
-    _armTransientResume(false);
-    _supersedeFocusTransport();
-    _restoreDuckedVolume();
+    _focusEvent(FocusEvent.play);
     // Any explicit play is the listener taking over: whatever failed before
     // this is history, and the next failure gets a fresh bounded recovery.
     _failureStreak.clear();
@@ -3811,8 +3669,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // An explicit user / media-session pause overrides focus: clear the resume
     // arming and supersede any pending or queued focus pause/resume so the
     // regain after an interruption never auto-resumes a track the user paused.
-    _armTransientResume(false);
-    _supersedeFocusTransport();
+    _focusEvent(FocusEvent.pause);
     // Nor does an automatic retry or move start something after it.
     _haltAutomaticRecovery(settle: true);
     return _player.pause();
@@ -3839,8 +3696,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _resetPositionFlush();
     // A stop is definitive: drop any focus resume intent and supersede any
     // pending/queued focus action so it can't resurrect playback after stop.
-    _armTransientResume(false);
-    _supersedeFocusTransport();
+    _focusEvent(FocusEvent.stop);
     // Nothing the engine reports from here on is about the stopped track:
     // as it stops, just_audio's idle player publishes the position the song
     // stopped at, which landed a moment after the stopped state and put it
@@ -3986,7 +3842,8 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _resetPositionFlush();
     _cancelBufferingWatchdog();
     _haltAutomaticRecovery();
-    _cancelPendingFocusPause();
+    _pendingFocusPause?.cancel();
+    _pendingFocusPause = null;
     _focusHoldExpiry?.cancel();
     _focusHoldExpiry = null;
     await _interruptionSub?.cancel();
