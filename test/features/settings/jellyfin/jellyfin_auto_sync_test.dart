@@ -9,6 +9,7 @@ import 'package:linthra/core/models/jellyfin_session.dart';
 import 'package:linthra/core/models/playlist.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/repositories/download_repository.dart';
+import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/repositories/music_library_repository.dart';
 import 'package:linthra/core/repositories/remote_catalog_owner_store.dart';
 import 'package:linthra/core/sources/jellyfin/jellyfin_account_fingerprint.dart';
@@ -34,6 +35,7 @@ import 'package:linthra/features/settings/jellyfin/jellyfin_sync_controller.dart
 import 'package:linthra/features/settings/jellyfin/jellyfin_sync_state.dart';
 
 import '../../../core/sources/jellyfin/fake_jellyfin_client.dart';
+import '../../downloads/fake_download_repository.dart';
 import '../../player/fake_playback_controller.dart';
 import 'fake_jellyfin_authenticator.dart';
 
@@ -321,8 +323,9 @@ void main() {
 
       expect(await serverPlaylists(), 1);
       expect(hearted(), isTrue);
-      // Still no second full library sync.
-      expect(repo.upsertCount, 1);
+      // Signing out took the library with it (#939), so signing back in
+      // syncs it again.
+      expect(repo.upsertCount, 2);
     });
 
     test('changing server/account allows a new initial auto-sync', () async {
@@ -674,6 +677,9 @@ void main() {
       );
     });
 
+    // Alice's songs are downloaded on this device, so they stay when she
+    // signs out (#939): what these tests are about is that what stays never
+    // passes to the next account.
     ProviderContainer app({
       JellyfinSession? restoredSession,
       List<Override> overrides = const <Override>[],
@@ -685,7 +691,15 @@ void main() {
         owners: owners,
         restoredSession: restoredSession,
         client: client,
-        overrides: overrides,
+        overrides: <Override>[
+          downloadRepositoryProvider.overrideWithValue(FakeDownloadRepository(
+            alreadyDownloaded: <String>{
+              for (final String id in <String>['a', 'b', 'x'])
+                CachedTrack.cacheKeyFor('jellyfin', id),
+            },
+          )),
+          ...overrides,
+        ],
       );
       container.read(jellyfinSettingsControllerProvider);
       return container;
@@ -712,7 +726,8 @@ void main() {
     Future<void> signOut(ProviderContainer c) =>
         c.read(jellyfinSettingsControllerProvider.notifier).clear();
 
-    /// Alice signed in, synced, and signed out: the library keeps her tracks.
+    /// Alice signed in, synced, and signed out: the library keeps her
+    /// downloaded tracks.
     Future<ProviderContainer> aliceSyncedAndLeft({
       List<Override> overrides = const <Override>[],
     }) async {
@@ -751,8 +766,9 @@ void main() {
         c.read(jellyfinSyncControllerProvider).status,
         JellyfinSyncStatus.error,
       );
-      // Not recorded as synced, so bob's next sign-in tries again.
-      expect(await autoSync.read(), jellyfinAccountFingerprint(alice));
+      // Not recorded as synced (alice's record went with her sign-out), so
+      // bob's next sign-in tries again.
+      expect(await autoSync.read(), isNull);
     });
 
     test('bob signing in over alice, without signing out, clears her too',
@@ -767,7 +783,8 @@ void main() {
       expect(await jellyfinUris(), isEmpty);
     });
 
-    test('alice signing back in keeps her library and syncs nothing', () async {
+    test('alice signing back in keeps her library and syncs it again',
+        () async {
       final ProviderContainer c = await aliceSyncedAndLeft();
       final int fetches = client.requestedKinds.length;
 
@@ -777,7 +794,9 @@ void main() {
         await jellyfinUris(),
         unorderedEquals(<String>['jellyfin:a', 'jellyfin:b']),
       );
-      expect(client.requestedKinds, hasLength(fetches));
+      // Signing out forgot that she had synced (#939), so the songs that
+      // weren't downloaded come back.
+      expect(client.requestedKinds.length, greaterThan(fetches));
     });
 
     test('alice back after bob gets her own library, not his', () async {
@@ -794,8 +813,10 @@ void main() {
         };
       await c.read(jellyfinSyncControllerProvider.notifier).sync();
       await signOut(c);
+      await _drainAutoSync();
       expect(await jellyfinUris(), <String>['jellyfin:x']);
-      expect(await autoSync.read(), jellyfinAccountFingerprint(alice));
+      // Signing out forgets who synced (#939).
+      expect(await autoSync.read(), isNull);
 
       client.itemsByKind = <JellyfinItemKind, List<JellyfinItemDto>>{
         JellyfinItemKind.audio: <JellyfinItemDto>[_audio('a'), _audio('b')],

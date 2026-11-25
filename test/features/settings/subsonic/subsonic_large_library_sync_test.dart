@@ -521,7 +521,7 @@ void main() {
       expect(await app.pending.read(), isNull);
     });
 
-    test('signing out mid-sync stops further writes and prunes nothing',
+    test('signing out mid-sync stops further writes, and the songs leave',
         () async {
       final SyntheticNavidrome server =
           SyntheticNavidrome(albums: 1000, stallAtAlbumCall: 500);
@@ -532,15 +532,18 @@ void main() {
       final Future<void> running = app.sync.sync();
       await server.stalled;
       final int writesBeforeSignOut = app.repository.upserts.length;
-      final Set<String> rowsAtSignOut = await app.subsonicUris();
 
       await app.signOut();
       server.releaseStall();
       await running;
+      await pumpEventQueue(times: 50);
 
+      // The walk wrote nothing more, and pruned nothing on its own.
       expect(app.repository.upserts, hasLength(writesBeforeSignOut));
       expect(app.repository.prunes, 0);
-      _expectSameSet(await app.subsonicUris(), rowsAtSignOut);
+      // Signing out took the songs out of the library (#939): none of them
+      // can play signed out.
+      expect(await app.subsonicUris(), isEmpty);
       expect(app.state.status, SubsonicSyncStatus.idle);
       // Sign-out also forgets the unfinished sync.
       expect(await app.pending.read(), isNull);
@@ -853,7 +856,9 @@ void main() {
       await app.sync.sync();
       expect(await app.subsonicRows(), 300);
       await app.signOut();
-      expect(await app.subsonicRows(), 300, reason: 'kept on sign-out');
+      await pumpEventQueue(times: 50);
+      // Signing out takes her songs out (#939); bob still never sees any.
+      expect(await app.subsonicRows(), 0);
 
       await app.signIn('bob');
       await app.settled();

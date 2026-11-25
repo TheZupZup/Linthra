@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/album.dart';
@@ -5,7 +7,9 @@ import '../../../core/models/artist.dart';
 import '../../../core/models/jellyfin_session.dart';
 import '../../../core/models/playlist.dart';
 import '../../../core/models/track.dart';
+import '../../../core/repositories/download_store.dart';
 import '../../../core/repositories/jellyfin_auto_sync_store.dart';
+import '../../../core/repositories/music_library_repository.dart';
 import '../../../core/repositories/remote_catalog_owner_store.dart';
 import '../../../core/repositories/remote_sync_result.dart';
 import '../../../core/sources/jellyfin/jellyfin_account_fingerprint.dart';
@@ -14,6 +18,7 @@ import '../../../core/sources/jellyfin/jellyfin_music_source.dart';
 import '../../../core/sources/jellyfin/jellyfin_sync_diagnostics.dart';
 import '../../../core/sources/jellyfin/jellyfin_track_mapper.dart';
 import '../../../core/sources/music_provider.dart';
+import '../../../data/repositories/download_repository_provider.dart';
 import '../../../data/repositories/favorites_repository_provider.dart';
 import '../../../data/repositories/jellyfin_auto_sync_store_provider.dart';
 import '../../../data/repositories/music_library_repository_provider.dart';
@@ -101,8 +106,8 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// The manual [sync] stays available for an on-demand refresh. Never throws.
   ///
   /// It runs on every sign-in, so it is also where the library stops showing
-  /// another account's tracks: signing out keeps them, and they go here,
-  /// before this account's sync, which may write nothing.
+  /// another account's tracks: signing out keeps the downloaded ones, and they
+  /// go here, before this account's sync, which may write nothing.
   Future<void> autoSyncIfNeeded() async {
     final JellyfinMusicSource? source = ref.read(jellyfinMusicSourceProvider);
     if (source == null) {
@@ -173,10 +178,58 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
     }
   }
 
-  /// Called on sign-out, which keeps the library: makes sure the tracks it
-  /// keeps are recorded as [account]'s, so the next account to sign in clears
-  /// them rather than inheriting them. Only fills in a missing record, which
-  /// is what a library synced by an older version has. Never throws.
+  /// Called on sign-out: the library keeps only the songs downloaded on this
+  /// device, which play offline without the session, and the rest leave it
+  /// (#939). Those kept stay recorded as [account]'s ([rememberCatalogOwner]),
+  /// so another account signing in clears them rather than inheriting them.
+  ///
+  /// The account's sync record goes too, so signing back in syncs the
+  /// library again instead of finding the account already synced.
+  ///
+  /// The songs leave in turn with the catalog writes, so a sync still
+  /// finishing can't put them back after; the sign-out doesn't wait for that
+  /// write. Never throws: the sign-out has happened.
+  Future<void> leaveLibrary(String account) async {
+    await rememberCatalogOwner(account);
+    try {
+      await ref.read(jellyfinAutoSyncStoreProvider).clear();
+    } catch (_) {
+      // Best-effort: signing back in then finds the account already synced.
+    }
+    unawaited(_dropUndownloaded());
+  }
+
+  /// Takes the Jellyfin songs that have no copy on this device out of the
+  /// library. Never throws.
+  Future<void> _dropUndownloaded() async {
+    try {
+      final Set<String> downloaded = <String>{
+        ...await ref.read(downloadRepositoryProvider).downloadedTrackKeys(),
+      };
+      final MusicLibraryRepository library =
+          ref.read(musicLibraryRepositoryProvider);
+      final bool removed = await _writeInTurn(() async {
+        final List<String> gone = <String>[
+          for (final Track track in await library.getAllTracks())
+            if (MusicProviders.forTrackUri(track.uri) ==
+                    MusicProviders.jellyfin &&
+                !downloaded.contains(CachedTrack.cacheKeyForTrack(track)))
+              track.uri,
+        ];
+        if (gone.isEmpty) return false;
+        await library.removeTracks(gone);
+        return true;
+      });
+      if (removed) await ref.read(libraryControllerProvider.notifier).refresh();
+    } catch (_) {
+      // Best-effort: what stays is replaced by the next sync.
+    }
+  }
+
+  /// Records the library's tracks as [account]'s, so the next account to sign
+  /// in clears them rather than inheriting them. Only fills in a missing
+  /// record, which is what a library synced by an older version has. Never
+  /// throws.
   Future<void> rememberCatalogOwner(String account) async {
     try {
       final RemoteCatalogOwnerStore owners =
@@ -194,10 +247,10 @@ class JellyfinSyncController extends Notifier<JellyfinSyncState> {
   /// anything is written for it, and returns whether another account's
   /// tracks had to go.
   ///
-  /// Signing out keeps the slice, so the library stays there offline, but its
-  /// rows are still the previous account's, and the next account's sync only
-  /// replaces them when it writes something. An empty library, or a first
-  /// sync that failed, left them showing under the new account.
+  /// Signing out keeps the downloaded songs of the slice, which play offline,
+  /// but those rows are still the previous account's, and the next account's
+  /// sync only replaces them when it writes something. An empty library, or a
+  /// first sync that failed, left them showing under the new account.
   ///
   /// Runs in turn with the catalog writes ([_writeInTurn]), so a write that
   /// the previous account's sync had already started lands before the clear,

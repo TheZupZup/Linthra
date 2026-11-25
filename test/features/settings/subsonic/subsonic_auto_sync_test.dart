@@ -320,8 +320,9 @@ void main() {
 
       expect(await playlistRepo.getAllPlaylists(), hasLength(1));
       expect(favoritesRepo.isFavorite('subsonic:s2'), isTrue);
-      // Still no second full library sync.
-      expect(repo.upsertCount, 1);
+      // Signing out took the library with it (#939), so signing back in
+      // syncs it again.
+      expect(repo.upsertCount, 2);
     });
 
     test('changing server/account allows a new initial auto-sync', () async {
