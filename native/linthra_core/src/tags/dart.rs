@@ -9,7 +9,7 @@ pub fn trim(text: &str) -> &str {
 
 /// Whether `c` matches `\s` in a Dart regular expression, which follows
 /// JavaScript: line terminators, the BOM and the Zs spaces, but not U+0085.
-fn is_regex_space(c: char) -> bool {
+pub(crate) fn is_regex_space(c: char) -> bool {
     matches!(
         c,
         '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'

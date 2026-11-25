@@ -534,3 +534,48 @@ external Pointer<Uint8> linthraTagsCover(
   isLeaf: true,
 )
 external void linthraTagsFree(Pointer<LinthraTagsResult> result);
+
+// The player's rules (native/linthra_core/src/ffi/playback_rules.rs). Codes
+// are numbered like the Dart enums; 255 (or 0xFFFF) is a code Rust didn't know.
+
+@Native<Uint8 Function(Pointer<Uint8>, Size)>(
+  symbol: 'linthra_playback_classify_error',
+  isLeaf: true,
+)
+external int linthraPlaybackClassifyError(Pointer<Uint8> text, int length);
+
+@Native<Uint16 Function(Uint8)>(
+  symbol: 'linthra_playback_failure_for_resolution',
+  isLeaf: true,
+)
+external int linthraPlaybackFailureForResolution(int kind);
+
+@Native<Uint16 Function(Uint8)>(
+  symbol: 'linthra_playback_failure_for_interruption',
+  isLeaf: true,
+)
+external int linthraPlaybackFailureForInterruption(int kind);
+
+@Native<
+    Uint8 Function(Uint8, Uint32, Bool, Uint8, Uint64, Uint64, Uint64, Uint32,
+        Pointer<Uint64>)>(
+  symbol: 'linthra_playback_recovery_decide',
+  isLeaf: true,
+)
+external int linthraPlaybackRecoveryDecide(
+  int kind,
+  int failuresBefore,
+  bool retrySpent,
+  int next,
+  int retryDelayMs,
+  int advanceDelayMs,
+  int maxAdvanceDelayMs,
+  int maxConsecutiveFailures,
+  Pointer<Uint64> delayMs,
+);
+
+@Native<Uint8 Function(Bool, Uint8)>(
+  symbol: 'linthra_playback_focus_action',
+  isLeaf: true,
+)
+external int linthraPlaybackFocusAction(bool begin, int interruption);

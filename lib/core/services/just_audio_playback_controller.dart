@@ -14,6 +14,7 @@ import '../models/playback_state.dart';
 import '../models/repeat_mode.dart';
 import '../models/replay_gain.dart';
 import '../models/track.dart';
+import '../native/native_playback_rules.dart';
 import 'local_playable_uri_resolver.dart';
 import 'local_playback_controller.dart';
 import 'playable_uri_resolver.dart';
@@ -1230,7 +1231,17 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// branches still exist for iOS and any caller that ducks explicitly, and keep
   /// the volume-restore contract honest there.
   @visibleForTesting
-  static AudioFocusAction audioFocusAction(AudioInterruptionEvent event) {
+  static AudioFocusAction audioFocusAction(
+    AudioInterruptionEvent event, {
+    bool useNative = true,
+  }) {
+    final int? native = useNative
+        ? NativePlaybackRules.focusAction(
+            begin: event.begin,
+            interruption: event.type.index,
+          )
+        : null;
+    if (native != null) return AudioFocusAction.values[native];
     if (event.begin) {
       switch (event.type) {
         case AudioInterruptionType.pause:
