@@ -25,6 +25,7 @@ import 'playback_failure_classifier.dart';
 import 'playback_recovery_policy.dart';
 import 'stability_diagnostics.dart';
 import 'stream_interruption.dart';
+import 'stream_recovery_rules.dart';
 import 'track_end.dart';
 
 /// Notified when a track finishes playing (reaches its natural end), so play
@@ -478,15 +479,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   double _volume = 1.0;
   bool _muted = false;
 
-  // How many times the current track has been retried after a mid-stream
-  // failure. Reset when a fresh track loads, and given back once the stream
-  // has played on long enough to count as healthy again
-  // ([healthyPlaybackBeforeRetryRefill]), so each track and each healthy
-  // stretch gets its own one-retry budget.
-  int _retriesForCurrent = 0;
-
-  /// Playback the engine's position has shown since the last reconnect
-  /// spent [_retriesForCurrent], and the position it was last seen at.
+  /// How many times the current track has been retried after a mid-stream
+  /// failure. Reset when a fresh track loads, and given back once the stream
+  /// has played on long enough to count as healthy again
+  /// ([healthyPlaybackBeforeRetryRefill]), so each track and each healthy
+  /// stretch gets its own one-retry budget.
   ///
   /// The spent reconnect is given back on progress rather than on a playing
   /// report: a reload reports ready or playing as it opens (on Android before
@@ -494,14 +491,9 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// playing the engine reports nothing more. A stream that drops again
   /// straight after reconnecting has made no progress and gives up, so it
   /// can't loop; one that played on for a while gets its quick reconnect
-  /// back for a later, independent drop.
-  Duration _playedSinceReconnect = Duration.zero;
-  Duration? _lastProgressPosition;
-
-  /// A position step longer than this is a seek or a reload landing, not
-  /// playback, and doesn't count towards [_playedSinceReconnect]. Position
-  /// ticks come several times a second while playing.
-  static const Duration _maxProgressStep = Duration(seconds: 2);
+  /// back for a later, independent drop. [ReconnectBudget] keeps the count
+  /// and the progress, in the Rust core when the build has it.
+  final ReconnectBudget _reconnect = ReconnectBudget();
 
   /// Whether the track loaded now has reached `playing`. A track that failed
   /// before making any sound waits out automatic recovery as `loading` rather
@@ -1070,7 +1062,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       if (_queue.current?.uri != track.uri) return;
 
       StabilityDiagnostics.playbackError('suspend-resume-recovery');
-      _retriesForCurrent = 0;
+      _reconnect.giveBack();
       // Re-resolve (fresh tokenized URL after a long sleep) and reload on the
       // *same* engine — never a second player, so playback cannot duplicate.
       await _playCurrent(
@@ -1187,7 +1179,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // explains is the source failing, and gets what an engine error gets.
     if (status == PlaybackStatus.idle) {
       if (engineReportsFailureAsIdle && !_loadInFlight && !_engineStopping) {
-        if (_heardToItsEnd()) {
+        if (_sourceEnd(SourceGone.idle) == SourceEnd.ended) {
           // What the engine could not decode is what follows the audio (a
           // Lyrics3 tag, padding, a cut-off last frame): it says so a moment
           // before the end, and the song was heard. It ended, but the engine
@@ -1262,9 +1254,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
       // playing.
       if (_pendingRecovery != null) _cancelAutomaticRecovery();
     }
-    if (status == PlaybackStatus.buffering &&
-        (_state.status == PlaybackStatus.playing ||
-            (_currentHasPlayed && _state.status != PlaybackStatus.buffering))) {
+    if (watchdogArms(status, _state.status, hasPlayed: _currentHasPlayed)) {
       // A mid-stream re-buffer on a track that was playing: arm the watchdog so
       // a server that vanishes without an engine error can't hang forever.
       // Resuming into a stall counts too (Play after a pause, or after a
@@ -1290,6 +1280,14 @@ class JustAudioPlaybackController implements LocalPlaybackController {
               ? PlaybackStatus.playing
               : PlaybackStatus.paused,
         ));
+        return;
+      }
+      // On Linux, libmpv gives up on a server that stopped answering by
+      // reporting the end of the file (#905). A stream that ends well short
+      // of its length was lost: recovered like a dropped stream, at its
+      // position, rather than counted as played with the queue moved on.
+      if (_sourceEnd(SourceGone.completed) == SourceEnd.lost) {
+        _onEngineError(const _EngineLostSource(), StackTrace.current);
         return;
       }
       _completedSourceGeneration = _engineSourceGeneration;
@@ -1470,11 +1468,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     _cancelBufferingWatchdog();
     StabilityDiagnostics.playbackError(interruption.kind.name);
     try {
-      if (interruption.retryable && _retriesForCurrent < _maxStreamRetries) {
-        _retriesForCurrent++;
-        // Only playback from here on earns this retry back.
-        _playedSinceReconnect = Duration.zero;
-        _lastProgressPosition = null;
+      // Only playback from here on earns this retry back.
+      if (_reconnect.claim(
+        retryable: interruption.retryable,
+        max: _maxStreamRetries,
+      )) {
         // Surface reconnecting before the backoff so the UI is never left on
         // "playing" while we wait, and never looks like a permanent error.
         _emit(_state.copyWith(status: PlaybackStatus.reconnecting));
@@ -1524,27 +1522,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// landing jumps, a seek back goes backwards, and neither is the stream
   /// proving itself.
   void _noteProgressSinceReconnect(Duration position) {
-    if (_retriesForCurrent == 0) return;
-    if (_streamRecoveryInFlight || _state.status != PlaybackStatus.playing) {
-      _lastProgressPosition = null;
-      return;
-    }
-    final Duration? last = _lastProgressPosition;
-    _lastProgressPosition = position;
-    if (last == null) return;
-    final Duration step = position - last;
-    if (step <= Duration.zero || step > _maxProgressStep) return;
-    _playedSinceReconnect += step;
-    if (_playedSinceReconnect < healthyPlaybackBeforeRetryRefill) return;
-    _giveReconnectBack();
+    _reconnect.noteProgress(
+      position,
+      counting:
+          !_streamRecoveryInFlight && _state.status == PlaybackStatus.playing,
+      refillAfter: healthyPlaybackBeforeRetryRefill,
+    );
   }
 
   /// Gives the spent quick reconnect back: the stream has proven itself.
-  void _giveReconnectBack() {
-    _retriesForCurrent = 0;
-    _playedSinceReconnect = Duration.zero;
-    _lastProgressPosition = null;
-  }
+  void _giveReconnectBack() => _reconnect.giveBack();
 
   /// Arms a one-shot watchdog while the engine is mid-stream buffering. If it
   /// fires, the stall is treated like a server that stopped responding.
@@ -1573,12 +1560,13 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   void _onBufferingTimeout() {
     _bufferingWatchdog = null;
     if (_suspended) return;
-    if (_automaticRecoveryUnderway) return;
-    if (_state.status != PlaybackStatus.buffering &&
-        _state.status != PlaybackStatus.reconnecting) {
+    if (!watchdogFails(
+      _state.status,
+      recoveryUnderway: _automaticRecoveryUnderway,
+      hasTrack: _queue.current != null,
+    )) {
       return;
     }
-    if (_queue.current == null) return;
     _handleStreamFailure(
       const StreamInterruption(
         StreamInterruptionKind.serverUnreachable,
@@ -1924,7 +1912,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     if (!engineFailure && !_claimRecoveryAttempt(track)) return;
     // A deliberate retry is a fresh start for the automatic mid-stream budget
     // too, exactly as pressing play on a failed track already is.
-    _retriesForCurrent = 0;
+    _reconnect.giveBack();
     _startFreshAfterFailures();
     await _playCurrent(startAt: _state.position);
   }
@@ -2238,26 +2226,16 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     }
   }
 
-  /// How close to its known end a source the engine lost was heard for that
-  /// to be its end rather than a failure, capped at a quarter of the track.
-  /// Two seconds, the margin play history already uses for "played to the
-  /// end", is well beyond the half second or so the engine decodes ahead.
-  static const Duration _endHeardTolerance = Duration(seconds: 2);
-
-  /// Whether the source the engine just lost (see
-  /// [engineReportsFailureAsIdle]) was being heard right up to its end.
-  bool _heardToItsEnd() {
-    if (_state.status != PlaybackStatus.playing &&
-        _state.status != PlaybackStatus.buffering) {
-      return false;
-    }
-    final Duration duration = _state.duration;
-    if (duration <= Duration.zero) return false;
-    final Duration quarter = duration ~/ 4;
-    final Duration tolerance =
-        quarter < _endHeardTolerance ? quarter : _endHeardTolerance;
-    return duration - _state.position <= tolerance;
-  }
+  /// Whether the source the engine let go of ended or was lost (see
+  /// [sourceEnd]), from what this player knows about it now.
+  SourceEnd _sourceEnd(SourceGone gone) => sourceEnd(
+        gone,
+        engineReportsFailureAsIdle: engineReportsFailureAsIdle,
+        stream: _state.source == PlaybackSource.streamingDirect,
+        status: _state.status,
+        position: _state.position,
+        duration: _state.duration,
+      );
 
   /// Decides what to play when the current track finishes, per [_repeatMode]:
   /// repeat-one replays the same track, repeat-all advances (wrapping past the
@@ -2376,7 +2354,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // A fresh (non-retry) load starts a new track or a deliberate (re)play, so
     // reset the mid-stream recovery budget. A retry must keep its counter.
     if (!isRetry) {
-      _retriesForCurrent = 0;
+      _reconnect.giveBack();
       _currentHasPlayed = false;
     }
 
@@ -3619,7 +3597,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
             _automaticRecoveryUnderway ||
             _engineSourceGeneration == _abandonedSourceGeneration) &&
         _queue.current != null) {
-      _retriesForCurrent = 0;
+      _reconnect.giveBack();
       _startFreshAfterFailures();
       await _playCurrent(startAt: _state.position);
       return;
@@ -3737,7 +3715,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // listener taking over: start afresh from the spot they chose, playing
     // only if they still want sound (a pause while the step loads holds).
     if (_automaticRecoveryUnderway && _queue.current != null) {
-      _retriesForCurrent = 0;
+      _reconnect.giveBack();
       _startFreshAfterFailures();
       await _playCurrent(startAt: position, autoplay: _playWhenLoaded);
       return;
@@ -3749,7 +3727,7 @@ class JustAudioPlaybackController implements LocalPlaybackController {
     // quick reconnect again.
     if (_reconnectBackingOff && _queue.current != null) {
       _reconnectBackingOff = false;
-      _retriesForCurrent = 0;
+      _reconnect.giveBack();
       _startFreshAfterFailures();
       _emit(_state.copyWith(position: position));
       await _playCurrent(startAt: position, isRetry: true);
