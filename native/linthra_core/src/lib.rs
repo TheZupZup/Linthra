@@ -34,6 +34,7 @@ pub mod search_rank;
 mod search_rank_cases_test;
 #[cfg(test)]
 mod shared_cases_test;
+pub mod stream_recovery;
 pub mod streaming;
 pub mod tags;
 pub mod track_end;

@@ -31,11 +31,12 @@ pub mod library_grouping;
 pub mod playback_rules;
 pub mod queue;
 pub mod search_rank;
+pub mod stream_recovery;
 pub mod tags;
 pub mod track_end;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 11;
+pub const ABI_VERSION: u32 = 12;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;

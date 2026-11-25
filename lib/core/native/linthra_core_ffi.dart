@@ -593,3 +593,44 @@ external int linthraAudioFocusStep(
   int capacity,
   Pointer<Size> count,
 );
+
+// Stream recovery (native/linthra_core/src/ffi/stream_recovery.rs). Times are
+// microseconds; a missing last position is the smallest Int64.
+
+@Native<Bool Function(Uint32, Uint32, Bool)>(
+  symbol: 'linthra_reconnect_claim',
+  isLeaf: true,
+)
+external bool linthraReconnectClaim(int spent, int max, bool retryable);
+
+@Native<
+    Uint8 Function(Uint32, Pointer<Int64>, Pointer<Int64>, Int64, Bool,
+        Int64)>(symbol: 'linthra_reconnect_progress', isLeaf: true)
+external int linthraReconnectProgress(
+  int spent,
+  Pointer<Int64> playedUs,
+  Pointer<Int64> lastUs,
+  int positionUs,
+  bool counting,
+  int refillAfterUs,
+);
+
+@Native<Uint8 Function(Uint8, Bool, Bool, Uint8, Int64, Int64)>(
+  symbol: 'linthra_source_end',
+  isLeaf: true,
+)
+external int linthraSourceEnd(int gone, bool engineReportsFailureAsIdle,
+    bool stream, int status, int positionUs, int durationUs);
+
+@Native<Uint8 Function(Uint8, Uint8, Bool)>(
+  symbol: 'linthra_watchdog_arms',
+  isLeaf: true,
+)
+external int linthraWatchdogArms(int reported, int current, bool hasPlayed);
+
+@Native<Uint8 Function(Uint8, Bool, Bool)>(
+  symbol: 'linthra_watchdog_fails',
+  isLeaf: true,
+)
+external int linthraWatchdogFails(
+    int current, bool recoveryUnderway, bool hasTrack);
