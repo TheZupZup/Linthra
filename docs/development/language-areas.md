@@ -6,7 +6,7 @@ Linthra is a Flutter app, but the project is deliberately becoming polyglot wher
 | --- | --- | --- |
 | Dart / Flutter | UI, playback orchestration, providers, onboarding, cross-platform app logic | `lib/`, `test/` |
 | Kotlin | Android platform integration, SAF/MediaStore, media session, Android Auto, system channels | `android/app/src/main/kotlin/` |
-| Rust | large-library indexing/search, album/artist grouping, cache eviction, future duplicate primitives | `native/linthra_core/` |
+| Rust | large-library indexing/search, album/artist grouping, cross-provider duplicate merging, cache eviction, queue and download rules | `native/linthra_core/` |
 | C++ | realtime audio DSP, EQ/limiting, future audio analysis and SIMD work | `native/linthra_audio/` |
 | C++ / CMake (GTK) | the native Linux desktop runner: window identity and metadata, GTK application setup, native build configuration | `linux/` |
 | Python | release tooling, large-library fixtures, benchmarks, validation | `scripts/`, `tool/`, `tools/` |
@@ -22,7 +22,7 @@ Choose Kotlin when Android itself is the feature. Linthra already has native cha
 
 ## Rust / large libraries
 
-`linthra_core` targets the work that becomes expensive at 100,000–200,000 tracks. Its first responsibility is indexed search with a synthetic 200k regression benchmark; it also groups the Library into albums and artists and plans cache evictions. Good follow-up areas include compact index persistence, incremental updates, duplicate candidates, grouping primitives, memory profiling and the eventual stable Flutter FFI boundary.
+`linthra_core` targets the work that becomes expensive at 100,000–200,000 tracks. Its first responsibility is indexed search with a synthetic 200k regression benchmark; it also groups the Library into albums and artists, merges the copies of a song that several servers serve, and plans cache evictions. Good follow-up areas include compact index persistence, incremental updates, grouping primitives, memory profiling and the eventual stable Flutter FFI boundary.
 
 ## C++ / audio DSP
 

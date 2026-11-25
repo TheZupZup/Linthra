@@ -464,3 +464,52 @@ external int linthraSearchRank(
   int count,
   Pointer<Uint32> out,
 );
+
+/// `UnifyResult` on the Rust side
+/// (native/linthra_core/src/ffi/track_unifier.rs).
+final class LinthraUnifyResult extends Opaque {}
+
+/// `UnifyView`: the logical tracks, as offsets into one array of track
+/// positions. Valid until the result is freed.
+final class LinthraUnifyView extends Struct {
+  @Size()
+  external int count;
+
+  /// `count + 1` offsets into [members].
+  external Pointer<Uint32> offsets;
+
+  external Pointer<Uint32> members;
+}
+
+// Not a leaf call, for the same reason as the grouping.
+@Native<
+    Pointer<LinthraUnifyResult> Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Uint32>,
+      Size,
+    )>(symbol: 'linthra_unify_tracks')
+external Pointer<LinthraUnifyResult> linthraUnifyTracks(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Int64> numbers,
+  Pointer<Uint32> sources,
+  int count,
+);
+
+@Native<LinthraUnifyView Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_result_view',
+  isLeaf: true,
+)
+external LinthraUnifyView linthraUnifyResultView(
+  Pointer<LinthraUnifyResult> result,
+);
+
+@Native<Void Function(Pointer<LinthraUnifyResult>)>(
+  symbol: 'linthra_unify_result_free',
+  isLeaf: true,
+)
+external void linthraUnifyResultFree(Pointer<LinthraUnifyResult> result);

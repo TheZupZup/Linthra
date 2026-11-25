@@ -1,6 +1,6 @@
 # linthra_core (Rust)
 
-`linthra_core` is the Rust core that holds Linthra's decision logic. It searches very large catalogs without making Flutter walk 100,000–200,000 track objects for every keystroke, groups the catalog into albums and artists, and decides which cached tracks to delete when a download needs room.
+`linthra_core` is the Rust core that holds Linthra's decision logic. It searches very large catalogs without making Flutter walk 100,000–200,000 track objects for every keystroke, groups the catalog into albums and artists, merges the copies of a song that several servers serve, and decides which cached tracks to delete when a download needs room.
 
 ## Current scope
 
@@ -15,6 +15,7 @@
 - album and artist grouping (`src/library_grouping.rs`): the Library's albums and artists, their order, and the same ids `albumIdForTrack` / `artistIdForTrack` compute in Dart. Dart lower-cases the names before they cross, because its case table is not Rust's. `test/core/catalog/library_grouping_native_test.dart` checks both paths agree, on every code point
 - download rules (`src/download_gate.rs`, `src/download_state.rs`): whether the network lets a download run, how a cancelled download settles its row, and whether a held download is retried or dropped, each held to the same cases as Dart (`test/fixtures/download_*_cases.txt`)
 - search results order (`src/search_rank.rs`): artists, albums and songs ranked in one list for the Library search's All view, by how each one's own name matches the query (word for word, whole words, starts of words, typos, or another field), then artist, album, song (`test/fixtures/search_rank_cases.txt`)
+- cross-provider duplicates (`src/track_unifier.rs`): the same song served by Jellyfin and Navidrome (say) shown once, with every copy kept as a playback candidate, best source first. Same blocks, score, vetoes and order as `unifyTracks` in Dart; `test/core/catalog/track_unifier_native_test.dart` replays tricky and random catalogs through both
 - playback queue (`src/queue_moves.rs`, `src/queue_edits.rs`): next/previous/jumps, play next, add to queue, remove, reorder, remove-where, shuffle and unshuffle, on entry ids. The shuffle is splitmix64-driven Fisher-Yates, seeded by Dart, so both sides give the same order (`test/fixtures/queue_*_cases.txt`)
 
 ## How Flutter uses it
@@ -22,8 +23,8 @@
 The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
 
 - `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
-- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`, the grouping call in `src/ffi/library_grouping.rs` the download rules in `src/ffi/downloads.rs` the queue in `src/ffi/queue.rs` the end-of-track rule in `src/ffi/track_end.rs` and the search order in `src/ffi/search_rank.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
-- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, and `downloadGate` / `settleCanceled` / `heldAction` call `lib/core/native/native_downloads.dart`, and `PlaybackQueue` calls `lib/core/native/native_queue.dart`, so their callers need not know which path ran.
+- `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`, the grouping call in `src/ffi/library_grouping.rs` the download rules in `src/ffi/downloads.rs` the queue in `src/ffi/queue.rs` the end-of-track rule in `src/ffi/track_end.rs`, the duplicate merge in `src/ffi/track_unifier.rs` and the search order in `src/ffi/search_rank.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
+- `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, and `downloadGate` / `settleCanceled` / `heldAction` call `lib/core/native/native_downloads.dart`, and `PlaybackQueue` calls `lib/core/native/native_queue.dart`, and `unifyTracks` calls `lib/core/native/native_track_unifier.dart`, so their callers need not know which path ran.
 
 The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux build has no `cc` to link with, or the Rust standard library for the target isn't installed, the hook skips the library and `LinthraCore.isAvailable` is false, so every caller has to keep a Dart fallback. A cargo build that starts and fails does fail the app build.
 
@@ -75,4 +76,4 @@ A query word that starts no token anywhere in the catalog is matched instead aga
 
 ## Good contribution areas
 
-Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, cross-provider duplicate candidates, per-album and per-artist track lookups, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.
+Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, per-album and per-artist track lookups, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.

@@ -31,6 +31,11 @@ import 'text_folding.dart';
 /// high threshold *and* no veto fires. The guiding rule is unchanged: prefer
 /// keeping two rows separate over merging songs that might be different.
 
+// The Rust core keeps a copy of these rules (native/linthra_core/src/
+// track_unifier.rs), which `unifyTracks` runs when the build carries it:
+// change both together. test/core/catalog/track_unifier_native_test.dart
+// fails when they drift.
+
 /// The `sourceId` of the provider that owns [track], derived from its opaque
 /// `scheme:` URI (`jellyfin:` / `subsonic:` / a local path). This is the same
 /// mapping the capability model and the playback resolvers key off, so source
