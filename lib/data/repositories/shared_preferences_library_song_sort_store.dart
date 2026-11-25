@@ -4,13 +4,18 @@ import '../../core/repositories/library_song_sort_store.dart';
 
 /// A [LibrarySongSortStore] backed by `shared_preferences`.
 ///
-/// One non-secret string under one key. An absent or empty value reads as
+/// One non-secret string under one key: the Songs list's by default, or
+/// [albumsKey] for the Albums grid. An absent or empty value reads as
 /// `null` (title, A to Z) rather than throwing, so a storage problem degrades
 /// to the order the list always had instead of breaking the Library screen.
 class SharedPreferencesLibrarySongSortStore implements LibrarySongSortStore {
-  const SharedPreferencesLibrarySongSortStore();
+  const SharedPreferencesLibrarySongSortStore({String key = songsKey})
+      : _key = key;
 
-  static const String _key = 'library_song_sort_v1';
+  static const String songsKey = 'library_song_sort_v1';
+  static const String albumsKey = 'library_album_sort_v1';
+
+  final String _key;
 
   @override
   Future<String?> read() async {

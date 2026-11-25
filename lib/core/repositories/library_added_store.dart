@@ -3,7 +3,8 @@ import '../models/track.dart';
 /// Durable storage for when each catalog track was first added to the library.
 ///
 /// Records a `trackUri -> firstSeen` map that powers the "Recently added" smart
-/// mix and the Songs list's "Date added" orders. It's written by
+/// mix and the Library's "Date added" orders, for songs whose server doesn't
+/// say when they were added ([libraryAddedAt]). It's written by
 /// [RecordingMusicLibraryRepository] as a side effect of a scan/sync (stamping
 /// newly-seen tracks with the time they first appeared), and read by the
 /// smart-mix layer and the Library. Keyed by the provider-namespaced
@@ -34,3 +35,13 @@ DateTime? firstSeenAt(Track track, Map<String, DateTime> addedAt) {
   if (track.uri != track.id) return addedAt[track.id];
   return null;
 }
+
+/// When [track] was added to the library: the date its server gives
+/// ([Track.serverAddedAt], Jellyfin's `DateCreated` or Subsonic's `created`),
+/// otherwise when Linthra first saw it ([firstSeenAt]).
+///
+/// The server's date wins because it is the one the user knows: a first sync
+/// stamps a whole library with the same moment, and a new device or a
+/// reinstall would stamp it again, burying what was really added last week.
+DateTime? libraryAddedAt(Track track, Map<String, DateTime> addedAt) =>
+    track.serverAddedAt ?? firstSeenAt(track, addedAt);

@@ -24,6 +24,8 @@ import '../../shared/widgets/loading_indicator.dart';
 import '../playlists/widgets/add_to_playlist_sheet.dart';
 import '../settings/source/local_music_controller.dart';
 import 'album_detail_screen.dart';
+import 'album_sort.dart';
+import 'album_sort_providers.dart';
 import 'artist_detail_screen.dart';
 import 'folder_browser_providers.dart';
 import 'library_browse_providers.dart';
@@ -616,37 +618,67 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         message: 'You can still browse the connected server from Folders.',
       );
     }
-    return ListDetailPanes(
-      listBuilder: (BuildContext context, bool paneVisible) => AlbumGrid(
-        albums: filtered,
-        onOpen: (Album album) {
-          if (!paneVisible) {
-            context.push(AppRoutes.albumDetailPath(album.id));
-            return;
-          }
-          setState(() {
-            if (_paneAlbumId != album.id) _paneAlbumSelection.clear();
-            _paneAlbumId = album.id;
-          });
-        },
-      ),
-      // A selection that is no longer in the filtered grid would leave the pane
-      // showing an album the list says isn't there, so the pane follows the
-      // search rather than outliving it.
-      detailBuilder: (BuildContext context) {
-        final String? id = _paneAlbumId;
-        if (id == null) return null;
-        if (!filtered.any((Album album) => album.id == id)) return null;
-        return AlbumDetailScreen(
-          key: ValueKey<String>(id),
-          albumId: id,
-          selection: _paneAlbumSelection,
-        );
-      },
-      placeholderBuilder: (BuildContext context) => const DetailPanePlaceholder(
-        icon: Icons.album_outlined,
-        message: 'Pick an album to see its songs here.',
-      ),
+    final AlbumSort sort = ref.watch(albumSortControllerProvider);
+    // Sorted once per change of order or catalog, then searched, which keeps
+    // the order.
+    final List<Album>? sorted = ref.watch(librarySortedAlbumsProvider);
+    // The sort control sits above both panes rather than in the grid's: when
+    // the pane goes, the keyboard is handed to the top of the grid, and that
+    // must be an album, not the control.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: AlbumSortButton(
+            sort: sort,
+            onSelected: (AlbumSort next) =>
+                ref.read(albumSortControllerProvider.notifier).select(next),
+          ),
+        ),
+        Expanded(
+          child: ListDetailPanes(
+            listBuilder: (BuildContext context, bool paneVisible) =>
+                sorted == null
+                    ? const LoadingIndicator(label: 'Sorting your albums')
+                    : AlbumGrid(
+                        // A new order starts from its top.
+                        key: ValueKey<AlbumSort>(sort),
+                        albums: filterAlbums(sorted, _query),
+                        onOpen: (Album album) {
+                          if (!paneVisible) {
+                            context.push(AppRoutes.albumDetailPath(album.id));
+                            return;
+                          }
+                          setState(() {
+                            if (_paneAlbumId != album.id) {
+                              _paneAlbumSelection.clear();
+                            }
+                            _paneAlbumId = album.id;
+                          });
+                        },
+                      ),
+            // A selection that is no longer in the filtered grid would leave
+            // the pane showing an album the list says isn't there, so the pane
+            // follows the search rather than outliving it.
+            detailBuilder: (BuildContext context) {
+              final String? id = _paneAlbumId;
+              if (id == null) return null;
+              if (!filtered.any((Album album) => album.id == id)) return null;
+              return AlbumDetailScreen(
+                key: ValueKey<String>(id),
+                albumId: id,
+                selection: _paneAlbumSelection,
+              );
+            },
+            placeholderBuilder: (BuildContext context) =>
+                const DetailPanePlaceholder(
+              icon: Icons.album_outlined,
+              message: 'Pick an album to see its songs here.',
+            ),
+          ),
+        ),
+      ],
     );
   }
 
