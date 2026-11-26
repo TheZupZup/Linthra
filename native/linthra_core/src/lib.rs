@@ -40,6 +40,9 @@ pub mod song_sort;
 pub mod stream_recovery;
 pub mod streaming;
 pub mod tags;
+pub mod track_availability;
+#[cfg(test)]
+mod track_availability_cases_test;
 pub mod track_end;
 #[cfg(test)]
 mod track_end_cases_test;

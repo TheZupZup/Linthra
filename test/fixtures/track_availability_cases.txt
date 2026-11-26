@@ -1,0 +1,49 @@
+# Shared cases: what a library row says about whether it can play.
+#
+# Replayed by both implementations, so they cannot drift apart:
+#   - native/linthra_core/src/track_availability_cases_test.rs (Rust)
+#   - test/core/catalog/track_availability_cases_test.dart (Dart)
+#
+# One case per line, fields separated by a single TAB. `#` starts a comment.
+#
+# isRemote	hasOfflineCopy	isExplicitDownload	availability	status
+true	true	true	notConfigured	downloaded
+true	true	true	checking	downloaded
+true	true	true	available	downloaded
+true	true	true	unreachable	offlineCopy
+true	true	true	authenticationError	offlineCopy
+true	true	false	notConfigured	cached
+true	true	false	checking	cached
+true	true	false	available	cached
+true	true	false	unreachable	offlineCopy
+true	true	false	authenticationError	offlineCopy
+true	false	true	notConfigured	none
+true	false	true	checking	checking
+true	false	true	available	none
+true	false	true	unreachable	unreachable
+true	false	true	authenticationError	sessionRejected
+true	false	false	notConfigured	none
+true	false	false	checking	checking
+true	false	false	available	none
+true	false	false	unreachable	unreachable
+true	false	false	authenticationError	sessionRejected
+false	true	true	notConfigured	none
+false	true	true	checking	none
+false	true	true	available	none
+false	true	true	unreachable	none
+false	true	true	authenticationError	none
+false	true	false	notConfigured	none
+false	true	false	checking	none
+false	true	false	available	none
+false	true	false	unreachable	none
+false	true	false	authenticationError	none
+false	false	true	notConfigured	none
+false	false	true	checking	none
+false	false	true	available	none
+false	false	true	unreachable	none
+false	false	true	authenticationError	none
+false	false	false	notConfigured	none
+false	false	false	checking	none
+false	false	false	available	none
+false	false	false	unreachable	none
+false	false	false	authenticationError	none
