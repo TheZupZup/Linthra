@@ -218,7 +218,11 @@ jobs:
       - name: Install host validation and smoke tools
         run: |
           set -euo pipefail
-          sudo apt-get update
+          # A broken third-party source on the runner (packages.microsoft.com
+          # answering 403) makes `apt-get update` exit 100 having fetched every
+          # Ubuntu index fine. Tolerated, as linux-desktop-build.yml does: the
+          # strict `apt-get install` below fails on any package it cannot get.
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
           sudo apt-get install -y --no-install-recommends \
             appstream \
             dbus-x11 \
@@ -679,7 +683,11 @@ jobs:
       - name: Install host build and smoke tools
         run: |
           set -euo pipefail
-          sudo apt-get update
+          # A broken third-party source on the runner (packages.microsoft.com
+          # answering 403) makes `apt-get update` exit 100 having fetched every
+          # Ubuntu index fine. Tolerated, as linux-desktop-build.yml does: the
+          # strict `apt-get install` below fails on any package it cannot get.
+          sudo apt-get update || echo 'apt-get update was incomplete; the install below decides'
           sudo apt-get install -y --no-install-recommends \
             dbus-x11 \
             elfutils \
