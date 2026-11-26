@@ -68,10 +68,13 @@ Future<void> main(List<String> args) async {
         'build',
         '--release',
         '--lib',
-        // The crate has no dependencies, and the lockfile must already say
-        // so: the build never reaches the network (Flatpak builds offline).
+        // The crates are exactly the ones Cargo.lock names, with their
+        // checksums. Where they are not cached yet cargo fetches them from
+        // crates.io. The Flatpak builds with the network off: its CARGO_HOME
+        // holds a config that replaces crates.io with the archives the
+        // manifest pinned (flatpak/generated/sources/cargo.json), so nothing
+        // is fetched there.
         '--locked',
-        '--offline',
         '--manifest-path',
         crate.resolve('Cargo.toml').toFilePath(),
         '--target',

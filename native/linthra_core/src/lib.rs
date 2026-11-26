@@ -1,4 +1,5 @@
-//! High-performance, dependency-free library primitives for Linthra.
+//! Linthra's Rust core: the library primitives, and the backend as it moves
+//! here from Dart (docs/development/rust-backend.md).
 //!
 //! The first responsibility of this crate is intentionally narrow: index and
 //! search very large music libraries without asking Flutter to walk hundreds of
@@ -7,6 +8,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+pub mod api;
 pub mod audio_focus;
 pub mod cache_eviction;
 #[cfg(test)]
@@ -21,6 +23,8 @@ mod download_held_cases_test;
 mod download_settle_cases_test;
 pub mod download_state;
 pub mod ffi;
+/// flutter_rust_bridge's glue for [api], generated: do not edit.
+mod frb_generated;
 pub mod library_grouping;
 pub mod local_reconcile;
 mod normalize;

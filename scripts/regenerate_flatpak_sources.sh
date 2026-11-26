@@ -98,6 +98,13 @@ mkdir -p .flatpak-builder/build/linthra-2
 ln -sf "$REPO_ROOT/pubspec.yaml" .flatpak-builder/build/linthra-2/pubspec.yaml
 ln -sf "$REPO_ROOT/pubspec.lock" .flatpak-builder/build/linthra-2/pubspec.lock
 ln -sf "$REPO_ROOT/third_party" .flatpak-builder/build/linthra-2/third_party
+# The Rust core's lockfile, for foreign.json's cargo sources: the crates the
+# hook builds against are fetched by flatpak-builder like every other source.
+mkdir -p .flatpak-builder/build/linthra-2/native/linthra_core
+ln -sf "$REPO_ROOT/native/linthra_core/Cargo.lock" \
+  .flatpak-builder/build/linthra-2/native/linthra_core/Cargo.lock
+ln -sf "$REPO_ROOT/native/linthra_core/Cargo.toml" \
+  .flatpak-builder/build/linthra-2/native/linthra_core/Cargo.toml
 
 info "Running flatpak-flutter"
 "$VENV_DIR/bin/python3" "$TOOL_DIR/flatpak-flutter.py" flatpak-flutter.yml

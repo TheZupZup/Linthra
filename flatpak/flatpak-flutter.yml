@@ -25,13 +25,13 @@ sdk: org.gnome.Sdk
 # flutter_secure_storage_linux is scoped to Clang specifically. This is the
 # same LLVM version flatpak-flutter's own generated template defaults to for
 # freedesktop-sdk 26.08.
-# rust-stable puts cargo on the linthra module's PATH, so hook/build.dart
-# builds the Rust core (native/linthra_core) into the bundle instead of
-# skipping it. The crate has no dependencies, so the offline build needs no
-# vendored crates.
+# Rust is not an SDK extension: the linthra module below builds the Rust
+# core with the toolchain pinned in .rust-version, the one CI and the
+# Android builds use, installed by the generated rustup module. Its crates
+# come from generated/sources/cargo.json (foreign.json), so the offline
+# build fetches nothing.
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm22
-  - org.freedesktop.Sdk.Extension.rust-stable
 # linux/CMakeLists.txt: BINARY_NAME "linthra" — check_linux_runner.py asserts
 # this matches pubspec.yaml's `name:`.
 command: linthra
@@ -337,7 +337,7 @@ modules:
     build-options:
       # Rewritten by flatpak-flutter to /var/lib/flutter/bin, where the
       # generated Flutter SDK module installs the activated toolchain.
-      append-path: /usr/lib/sdk/llvm22/bin:/usr/lib/sdk/rust-stable/bin:flutter/bin
+      append-path: /usr/lib/sdk/llvm22/bin:flutter/bin
       prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
     build-commands:
       - flutter pub get --enforce-lockfile
@@ -412,6 +412,10 @@ modules:
       # component id, launchable and stock icon to the same sources of truth
       # as the desktop entry.
       - install -Dm644 linux/packaging/io.github.thezupzup.linthra.metainfo.xml /app/share/metainfo/io.github.thezupzup.linthra.metainfo.xml
+    modules:
+      # The Rust toolchain pinned in .rust-version. flatpak-flutter reads the
+      # version from this file name and generates the module.
+      - generated/modules/rustup-1.100.0.json
     sources:
       # The app's own source. flatpak-flutter's pre-processing step cannot
       # read a `dir` source (it only fetches `git` sources to inspect

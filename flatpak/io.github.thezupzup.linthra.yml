@@ -12,7 +12,6 @@ runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm22
-  - org.freedesktop.Sdk.Extension.rust-stable
 command: linthra
 finish-args:
   - --socket=wayland
@@ -110,10 +109,12 @@ modules:
   - name: linthra
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/llvm22/bin:/usr/lib/sdk/rust-stable/bin:/var/lib/flutter/bin
+      append-path: /usr/lib/sdk/llvm22/bin:/var/lib/flutter/bin:/var/lib/rustup/bin
       prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
       env:
         PUB_CACHE: /run/build/linthra/.pub-cache
+        CARGO_HOME: /run/build/linthra/cargo
+        RUSTUP_HOME: /var/lib/rustup
     build-commands:
       - setup-flutter.sh
       - flutter build linux --release --no-pub
@@ -132,9 +133,11 @@ modules:
       - install -Dm644 linux/packaging/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png
         /app/share/icons/hicolor/256x256/apps/io.github.thezupzup.linthra.png
       - install -Dm644 linux/packaging/io.github.thezupzup.linthra.metainfo.xml /app/share/metainfo/io.github.thezupzup.linthra.metainfo.xml
+    modules:
+      - generated/modules/rustup-1.100.0.json
+      - generated/modules/flutter-sdk-3.47.5.json
     sources:
       - type: dir
         path: ..
+      - generated/sources/cargo.json
       - generated/sources/pubspec.json
-    modules:
-      - generated/modules/flutter-sdk-3.47.5.json

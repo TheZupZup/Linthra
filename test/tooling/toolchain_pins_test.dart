@@ -172,6 +172,32 @@ void main() {
           reason: 'The action must read the version, not repeat it.');
     });
 
+    test('the Flatpak builds the Rust core with .rust-version', () {
+      // flatpak-flutter reads the toolchain version from the rustup module's
+      // file name in the template, so a .rust-version bump that forgets it
+      // would leave the Flatpak on the old compiler.
+      for (final String manifest in <String>[
+        'flatpak-flutter.yml',
+        'io.github.thezupzup.linthra.yml',
+      ]) {
+        final String text =
+            File(p.join(root, 'flatpak', manifest)).readAsStringSync();
+        expect(
+          _all(text, RegExp(r'rustup-([0-9][0-9.]*)\.json')),
+          everyElement(rustPin),
+          reason: 'flatpak/$manifest must name rustup-$rustPin.json',
+        );
+        expect(text, contains('rustup-$rustPin.json'));
+      }
+      expect(
+        File(p.join(root, 'flatpak', 'generated', 'modules',
+                'rustup-$rustPin.json'))
+            .existsSync(),
+        isTrue,
+        reason: 'regenerate: ./scripts/regenerate_flatpak_sources.sh',
+      );
+    });
+
     test('no workflow hardcodes the JDK version', () {
       for (final _RepoFile f in _workflowFiles(root)) {
         final List<String> literals =

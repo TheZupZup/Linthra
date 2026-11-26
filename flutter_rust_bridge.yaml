@@ -1,0 +1,5 @@
+rust_input: crate::api
+rust_root: native/linthra_core/
+dart_output: lib/core/native/
+dart_entrypoint_class_name: LinthraBridge
+web: false

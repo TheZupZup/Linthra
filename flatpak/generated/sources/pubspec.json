@@ -254,6 +254,20 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/build_cli_annotations-2.1.1.tar.gz",
+        "sha256": "e563c2e01de8974566a1998410d3f6f03521788160a02503b0b1f1a46c7b3d95",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/build_cli_annotations-2.1.1"
+    },
+    {
+        "type": "inline",
+        "contents": "e563c2e01de8974566a1998410d3f6f03521788160a02503b0b1f1a46c7b3d95",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "build_cli_annotations-2.1.1.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://pub.dev/api/archives/build_config-1.1.2.tar.gz",
         "sha256": "4ae2de3e1e67ea270081eaee972e1bd8f027d459f249e0f1186730784c2e7e33",
         "strip-components": 0,
@@ -712,6 +726,20 @@
         "contents": "9532ee6db4a943a1ed8383072a2e3eeda041db5657cdf6d2acecf3c21ecbe7e1",
         "dest": ".pub-cache/hosted-hashes/pub.dev",
         "dest-filename": "flutter_riverpod-2.6.1.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/flutter_rust_bridge-2.11.1.tar.gz",
+        "sha256": "37ef40bc6f863652e865f0b2563ea07f0d3c58d8efad803cc01933a4b2ee067e",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/flutter_rust_bridge-2.11.1"
+    },
+    {
+        "type": "inline",
+        "contents": "37ef40bc6f863652e865f0b2563ea07f0d3c58d8efad803cc01933a4b2ee067e",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "flutter_rust_bridge-2.11.1.sha256"
     },
     {
         "type": "archive",
