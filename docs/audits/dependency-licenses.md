@@ -271,10 +271,31 @@ redistributing a modified media stack must continue to meet LGPL §6 themselves.
 ### 5.2 Rust core (`native/linthra_core`)
 
 `native/linthra_core` declares `license = "AGPL-3.0-or-later"` and
-`publish = false`. Its `Cargo.lock` resolves to **`linthra_core` and nothing
-else** — it has **zero third-party crate dependencies**, so it introduces no
-external license obligation at all. It is entirely first-party code, which is
-why relicensing it is unambiguous.
+`publish = false`. Its own code is entirely first-party, which is why
+relicensing it is unambiguous.
+
+Since the backend started moving to Rust (`docs/development/rust-backend.md`),
+it builds against third-party crates, pinned with their checksums in
+`native/linthra_core/Cargo.lock`. Today that is `flutter_rust_bridge` 2.11.1
+and its dependencies, 82 crates in the lockfile (some only for platforms
+Linthra does not build, such as Windows or the web). Every one is under a
+permissive licence that is compatible with AGPL-3.0-or-later:
+
+| Licence (as declared) | Crates |
+| --- | --- |
+| MIT and/or Apache-2.0 (dual, either order) | 64 |
+| MIT | 10 |
+| Unlicense OR MIT | 3 |
+| Zlib OR Apache-2.0 OR MIT | 2 |
+| 0BSD OR MIT OR Apache-2.0 | 1 |
+| (MIT OR Apache-2.0) AND Unicode-3.0 (`unicode-ident`) | 1 |
+| Apache-2.0, in a `LICENSE` file rather than the manifest (`allo-isolate` 0.1.27) | 1 |
+
+Re-list them after any `Cargo.lock` change:
+
+```bash
+cargo metadata --format-version 1 --locked --manifest-path native/linthra_core/Cargo.toml
+```
 
 ### 5.3 Vendored third-party code (`third_party/`)
 
@@ -458,7 +479,7 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
   `--enable-nonfree`), mpv `v0.41.0` (`-Dgpl=false` **with** every GPL-only
   component explicitly disabled), libplacebo LGPL-2.1-or-later, libass ISC —
   LGPL-2.1-or-later at worst, AGPL-compatible via the LGPLv3 upgrade path (§5.1).
-- **Rust core:** zero third-party crates (§5.2).
+- **Rust core:** permissive crates only (MIT, Apache-2.0, Unlicense, Zlib, 0BSD, Unicode-3.0), pinned in `Cargo.lock` (§5.2).
 - **Vendored code:** `third_party/just_audio_media_kit` stays under the
   Unlicense, `third_party/just_audio` under MIT, `third_party/media3_decoder_flac`
   under Apache-2.0 and `third_party/libflac` under BSD-3-Clause; none is

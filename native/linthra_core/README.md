@@ -4,7 +4,7 @@
 
 ## Current scope
 
-- dependency-free Rust core
+- an async API for Dart through flutter_rust_bridge (`src/api/`, bindings generated into `lib/core/native/`): the path the backend takes as it moves here (`docs/development/rust-backend.md`)
 - immutable inverted index
 - title / artist / album / album-artist / provider tokens
 - accent-folded, case-folded tokens, so `bjork` finds `Björk`
@@ -32,7 +32,7 @@
 
 The crate is built into the app by a Dart build hook, with no download and no prebuilt binary:
 
-- `hook/build.dart` (repo root) runs `cargo build --release --locked --offline` for the target being built and bundles `liblinthra_core.so` as a code asset. `flutter run`, `flutter build` and `flutter test` all run it.
+- `hook/build.dart` (repo root) runs `cargo build --release --locked` for the target being built and bundles `liblinthra_core.so` as a code asset. Cargo fetches the crates `Cargo.lock` pins when they aren't cached, and the hook remaps cargo's home to `/cargo` in the library so builds from different machines match. `flutter run`, `flutter build` and `flutter test` all run it.
 - `src/ffi.rs` is the C ABI, with the eviction calls in `src/ffi/cache_eviction.rs`, the grouping call in `src/ffi/library_grouping.rs` the download rules in `src/ffi/downloads.rs` the queue in `src/ffi/queue.rs` the end-of-track rule in `src/ffi/track_end.rs`, the search order in `src/ffi/search_rank.rs`, tag reading in `src/ffi/tags.rs` the playback rules in `src/ffi/playback_rules.rs` the audio focus machine in `src/ffi/audio_focus.rs` stream recovery in `src/ffi/stream_recovery.rs` cross-server merging in `src/ffi/track_unifier.rs` local file moves in `src/ffi/local_reconcile.rs` CUE sheets in `src/ffi/cue_sheet.rs` row availability in `src/ffi/track_availability.rs` audio CDs in `src/ffi/optical.rs` and the Songs order in `src/ffi/song_sort.rs`. `lib/core/native/linthra_core_ffi.dart` declares the same functions with `@Native`. Change them together and bump `ABI_VERSION` in `ffi.rs` and `LinthraCore.abiVersion` in `lib/core/native/linthra_core.dart`.
 - `lib/core/native/linthra_core.dart` is what the rest of the app uses: `LinthraCore.isAvailable` and `NativeSearchIndex`. `CacheEvictionPolicy` calls `lib/core/native/native_cache_eviction.dart` itself, and `groupAlbums` / `groupArtists` / `groupLibrary` call `lib/core/native/native_library_grouping.dart`, and `downloadGate` / `settleCanceled` / `heldAction` call `lib/core/native/native_downloads.dart`, and `PlaybackQueue` calls `lib/core/native/native_queue.dart`, so their callers need not know which path ran.
 
@@ -45,7 +45,7 @@ The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux
 
 `cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
 
-The Flatpak builds it through the `org.freedesktop.Sdk.Extension.rust-stable` SDK extension (`flatpak/flatpak-flutter.yml`).
+The Flatpak builds it with the Rust in `.rust-version` (a generated rustup module) and gets the crates from pinned archives instead of crates.io (`flatpak/foreign.json`, `flatpak/generated/sources/cargo.json`); after a `Cargo.lock` change, run `./scripts/regenerate_flatpak_sources.sh`.
 
 The Android builds (GitHub, Google Play, Sponsor, and the CI debug APK) install the Rust pinned in `.rust-version` with the Android targets (`.github/actions/setup-rust-android`), and `scripts/check_apk_rust_core.py` fails a build whose APK lacks the library for an ABI.
 
@@ -70,7 +70,7 @@ Both spellings of the same text fold to the same token, whether the accent arriv
 
 **What does not fold.** Greek, Cyrillic, Hebrew, Arabic, CJK and Hangul are indexed and searched unchanged. These are not scripts where a listener types the "unaccented" spelling of a name, so folding them would invent a behaviour nobody asked for. Vietnamese folds only as far as its precomposed characters reach into Latin Extended-A; its decomposed form folds fully through the combining-mark rule.
 
-This is also why the crate still has no dependencies. A full Unicode normalization crate would buy correctness for the scripts the fold deliberately leaves alone, at the cost of the one property that makes this core easy to vendor and audit.
+This is also why the fold is hand-written rather than a Unicode normalization crate: one would buy correctness for the scripts the fold deliberately leaves alone, and change what both sides fold.
 
 Folding is **not** fuzzy matching. It removes accents; it does not make near-misses match.
 
