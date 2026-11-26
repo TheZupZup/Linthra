@@ -248,7 +248,13 @@ jobs:
       # five-second fixture used to finish in milliseconds against it. The
       # override applies to this run only; production builds keep the host's
       # normal audio.
+      #
+      # The smoke takes about ten seconds, and fails on its own when one phase
+      # stalls for a minute. The step limit is for a hang that stops it from
+      # even getting out (inside libmpv or xvfb), which used to hold the job
+      # until GitHub's six-hour limit.
       - name: Run native audio lifecycle smoke
+        timeout-minutes: 5
         run: xvfb-run --auto-servernum build/linux/x64/release/bundle/linthra
 
       # Release mode, because that is the build that has to work for packaging

@@ -65,6 +65,12 @@ const Duration _stepTimeout = Duration(seconds: 15);
 
 const Duration _pollInterval = Duration(milliseconds: 50);
 
+/// How long one phase (a lifecycle cycle, the CUE segments, the unplayable
+/// file) may run. Each takes a few seconds; the limit is for a libmpv call
+/// that never answers, which would otherwise hold the run, and a CI job,
+/// until something outside kills it with nothing in the log to say where.
+const Duration _phaseLimit = Duration(seconds: 60);
+
 Future<void> main() async {
   final _SmokeConfig config = _SmokeConfig.fromEnvironment();
 
@@ -92,6 +98,7 @@ Future<void> main() async {
   final File audioFile = File('${directory.path}/fixture.wav');
   await audioFile.writeAsBytes(_fixtureWav(_fixtureDuration), flush: true);
   int result = 0;
+  final _Watchdog watchdog = _Watchdog(_phaseLimit);
 
   stdout.writeln(
     'Linux native audio lifecycle smoke: '
@@ -100,12 +107,12 @@ Future<void> main() async {
 
   try {
     for (int cycle = 1; cycle <= config.cycles; cycle++) {
-      stdout.writeln('--- cycle $cycle/${config.cycles} ---');
+      watchdog.phase('cycle $cycle/${config.cycles}');
       await _exerciseLifecycle(config, audioFile.path);
     }
-    stdout.writeln('--- CUE segments ---');
+    watchdog.phase('CUE segments');
     await _exerciseCueSegments(audioFile.path);
-    stdout.writeln('--- a file libmpv cannot play ---');
+    watchdog.phase('a file libmpv cannot play');
     await _exerciseUnplayableFile(directory.path);
     stdout.writeln('PASS: Linux native audio lifecycle smoke passed.');
   } catch (error, stackTrace) {
@@ -117,6 +124,7 @@ Future<void> main() async {
     stderr.writeln(sanitizer.clean(stackTrace.toString()));
     result = 1;
   } finally {
+    watchdog.stop();
     if (directory.existsSync()) {
       await directory.delete(recursive: true);
     }
@@ -484,6 +492,34 @@ List<String> _mappedLibmpvPaths() {
     if (path.contains('/libmpv.so')) paths.add(path);
   }
   return paths.toList(growable: false)..sort();
+}
+
+/// Fails the smoke when a phase outlives [limit], naming the phase.
+///
+/// A future that never completes cannot be caught by the try/catch in [main],
+/// so this exits from a timer instead. The temp fixture is left behind in
+/// that case: the process is stuck inside libmpv, and getting out with a
+/// clear failure matters more than the cleanup.
+class _Watchdog {
+  _Watchdog(this.limit);
+
+  final Duration limit;
+  Timer? _timer;
+
+  /// Starts [name], replacing the previous phase's deadline.
+  void phase(String name) {
+    stdout.writeln('--- $name ---');
+    _timer?.cancel();
+    _timer = Timer(limit, () {
+      stderr.writeln(
+        'FAIL: Linux native audio lifecycle smoke stuck in "$name" for '
+        '${limit.inSeconds}s.',
+      );
+      exit(1);
+    });
+  }
+
+  void stop() => _timer?.cancel();
 }
 
 /// Runtime knobs, all optional so the default invocation stays the one the
