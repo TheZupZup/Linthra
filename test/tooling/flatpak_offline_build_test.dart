@@ -671,16 +671,59 @@ void main() {
     // Same rule for the pub sources: read the path out of the module rather
     // than off disk, so an audited-but-unreferenced file cannot pass while the
     // build stages no `.pub-cache` for `setup-flutter.sh` to resolve from.
-    final List<String> pubSourceIncludes = _generatedIncludes(
+    final List<String> generatedSources = _generatedIncludes(
       linthraModule,
       'sources',
     );
+    final List<String> pubSourceIncludes = generatedSources
+        .where((String path) => path.endsWith('/pubspec.json'))
+        .toList();
     expect(
       pubSourceIncludes,
       hasLength(1),
       reason: 'The linthra module does not include exactly one generated pub '
           'source file',
     );
+    // The Rust core's crates, the only other generated source: pinned
+    // archives replacing crates.io, so the hook's cargo build fetches
+    // nothing. Each crate Cargo.lock names has to be there, with the
+    // checksum the lockfile holds.
+    final List<String> cargoSourceIncludes = generatedSources
+        .where((String path) => path.endsWith('/cargo.json'))
+        .toList();
+    expect(
+      cargoSourceIncludes,
+      hasLength(1),
+      reason: 'The linthra module does not include exactly one generated '
+          'cargo source file',
+    );
+    expect(
+      generatedSources,
+      hasLength(pubSourceIncludes.length + cargoSourceIncludes.length),
+      reason: 'The linthra module includes a generated source nothing audits',
+    );
+    final String cargoSourcesPath = 'flatpak/${cargoSourceIncludes.single}';
+    final Object? cargoSources = jsonDecode(_read(cargoSourcesPath));
+    _expectRemoteSourcesHashed(cargoSources, cargoSourcesPath);
+    final Map<String, String> crateHashes = <String, String>{
+      for (final Map<String, dynamic> source in _maps(cargoSources))
+        if (source['type'] == 'archive')
+          (source['dest'] as String).split('/').last:
+              source['sha256'] as String,
+    };
+    final Iterable<RegExpMatch> lockedCrates = RegExp(
+      r'name = "([^"]+)"\nversion = "([^"]+)"\nsource = "registry\+[^"]+"\nchecksum = "([0-9a-f]{64})"',
+    ).allMatches(_read('native/linthra_core/Cargo.lock'));
+    expect(lockedCrates, isNotEmpty);
+    for (final RegExpMatch crate in lockedCrates) {
+      final String name = '${crate.group(1)}-${crate.group(2)}';
+      expect(
+        crateHashes[name],
+        crate.group(3),
+        reason: '$name is not pinned in $cargoSourcesPath with Cargo.lock\'s '
+            'checksum: run ./scripts/regenerate_flatpak_sources.sh',
+      );
+    }
 
     final String pubSourcesPath = 'flatpak/${pubSourceIncludes.single}';
     final String pubSourcesText = _read(pubSourcesPath);
