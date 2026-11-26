@@ -23,11 +23,17 @@ jobs:
       # the JDK, read by every workflow that runs Gradle), so debug and release
       # CI builds use the same JDK as the release artifacts. setup-java exports
       # JAVA_HOME, which Flutter and the Gradle daemon pick up for the build.
+      #
+      # cache: gradle keeps ~/.gradle between runs, keyed on the Gradle files,
+      # so a PR does not fetch every plugin from Maven Central again and fail
+      # when it rate-limits us (a 429 on the Kotlin BOM). Release builds stay
+      # uncached: test/tooling/toolchain_pins_test.dart holds that.
       - name: Set up Java
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version-file: .java-version
+          cache: gradle
 
       # Installs the version pinned in .flutter-version.
       - name: Set up Flutter
