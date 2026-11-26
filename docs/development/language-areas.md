@@ -6,7 +6,7 @@ Linthra is a Flutter app, but the project is deliberately becoming polyglot wher
 | --- | --- | --- |
 | Dart / Flutter | UI, playback orchestration, providers, onboarding, cross-platform app logic | `lib/`, `test/` |
 | Kotlin | Android platform integration, SAF/MediaStore, media session, Android Auto, system channels | `android/app/src/main/kotlin/` |
-| Rust | large-library indexing/search, album/artist grouping, cross-server merging, tag reading, queue, playback, audio focus, stream recovery, download and cache eviction rules | `native/linthra_core/` |
+| Rust | large-library indexing/search, album/artist grouping, cross-server merging, tag and CUE reading, audio CD decoding, queue, playback, audio focus, stream recovery, download and cache eviction rules | `native/linthra_core/` |
 | C++ | realtime audio DSP, EQ/limiting, future audio analysis and SIMD work | `native/linthra_audio/` |
 | C++ / CMake (GTK) | the native Linux desktop runner: window identity and metadata, GTK application setup, native build configuration | `linux/` |
 | Python | release tooling, large-library fixtures, benchmarks, validation | `scripts/`, `tool/`, `tools/` |

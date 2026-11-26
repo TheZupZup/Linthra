@@ -24,6 +24,7 @@ pub mod ffi;
 pub mod library_grouping;
 pub mod local_reconcile;
 mod normalize;
+pub mod optical;
 pub mod playback_rules;
 pub mod queue_edits;
 #[cfg(test)]

@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 import '../../models/audio_cd.dart';
+import '../../native/native_optical.dart';
 import 'cd_disc_id.dart';
 import 'cd_text_reading.dart';
 import 'cdrom_toc_source.dart';
@@ -70,6 +73,15 @@ AudioCdDisc? audioCdDiscFrom(RawCdToc toc, {required String driveId}) {
 /// track list with wrong boundaries that nothing downstream can tell from a
 /// right one.
 List<RawCdTocTrack>? normalizedTocEntries(RawCdToc toc) {
+  final ({bool ok, List<int> order})? native = NativeOptical.tocOrder(toc);
+  if (native == null) return normalizedTocEntriesInDart(toc);
+  if (!native.ok) return null;
+  return <RawCdTocTrack>[for (final int i in native.order) toc.tracks[i]];
+}
+
+/// [normalizedTocEntries] without the Rust core: the reference rules, which
+/// [musicBrainzDiscIdInDart] builds on too.
+List<RawCdTocTrack>? normalizedTocEntriesInDart(RawCdToc toc) {
   if (toc.firstTrack < 1 || toc.lastTrack > 99) return null;
   if (toc.firstTrack > toc.lastTrack) return null;
   if (toc.leadOutLba < 0) return null;
@@ -136,6 +148,25 @@ List<RawCdTocTrack>? normalizedTocEntries(RawCdToc toc) {
 /// on damaged and deliberately broken ("copy-protected") discs, and a
 /// zero-length track in a queue is a track that ends the moment it starts.
 List<AudioCdTrack> playableAudioTracks(
+  List<RawCdTocTrack> entries,
+  int leadOutLba,
+) {
+  final List<NativeAudioTrack>? native =
+      NativeOptical.playableTracks(entries, leadOutLba);
+  if (native == null) return playableAudioTracksInDart(entries, leadOutLba);
+  return <AudioCdTrack>[
+    for (final NativeAudioTrack t in native)
+      AudioCdTrack(
+        number: t.number,
+        startFrame: t.startFrame,
+        frameCount: t.frameCount,
+      ),
+  ];
+}
+
+/// [playableAudioTracks] without the Rust core: the reference rules.
+@visibleForTesting
+List<AudioCdTrack> playableAudioTracksInDart(
   List<RawCdTocTrack> entries,
   int leadOutLba,
 ) {

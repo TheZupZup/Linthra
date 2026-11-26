@@ -185,6 +185,23 @@ fn score(a: &UnifyTrack, ia: &Identity, b: &UnifyTrack, ib: &Identity) -> f64 {
         + W_ARTIST * containment(&ia.artist, &ib.artist)
 }
 
+/// `isLikelySameTrack`: both rows carry enough to match (the same test that
+/// puts a row in a block) and their score clears [MATCH_SCORE].
+pub fn is_likely_same(a: &UnifyTrack, b: &UnifyTrack) -> bool {
+    let (ia, ib) = (Identity::of(a), Identity::of(b));
+    ia.block.is_some() && ib.block.is_some() && score(a, &ia, b, &ib) >= MATCH_SCORE
+}
+
+/// `isCurrentPlaybackTrack` (lib/core/catalog/now_playing_match.dart): the
+/// same copy by uri, or the same song from another server. Two rows from one
+/// server only ever match by uri.
+pub fn is_current_playback(row: &UnifyTrack, current: &UnifyTrack) -> bool {
+    if row.uri == current.uri {
+        return true;
+    }
+    row.source != current.source && is_likely_same(row, current)
+}
+
 /// Dart orders strings by UTF-16 code units.
 fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
@@ -356,5 +373,58 @@ mod tests {
         a.track_number = Some(1);
         b.track_number = Some(2);
         assert_eq!(unify(&[a, b]), vec![vec![0], vec![1]]);
+    }
+}
+
+#[cfg(test)]
+mod current_playback_tests {
+    use super::*;
+
+    fn track<'a>(uri: &'a str, source: u32, title: &'a str, number: Option<i64>) -> UnifyTrack<'a> {
+        UnifyTrack {
+            uri,
+            source,
+            rank: 0,
+            title,
+            artist: "NF",
+            album: "The Search",
+            duration_secs: 180,
+            track_number: number,
+        }
+    }
+
+    #[test]
+    fn matches_the_same_copy_and_the_same_song_elsewhere() {
+        let playing = track("jellyfin:1", 0, "CAREFUL", Some(1));
+        assert!(is_current_playback(
+            &track("jellyfin:1", 0, "x", None),
+            &playing
+        ));
+        assert!(is_current_playback(
+            &track("subsonic:9", 1, "CAREFUL (feat. Cordae)", Some(1)),
+            &playing
+        ));
+    }
+
+    #[test]
+    fn never_matches_another_row_of_the_same_server_by_tags() {
+        let playing = track("jellyfin:1", 0, "CAREFUL", Some(1));
+        assert!(!is_current_playback(
+            &track("jellyfin:2", 0, "CAREFUL", Some(1)),
+            &playing
+        ));
+        assert!(!is_current_playback(
+            &track("subsonic:9", 1, "CAREFUL", Some(2)),
+            &playing
+        ));
+    }
+
+    #[test]
+    fn an_untagged_row_only_matches_its_own_uri() {
+        let mut untagged = track("/music/a.flac", 1, "a", None);
+        untagged.duration_secs = 0;
+        let mut playing = track("/music/b.flac", 0, "a", None);
+        playing.duration_secs = 0;
+        assert!(!is_current_playback(&untagged, &playing));
     }
 }
