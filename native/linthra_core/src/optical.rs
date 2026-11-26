@@ -179,10 +179,10 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
         message.push(0);
     }
     message.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut w = [0u32; 80];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(*word);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -293,7 +293,7 @@ fn packs(response: &[u8]) -> Option<Vec<Pack<'_>>> {
         return None;
     }
     let mut packs = Vec::new();
-    for bytes in response[4..end].chunks_exact(PACK_LENGTH) {
+    for bytes in response[4..end].as_chunks::<PACK_LENGTH>().0 {
         let indicator = bytes[3];
         if (indicator >> 4) & 0x07 != 0 {
             continue;
