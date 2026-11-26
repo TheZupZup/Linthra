@@ -81,4 +81,4 @@ A query word that starts no token anywhere in the catalog is matched instead aga
 
 ## Good contribution areas
 
-Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, cross-provider duplicate candidates, per-album and per-artist track lookups, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.
+Rust contributors can work here without knowing Flutter. Useful next steps include compact index serialization, incremental index updates, per-album and per-artist track lookups, memory benchmarks, and the eventual stable Dart/Flutter FFI boundary.
