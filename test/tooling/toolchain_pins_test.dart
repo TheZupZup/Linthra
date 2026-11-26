@@ -198,6 +198,30 @@ void main() {
         );
       }
     });
+
+    test('only the PR check builds cache Gradle', () {
+      // A cache restored into a release build would put whatever an earlier
+      // run left in ~/.gradle into a signed APK, and the reproducible F-Droid
+      // build has no such cache to match. Only the throwaway PR builds may
+      // reuse it.
+      const Set<String> cached = <String>{
+        '.github/workflows/android-debug-apk.yml',
+        '.github/workflows/github-sponsor-simulation-apk.yml',
+      };
+      for (final _RepoFile f in <_RepoFile>[
+        ..._workflowFiles(root),
+        ..._actionFiles(root),
+      ]) {
+        expect(
+          RegExp(r'^\s+cache:\s*gradle\s*$', multiLine: true).hasMatch(f.text),
+          cached.contains(f.path),
+          reason: cached.contains(f.path)
+              ? '${f.path} should keep `cache: gradle` on setup-java.'
+              : '${f.path} caches Gradle. Only the PR check builds may; '
+                  'release builds must fetch their dependencies fresh.',
+        );
+      }
+    });
   });
 
   group('shared GitHub Actions are pinned consistently', () {
