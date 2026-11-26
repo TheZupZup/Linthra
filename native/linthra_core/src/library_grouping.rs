@@ -175,7 +175,7 @@ pub fn dart_trim(value: &str) -> &str {
 
 /// Dart's `String.trim` whitespace: the Unicode White_Space characters plus
 /// the byte order mark.
-fn is_dart_whitespace(ch: char) -> bool {
+pub(crate) fn is_dart_whitespace(ch: char) -> bool {
     matches!(
         ch,
         '\u{09}'..='\u{0D}'

@@ -789,3 +789,83 @@ external Pointer<Uint32> linthraReconcileRemoved(
   isLeaf: true,
 )
 external void linthraReconcileFree(Pointer<LinthraReconcileResult> result);
+
+/// `CueText` on the Rust side (native/linthra_core/src/ffi/cue_sheet.rs).
+final class LinthraCueText extends Opaque {}
+
+/// `CueTracks` on the Rust side (native/linthra_core/src/ffi/cue_sheet.rs).
+final class LinthraCueTracks extends Opaque {}
+
+/// The field indices of [linthraCueField], as in
+/// native/linthra_core/src/ffi/cue_sheet.rs.
+abstract final class LinthraCueField {
+  static const int file = 0;
+  static const int title = 1;
+  static const int performer = 2;
+  static const int album = 3;
+  static const int albumPerformer = 4;
+}
+
+@Native<Pointer<LinthraCueText> Function(Pointer<Uint8>, Size)>(
+  symbol: 'linthra_cue_decode',
+  isLeaf: true,
+)
+external Pointer<LinthraCueText> linthraCueDecode(
+    Pointer<Uint8> bytes, int length);
+
+@Native<Pointer<Uint16> Function(Pointer<LinthraCueText>, Pointer<Size>)>(
+  symbol: 'linthra_cue_text',
+  isLeaf: true,
+)
+external Pointer<Uint16> linthraCueText(
+    Pointer<LinthraCueText> text, Pointer<Size> length);
+
+@Native<Void Function(Pointer<LinthraCueText>)>(
+  symbol: 'linthra_cue_text_free',
+  isLeaf: true,
+)
+external void linthraCueTextFree(Pointer<LinthraCueText> text);
+
+@Native<Pointer<LinthraCueTracks> Function(Pointer<Uint8>, Size)>(
+  symbol: 'linthra_cue_parse',
+  isLeaf: true,
+)
+external Pointer<LinthraCueTracks> linthraCueParse(
+    Pointer<Uint8> text, int length);
+
+@Native<Size Function(Pointer<LinthraCueTracks>)>(
+  symbol: 'linthra_cue_track_count',
+  isLeaf: true,
+)
+external int linthraCueTrackCount(Pointer<LinthraCueTracks> tracks);
+
+@Native<Int64 Function(Pointer<LinthraCueTracks>, Size)>(
+  symbol: 'linthra_cue_number',
+  isLeaf: true,
+)
+external int linthraCueNumber(Pointer<LinthraCueTracks> tracks, int index);
+
+@Native<Int64 Function(Pointer<LinthraCueTracks>, Size)>(
+  symbol: 'linthra_cue_start_ms',
+  isLeaf: true,
+)
+external int linthraCueStartMs(Pointer<LinthraCueTracks> tracks, int index);
+
+@Native<
+    Pointer<Uint8> Function(
+        Pointer<LinthraCueTracks>, Size, Uint8, Pointer<Size>)>(
+  symbol: 'linthra_cue_field',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraCueField(
+  Pointer<LinthraCueTracks> tracks,
+  int index,
+  int field,
+  Pointer<Size> length,
+);
+
+@Native<Void Function(Pointer<LinthraCueTracks>)>(
+  symbol: 'linthra_cue_tracks_free',
+  isLeaf: true,
+)
+external void linthraCueTracksFree(Pointer<LinthraCueTracks> tracks);
