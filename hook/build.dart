@@ -201,10 +201,17 @@ class _RustTarget {
     }
     final String ndkBin = File.fromUri(compiler.compiler).parent.path;
     final String api = '${code.android.targetNdkApi}';
+    final String clang = '$ndkBin/$prefix$api-clang';
+    // cc-rs, which crates with C in them (dart-sys) build it with, reads
+    // CC_<target> and AR_<target>; without them it guesses a GCC-style name
+    // (`arm-linux-androideabi-clang`) the NDK doesn't ship.
+    final String ccKey = triple.replaceAll('-', '_');
     return <String, String>{
-      'CARGO_TARGET_${key}_LINKER': '$ndkBin/$prefix$api-clang',
+      'CARGO_TARGET_${key}_LINKER': clang,
       'CARGO_TARGET_${key}_RUSTFLAGS':
           '-C link-arg=-Wl,-z,max-page-size=16384 $remap',
+      'CC_$ccKey': clang,
+      'AR_$ccKey': File.fromUri(compiler.archiver).path,
     };
   }
 }
