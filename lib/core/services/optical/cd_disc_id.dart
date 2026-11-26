@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../models/audio_cd.dart';
+import '../../native/native_optical.dart';
 import 'cd_toc_reading.dart';
 import 'cdrom_toc_source.dart';
 
@@ -58,8 +60,19 @@ import 'cdrom_toc_source.dart';
 /// and inventing an identity for a disc whose TOC contradicts itself is worse
 /// than having none — the tracks are still read and still playable, they are
 /// simply not claimed to be a disc anybody else would recognise.
+///
+/// Computed by the Rust core (native/linthra_core/src/optical.rs) when the
+/// build carries it, and by [musicBrainzDiscIdInDart] otherwise.
 String? musicBrainzDiscId(RawCdToc toc) {
-  final List<RawCdTocTrack>? entries = normalizedTocEntries(toc);
+  final ({String? id})? native = NativeOptical.discId(toc);
+  if (native != null) return native.id;
+  return musicBrainzDiscIdInDart(toc);
+}
+
+/// [musicBrainzDiscId] without the Rust core: the reference rules.
+@visibleForTesting
+String? musicBrainzDiscIdInDart(RawCdToc toc) {
+  final List<RawCdTocTrack>? entries = normalizedTocEntriesInDart(toc);
   if (entries == null) return null;
 
   int lastAudioIndex = -1;

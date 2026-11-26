@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../native/native_optical.dart';
+
 /// The CD-Text a disc actually carries — never more.
 ///
 /// Every field is optional and an absent field stays absent: there is no
@@ -132,7 +134,30 @@ const int _cdTextMaxPacks = 2048;
 /// block 0, the primary one, and ignores the rest: choosing between them means
 /// matching the disc's language codes against the user's locale, which is a
 /// feature with a UI attached and not something to do silently here.
+///
+/// Decoded by the Rust core (native/linthra_core/src/optical.rs) when the
+/// build carries it, and by [cdTextFromInDart] otherwise.
 CdTextMetadata cdTextFrom(Uint8List? response) {
+  final NativeCdText? native = NativeOptical.cdText(response);
+  if (native == null) return cdTextFromInDart(response);
+  final Map<int, String> titles = <int, String>{
+    for (final (int, String) t in native.titles) t.$1: t.$2,
+  };
+  final Map<int, String> performers = <int, String>{
+    for (final (int, String) t in native.performers) t.$1: t.$2,
+  };
+  if (titles.isEmpty && performers.isEmpty) return CdTextMetadata.empty;
+  return CdTextMetadata(
+    discTitle: titles.remove(0),
+    discPerformer: performers.remove(0),
+    trackTitles: titles,
+    trackPerformers: performers,
+  );
+}
+
+/// [cdTextFrom] without the Rust core: the reference rules.
+@visibleForTesting
+CdTextMetadata cdTextFromInDart(Uint8List? response) {
   final List<_CdTextPack>? packs = _packsFrom(response);
   if (packs == null || packs.isEmpty) return CdTextMetadata.empty;
 

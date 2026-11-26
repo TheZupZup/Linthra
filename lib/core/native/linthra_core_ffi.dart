@@ -899,3 +899,102 @@ external int linthraIsCurrentTrack(
   Pointer<Int64> durations,
   Pointer<Int64> trackNumbers,
 );
+
+/// `CdText` on the Rust side (native/linthra_core/src/ffi/optical.rs).
+final class LinthraCdText extends Opaque {}
+
+/// The lists of [linthraCdTextCount], as in
+/// native/linthra_core/src/ffi/optical.rs.
+abstract final class LinthraCdTextList {
+  static const int titles = 0;
+  static const int performers = 1;
+}
+
+/// The length of every MusicBrainz disc id [linthraCdDiscId] writes.
+const int linthraDiscIdLength = 28;
+
+@Native<Pointer<LinthraCdText> Function(Pointer<Uint8>, Size)>(
+  symbol: 'linthra_cd_text',
+  isLeaf: true,
+)
+external Pointer<LinthraCdText> linthraCdText(Pointer<Uint8> bytes, int length);
+
+@Native<Size Function(Pointer<LinthraCdText>, Uint8)>(
+  symbol: 'linthra_cd_text_count',
+  isLeaf: true,
+)
+external int linthraCdTextCount(Pointer<LinthraCdText> text, int list);
+
+@Native<Uint32 Function(Pointer<LinthraCdText>, Uint8, Size)>(
+  symbol: 'linthra_cd_text_item',
+  isLeaf: true,
+)
+external int linthraCdTextItem(Pointer<LinthraCdText> text, int list, int i);
+
+@Native<
+    Pointer<Uint8> Function(
+        Pointer<LinthraCdText>, Uint8, Size, Pointer<Size>)>(
+  symbol: 'linthra_cd_text_value',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraCdTextValue(
+  Pointer<LinthraCdText> text,
+  int list,
+  int i,
+  Pointer<Size> length,
+);
+
+@Native<Void Function(Pointer<LinthraCdText>)>(
+  symbol: 'linthra_cd_text_free',
+  isLeaf: true,
+)
+external void linthraCdTextFree(Pointer<LinthraCdText> text);
+
+@Native<
+    Int64 Function(Int64, Int64, Int64, Pointer<Int64>, Pointer<Int64>,
+        Pointer<Uint8>, Size, Pointer<Uint32>)>(
+  symbol: 'linthra_cd_toc_order',
+  isLeaf: true,
+)
+external int linthraCdTocOrder(
+  int firstTrack,
+  int lastTrack,
+  int leadOutLba,
+  Pointer<Int64> numbers,
+  Pointer<Int64> starts,
+  Pointer<Uint8> data,
+  int count,
+  Pointer<Uint32> order,
+);
+
+@Native<
+    Int64 Function(Pointer<Int64>, Pointer<Int64>, Pointer<Uint8>, Size, Int64,
+        Pointer<Int64>)>(
+  symbol: 'linthra_cd_playable_tracks',
+  isLeaf: true,
+)
+external int linthraCdPlayableTracks(
+  Pointer<Int64> numbers,
+  Pointer<Int64> starts,
+  Pointer<Uint8> data,
+  int count,
+  int leadOutLba,
+  Pointer<Int64> out,
+);
+
+@Native<
+    Int32 Function(Int64, Int64, Int64, Pointer<Int64>, Pointer<Int64>,
+        Pointer<Uint8>, Size, Pointer<Uint8>)>(
+  symbol: 'linthra_cd_disc_id',
+  isLeaf: true,
+)
+external int linthraCdDiscId(
+  int firstTrack,
+  int lastTrack,
+  int leadOutLba,
+  Pointer<Int64> numbers,
+  Pointer<Int64> starts,
+  Pointer<Uint8> data,
+  int count,
+  Pointer<Uint8> out,
+);
