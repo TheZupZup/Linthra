@@ -21,6 +21,7 @@ mod download_settle_cases_test;
 pub mod download_state;
 pub mod ffi;
 pub mod library_grouping;
+pub mod local_reconcile;
 mod normalize;
 pub mod playback_rules;
 pub mod queue_edits;
