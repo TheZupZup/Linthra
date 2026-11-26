@@ -1,3 +1,4 @@
+import '../native/native_track_availability.dart';
 import '../sources/source_availability.dart';
 
 /// What a library row can honestly say about whether this track plays right
@@ -75,12 +76,27 @@ enum TrackAvailabilityStatus {
 /// is down", because the server's state has stopped being the interesting fact;
 /// whether the listener can hear the song has not. That is also why
 /// [offlineCopy] is reported even while a probe is still running.
+///
+/// Decided by the Rust core (native/linthra_core/src/track_availability.rs)
+/// when the build has it, held to this rule by
+/// test/fixtures/track_availability_cases.txt, which both replay.
+/// [useNative] false always takes the Dart path, for tests.
 TrackAvailabilityStatus resolveTrackAvailability({
   required bool isRemote,
   required bool hasOfflineCopy,
   required bool isExplicitDownload,
   required SourceAvailability availability,
+  bool useNative = true,
 }) {
+  if (useNative) {
+    final int? native = NativeTrackAvailability.resolve(
+      isRemote: isRemote,
+      hasOfflineCopy: hasOfflineCopy,
+      isExplicitDownload: isExplicitDownload,
+      availabilityIndex: availability.index,
+    );
+    if (native != null) return TrackAvailabilityStatus.values[native];
+  }
   if (!isRemote) return TrackAvailabilityStatus.none;
 
   if (hasOfflineCopy) {

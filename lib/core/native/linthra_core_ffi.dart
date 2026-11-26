@@ -869,3 +869,14 @@ external Pointer<Uint8> linthraCueField(
   isLeaf: true,
 )
 external void linthraCueTracksFree(Pointer<LinthraCueTracks> tracks);
+
+@Native<Uint8 Function(Bool, Bool, Bool, Uint8)>(
+  symbol: 'linthra_track_availability',
+  isLeaf: true,
+)
+external int linthraTrackAvailability(
+  bool isRemote,
+  bool hasOfflineCopy,
+  bool isExplicitDownload,
+  int availability,
+);
