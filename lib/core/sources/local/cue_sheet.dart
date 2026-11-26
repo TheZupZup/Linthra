@@ -1,6 +1,9 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+
+import '../../native/native_cue_sheet.dart';
 
 /// One indexed audio track described by a CUE sheet.
 class CueSheetTrack {
@@ -30,7 +33,15 @@ class CueSheetTrack {
 abstract final class CueSheet {
   /// Older Cyrillic CD-ripping tools write Windows-1251 without an encoding
   /// declaration. Try strict UTF-8 first so valid Unicode sheets stay intact.
-  static String decode(List<int> bytes) {
+  ///
+  /// Runs in the Rust core (native/linthra_core/src/cue_sheet.rs) when the
+  /// build carries it, and in [decodeInDart] otherwise.
+  static String decode(List<int> bytes) =>
+      NativeCueSheet.decode(bytes) ?? decodeInDart(bytes);
+
+  /// [decode] without the Rust core: the reference rules.
+  @visibleForTesting
+  static String decodeInDart(List<int> bytes) {
     try {
       return utf8.decode(bytes);
     } on FormatException {
@@ -109,7 +120,33 @@ abstract final class CueSheet {
     0x0457,
   ];
 
+  /// The audio tracks of the sheet at [cuePath], whose text is [contents].
+  ///
+  /// The directives are read in the Rust core
+  /// (native/linthra_core/src/cue_sheet.rs) when the build carries it, and by
+  /// [parseInDart] otherwise. Joining each FILE to the sheet's folder and
+  /// working out where each track ends happen here either way.
   static List<CueSheetTrack> parse(String cuePath, String contents) {
+    final List<NativeCueTrack>? native = NativeCueSheet.parse(contents);
+    if (native == null) return parseInDart(cuePath, contents);
+    final String directory = p.dirname(cuePath);
+    return _bounded(<CueSheetTrack>[
+      for (final NativeCueTrack track in native)
+        CueSheetTrack(
+          number: track.number,
+          audioPath: p.normalize(p.join(directory, track.file)),
+          start: Duration(milliseconds: track.startMs),
+          title: track.title,
+          performer: track.performer,
+          album: track.album,
+          albumPerformer: track.albumPerformer,
+        ),
+    ]);
+  }
+
+  /// [parse] without the Rust core: the reference rules.
+  @visibleForTesting
+  static List<CueSheetTrack> parseInDart(String cuePath, String contents) {
     final String directory = p.dirname(cuePath);
     final String source =
         contents.startsWith('\uFEFF') ? contents.substring(1) : contents;
@@ -208,7 +245,11 @@ abstract final class CueSheet {
       }
     }
     finishTrack();
+    return _bounded(tracks);
+  }
 
+  /// Ends each track where the next one on the same FILE starts.
+  static List<CueSheetTrack> _bounded(List<CueSheetTrack> tracks) {
     final List<CueSheetTrack> bounded = <CueSheetTrack>[];
     for (int i = 0; i < tracks.length; i++) {
       final CueSheetTrack current = tracks[i];

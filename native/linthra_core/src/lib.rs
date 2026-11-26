@@ -11,6 +11,7 @@ pub mod audio_focus;
 pub mod cache_eviction;
 #[cfg(test)]
 mod cache_eviction_cases_test;
+pub mod cue_sheet;
 pub mod download_gate;
 #[cfg(test)]
 mod download_gate_cases_test;
