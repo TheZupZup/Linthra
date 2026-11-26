@@ -880,3 +880,22 @@ external int linthraTrackAvailability(
   bool isExplicitDownload,
   int availability,
 );
+
+// A leaf call: two tracks, no allocation on the Rust side.
+@Native<
+    Uint8 Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+    )>(symbol: 'linthra_is_current_track', isLeaf: true)
+external int linthraIsCurrentTrack(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Uint32> sources,
+  Pointer<Int64> durations,
+  Pointer<Int64> trackNumbers,
+);

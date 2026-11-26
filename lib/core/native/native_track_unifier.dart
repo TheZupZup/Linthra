@@ -83,4 +83,80 @@ abstract final class NativeTrackUnifier {
       }
     });
   }
+
+  /// Whether [row] is the playing [current] track, as
+  /// `isCurrentPlaybackTrack` decides it, or null when this build has no
+  /// Rust core or a field holds text UTF-8 cannot carry (an unpaired
+  /// surrogate), which would cross as U+FFFD and could make two different
+  /// titles look alike.
+  ///
+  /// [sameSource] is whether both come from the same server.
+  static bool? isCurrent(
+    NativeUnifyTrack row,
+    NativeUnifyTrack current, {
+    required bool sameSource,
+  }) {
+    if (!LinthraCore.isAvailable) return null;
+    final List<String> parts = <String>[
+      row.uri,
+      row.title,
+      row.artist,
+      row.album,
+      current.uri,
+      current.title,
+      current.artist,
+      current.album,
+    ];
+    if (parts.any(_hasUnpairedSurrogate)) return null;
+    final BytesBuilder text = BytesBuilder(copy: false);
+    final Uint32List spans = Uint32List(16);
+    for (int k = 0; k < parts.length; k++) {
+      final Uint8List bytes = utf8.encode(parts[k]);
+      spans[2 * k] = text.length;
+      spans[2 * k + 1] = bytes.length;
+      text.add(bytes);
+    }
+    final Uint8List bytes = text.toBytes();
+    return using((Arena arena) {
+      final Pointer<Uint8> textPointer = arena<Uint8>(bytes.length + 1);
+      textPointer.asTypedList(bytes.length).setAll(0, bytes);
+      final Pointer<Uint32> spanPointer = arena<Uint32>(16);
+      spanPointer.asTypedList(16).setAll(0, spans);
+      final Pointer<Uint32> sources = arena<Uint32>(2);
+      sources[0] = 0;
+      sources[1] = sameSource ? 0 : 1;
+      final Pointer<Int64> durations = arena<Int64>(2);
+      final Pointer<Int64> numbers = arena<Int64>(2);
+      durations[0] = row.durationSeconds;
+      durations[1] = current.durationSeconds;
+      numbers[0] = row.trackNumber ?? _noNumber;
+      numbers[1] = current.trackNumber ?? _noNumber;
+      final int answer = linthraIsCurrentTrack(
+        textPointer,
+        bytes.length,
+        spanPointer,
+        sources,
+        durations,
+        numbers,
+      );
+      // Every span was written here from Dart strings, so anything but 0 or
+      // 1 means the two sides of the ABI disagree.
+      if (answer > 1) {
+        throw StateError('linthra_is_current_track refused its input');
+      }
+      return answer == 1;
+    });
+  }
+
+  static bool _hasUnpairedSurrogate(String text) {
+    for (int i = 0; i < text.length; i++) {
+      final int unit = text.codeUnitAt(i);
+      if (unit < 0xD800 || unit > 0xDFFF) continue;
+      if (unit > 0xDBFF || i + 1 == text.length) return true;
+      final int next = text.codeUnitAt(i + 1);
+      if (next < 0xDC00 || next > 0xDFFF) return true;
+      i++;
+    }
+    return false;
+  }
 }

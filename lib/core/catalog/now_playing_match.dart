@@ -1,4 +1,5 @@
 import '../models/track.dart';
+import '../native/native_track_unifier.dart';
 import 'track_identity.dart';
 
 /// Whether a displayed track [row] represents the same *logical* song as the
@@ -26,8 +27,38 @@ import 'track_identity.dart';
 /// mirroring the unifier's rule that a single provider's own rows are assumed
 /// already de-duplicated — so two distinct rows from one source can't both claim
 /// to be the playing track.
-bool isCurrentPlaybackTrack(Track row, Track current) {
+///
+/// Decided by the Rust core (native/linthra_core/src/track_unifier.rs, the
+/// same match the library merge uses) when the build has it. [useNative]
+/// false always takes the Dart path, for tests.
+bool isCurrentPlaybackTrack(
+  Track row,
+  Track current, {
+  bool useNative = true,
+}) {
   if (row.uri == current.uri) return true;
-  if (trackSourceId(row) == trackSourceId(current)) return false;
+  final bool sameSource = trackSourceId(row) == trackSourceId(current);
+  if (useNative) {
+    final bool? native = NativeTrackUnifier.isCurrent(
+      _native(row),
+      _native(current),
+      sameSource: sameSource,
+    );
+    if (native != null) return native;
+  }
+  if (sameSource) return false;
   return isLikelySameTrack(row, current);
 }
+
+/// What the Rust match reads of [track]. Its source and rank are set by
+/// [NativeTrackUnifier.isCurrent] from whether the two share a server.
+NativeUnifyTrack _native(Track track) => (
+      uri: track.uri,
+      title: track.title,
+      artist: track.artistName ?? '',
+      album: track.albumName ?? '',
+      source: 0,
+      rank: 0,
+      durationSeconds: track.duration.inSeconds,
+      trackNumber: track.trackNumber,
+    );

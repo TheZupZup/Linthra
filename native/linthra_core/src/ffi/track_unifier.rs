@@ -8,7 +8,7 @@
 
 use std::ptr;
 
-use crate::track_unifier::{unify, UnifyTrack};
+use crate::track_unifier::{is_current_playback, unify, UnifyTrack};
 
 /// The library rows, kept until freed.
 pub struct UnifyResult {
@@ -38,6 +38,83 @@ pub unsafe extern "C" fn linthra_unify_tracks(
     track_numbers: *const i64,
     count: usize,
 ) -> *mut UnifyResult {
+    let Some(tracks) = read_tracks(
+        text,
+        text_len,
+        spans,
+        sources,
+        ranks,
+        durations,
+        track_numbers,
+        count,
+    ) else {
+        return ptr::null_mut();
+    };
+    let rows = unify(&tracks);
+    let mut starts = Vec::with_capacity(rows.len() + 1);
+    let mut indices = Vec::with_capacity(count);
+    for row in rows {
+        starts.push(indices.len() as u32);
+        indices.extend(row);
+    }
+    starts.push(indices.len() as u32);
+    Box::into_raw(Box::new(UnifyResult { starts, indices }))
+}
+
+/// Whether `row` is the playing `current` track: `isCurrentPlaybackTrack`
+/// (lib/core/catalog/now_playing_match.dart). The two tracks are laid out as
+/// for [linthra_unify_tracks] with a count of 2, `row` first. Returns 1 or
+/// 0, or [CURRENT_TRACK_INVALID] when an array is null or a span falls
+/// outside `text` or isn't UTF-8.
+///
+/// # Safety
+///
+/// As for [linthra_unify_tracks] with a count of 2.
+#[no_mangle]
+pub unsafe extern "C" fn linthra_is_current_track(
+    text: *const u8,
+    text_len: usize,
+    spans: *const u32,
+    sources: *const u32,
+    durations: *const i64,
+    track_numbers: *const i64,
+) -> u8 {
+    let ranks = [0u32; 2];
+    match read_tracks(
+        text,
+        text_len,
+        spans,
+        sources,
+        ranks.as_ptr(),
+        durations,
+        track_numbers,
+        2,
+    ) {
+        Some(tracks) => is_current_playback(&tracks[0], &tracks[1]) as u8,
+        None => CURRENT_TRACK_INVALID,
+    }
+}
+
+/// [linthra_is_current_track]'s answer to input it could not read.
+pub const CURRENT_TRACK_INVALID: u8 = 255;
+
+/// The `count` tracks the arrays describe, or None when one is null while
+/// `count` is not 0, or a span falls outside `text` or isn't UTF-8.
+///
+/// # Safety
+///
+/// As for [linthra_unify_tracks].
+#[allow(clippy::too_many_arguments)]
+unsafe fn read_tracks<'a>(
+    text: *const u8,
+    text_len: usize,
+    spans: *const u32,
+    sources: *const u32,
+    ranks: *const u32,
+    durations: *const i64,
+    track_numbers: *const i64,
+    count: usize,
+) -> Option<Vec<UnifyTrack<'a>>> {
     let slice = |p: *const u8, n: usize| {
         if n == 0 {
             Some(&[][..])
@@ -47,9 +124,7 @@ pub unsafe extern "C" fn linthra_unify_tracks(
             Some(std::slice::from_raw_parts(p, n))
         }
     };
-    let Some(text) = slice(text, text_len) else {
-        return ptr::null_mut();
-    };
+    let text = slice(text, text_len)?;
     if count > 0
         && (spans.is_null()
             || sources.is_null()
@@ -57,7 +132,7 @@ pub unsafe extern "C" fn linthra_unify_tracks(
             || durations.is_null()
             || track_numbers.is_null())
     {
-        return ptr::null_mut();
+        return None;
     }
     let read = |i: usize| -> Option<UnifyTrack> {
         let span = std::slice::from_raw_parts(spans.add(8 * i), 8);
@@ -78,18 +153,7 @@ pub unsafe extern "C" fn linthra_unify_tracks(
             track_number: (number != i64::MIN).then_some(number),
         })
     };
-    let Some(tracks) = (0..count).map(read).collect::<Option<Vec<_>>>() else {
-        return ptr::null_mut();
-    };
-    let rows = unify(&tracks);
-    let mut starts = Vec::with_capacity(rows.len() + 1);
-    let mut indices = Vec::with_capacity(count);
-    for row in rows {
-        starts.push(indices.len() as u32);
-        indices.extend(row);
-    }
-    starts.push(indices.len() as u32);
-    Box::into_raw(Box::new(UnifyResult { starts, indices }))
+    (0..count).map(read).collect()
 }
 
 /// How many rows. 0 for a null `result`.
@@ -187,5 +251,51 @@ mod tests {
             )
             .is_null());
         }
+    }
+
+    #[test]
+    fn answers_the_playing_question_through_the_abi() {
+        let fields = [
+            "jellyfin:1",
+            "Hello",
+            "Adele",
+            "25",
+            "subsonic:1",
+            "Hello",
+            "Adele",
+            "25 (Deluxe)",
+        ];
+        let mut text = Vec::new();
+        let mut spans = Vec::new();
+        for field in fields {
+            spans.extend([text.len() as u32, field.len() as u32]);
+            text.extend_from_slice(field.as_bytes());
+        }
+        let sources = [0u32, 1];
+        let durations = [180i64, 181];
+        let numbers = [i64::MIN, i64::MIN];
+        let answer = |sources: &[u32; 2]| unsafe {
+            linthra_is_current_track(
+                text.as_ptr(),
+                text.len(),
+                spans.as_ptr(),
+                sources.as_ptr(),
+                durations.as_ptr(),
+                numbers.as_ptr(),
+            )
+        };
+        assert_eq!(answer(&sources), 1);
+        assert_eq!(answer(&[0, 0]), 0);
+        let refused = unsafe {
+            linthra_is_current_track(
+                text.as_ptr(),
+                1,
+                spans.as_ptr(),
+                sources.as_ptr(),
+                durations.as_ptr(),
+                numbers.as_ptr(),
+            )
+        };
+        assert_eq!(refused, CURRENT_TRACK_INVALID);
     }
 }
