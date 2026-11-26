@@ -730,3 +730,62 @@ external Pointer<Uint8> linthraSongSortSections(
   isLeaf: true,
 )
 external void linthraSongSortFree(Pointer<LinthraSongSort> result);
+
+/// `ReconcileResult` on the Rust side
+/// (native/linthra_core/src/ffi/local_reconcile.rs).
+final class LinthraReconcileResult extends Opaque {}
+
+// Not a leaf call: a scan reconciles the whole local catalog.
+@Native<
+    Pointer<LinthraReconcileResult> Function(
+        Pointer<Uint8>,
+        Size,
+        Pointer<Uint32>,
+        Pointer<Int64>,
+        Pointer<Int64>,
+        Pointer<Uint8>,
+        Size,
+        Size)>(symbol: 'linthra_local_reconcile')
+external Pointer<LinthraReconcileResult> linthraLocalReconcile(
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Uint32> spans,
+  Pointer<Int64> durations,
+  Pointer<Int64> trackNumbers,
+  Pointer<Uint8> refreshed,
+  int previousCount,
+  int count,
+);
+
+@Native<Size Function(Pointer<LinthraReconcileResult>)>(
+  symbol: 'linthra_reconcile_move_count',
+  isLeaf: true,
+)
+external int linthraReconcileMoveCount(Pointer<LinthraReconcileResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraReconcileResult>)>(
+  symbol: 'linthra_reconcile_moves',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraReconcileMoves(
+    Pointer<LinthraReconcileResult> result);
+
+@Native<Size Function(Pointer<LinthraReconcileResult>)>(
+  symbol: 'linthra_reconcile_removed_count',
+  isLeaf: true,
+)
+external int linthraReconcileRemovedCount(
+    Pointer<LinthraReconcileResult> result);
+
+@Native<Pointer<Uint32> Function(Pointer<LinthraReconcileResult>)>(
+  symbol: 'linthra_reconcile_removed',
+  isLeaf: true,
+)
+external Pointer<Uint32> linthraReconcileRemoved(
+    Pointer<LinthraReconcileResult> result);
+
+@Native<Void Function(Pointer<LinthraReconcileResult>)>(
+  symbol: 'linthra_reconcile_free',
+  isLeaf: true,
+)
+external void linthraReconcileFree(Pointer<LinthraReconcileResult> result);

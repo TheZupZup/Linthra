@@ -1,4 +1,9 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+
 import '../../models/track.dart';
+import '../../native/native_local_reconcile.dart';
 import 'local_track_identity.dart';
 
 /// One file that the scan proved is the same track at a new path.
@@ -71,7 +76,64 @@ class LocalCatalogReconciliation {
   /// Every refusal falls back to the same safe outcome: the old path counts as
   /// deleted, the new path counts as a brand-new track, and no history changes
   /// hands.
+  ///
+  /// Runs in the Rust core (native/linthra_core/src/local_reconcile.rs) when
+  /// the build carries it, and in [resolveInDart] otherwise. Both give the
+  /// same moves and removals, in the same order.
   static LocalCatalogReconciliation resolve({
+    required List<Track> previous,
+    required List<Track> scanned,
+    required bool Function(String uri) wasRefreshed,
+  }) {
+    if (previous.isEmpty) return none;
+    // The uri sets stay in Dart: only the files that left a folder the scan
+    // read, and the ones that turned up, need an identity, and those are
+    // all that cross to Rust.
+    final Set<String> scannedUris = <String>{
+      for (final Track track in scanned) track.uri,
+    };
+    final List<Track> disappeared = <Track>[
+      for (final Track track in previous)
+        if (!scannedUris.contains(track.uri) && wasRefreshed(track.uri)) track,
+    ];
+    if (disappeared.isEmpty) return none;
+    final Set<String> previousUris = <String>{
+      for (final Track track in previous) track.uri,
+    };
+    final List<Track> appeared = <Track>[
+      for (final Track track in scanned)
+        if (!previousUris.contains(track.uri)) track,
+    ];
+    final ({Uint32List moves, Uint32List removed})? native =
+        NativeLocalReconcile.resolve(
+      previous: disappeared,
+      refreshed: List<bool>.filled(disappeared.length, true),
+      scanned: appeared,
+    );
+    if (native == null) {
+      return resolveInDart(
+        previous: previous,
+        scanned: scanned,
+        wasRefreshed: wasRefreshed,
+      );
+    }
+    return LocalCatalogReconciliation(
+      moves: List<LocalTrackMove>.unmodifiable(<LocalTrackMove>[
+        for (int i = 0; i < native.moves.length; i += 2)
+          LocalTrackMove(
+            from: disappeared[native.moves[i]].uri,
+            to: appeared[native.moves[i + 1]].uri,
+          ),
+      ]),
+      removedUris: List<String>.unmodifiable(<String>[
+        for (final int i in native.removed) disappeared[i].uri,
+      ]),
+    );
+  }
+
+  /// [resolve] without the Rust core: the reference rules.
+  @visibleForTesting
+  static LocalCatalogReconciliation resolveInDart({
     required List<Track> previous,
     required List<Track> scanned,
     required bool Function(String uri) wasRefreshed,
