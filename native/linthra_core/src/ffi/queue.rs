@@ -51,9 +51,17 @@ fn queue_move(code: u8) -> Option<QueueMove> {
 /// [QUEUE_MOVE_INVALID].
 #[no_mangle]
 pub extern "C" fn linthra_queue_move(length: i64, current: i64, move_code: u8, index: i64) -> i64 {
-    crate::ffi::guard(QUEUE_MOVE_INVALID, || match queue_move(move_code) {
-        Some(m) => queue_move_target(length, current, m, index).unwrap_or(QUEUE_MOVE_NONE),
-        None => QUEUE_MOVE_INVALID,
+    crate::ffi::guard(QUEUE_MOVE_INVALID, || {
+        crate::ffi::fail_safe(
+            || match queue_move(move_code) {
+                Some(m) => queue_move_target(length, current, m, index).unwrap_or(QUEUE_MOVE_NONE),
+                None => QUEUE_MOVE_INVALID,
+            },
+            || {
+                // Safe answer: the move does nothing.
+                QUEUE_MOVE_NONE
+            },
+        )
     })
 }
 
@@ -98,66 +106,79 @@ pub unsafe extern "C" fn linthra_queue_edit(
     removed_original: *const u8,
 ) -> *mut QueueEditResult {
     crate::ffi::guard(ptr::null_mut(), || {
-        let run = || -> Option<QueueEditResult> {
-            let queue = QueueIds {
-                ids: array(ids, len)?.to_vec(),
-                current,
-                original: if has_original {
-                    Some(array(original, original_len)?.to_vec())
-                } else {
-                    None
-                },
-            };
-            let flags = |p: *const u8, n: usize| -> Option<Vec<bool>> {
-                Some(array(p, n)?.iter().map(|f| *f != 0).collect())
-            };
-            let (removed, removed_original) = if op_code == QUEUE_EDIT_REMOVE_WHERE {
-                (
-                    flags(removed, len)?,
-                    flags(
-                        removed_original,
-                        if has_original { original_len } else { 0 },
-                    )?,
-                )
-            } else {
-                (Vec::new(), Vec::new())
-            };
-            let op = match op_code {
-                QUEUE_EDIT_INSERT_NEXT | QUEUE_EDIT_APPEND => QueueOp::Insert {
-                    count: usize::try_from(a).ok()?,
-                    after_current: op_code == QUEUE_EDIT_INSERT_NEXT,
-                },
-                QUEUE_EDIT_REMOVE_UP_NEXT_AT => QueueOp::RemoveUpNextAt(a),
-                QUEUE_EDIT_REORDER_UP_NEXT => QueueOp::ReorderUpNext(a, b),
-                QUEUE_EDIT_REMOVE_WHERE => QueueOp::RemoveWhere {
-                    removed: &removed,
-                    removed_original: &removed_original,
-                },
-                QUEUE_EDIT_SHUFFLE => QueueOp::Shuffle { seed },
-                QUEUE_EDIT_UNSHUFFLE => QueueOp::Unshuffle,
-                _ => return None,
-            };
-            let edit = edit_queue(&queue, &op);
-            let sources = edit
-                .iter()
-                .flat_map(|e| e.sources.iter().copied().map(source_code))
-                .collect();
-            let (original_ids, original_sources) =
-                match edit.as_ref().and_then(|e| e.original.as_ref()) {
-                    Some((ids, sources)) => (
-                        ids.clone(),
-                        sources.iter().copied().map(source_code).collect(),
-                    ),
-                    None => (Vec::new(), Vec::new()),
+        crate::ffi::fail_safe(
+            || {
+                let run = || -> Option<QueueEditResult> {
+                    let queue = QueueIds {
+                        ids: array(ids, len)?.to_vec(),
+                        current,
+                        original: if has_original {
+                            Some(array(original, original_len)?.to_vec())
+                        } else {
+                            None
+                        },
+                    };
+                    let flags = |p: *const u8, n: usize| -> Option<Vec<bool>> {
+                        Some(array(p, n)?.iter().map(|f| *f != 0).collect())
+                    };
+                    let (removed, removed_original) = if op_code == QUEUE_EDIT_REMOVE_WHERE {
+                        (
+                            flags(removed, len)?,
+                            flags(
+                                removed_original,
+                                if has_original { original_len } else { 0 },
+                            )?,
+                        )
+                    } else {
+                        (Vec::new(), Vec::new())
+                    };
+                    let op = match op_code {
+                        QUEUE_EDIT_INSERT_NEXT | QUEUE_EDIT_APPEND => QueueOp::Insert {
+                            count: usize::try_from(a).ok()?,
+                            after_current: op_code == QUEUE_EDIT_INSERT_NEXT,
+                        },
+                        QUEUE_EDIT_REMOVE_UP_NEXT_AT => QueueOp::RemoveUpNextAt(a),
+                        QUEUE_EDIT_REORDER_UP_NEXT => QueueOp::ReorderUpNext(a, b),
+                        QUEUE_EDIT_REMOVE_WHERE => QueueOp::RemoveWhere {
+                            removed: &removed,
+                            removed_original: &removed_original,
+                        },
+                        QUEUE_EDIT_SHUFFLE => QueueOp::Shuffle { seed },
+                        QUEUE_EDIT_UNSHUFFLE => QueueOp::Unshuffle,
+                        _ => return None,
+                    };
+                    let edit = edit_queue(&queue, &op);
+                    let sources = edit
+                        .iter()
+                        .flat_map(|e| e.sources.iter().copied().map(source_code))
+                        .collect();
+                    let (original_ids, original_sources) =
+                        match edit.as_ref().and_then(|e| e.original.as_ref()) {
+                            Some((ids, sources)) => (
+                                ids.clone(),
+                                sources.iter().copied().map(source_code).collect(),
+                            ),
+                            None => (Vec::new(), Vec::new()),
+                        };
+                    Some(QueueEditResult {
+                        edit,
+                        sources,
+                        original_ids,
+                        original_sources,
+                    })
                 };
-            Some(QueueEditResult {
-                edit,
-                sources,
-                original_ids,
-                original_sources,
-            })
-        };
-        run().map_or(ptr::null_mut(), |r| Box::into_raw(Box::new(r)))
+                run().map_or(ptr::null_mut(), |r| Box::into_raw(Box::new(r)))
+            },
+            || {
+                Box::into_raw(Box::new(QueueEditResult {
+                    // Safe answer: the queue as it was.
+                    edit: None,
+                    sources: Vec::new(),
+                    original_ids: Vec::new(),
+                    original_sources: Vec::new(),
+                }))
+            },
+        )
     })
 }
 

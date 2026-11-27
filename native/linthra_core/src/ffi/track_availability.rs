@@ -16,28 +16,36 @@ pub extern "C" fn linthra_track_availability(
     availability_code: u8,
 ) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        let availability = match availability_code {
-            0 => SourceAvailability::NotConfigured,
-            1 => SourceAvailability::Checking,
-            2 => SourceAvailability::Available,
-            3 => SourceAvailability::Unreachable,
-            4 => SourceAvailability::AuthenticationError,
-            _ => return TRACK_AVAILABILITY_INVALID,
-        };
-        match resolve(
-            is_remote,
-            has_offline_copy,
-            is_explicit_download,
-            availability,
-        ) {
-            TrackAvailabilityStatus::None => 0,
-            TrackAvailabilityStatus::Downloaded => 1,
-            TrackAvailabilityStatus::Cached => 2,
-            TrackAvailabilityStatus::OfflineCopy => 3,
-            TrackAvailabilityStatus::Checking => 4,
-            TrackAvailabilityStatus::Unreachable => 5,
-            TrackAvailabilityStatus::SessionRejected => 6,
-        }
+        crate::ffi::fail_safe(
+            || {
+                let availability = match availability_code {
+                    0 => SourceAvailability::NotConfigured,
+                    1 => SourceAvailability::Checking,
+                    2 => SourceAvailability::Available,
+                    3 => SourceAvailability::Unreachable,
+                    4 => SourceAvailability::AuthenticationError,
+                    _ => return TRACK_AVAILABILITY_INVALID,
+                };
+                match resolve(
+                    is_remote,
+                    has_offline_copy,
+                    is_explicit_download,
+                    availability,
+                ) {
+                    TrackAvailabilityStatus::None => 0,
+                    TrackAvailabilityStatus::Downloaded => 1,
+                    TrackAvailabilityStatus::Cached => 2,
+                    TrackAvailabilityStatus::OfflineCopy => 3,
+                    TrackAvailabilityStatus::Checking => 4,
+                    TrackAvailabilityStatus::Unreachable => 5,
+                    TrackAvailabilityStatus::SessionRejected => 6,
+                }
+            },
+            || {
+                // Safe answer: nothing to say on the row.
+                0
+            },
+        )
     })
 }
 

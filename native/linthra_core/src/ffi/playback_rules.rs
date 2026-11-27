@@ -19,17 +19,25 @@ pub const PLAYBACK_RULES_INVALID: u8 = 255;
 #[no_mangle]
 pub unsafe extern "C" fn linthra_playback_classify_error(text: *const u8, len: usize) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        let bytes = if len == 0 {
-            &[][..]
-        } else if text.is_null() {
-            return PLAYBACK_RULES_INVALID;
-        } else {
-            std::slice::from_raw_parts(text, len)
-        };
-        match std::str::from_utf8(bytes) {
-            Ok(text) => classify_engine_error(text) as u8,
-            Err(_) => PLAYBACK_RULES_INVALID,
-        }
+        crate::ffi::fail_safe(
+            || {
+                let bytes = if len == 0 {
+                    &[][..]
+                } else if text.is_null() {
+                    return PLAYBACK_RULES_INVALID;
+                } else {
+                    std::slice::from_raw_parts(text, len)
+                };
+                match std::str::from_utf8(bytes) {
+                    Ok(text) => classify_engine_error(text) as u8,
+                    Err(_) => PLAYBACK_RULES_INVALID,
+                }
+            },
+            || {
+                // Safe answer: `Unknown`, one retry.
+                4
+            },
+        )
     })
 }
 
@@ -37,10 +45,18 @@ pub unsafe extern "C" fn linthra_playback_classify_error(text: *const u8, len: u
 #[no_mangle]
 pub extern "C" fn linthra_playback_failure_for_resolution(kind: u8) -> u16 {
     crate::ffi::guard(u16::MAX, || {
-        ResolutionKind::from_code(kind).map_or(u16::MAX, |kind| {
-            let (kind, cause) = kind.failure();
-            (kind as u16) << 8 | cause as u16
-        })
+        crate::ffi::fail_safe(
+            || {
+                ResolutionKind::from_code(kind).map_or(u16::MAX, |kind| {
+                    let (kind, cause) = kind.failure();
+                    (kind as u16) << 8 | cause as u16
+                })
+            },
+            || {
+                // Safe answer: `TemporarySource`, `Unrecognized`.
+                10
+            },
+        )
     })
 }
 
@@ -48,10 +64,18 @@ pub extern "C" fn linthra_playback_failure_for_resolution(kind: u8) -> u16 {
 #[no_mangle]
 pub extern "C" fn linthra_playback_failure_for_interruption(kind: u8) -> u16 {
     crate::ffi::guard(u16::MAX, || {
-        InterruptionKind::from_code(kind).map_or(u16::MAX, |kind| {
-            let (kind, cause) = kind.failure();
-            (kind as u16) << 8 | cause as u16
-        })
+        crate::ffi::fail_safe(
+            || {
+                InterruptionKind::from_code(kind).map_or(u16::MAX, |kind| {
+                    let (kind, cause) = kind.failure();
+                    (kind as u16) << 8 | cause as u16
+                })
+            },
+            || {
+                // Safe answer: `TemporarySource`, `Unrecognized`.
+                10
+            },
+        )
     })
 }
 
@@ -75,22 +99,34 @@ pub unsafe extern "C" fn linthra_playback_recovery_decide(
     delay_ms: *mut u64,
 ) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        let (Some(kind), Some(next)) = (FailureKind::from_code(kind), NextTrack::from_code(next))
-        else {
-            return PLAYBACK_RULES_INVALID;
-        };
-        if delay_ms.is_null() {
-            return PLAYBACK_RULES_INVALID;
-        }
-        let policy = RecoveryPolicy {
-            retry_delay_ms,
-            advance_delay_ms,
-            max_advance_delay_ms,
-            max_consecutive_failures,
-        };
-        let (step, delay) = policy.decide(kind, failures_before, retry_spent, next);
-        *delay_ms = delay;
-        step as u8
+        crate::ffi::fail_safe(
+            || {
+                let (Some(kind), Some(next)) =
+                    (FailureKind::from_code(kind), NextTrack::from_code(next))
+                else {
+                    return PLAYBACK_RULES_INVALID;
+                };
+                if delay_ms.is_null() {
+                    return PLAYBACK_RULES_INVALID;
+                }
+                let policy = RecoveryPolicy {
+                    retry_delay_ms,
+                    advance_delay_ms,
+                    max_advance_delay_ms,
+                    max_consecutive_failures,
+                };
+                let (step, delay) = policy.decide(kind, failures_before, retry_spent, next);
+                *delay_ms = delay;
+                step as u8
+            },
+            || {
+                // Safe answer: settle, and show the error.
+                if !delay_ms.is_null() {
+                    *delay_ms = 0;
+                }
+                2
+            },
+        )
     })
 }
 
@@ -99,7 +135,21 @@ pub unsafe extern "C" fn linthra_playback_recovery_decide(
 #[no_mangle]
 pub extern "C" fn linthra_playback_focus_action(begin: bool, interruption: u8) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        focus_action(begin, interruption).map_or(PLAYBACK_RULES_INVALID, |action| action as u8)
+        crate::ffi::fail_safe(
+            || {
+                focus_action(begin, interruption)
+                    .map_or(PLAYBACK_RULES_INVALID, |action| action as u8)
+            },
+            || {
+                // Safe answer: pause for good on a loss, only restore the volume on a
+                // regain (never start playing on its own).
+                if begin {
+                    1
+                } else {
+                    4
+                }
+            },
+        )
     })
 }
 

@@ -39,27 +39,38 @@ pub unsafe extern "C" fn linthra_unify_tracks(
     count: usize,
 ) -> *mut UnifyResult {
     crate::ffi::guard(ptr::null_mut(), || {
-        let Some(tracks) = read_tracks(
-            text,
-            text_len,
-            spans,
-            sources,
-            ranks,
-            durations,
-            track_numbers,
-            count,
-        ) else {
-            return ptr::null_mut();
-        };
-        let rows = unify(&tracks);
-        let mut starts = Vec::with_capacity(rows.len() + 1);
-        let mut indices = Vec::with_capacity(count);
-        for row in rows {
-            starts.push(indices.len() as u32);
-            indices.extend(row);
-        }
-        starts.push(indices.len() as u32);
-        Box::into_raw(Box::new(UnifyResult { starts, indices }))
+        crate::ffi::fail_safe(
+            || {
+                let Some(tracks) = read_tracks(
+                    text,
+                    text_len,
+                    spans,
+                    sources,
+                    ranks,
+                    durations,
+                    track_numbers,
+                    count,
+                ) else {
+                    return ptr::null_mut();
+                };
+                let rows = unify(&tracks);
+                let mut starts = Vec::with_capacity(rows.len() + 1);
+                let mut indices = Vec::with_capacity(count);
+                for row in rows {
+                    starts.push(indices.len() as u32);
+                    indices.extend(row);
+                }
+                starts.push(indices.len() as u32);
+                Box::into_raw(Box::new(UnifyResult { starts, indices }))
+            },
+            || {
+                Box::into_raw(Box::new(UnifyResult {
+                    // Safe answer: every track its own row, nothing merged.
+                    starts: (0..=count as u32).collect(),
+                    indices: (0..count as u32).collect(),
+                }))
+            },
+        )
     })
 }
 
@@ -82,20 +93,28 @@ pub unsafe extern "C" fn linthra_is_current_track(
     track_numbers: *const i64,
 ) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        let ranks = [0u32; 2];
-        match read_tracks(
-            text,
-            text_len,
-            spans,
-            sources,
-            ranks.as_ptr(),
-            durations,
-            track_numbers,
-            2,
-        ) {
-            Some(tracks) => is_current_playback(&tracks[0], &tracks[1]) as u8,
-            None => CURRENT_TRACK_INVALID,
-        }
+        crate::ffi::fail_safe(
+            || {
+                let ranks = [0u32; 2];
+                match read_tracks(
+                    text,
+                    text_len,
+                    spans,
+                    sources,
+                    ranks.as_ptr(),
+                    durations,
+                    track_numbers,
+                    2,
+                ) {
+                    Some(tracks) => is_current_playback(&tracks[0], &tracks[1]) as u8,
+                    None => CURRENT_TRACK_INVALID,
+                }
+            },
+            || {
+                // Safe answer: not the playing track.
+                0
+            },
+        )
     })
 }
 

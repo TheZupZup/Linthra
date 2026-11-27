@@ -26,28 +26,39 @@ pub unsafe extern "C" fn linthra_audio_focus_step(
     count: *mut usize,
 ) -> u16 {
     crate::ffi::guard(u16::MAX, || {
-        let Some(event) = FocusEvent::from_code(event) else {
-            return FOCUS_INVALID;
-        };
-        if steps.is_null() || count.is_null() {
-            return FOCUS_INVALID;
-        }
-        let (next, out) = step(
-            FocusState::from_bits(state),
-            event,
-            FocusContext::from_bits(context),
-        );
-        if out.len() > capacity {
-            return FOCUS_INVALID;
-        }
-        for (i, s) in out.iter().enumerate() {
-            *steps.add(i) = match (s.0, s.1) {
-                (FocusCommand::Diagnostic, Some(d)) => DIAGNOSTIC_BASE + d as u8,
-                (command, _) => command as u8,
-            };
-        }
-        *count = out.len();
-        u16::from(next.bits())
+        crate::ffi::fail_safe(
+            || {
+                let Some(event) = FocusEvent::from_code(event) else {
+                    return FOCUS_INVALID;
+                };
+                if steps.is_null() || count.is_null() {
+                    return FOCUS_INVALID;
+                }
+                let (next, out) = step(
+                    FocusState::from_bits(state),
+                    event,
+                    FocusContext::from_bits(context),
+                );
+                if out.len() > capacity {
+                    return FOCUS_INVALID;
+                }
+                for (i, s) in out.iter().enumerate() {
+                    *steps.add(i) = match (s.0, s.1) {
+                        (FocusCommand::Diagnostic, Some(d)) => DIAGNOSTIC_BASE + d as u8,
+                        (command, _) => command as u8,
+                    };
+                }
+                *count = out.len();
+                u16::from(next.bits())
+            },
+            || {
+                // Safe answer: the state as it was, and nothing to do.
+                if !count.is_null() {
+                    *count = 0;
+                }
+                u16::from(state & 0x0F)
+            },
+        )
     })
 }
 

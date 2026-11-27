@@ -89,31 +89,40 @@ pub unsafe extern "C" fn linthra_library_group(
     count: usize,
 ) -> *mut GroupingResult {
     crate::ffi::guard(ptr::null_mut(), || {
-        let input = || -> Option<GroupingResult> {
-            if u32::try_from(count).ok()? == GROUPING_NO_TRACK {
-                return None;
-            }
-            let text = array(text, text_len)?;
-            let spans = array(spans, count.checked_mul(8)?)?;
-            let tracks = spans
-                .as_chunks::<8>()
-                .0
-                .iter()
-                .map(|span| {
-                    Some(GroupingTrack {
-                        album_id: part(text, span[0], span[1])?,
-                        album: part(text, span[2], span[3])?,
-                        artist: part(text, span[4], span[5])?,
-                        album_artist: part(text, span[6], span[7])?,
-                    })
-                })
-                .collect::<Option<Vec<_>>>()?;
-            layout(group(&tracks))
-        };
-        match input() {
-            Some(result) => Box::into_raw(Box::new(result)),
-            None => ptr::null_mut(),
-        }
+        crate::ffi::fail_safe(
+            || {
+                let input = || -> Option<GroupingResult> {
+                    if u32::try_from(count).ok()? == GROUPING_NO_TRACK {
+                        return None;
+                    }
+                    let text = array(text, text_len)?;
+                    let spans = array(spans, count.checked_mul(8)?)?;
+                    let tracks = spans
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|span| {
+                            Some(GroupingTrack {
+                                album_id: part(text, span[0], span[1])?,
+                                album: part(text, span[2], span[3])?,
+                                artist: part(text, span[4], span[5])?,
+                                album_artist: part(text, span[6], span[7])?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?;
+                    layout(group(&tracks))
+                };
+                match input() {
+                    Some(result) => Box::into_raw(Box::new(result)),
+                    None => ptr::null_mut(),
+                }
+            },
+            || match unknown_grouping(count) {
+                // Safe answer: every track under one unknown album and artist.
+                Some(result) => Box::into_raw(Box::new(result)),
+                None => ptr::null_mut(),
+            },
+        )
     })
 }
 
@@ -169,6 +178,15 @@ pub unsafe extern "C" fn linthra_grouping_result_free(result: *mut GroupingResul
 
 /// Flattens `groups` into a [GroupingResult]. None when the ids outgrow a
 /// `u32` offset.
+/// The safe answer of [linthra_library_group]: all `count` tracks under one
+/// unknown album and one unknown artist, grouped the ordinary way.
+fn unknown_grouping(count: usize) -> Option<GroupingResult> {
+    if u32::try_from(count).ok()? == GROUPING_NO_TRACK {
+        return None;
+    }
+    layout(group(&vec![GroupingTrack::default(); count]))
+}
+
 fn layout(groups: LibraryGroups) -> Option<GroupingResult> {
     fn index(track: Option<usize>) -> u32 {
         track.map_or(GROUPING_NO_TRACK, |i| i as u32)
@@ -244,6 +262,18 @@ fn part(text: &[u8], start: u32, len: u32) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_safe_grouping_puts_everything_under_one_album_and_artist() {
+        let result = unknown_grouping(3).unwrap();
+        // One album and one artist (each list closes with an end offset),
+        // and every track in them.
+        assert_eq!(result.album_ids.len(), 2);
+        assert_eq!(result.artist_ids.len(), 2);
+        assert_eq!(result.track_album, vec![0, 0, 0]);
+        assert_eq!(result.track_artist, vec![0, 0, 0]);
+        assert_eq!(unknown_grouping(0).unwrap().track_album, Vec::<u32>::new());
+    }
 
     /// Writes each track's four fields into one buffer and returns it with
     /// the spans.

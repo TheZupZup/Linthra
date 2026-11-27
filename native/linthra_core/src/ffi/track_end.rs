@@ -11,18 +11,26 @@ pub const TRACK_END_INVALID: u8 = 254;
 #[no_mangle]
 pub extern "C" fn linthra_track_end_action(repeat_code: u8, has_next: bool) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        let repeat = match repeat_code {
-            0 => RepeatMode::Off,
-            1 => RepeatMode::All,
-            2 => RepeatMode::One,
-            _ => return TRACK_END_INVALID,
-        };
-        match track_end_action(repeat, has_next) {
-            TrackEndAction::Replay => 0,
-            TrackEndAction::Next => 1,
-            TrackEndAction::Restart => 2,
-            TrackEndAction::Stop => 3,
-        }
+        crate::ffi::fail_safe(
+            || {
+                let repeat = match repeat_code {
+                    0 => RepeatMode::Off,
+                    1 => RepeatMode::All,
+                    2 => RepeatMode::One,
+                    _ => return TRACK_END_INVALID,
+                };
+                match track_end_action(repeat, has_next) {
+                    TrackEndAction::Replay => 0,
+                    TrackEndAction::Next => 1,
+                    TrackEndAction::Restart => 2,
+                    TrackEndAction::Stop => 3,
+                }
+            },
+            || {
+                // Safe answer: `Stop`.
+                3
+            },
+        )
     })
 }
 

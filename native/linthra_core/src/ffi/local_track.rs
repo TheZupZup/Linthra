@@ -59,10 +59,18 @@ pub unsafe extern "C" fn linthra_local_track_map(
     numbers: *const i64,
 ) -> *mut MappedTrack {
     crate::ffi::guard(ptr::null_mut(), || {
-        match map(kind, text, text_len, bounds, numbers) {
-            Some(mapped) => Box::into_raw(Box::new(MappedTrack { mapped })),
-            None => ptr::null_mut(),
-        }
+        crate::ffi::fail_safe(
+            || match map(kind, text, text_len, bounds, numbers) {
+                Some(mapped) => Box::into_raw(Box::new(MappedTrack { mapped })),
+                None => ptr::null_mut(),
+            },
+            || {
+                Box::into_raw(Box::new(MappedTrack {
+                    // Safe answer: the file's text as its title, nothing else.
+                    mapped: safe_mapping(text, text_len, bounds),
+                }))
+            },
+        )
     })
 }
 
@@ -202,9 +210,54 @@ pub unsafe extern "C" fn linthra_mapped_free(mapped: *mut MappedTrack) {
     })
 }
 
+/// The safe answer of [linthra_local_track_map]: the file's own text (its
+/// path, a document's name) as the title, read without indexing, and
+/// nothing else.
+///
+/// # Safety
+///
+/// As for [linthra_local_track_map].
+unsafe fn safe_mapping(text: *const u8, text_len: usize, bounds: *const i64) -> Mapped {
+    let title = (|| {
+        if text.is_null() || bounds.is_null() {
+            return None;
+        }
+        let bytes = std::slice::from_raw_parts(text, text_len);
+        let start = usize::try_from(*bounds).ok()?;
+        let len = usize::try_from(*bounds.add(1)).ok()?;
+        let source = bytes.get(start..start.checked_add(len)?)?;
+        Some(String::from_utf8_lossy(source).into_owned())
+    })()
+    .unwrap_or_default();
+    Mapped {
+        title,
+        artist: None,
+        album: None,
+        album_id: None,
+        album_artist: None,
+        track_number: None,
+        duration_us: 0,
+        cue_end_us: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_safe_mapping_names_the_track_after_its_file() {
+        let text = b"/m/A/song.flac";
+        let mut bounds = [-1i64; 2 * LOCAL_TRACK_TEXTS];
+        bounds[0..2].copy_from_slice(&[0, 14]);
+        let mapped = unsafe { safe_mapping(text.as_ptr(), text.len(), bounds.as_ptr()) };
+        assert_eq!(mapped.title, "/m/A/song.flac");
+        assert_eq!((mapped.artist, mapped.track_number), (None, None));
+        // Bounds that don't fit give an empty title rather than a panic.
+        bounds[0..2].copy_from_slice(&[10, 99]);
+        let mapped = unsafe { safe_mapping(text.as_ptr(), text.len(), bounds.as_ptr()) };
+        assert_eq!(mapped.title, "");
+    }
 
     #[test]
     fn maps_through_the_abi() {

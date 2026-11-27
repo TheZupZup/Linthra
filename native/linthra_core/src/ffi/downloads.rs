@@ -83,9 +83,17 @@ fn held_code(action: HeldAction) -> u8 {
 #[no_mangle]
 pub extern "C" fn linthra_download_gate(network_code: u8, allow_mobile_data: bool) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        network(network_code).map_or(DOWNLOAD_INVALID, |n| {
-            gate_code(download_gate(n, allow_mobile_data))
-        })
+        crate::ffi::fail_safe(
+            || {
+                network(network_code).map_or(DOWNLOAD_INVALID, |n| {
+                    gate_code(download_gate(n, allow_mobile_data))
+                })
+            },
+            || {
+                // Safe answer: held until Wi-Fi (`NeedsWifi`).
+                1
+            },
+        )
     })
 }
 
@@ -94,10 +102,16 @@ pub extern "C" fn linthra_download_gate(network_code: u8, allow_mobile_data: boo
 #[no_mangle]
 pub extern "C" fn linthra_download_settle_canceled(row_status: u8, committed_copy: u8) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        match (row(row_status), committed(committed_copy)) {
-            (Some(r), Some(c)) => row_code(settle_canceled(r, c)),
-            _ => DOWNLOAD_INVALID,
-        }
+        crate::ffi::fail_safe(
+            || match (row(row_status), committed(committed_copy)) {
+                (Some(r), Some(c)) => row_code(settle_canceled(r, c)),
+                _ => DOWNLOAD_INVALID,
+            },
+            || {
+                // Safe answer: leave the row as it is.
+                DOWNLOAD_NONE
+            },
+        )
     })
 }
 
@@ -109,9 +123,17 @@ pub extern "C" fn linthra_download_held_action(
     row_status: u8,
 ) -> u8 {
     crate::ffi::guard(u8::MAX, || {
-        row(row_status).map_or(DOWNLOAD_INVALID, |r| {
-            held_code(held_action(same_account, in_flight, r))
-        })
+        crate::ffi::fail_safe(
+            || {
+                row(row_status).map_or(DOWNLOAD_INVALID, |r| {
+                    held_code(held_action(same_account, in_flight, r))
+                })
+            },
+            || {
+                // Safe answer: forget it, leave its row (`Drop`).
+                1
+            },
+        )
     })
 }
 

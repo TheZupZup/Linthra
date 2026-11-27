@@ -24,10 +24,16 @@ pub const DISC_ID_LENGTH: usize = 28;
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cd_text(bytes: *const u8, len: usize) -> *mut CdText {
     crate::ffi::guard(ptr::null_mut(), || {
-        match array(bytes, len).and_then(cd_text) {
-            Some(text) => Box::into_raw(Box::new(text)),
-            None => ptr::null_mut(),
-        }
+        crate::ffi::fail_safe(
+            || match array(bytes, len).and_then(cd_text) {
+                Some(text) => Box::into_raw(Box::new(text)),
+                None => ptr::null_mut(),
+            },
+            || {
+                // Safe answer: no CD-Text.
+                Box::into_raw(Box::new(CdText::default()))
+            },
+        )
     })
 }
 
@@ -113,25 +119,33 @@ pub unsafe extern "C" fn linthra_cd_toc_order(
     order: *mut u32,
 ) -> i64 {
     crate::ffi::guard(i64::MIN, || {
-        let Some(entries) = entries(numbers, starts, data, count) else {
-            return -1;
-        };
-        let toc = Toc {
-            first_track,
-            last_track,
-            lead_out_lba,
-            entries: &entries,
-        };
-        match normalized_entries(&toc) {
-            Some(positions) if order.is_null() && !positions.is_empty() => -1,
-            Some(positions) => {
-                for (k, &p) in positions.iter().enumerate() {
-                    *order.add(k) = p as u32;
+        crate::ffi::fail_safe(
+            || {
+                let Some(entries) = entries(numbers, starts, data, count) else {
+                    return -1;
+                };
+                let toc = Toc {
+                    first_track,
+                    last_track,
+                    lead_out_lba,
+                    entries: &entries,
+                };
+                match normalized_entries(&toc) {
+                    Some(positions) if order.is_null() && !positions.is_empty() => -1,
+                    Some(positions) => {
+                        for (k, &p) in positions.iter().enumerate() {
+                            *order.add(k) = p as u32;
+                        }
+                        positions.len() as i64
+                    }
+                    None => -1,
                 }
-                positions.len() as i64
-            }
-            None => -1,
-        }
+            },
+            || {
+                // Safe answer: a table of contents that doesn't hold together.
+                -1
+            },
+        )
     })
 }
 
@@ -154,19 +168,27 @@ pub unsafe extern "C" fn linthra_cd_playable_tracks(
     out: *mut i64,
 ) -> i64 {
     crate::ffi::guard(i64::MIN, || {
-        let Some(entries) = entries(numbers, starts, data, count) else {
-            return -1;
-        };
-        let tracks = playable_tracks(&entries, lead_out_lba);
-        if out.is_null() && !tracks.is_empty() {
-            return -1;
-        }
-        for (k, t) in tracks.iter().enumerate() {
-            *out.add(3 * k) = t.number;
-            *out.add(3 * k + 1) = t.start_frame;
-            *out.add(3 * k + 2) = t.frame_count;
-        }
-        tracks.len() as i64
+        crate::ffi::fail_safe(
+            || {
+                let Some(entries) = entries(numbers, starts, data, count) else {
+                    return -1;
+                };
+                let tracks = playable_tracks(&entries, lead_out_lba);
+                if out.is_null() && !tracks.is_empty() {
+                    return -1;
+                }
+                for (k, t) in tracks.iter().enumerate() {
+                    *out.add(3 * k) = t.number;
+                    *out.add(3 * k + 1) = t.start_frame;
+                    *out.add(3 * k + 2) = t.frame_count;
+                }
+                tracks.len() as i64
+            },
+            || {
+                // Safe answer: no playable tracks.
+                0
+            },
+        )
     })
 }
 
@@ -191,23 +213,31 @@ pub unsafe extern "C" fn linthra_cd_disc_id(
     out: *mut u8,
 ) -> i32 {
     crate::ffi::guard(i32::MIN, || {
-        let Some(entries) = entries(numbers, starts, data, count) else {
-            return -1;
-        };
-        let toc = Toc {
-            first_track,
-            last_track,
-            lead_out_lba,
-            entries: &entries,
-        };
-        match music_brainz_disc_id(&toc) {
-            Some(id) if id.len() == DISC_ID_LENGTH && !out.is_null() => {
-                ptr::copy_nonoverlapping(id.as_ptr(), out, DISC_ID_LENGTH);
-                1
-            }
-            Some(_) => -1,
-            None => 0,
-        }
+        crate::ffi::fail_safe(
+            || {
+                let Some(entries) = entries(numbers, starts, data, count) else {
+                    return -1;
+                };
+                let toc = Toc {
+                    first_track,
+                    last_track,
+                    lead_out_lba,
+                    entries: &entries,
+                };
+                match music_brainz_disc_id(&toc) {
+                    Some(id) if id.len() == DISC_ID_LENGTH && !out.is_null() => {
+                        ptr::copy_nonoverlapping(id.as_ptr(), out, DISC_ID_LENGTH);
+                        1
+                    }
+                    Some(_) => -1,
+                    None => 0,
+                }
+            },
+            || {
+                // Safe answer: no disc id.
+                0
+            },
+        )
     })
 }
 

@@ -36,49 +36,67 @@ pub unsafe extern "C" fn linthra_song_sort(
     descending: bool,
 ) -> *mut Sorted {
     crate::ffi::guard(ptr::null_mut(), || {
-        let Some(field) = SortField::from_code(field) else {
-            return ptr::null_mut();
-        };
-        let n = count + catalog_count;
-        let text = if text_len == 0 {
-            &[][..]
-        } else if text.is_null() {
-            return ptr::null_mut();
-        } else {
-            std::slice::from_raw_parts(text, text_len)
-        };
-        if n > 0 && (spans.is_null() || discs.is_null() || tracks.is_null() || added.is_null()) {
-            return ptr::null_mut();
-        }
-        let number = |p: *const i64, i: usize| {
-            let v = *p.add(i);
-            (v != i64::MIN).then_some(v)
-        };
-        let read = |i: usize| -> Option<SortTrack> {
-            let span = std::slice::from_raw_parts(spans.add(14 * i), 14);
-            let part = |k: usize| {
-                let start = span[2 * k] as usize;
-                let bytes = text.get(start..start.checked_add(span[2 * k + 1] as usize)?)?;
-                std::str::from_utf8(bytes).ok()
-            };
-            Some(SortTrack {
-                uri: part(0)?,
-                title: part(1)?,
-                title_lower: part(2)?,
-                artist_lower: part(3)?,
-                album_lower: part(4)?,
-                album_artist_lower: part(5)?,
-                album_id: part(6)?,
-                disc: number(discs, i),
-                track: number(tracks, i),
-                added_at: number(added, i),
-            })
-        };
-        let Some(entries) = (0..n).map(read).collect::<Option<Vec<_>>>() else {
-            return ptr::null_mut();
-        };
-        let (songs, catalog) = entries.split_at(count);
-        Box::into_raw(Box::new(sort_songs(songs, catalog, field, descending)))
+        crate::ffi::fail_safe(
+            || {
+                let Some(field) = SortField::from_code(field) else {
+                    return ptr::null_mut();
+                };
+                let n = count + catalog_count;
+                let text = if text_len == 0 {
+                    &[][..]
+                } else if text.is_null() {
+                    return ptr::null_mut();
+                } else {
+                    std::slice::from_raw_parts(text, text_len)
+                };
+                if n > 0
+                    && (spans.is_null() || discs.is_null() || tracks.is_null() || added.is_null())
+                {
+                    return ptr::null_mut();
+                }
+                let number = |p: *const i64, i: usize| {
+                    let v = *p.add(i);
+                    (v != i64::MIN).then_some(v)
+                };
+                let read = |i: usize| -> Option<SortTrack> {
+                    let span = std::slice::from_raw_parts(spans.add(14 * i), 14);
+                    let part = |k: usize| {
+                        let start = span[2 * k] as usize;
+                        let bytes =
+                            text.get(start..start.checked_add(span[2 * k + 1] as usize)?)?;
+                        std::str::from_utf8(bytes).ok()
+                    };
+                    Some(SortTrack {
+                        uri: part(0)?,
+                        title: part(1)?,
+                        title_lower: part(2)?,
+                        artist_lower: part(3)?,
+                        album_lower: part(4)?,
+                        album_artist_lower: part(5)?,
+                        album_id: part(6)?,
+                        disc: number(discs, i),
+                        track: number(tracks, i),
+                        added_at: number(added, i),
+                    })
+                };
+                let Some(entries) = (0..n).map(read).collect::<Option<Vec<_>>>() else {
+                    return ptr::null_mut();
+                };
+                let (songs, catalog) = entries.split_at(count);
+                Box::into_raw(Box::new(sort_songs(songs, catalog, field, descending)))
+            },
+            || {
+                Box::into_raw(Box::new(Sorted {
+                    // Safe answer: the order given, all under '#' (no sections by date).
+                    order: (0..count as u32).collect(),
+                    sections: if field == 3 {
+                        Vec::new()
+                    } else {
+                        vec![b'#'; count]
+                    },
+                }))
+            },
+        )
     })
 }
 
