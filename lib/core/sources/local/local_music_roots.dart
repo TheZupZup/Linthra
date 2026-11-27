@@ -23,10 +23,11 @@ import 'folder_location.dart';
 ///    tracks of a folder that is temporarily offline while still refreshing the
 ///    folders it can read.
 ///
-/// Only real filesystem paths take part in the containment rules. Android's SAF
-/// `content://` trees and the MediaStore sentinel are opaque strings with no
-/// meaningful path arithmetic, so they are compared literally: Android keeps
-/// exactly one local selection.
+/// Filesystem paths nest by their path. Android's SAF trees nest only on
+/// shared storage (`com.android.externalstorage.documents`), whose tree ids
+/// are `volume:path`: `primary:Music` holds `primary:Music/Rock`. Any other
+/// provider's ids are opaque, so its trees, like the MediaStore sentinel, are
+/// compared literally.
 abstract final class LocalMusicRoots {
   /// The selected folders reduced to the roots a scan should walk, in the
   /// user's order.
@@ -111,13 +112,41 @@ abstract final class LocalMusicRoots {
     );
   }
 
-  /// Whether [outer] is [inner] or contains it. Only filesystem paths nest;
-  /// opaque selections are compared literally.
+  /// Whether [outer] is [inner] or contains it. Filesystem paths and shared
+  /// storage SAF trees nest; other selections are compared literally.
   static bool _covers(String outer, String inner) {
     if (outer.isEmpty || inner.isEmpty) return false;
     if (outer == inner) return true;
+    final String? outerTree = _sharedStorageTree(outer);
+    final String? innerTree = _sharedStorageTree(inner);
+    if (outerTree != null && innerTree != null) {
+      // `primary:` is the volume's root; anything else is a folder whose
+      // children are `<folder>/...`.
+      return innerTree == outerTree ||
+          (outerTree.endsWith(':')
+              ? innerTree.startsWith(outerTree)
+              : innerTree.startsWith('$outerTree/'));
+    }
     if (!FolderLocation.parse(outer).isFilesystemPath) return false;
     if (!FolderLocation.parse(inner).isFilesystemPath) return false;
     return p.isWithin(outer, inner);
+  }
+
+  static const String _sharedStorageTrees =
+      'content://com.android.externalstorage.documents/tree/';
+
+  /// The tree id of a SAF tree on shared storage (`primary:Music`), or null
+  /// for anything else, a document inside a tree included.
+  static String? _sharedStorageTree(String uri) {
+    if (!uri.startsWith(_sharedStorageTrees)) return null;
+    final String encoded = uri.substring(_sharedStorageTrees.length);
+    if (encoded.isEmpty || encoded.contains('/')) return null;
+    try {
+      return Uri.decodeComponent(encoded);
+    } on ArgumentError {
+      return null; // not valid percent-encoding
+    } on FormatException {
+      return null; // decodes to bytes that aren't UTF-8
+    }
   }
 }

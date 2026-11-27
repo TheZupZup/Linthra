@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/repositories/selected_music_folder_repository.dart';
 import 'package:linthra/core/services/folder_browsable_music_source.dart';
+import 'package:linthra/core/sources/local/folder_location.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
@@ -278,19 +279,24 @@ void main() {
       expect(find.text('/media/usb'), findsOneWidget);
     });
 
-    testWidgets('Android still holds a single grant at a time', (tester) async {
-      // Android's local access is one SAF grant (or the device-wide mode), and
-      // this entry point does not get to change that: the command it calls is
-      // the same one Settings runs, which replaces the selection there.
-      final folderRepo =
-          InMemorySelectedMusicFolderRepository(initialFolder: '/sdcard/Music');
+    testWidgets('Android adds the folder beside the one selected (#998)',
+        (tester) async {
+      // Each Android folder is a SAF grant of its own: adding one keeps the
+      // others, as on desktop. It used to replace the selection.
+      const String music =
+          'content://com.android.externalstorage.documents/tree/primary%3AMusic';
+      const String podcasts =
+          'content://com.android.externalstorage.documents/tree/primary%3APodcasts';
+      final folderRepo = InMemorySelectedMusicFolderRepository(
+        initialFolder: music,
+      );
       await _pump(
         tester,
-        picker: FakeFolderPickerService(folder: '/sdcard/Podcasts'),
+        picker: FakeFolderPickerService(folder: podcasts),
         folderRepo: folderRepo,
         scanner: FakeAudioFileScanner(
           filesByFolder: <String, List<String>>{
-            '/sdcard/Podcasts': <String>['/sdcard/Podcasts/a.mp3'],
+            podcasts: <String>['$podcasts/document/primary%3APodcasts%2Fa.mp3'],
           },
         ),
         host: HostPlatform.android,
@@ -301,9 +307,68 @@ void main() {
 
       expect(
         await folderRepo.getSelectedFolders(),
-        <String>['/sdcard/Podcasts'],
+        <String>[music, podcasts],
       );
-      expect(find.text('/sdcard/Music'), findsNothing);
+    });
+
+    testWidgets("Android doesn't add a folder inside one already selected",
+        (tester) async {
+      // primary:Music/Rock sits inside primary:Music: both would import the
+      // same files, under two URIs each.
+      const String music =
+          'content://com.android.externalstorage.documents/tree/primary%3AMusic';
+      final folderRepo = InMemorySelectedMusicFolderRepository(
+        initialFolder: music,
+      );
+      await _pump(
+        tester,
+        picker: FakeFolderPickerService(
+          folder: 'content://com.android.externalstorage.documents/tree/'
+              'primary%3AMusic%2FRock',
+        ),
+        folderRepo: folderRepo,
+        scanner: FakeAudioFileScanner(),
+        host: HostPlatform.android,
+      );
+
+      await tester.tap(find.byKey(const Key('folders_add_folder')));
+      // Read before the snack bar times out.
+      await tester.pumpAndSettle();
+      expect(
+        find.text('That folder is already part of your library.'),
+        findsOneWidget,
+      );
+      await _settleWithSnackBar(tester);
+
+      expect(await folderRepo.getSelectedFolders(), <String>[music]);
+    });
+
+    testWidgets("Android's device-wide library stays as it is", (tester) async {
+      // It already holds every folder on the device: adding one changes
+      // nothing, and Change is how it gives way to folders.
+      final folderRepo = InMemorySelectedMusicFolderRepository(
+        initialFolder: FolderLocation.androidMediaStoreAudio,
+      );
+      final FakeFolderPickerService picker = FakeFolderPickerService(
+        folder: 'content://com.android.externalstorage.documents/tree/'
+            'primary%3APodcasts',
+      );
+      await _pump(
+        tester,
+        picker: picker,
+        folderRepo: folderRepo,
+        scanner: FakeAudioFileScanner(),
+        host: HostPlatform.android,
+      );
+
+      await tester.tap(find.byKey(const Key('folders_add_folder')));
+      await _settleWithSnackBar(tester);
+
+      expect(
+        await folderRepo.getSelectedFolders(),
+        <String>[FolderLocation.androidMediaStoreAudio],
+      );
+      expect(picker.pickCount, 0);
     });
 
     testWidgets('a configured folder is listed even with no server connected',
@@ -329,8 +394,8 @@ void main() {
       // One local-music command at a time, and "busy" is the controller's own
       // state rather than a second copy kept here, so a second tap cannot
       // open a second folder dialog on top of the first. The empty state's
-      // button has to stop with the header action, not carry on alone: on
-      // Android the last picker to answer would take the single grant.
+      // button has to stop with the header action, not carry on alone: the
+      // two picks would race each other's scan.
       final picker = _PendingFolderPicker();
       await _pump(
         tester,

@@ -158,8 +158,8 @@ class LocalLibraryScan {
   bool get isWritable => !everyRootFailed && !retentionUnavailable;
 }
 
-/// Scans the user's local music folders — one on Android, any number on
-/// desktop — and merges them into the single catalog slice the local source
+/// Scans the user's local music folders (desktop paths, Android SAF trees, or
+/// Android's device-wide library) and merges them into the single catalog slice the local source
 /// owns.
 ///
 /// The merge is where multi-folder support actually lives, and it exists to
