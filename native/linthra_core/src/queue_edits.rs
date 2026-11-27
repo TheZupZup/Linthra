@@ -289,9 +289,8 @@ fn unshuffle(queue: &QueueIds) -> Option<QueueEdit> {
     })
 }
 
-/// Fisher-Yates driven by splitmix64, so Dart's fallback
-/// (`shuffleWithSeed` in playback_queue.dart) gives the same order for the
-/// same seed.
+/// Fisher-Yates driven by splitmix64: the same seed always gives the same
+/// order, which is what lets a test pin a shuffle down.
 pub fn shuffle_in_place<T>(items: &mut [T], seed: u64) {
     let mut state = seed;
     for i in (1..items.len()).rev() {

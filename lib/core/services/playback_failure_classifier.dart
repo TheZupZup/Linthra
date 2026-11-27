@@ -3,133 +3,40 @@ import '../native/native_playback_rules.dart';
 import 'playable_uri_resolver.dart';
 import 'stream_interruption.dart';
 
-/// The Rust core answers when the build has it
-/// (native/linthra_core/src/playback_rules.rs); each switch below is the
-/// fallback, and `useNative: false` keeps to it for the parity tests.
+/// Decided by the Rust core (native/linthra_core/src/playback_rules.rs).
 ///
 /// Bridges the two typed failure vocabularies playback already has,
 /// [PlaybackResolutionErrorKind] (couldn't produce a playable URI) and
 /// [StreamInterruptionKind] (the engine stopped mid-stream), onto the single
-/// [PlaybackFailureKind] the UI reasons about.
-///
-/// Both switches are exhaustive on purpose: adding a resolution or interruption
-/// kind is a compile error here rather than a failure that silently lands on
-/// the wrong recovery. Nothing in this file touches an error's *text*, so no
-/// message, URL, or token can leak through the mapping.
+/// [PlaybackFailureKind] the UI reasons about. A session the server no longer
+/// accepts asks for a sign-in; a missing file or undecodable audio won't fix
+/// itself; a source that misbehaves (unreachable, a login page, no stream
+/// right now, an interruption Linthra can't place) may be fine next time.
+/// Nothing here touches an error's *text*, so no message, URL, or token can
+/// leak through the mapping.
 PlaybackFailureKind playbackFailureKindForResolution(
-  PlaybackResolutionErrorKind kind, {
-  bool useNative = true,
-}) {
-  final (int, int)? native =
-      useNative ? NativePlaybackRules.failureForResolution(kind.index) : null;
-  if (native != null) return PlaybackFailureKind.values[native.$1];
-  switch (kind) {
-    // No session, or one the server no longer accepts: another attempt with the
-    // same credentials gets the same answer.
-    case PlaybackResolutionErrorKind.notSignedIn:
-    case PlaybackResolutionErrorKind.sessionExpired:
-      return PlaybackFailureKind.sourceSignInRequired;
-
-    // The file is the thing that isn't there; no server was involved.
-    case PlaybackResolutionErrorKind.localFileMissing:
-      return PlaybackFailureKind.localFileUnavailable;
-
-    // The backend could not open or decode what it was handed.
-    case PlaybackResolutionErrorKind.mediaUnsupported:
-      return PlaybackFailureKind.unplayableMedia;
-
-    // There is no working backend to hand anything to. Kept apart from
-    // [mediaUnsupported] because the recovery is different in kind: not
-    // another copy of the song, but the machine's audio runtime.
-    case PlaybackResolutionErrorKind.playbackEngineUnavailable:
-      return PlaybackFailureKind.playbackEngineUnavailable;
-
-    // Everything else is the source misbehaving rather than the music being
-    // unplayable: unreachable, a challenge/login page, a non-audio answer, or
-    // no stream right now. All of them can be fine on the next attempt.
-    case PlaybackResolutionErrorKind.serverUnreachable:
-    case PlaybackResolutionErrorKind.invalidStream:
-    case PlaybackResolutionErrorKind.serverReturnedWebPage:
-    case PlaybackResolutionErrorKind.streamUnavailable:
-      return PlaybackFailureKind.temporarySource;
-  }
-}
+  PlaybackResolutionErrorKind kind,
+) =>
+    PlaybackFailureKind
+        .values[NativePlaybackRules.failureForResolution(kind.index).$1];
 
 /// The [PlaybackFailureKind] a classified mid-stream interruption implies.
 PlaybackFailureKind playbackFailureKindForInterruption(
-  StreamInterruptionKind kind, {
-  bool useNative = true,
-}) {
-  final (int, int)? native =
-      useNative ? NativePlaybackRules.failureForInterruption(kind.index) : null;
-  if (native != null) return PlaybackFailureKind.values[native.$1];
-  switch (kind) {
-    case StreamInterruptionKind.sessionExpired:
-      return PlaybackFailureKind.sourceSignInRequired;
-    case StreamInterruptionKind.formatUnsupported:
-      return PlaybackFailureKind.unplayableMedia;
-    case StreamInterruptionKind.localFileUnavailable:
-      return PlaybackFailureKind.localFileUnavailable;
-    case StreamInterruptionKind.networkDropped:
-    case StreamInterruptionKind.serverUnreachable:
-    // An interruption Linthra can't place is treated as a glitch, here as in
-    // [classifyEngineError]: the recovery it offers (try again) is the one most
-    // likely to help and the cheapest to be wrong about.
-    case StreamInterruptionKind.unknown:
-      return PlaybackFailureKind.temporarySource;
-  }
-}
+  StreamInterruptionKind kind,
+) =>
+    PlaybackFailureKind
+        .values[NativePlaybackRules.failureForInterruption(kind.index).$1];
 
 /// The [PlaybackFailureCause] a resolution or load failure of [kind] records.
 PlaybackFailureCause playbackFailureCauseForResolution(
-  PlaybackResolutionErrorKind kind, {
-  bool useNative = true,
-}) {
-  final (int, int)? native =
-      useNative ? NativePlaybackRules.failureForResolution(kind.index) : null;
-  if (native != null) return PlaybackFailureCause.values[native.$2];
-  switch (kind) {
-    case PlaybackResolutionErrorKind.notSignedIn:
-      return PlaybackFailureCause.notSignedIn;
-    case PlaybackResolutionErrorKind.sessionExpired:
-      return PlaybackFailureCause.sessionExpired;
-    case PlaybackResolutionErrorKind.serverUnreachable:
-      return PlaybackFailureCause.serverUnreachable;
-    case PlaybackResolutionErrorKind.invalidStream:
-      return PlaybackFailureCause.invalidStream;
-    case PlaybackResolutionErrorKind.serverReturnedWebPage:
-      return PlaybackFailureCause.serverReturnedWebPage;
-    case PlaybackResolutionErrorKind.streamUnavailable:
-      return PlaybackFailureCause.streamUnavailable;
-    case PlaybackResolutionErrorKind.localFileMissing:
-      return PlaybackFailureCause.fileUnavailable;
-    case PlaybackResolutionErrorKind.mediaUnsupported:
-      return PlaybackFailureCause.audioNotDecoded;
-    case PlaybackResolutionErrorKind.playbackEngineUnavailable:
-      return PlaybackFailureCause.engineUnavailable;
-  }
-}
+  PlaybackResolutionErrorKind kind,
+) =>
+    PlaybackFailureCause
+        .values[NativePlaybackRules.failureForResolution(kind.index).$2];
 
 /// The [PlaybackFailureCause] a mid-stream interruption of [kind] records.
 PlaybackFailureCause playbackFailureCauseForInterruption(
-  StreamInterruptionKind kind, {
-  bool useNative = true,
-}) {
-  final (int, int)? native =
-      useNative ? NativePlaybackRules.failureForInterruption(kind.index) : null;
-  if (native != null) return PlaybackFailureCause.values[native.$2];
-  switch (kind) {
-    case StreamInterruptionKind.networkDropped:
-      return PlaybackFailureCause.connectionDropped;
-    case StreamInterruptionKind.serverUnreachable:
-      return PlaybackFailureCause.serverUnreachable;
-    case StreamInterruptionKind.sessionExpired:
-      return PlaybackFailureCause.sessionExpired;
-    case StreamInterruptionKind.formatUnsupported:
-      return PlaybackFailureCause.audioNotDecoded;
-    case StreamInterruptionKind.localFileUnavailable:
-      return PlaybackFailureCause.fileUnavailable;
-    case StreamInterruptionKind.unknown:
-      return PlaybackFailureCause.unrecognized;
-  }
-}
+  StreamInterruptionKind kind,
+) =>
+    PlaybackFailureCause
+        .values[NativePlaybackRules.failureForInterruption(kind.index).$2];

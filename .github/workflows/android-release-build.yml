@@ -313,8 +313,8 @@ jobs:
         uses: ./.github/actions/setup-flutter
 
       # The Rust pinned in .rust-version, with the Android targets, so the
-      # APK carries the Rust core (native/linthra_core) instead of the Dart
-      # fallback. The F-Droid recipe installs the same version.
+      # APK carries the Rust core (native/linthra_core), which the app can't
+      # run without. The F-Droid recipe installs the same version.
       - name: Set up Rust
         uses: ./.github/actions/setup-rust-android
 
@@ -464,9 +464,8 @@ jobs:
             echo "Staged dist/${name}.apk"
           done
 
-      # The Rust toolchain is installed above, so an APK without the Rust core
-      # means the build hook skipped it: stop rather than ship the Dart
-      # fallback without anyone noticing.
+      # The hook fails without the Rust core, so this is a second look at the
+      # artifacts themselves: an APK without liblinthra_core.so can't start.
       - name: Verify every APK carries the Rust core
         run: python3 scripts/check_apk_rust_core.py dist/*.apk
 

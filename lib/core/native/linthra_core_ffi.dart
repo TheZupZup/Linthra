@@ -30,9 +30,9 @@ abstract final class LinthraStatus {
   static const int invalidUtf8 = 2;
 
   /// The call panicked and was stopped at the boundary (see `guard` in
-  /// native/linthra_core/src/ffi.rs). Every other entry point answers a
-  /// panic with its own "no answer": null, or a code its caller already
-  /// reads as none, so the caller runs its Dart rules instead.
+  /// native/linthra_core/src/ffi.rs). A rule's entry point answers its own
+  /// panic with a safe answer (`fail_safe`), so this or its "no answer"
+  /// (null, or a code its caller reads as none) means that panicked too.
   static const int panic = 3;
 }
 

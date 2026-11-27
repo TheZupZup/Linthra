@@ -5,12 +5,12 @@ import 'package:ffi/ffi.dart';
 
 import 'linthra_core_ffi.dart';
 
-/// Whether this build carries the Rust core (native/linthra_core).
+/// The Rust core (native/linthra_core), which runs Linthra's backend.
 ///
-/// hook/build.dart skips the library when Rust isn't installed where the app
-/// was built, so every caller must keep working without it: check
-/// [isAvailable] (or use [NativeSearchIndex.build], which does) and fall back
-/// to the Dart code path when it is false.
+/// hook/build.dart builds it into every app and every `flutter test` run, and
+/// fails the build where it can't, so nothing here has a Dart copy to fall
+/// back on. [ensureAvailable] is checked once at startup, so a broken build
+/// says so at once instead of failing somewhere later.
 abstract final class LinthraCore {
   /// The C ABI version this Dart code was written against. Must match
   /// `ABI_VERSION` in native/linthra_core/src/ffi.rs.
@@ -22,12 +22,21 @@ abstract final class LinthraCore {
   /// Probed once, on first use.
   static bool get isAvailable => _available ??= _probe();
 
+  /// Throws when [isAvailable] is false, saying why the app can't run.
+  static void ensureAvailable() {
+    if (isAvailable) return;
+    throw StateError(
+      'The Rust core (liblinthra_core) is missing, or not the version this '
+      'app was built with (ABI $abiVersion). Linthra cannot run without it; '
+      'reinstall the app, or rebuild it with Rust installed.',
+    );
+  }
+
   static bool _probe() {
     try {
       return linthraCoreAbiVersion() == abiVersion;
     } catch (_) {
-      // No asset in this build (the hook skipped it), or the library could
-      // not be loaded: the app runs on its Dart code paths.
+      // The library is missing or could not be loaded.
       return false;
     }
   }
@@ -77,19 +86,15 @@ final class NativeSearchIndex implements Finalizable {
   /// Number of tracks in the index.
   final int length;
 
-  /// Builds an index over [records], or returns null when this build has no
-  /// Rust core ([LinthraCore.isAvailable] is false).
-  static NativeSearchIndex? build(Iterable<NativeSearchRecord> records) {
-    final int? address = buildDetached(records);
-    return address == null ? null : NativeSearchIndex.adopt(address);
-  }
+  /// Builds an index over [records].
+  static NativeSearchIndex build(Iterable<NativeSearchRecord> records) =>
+      NativeSearchIndex.adopt(buildDetached(records));
 
   /// Builds an index over [records] and returns its native address, for
   /// building on a background isolate: send the address back and pass it to
   /// [NativeSearchIndex.adopt] on the isolate that will use it, exactly once.
-  /// Until then nothing frees it. Returns null without the Rust core.
-  static int? buildDetached(Iterable<NativeSearchRecord> records) {
-    if (!LinthraCore.isAvailable) return null;
+  /// Until then nothing frees it.
+  static int buildDetached(Iterable<NativeSearchRecord> records) {
     final Pointer<LinthraIndexBuilder> builder = linthraIndexBuilderNew();
     try {
       for (final NativeSearchRecord record in records) {
@@ -104,14 +109,9 @@ final class NativeSearchIndex implements Finalizable {
             record.provider.toNativeUtf8(allocator: arena),
           ),
         );
-        // A panic is answered like a build without the Rust core: the
-        // caller searches the Dart way.
-        if (status == LinthraStatus.panic) {
-          linthraIndexBuilderFree(builder);
-          return null;
-        }
         // Dart strings always encode to valid UTF-8 and none of these is
-        // null, so a refusal here means the two sides of the ABI disagree.
+        // null, so a refusal here means the two sides of the ABI disagree,
+        // and a panic that Rust's own safe answer panicked too.
         if (status != LinthraStatus.ok) {
           throw StateError(
             'linthra_index_builder_add refused a track (status $status)',
@@ -123,8 +123,11 @@ final class NativeSearchIndex implements Finalizable {
       rethrow;
     }
     final Pointer<LinthraIndex> index = linthraIndexBuilderFinish(builder);
-    // Null only when building the index panicked.
-    return index == nullptr ? null : index.address;
+    // Null only when building the index and its safe answer both panicked.
+    if (index == nullptr) {
+      throw StateError('linthra_index_builder_finish gave no index');
+    }
+    return index.address;
   }
 
   /// Takes ownership of an index from [buildDetached]: it is freed by

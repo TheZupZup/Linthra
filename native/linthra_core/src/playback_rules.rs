@@ -2,12 +2,11 @@
 //! means, which failure and cause it records, what to do next on its own,
 //! and what an audio focus change asks for.
 //!
-//! The same rules as `lib/core/services/stream_interruption.dart`,
-//! `playback_failure_classifier.dart`, `playback_recovery_policy.dart` and
-//! `JustAudioPlaybackController.audioFocusAction`, held to them by
-//! `test/fixtures/playback_error_cases.txt` and by tests on the Dart side that
-//! compare both answers for every input the enums allow. Values cross as
-//! codes numbered like the Dart enums.
+//! `classifyEngineError` (lib/core/services/stream_interruption.dart), the
+//! failure classifier, `PlaybackRecoveryPolicy` and
+//! `JustAudioPlaybackController.audioFocusAction` call these, held to
+//! `test/fixtures/playback_error_cases.txt`. Values cross as codes numbered
+//! like the Dart enums.
 
 use crate::tags::dart::is_regex_space;
 
@@ -63,10 +62,17 @@ const UNSUPPORTED_AUDIO_FORMAT: &str = "(4005)";
 /// that, so their slash doesn't start a path that swallows the reason.
 pub fn classify_engine_error(error: &str) -> InterruptionKind {
     let text = redact_locations(&blank_protocol_versions(error)).to_lowercase();
+    // Structural, not wording: the Android engine's "no decoder on this
+    // device" error carries Media3's code, first, so no digit or word in the
+    // message can route it elsewhere.
     if text.starts_with(UNSUPPORTED_AUDIO_FORMAT) {
         return InterruptionKind::FormatUnsupported;
     }
     let mentions = |needles: &[&str]| needles.iter().any(|needle| text.contains(needle));
+    // A rejected session first: retrying it gets the same answer. Then a
+    // decode failure (the same bytes won't decode next time), a server that
+    // doesn't answer at all, and a connection that dropped mid-stream.
+    // Anything else is taken for a passing glitch, worth one retry.
     if mentions(&["401", "403", "unauthor", "forbidden"]) {
         InterruptionKind::SessionExpired
     } else if mentions(&[

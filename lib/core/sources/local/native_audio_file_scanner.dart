@@ -10,16 +10,10 @@ import 'local_root_fault.dart';
 /// folder itself failing or going away mid-walk throws the same
 /// `FolderScanException`, and storage that stops answering for
 /// [storageStallLimit] counts as unavailable.
-///
-/// Without the Rust core it hands the walk to [fallback].
 class NativeAudioFileScanner implements AudioFileScanner {
-  const NativeAudioFileScanner({
-    AudioFileScanner fallback = const IoAudioFileScanner(),
-    Duration stallLimit = storageStallLimit,
-  })  : _fallback = fallback,
-        _stallLimit = stallLimit;
+  const NativeAudioFileScanner({Duration stallLimit = storageStallLimit})
+      : _stallLimit = stallLimit;
 
-  final AudioFileScanner _fallback;
   final Duration _stallLimit;
 
   @override
@@ -28,13 +22,7 @@ class NativeAudioFileScanner implements AudioFileScanner {
     void Function(String directory)? onUnreadableDirectory,
     void Function(String path)? onUnopenableName,
   }) async {
-    if (!await LinthraBridgeLoader.ready()) {
-      return _fallback.listFiles(
-        folder,
-        onUnreadableDirectory: onUnreadableDirectory,
-        onUnopenableName: onUnopenableName,
-      );
-    }
+    await LinthraBridgeLoader.ensureReady();
     final FolderWalk walk = await walkFolder(
       folder: folder,
       stallLimitMs: _stallLimit.inMilliseconds,

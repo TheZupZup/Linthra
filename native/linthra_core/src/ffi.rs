@@ -62,8 +62,21 @@ pub const STATUS_PANIC: i32 = 3;
 
 /// Runs an entry point's `body`, answering `on_panic` when it panics instead
 /// of letting the panic reach Dart. The panic message still goes to stderr.
+///
+/// The last resort: an entry point that computes something runs its body
+/// through [fail_safe] inside this, so a panic in the rule still gets a real
+/// answer, and `on_panic` is only reached if that answer panics too.
 pub(crate) fn guard<T>(on_panic: T, body: impl FnOnce() -> T) -> T {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or(on_panic)
+}
+
+/// Runs `rule`; if it panics, answers with `safe` instead: a plain answer for
+/// the same call, written so it can't panic (no indexing, no slicing) and
+/// erring on the side that loses nothing (keep the files, change nothing in
+/// the queue, merge nothing, stop rather than guess). Dart always gets an
+/// answer from Rust, and has no rules of its own to fall back on.
+pub(crate) fn fail_safe<T>(rule: impl FnOnce() -> T, safe: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(rule)).unwrap_or_else(|_| safe())
 }
 
 /// Collects tracks before the immutable [LibraryIndex] is built from them.
@@ -120,10 +133,21 @@ pub unsafe extern "C" fn linthra_index_builder_add(
     provider: *const c_char,
 ) -> i32 {
     crate::ffi::guard(crate::ffi::STATUS_PANIC, || {
-        match add_track(builder, id, title, artist, album, album_artist, provider) {
-            Ok(()) => STATUS_OK,
-            Err(status) => status,
-        }
+        crate::ffi::fail_safe(
+            || match add_track(builder, id, title, artist, album, album_artist, provider) {
+                Ok(()) => STATUS_OK,
+                Err(status) => status,
+            },
+            || match builder.as_mut() {
+                // Safe answer: the track is kept, unsearchable, so the positions of the
+                // ones after it don't move.
+                Some(b) => {
+                    b.tracks.push(TrackRecord::new("", "", "", "", None, ""));
+                    STATUS_OK
+                }
+                None => STATUS_NULL_ARGUMENT,
+            },
+        )
     })
 }
 
@@ -712,5 +736,76 @@ mod tests {
             }
         }
         assert!(checked >= 96, "only {checked} entry points found");
+    }
+
+    #[test]
+    fn a_rule_that_panics_gets_its_safe_answer() {
+        assert_eq!(fail_safe(|| -> i32 { panic!("a rule's bug") }, || 7), 7);
+        assert_eq!(fail_safe(|| 1, || 7), 1);
+        // The safe answer panicking too still stops at the boundary.
+        assert_eq!(
+            guard(STATUS_PANIC, || fail_safe(
+                || panic!("rule"),
+                || panic!("safe")
+            )),
+            STATUS_PANIC
+        );
+    }
+
+    #[test]
+    fn every_rule_has_a_safe_answer() {
+        // The entry points that compute an answer: each runs its rule through
+        // fail_safe, so Dart never needs rules of its own.
+        let computing = [
+            "linthra_index_builder_add",
+            "linthra_audio_focus_step",
+            "linthra_cue_decode",
+            "linthra_cue_parse",
+            "linthra_download_gate",
+            "linthra_download_settle_canceled",
+            "linthra_download_held_action",
+            "linthra_library_group",
+            "linthra_local_reconcile",
+            "linthra_local_track_map",
+            "linthra_cd_text",
+            "linthra_cd_toc_order",
+            "linthra_cd_playable_tracks",
+            "linthra_cd_disc_id",
+            "linthra_playback_classify_error",
+            "linthra_playback_failure_for_resolution",
+            "linthra_playback_failure_for_interruption",
+            "linthra_playback_focus_action",
+            "linthra_playback_recovery_decide",
+            "linthra_queue_move",
+            "linthra_queue_edit",
+            "linthra_search_rank",
+            "linthra_song_sort",
+            "linthra_reconnect_claim",
+            "linthra_reconnect_progress",
+            "linthra_source_end",
+            "linthra_watchdog_arms",
+            "linthra_watchdog_fails",
+            "linthra_track_availability",
+            "linthra_track_end_action",
+            "linthra_is_current_track",
+            "linthra_unify_tracks",
+        ];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut source = std::fs::read_to_string(dir.join("ffi.rs")).unwrap();
+        for entry in std::fs::read_dir(dir.join("ffi")).unwrap() {
+            source.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+        }
+        for name in computing {
+            let at = source
+                .find(&format!("fn {name}("))
+                .unwrap_or_else(|| panic!("{name} not found"));
+            let rest = &source[at..];
+            // Its body, up to the next entry point.
+            let body = &rest[..rest[1..].find("#[no_mangle]").map_or(rest.len(), |i| i + 1)];
+            assert!(
+                body.contains("crate::ffi::fail_safe("),
+                "{name} has no safe answer"
+            );
+        }
     }
 }

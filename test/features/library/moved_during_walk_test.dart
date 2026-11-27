@@ -148,11 +148,11 @@ void main() {
         recordingDriftMusicLibraryRepositoryOverride,
         favoritesStoreProvider.overrideWithValue(favoritesStore),
         playHistoryStoreProvider.overrideWithValue(historyStore),
-        // The Dart walk, which the app falls back to without the Rust core:
-        // the move is staged through IOOverrides, and the Rust walk
-        // (NativeAudioFileScanner) doesn't list folders through dart:io.
-        // native_audio_file_scanner_test.dart holds the two walks to the
-        // same answers. The real stat reader is the production default.
+        // The dart:io walk: the move is staged through IOOverrides, and the
+        // Rust walk (NativeAudioFileScanner) doesn't list folders through
+        // dart:io. native_audio_file_scanner_test.dart holds the two walks
+        // to the same answers. The real stat reader is the production
+        // default.
         audioFileScannerProvider
             .overrideWithValue(const PlatformAudioFileScanner(
           filesystemScanner: IoAudioFileScanner(),

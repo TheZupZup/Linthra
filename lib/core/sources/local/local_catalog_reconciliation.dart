@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-
 import '../../models/track.dart';
 import '../../native/native_local_reconcile.dart';
 import 'local_track_identity.dart';
@@ -77,9 +75,7 @@ class LocalCatalogReconciliation {
   /// deleted, the new path counts as a brand-new track, and no history changes
   /// hands.
   ///
-  /// Runs in the Rust core (native/linthra_core/src/local_reconcile.rs) when
-  /// the build carries it, and in [resolveInDart] otherwise. Both give the
-  /// same moves and removals, in the same order.
+  /// Runs in the Rust core (native/linthra_core/src/local_reconcile.rs).
   static LocalCatalogReconciliation resolve({
     required List<Track> previous,
     required List<Track> scanned,
@@ -104,19 +100,12 @@ class LocalCatalogReconciliation {
       for (final Track track in scanned)
         if (!previousUris.contains(track.uri)) track,
     ];
-    final ({Uint32List moves, Uint32List removed})? native =
+    final ({Uint32List moves, Uint32List removed}) native =
         NativeLocalReconcile.resolve(
       previous: disappeared,
       refreshed: List<bool>.filled(disappeared.length, true),
       scanned: appeared,
     );
-    if (native == null) {
-      return resolveInDart(
-        previous: previous,
-        scanned: scanned,
-        wasRefreshed: wasRefreshed,
-      );
-    }
     return LocalCatalogReconciliation(
       moves: List<LocalTrackMove>.unmodifiable(<LocalTrackMove>[
         for (int i = 0; i < native.moves.length; i += 2)
@@ -129,81 +118,5 @@ class LocalCatalogReconciliation {
         for (final int i in native.removed) disappeared[i].uri,
       ]),
     );
-  }
-
-  /// [resolve] without the Rust core: the reference rules.
-  @visibleForTesting
-  static LocalCatalogReconciliation resolveInDart({
-    required List<Track> previous,
-    required List<Track> scanned,
-    required bool Function(String uri) wasRefreshed,
-  }) {
-    if (previous.isEmpty) return none;
-
-    final Set<String> scannedUris = <String>{
-      for (final Track track in scanned) track.uri,
-    };
-
-    // Previously indexed tracks whose folder was read this time and that the
-    // read did not turn up. Anything under an unreadable folder is skipped
-    // here on purpose: not found is not the same as not there.
-    final List<Track> disappeared = <Track>[
-      for (final Track track in previous)
-        if (!scannedUris.contains(track.uri) && wasRefreshed(track.uri)) track,
-    ];
-    if (disappeared.isEmpty) return none;
-
-    final Set<String> previousUris = <String>{
-      for (final Track track in previous) track.uri,
-    };
-    final List<Track> appeared = <Track>[
-      for (final Track track in scanned)
-        if (!previousUris.contains(track.uri)) track,
-    ];
-
-    final Map<LocalTrackIdentity, Track?> goneByIdentity =
-        _uniqueByIdentity(disappeared);
-    final Map<LocalTrackIdentity, Track?> foundByIdentity =
-        _uniqueByIdentity(appeared);
-
-    final List<LocalTrackMove> moves = <LocalTrackMove>[];
-    final Set<String> movedFrom = <String>{};
-    for (final MapEntry<LocalTrackIdentity, Track?> entry
-        in goneByIdentity.entries) {
-      final Track? gone = entry.value;
-      // Null means two disappeared tracks share this identity.
-      if (gone == null) continue;
-      if (!foundByIdentity.containsKey(entry.key)) continue;
-      final Track? found = foundByIdentity[entry.key];
-      // Null means two new files share it: a copy, not a move.
-      if (found == null) continue;
-      moves.add(LocalTrackMove(from: gone.uri, to: found.uri));
-      movedFrom.add(gone.uri);
-    }
-
-    return LocalCatalogReconciliation(
-      moves: List<LocalTrackMove>.unmodifiable(moves),
-      removedUris: List<String>.unmodifiable(<String>[
-        for (final Track track in disappeared)
-          if (!movedFrom.contains(track.uri)) track.uri,
-      ]),
-    );
-  }
-
-  /// Indexes [tracks] by identity, mapping an identity that more than one track
-  /// claims to null so the caller can tell "exactly one" from "ambiguous"
-  /// without a second pass. Tracks with no usable identity are left out
-  /// entirely.
-  static Map<LocalTrackIdentity, Track?> _uniqueByIdentity(
-    List<Track> tracks,
-  ) {
-    final Map<LocalTrackIdentity, Track?> byIdentity =
-        <LocalTrackIdentity, Track?>{};
-    for (final Track track in tracks) {
-      final LocalTrackIdentity? identity = LocalTrackIdentity.of(track);
-      if (identity == null) continue;
-      byIdentity[identity] = byIdentity.containsKey(identity) ? null : track;
-    }
-    return byIdentity;
   }
 }

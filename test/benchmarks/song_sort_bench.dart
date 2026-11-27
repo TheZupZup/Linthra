@@ -1,8 +1,8 @@
 // A measurement harness, not a regression test.
 //
 // Times sorting the Songs list as the Library does it, the album index
-// included (SongAlbums.of, then sortSongs against it), on the Dart rules and
-// in the Rust core with all marshalling. It runs on every change of order
+// included (SongAlbums.of, then sortSongs against it), in the Rust core with
+// all marshalling. It runs on every change of order
 // and every reload of the library.
 //
 // Named `_bench.dart` so `flutter test` does not pick it up. Run it with:
@@ -10,7 +10,6 @@
 //     flutter test test/benchmarks/song_sort_bench.dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/features/library/song_sort.dart';
 
 List<Track> _library(int size) => <Track>[
@@ -33,13 +32,9 @@ int _ms(void Function() run) {
 }
 
 void main() {
-  test('sortSongs: Dart rules vs Rust core', () {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
+  test('sortSongs in the Rust core', () {
     final StringBuffer report =
-        StringBuffer('songs     order           Dart       Rust (ms)\n');
+        StringBuffer('songs     order           Rust (ms)\n');
     for (final int size in <int>[20000, 200000]) {
       final List<Track> library = _library(size);
       for (final SongSort sort in <SongSort>[
@@ -47,14 +42,11 @@ void main() {
         SongSort.artistAscending,
         SongSort.albumAscending,
       ]) {
-        void run({required bool useNative}) => sortSongs(library, sort,
-            albums: SongAlbums.of(library), useNative: useNative);
-        run(useNative: false);
-        run(useNative: true);
-        final int dart = _ms(() => run(useNative: false));
-        final int rust = _ms(() => run(useNative: true));
+        void run() => sortSongs(library, sort, albums: SongAlbums.of(library));
+        run();
+        final int rust = _ms(run);
         report.writeln('${'$size'.padLeft(6)}  ${sort.name.padRight(16)}'
-            '${'$dart'.padLeft(6)}${'$rust'.padLeft(11)}');
+            '${'$rust'.padLeft(6)}');
       }
     }
     // ignore: avoid_print

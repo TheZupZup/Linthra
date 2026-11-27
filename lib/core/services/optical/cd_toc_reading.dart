@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import '../../models/audio_cd.dart';
 import '../../native/native_optical.dart';
 import 'cd_disc_id.dart';
@@ -73,49 +71,9 @@ AudioCdDisc? audioCdDiscFrom(RawCdToc toc, {required String driveId}) {
 /// track list with wrong boundaries that nothing downstream can tell from a
 /// right one.
 List<RawCdTocTrack>? normalizedTocEntries(RawCdToc toc) {
-  final ({bool ok, List<int> order})? native = NativeOptical.tocOrder(toc);
-  if (native == null) return normalizedTocEntriesInDart(toc);
-  if (!native.ok) return null;
-  return <RawCdTocTrack>[for (final int i in native.order) toc.tracks[i]];
-}
-
-/// [normalizedTocEntries] without the Rust core: the reference rules, which
-/// [musicBrainzDiscIdInDart] builds on too.
-List<RawCdTocTrack>? normalizedTocEntriesInDart(RawCdToc toc) {
-  if (toc.firstTrack < 1 || toc.lastTrack > 99) return null;
-  if (toc.firstTrack > toc.lastTrack) return null;
-  if (toc.leadOutLba < 0) return null;
-
-  final Map<int, RawCdTocTrack> byNumber = <int, RawCdTocTrack>{};
-  for (final RawCdTocTrack entry in toc.tracks) {
-    if (entry.number < toc.firstTrack || entry.number > toc.lastTrack) {
-      return null;
-    }
-    if (entry.startLba < 0) return null;
-    if (byNumber.containsKey(entry.number)) return null;
-    byNumber[entry.number] = entry;
-  }
-  // Every number the header claims, and no gaps. A TOC whose header covers
-  // tracks 1-3 but supplies only 1 and 3 would otherwise be accepted, and
-  // track 1 would silently swallow track 2's running time on its way to
-  // track 3's start — a successful-looking disc with a track missing and a
-  // wrong duration on the one before it.
-  if (byNumber.length != toc.lastTrack - toc.firstTrack + 1) return null;
-
-  final List<RawCdTocTrack> ordered = byNumber.values.toList(growable: false)
-    ..sort((RawCdTocTrack a, RawCdTocTrack b) => a.number.compareTo(b.number));
-
-  for (int i = 1; i < ordered.length; i++) {
-    if (ordered[i].startLba < ordered[i - 1].startLba) return null;
-  }
-  // Against the *last* entry, not the first: positions are non-decreasing by
-  // now, so this is the strictest form of "every track starts before the disc
-  // ends" — and the only form that rejects a lead-out sitting between two
-  // tracks, which would otherwise let the earlier one resolve to a boundary
-  // past the physical end of the disc.
-  if (toc.leadOutLba <= ordered.last.startLba) return null;
-
-  return ordered;
+  final List<int>? order = NativeOptical.tocOrder(toc);
+  if (order == null) return null;
+  return <RawCdTocTrack>[for (final int i in order) toc.tracks[i]];
 }
 
 /// The playable CD-DA tracks in [entries], with their boundaries resolved.
@@ -151,56 +109,13 @@ List<AudioCdTrack> playableAudioTracks(
   List<RawCdTocTrack> entries,
   int leadOutLba,
 ) {
-  final List<NativeAudioTrack>? native =
-      NativeOptical.playableTracks(entries, leadOutLba);
-  if (native == null) return playableAudioTracksInDart(entries, leadOutLba);
   return <AudioCdTrack>[
-    for (final NativeAudioTrack t in native)
+    for (final NativeAudioTrack t
+        in NativeOptical.playableTracks(entries, leadOutLba))
       AudioCdTrack(
         number: t.number,
         startFrame: t.startFrame,
         frameCount: t.frameCount,
       ),
   ];
-}
-
-/// [playableAudioTracks] without the Rust core: the reference rules.
-@visibleForTesting
-List<AudioCdTrack> playableAudioTracksInDart(
-  List<RawCdTocTrack> entries,
-  int leadOutLba,
-) {
-  int lastAudioNumber = -1;
-  for (final RawCdTocTrack entry in entries) {
-    if (!entry.isData) lastAudioNumber = entry.number;
-  }
-  if (lastAudioNumber < 0) return const <AudioCdTrack>[];
-
-  final List<AudioCdTrack> tracks = <AudioCdTrack>[];
-  for (int i = 0; i < entries.length; i++) {
-    final RawCdTocTrack entry = entries[i];
-    if (entry.isData) continue;
-
-    final RawCdTocTrack? next = i + 1 < entries.length ? entries[i + 1] : null;
-    final int endLba;
-    if (next == null) {
-      endLba = leadOutLba;
-    } else if (next.isData && entry.number == lastAudioNumber) {
-      endLba = next.startLba - cdXaInterval;
-    } else {
-      endLba = next.startLba;
-    }
-
-    final int frameCount = endLba - entry.startLba;
-    if (frameCount <= 0) continue;
-
-    tracks.add(
-      AudioCdTrack(
-        number: entry.number,
-        startFrame: entry.startLba + cdLeadInFrames,
-        frameCount: frameCount,
-      ),
-    );
-  }
-  return tracks;
 }

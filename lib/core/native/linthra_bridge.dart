@@ -9,13 +9,23 @@ import 'linthra_core.dart';
 /// It shares the library hook/build.dart builds with the hand-written calls
 /// in linthra_core_ffi.dart: [ready] lets [LinthraCore] load it first, then
 /// opens it again by name, which the library's SONAME resolves to the copy
-/// already loaded. Without the Rust core it stays false and callers keep
-/// their Dart paths, as everywhere else.
+/// already loaded. Callers go through [ensureReady]: without the Rust core
+/// there is no other path.
 abstract final class LinthraBridgeLoader {
   static Future<bool>? _ready;
 
   /// Whether the bridge is up, starting it on first use.
   static Future<bool> ready() => _ready ??= _start();
+
+  /// Starts the bridge on first use, and throws when it can't start.
+  static Future<void> ensureReady() async {
+    if (await ready()) return;
+    throw StateError(
+      "The Rust core's async bridge did not start. Linthra cannot read local "
+      'files without it; reinstall the app, or rebuild it with Rust '
+      'installed.',
+    );
+  }
 
   static Future<bool> _start() async {
     if (!LinthraCore.isAvailable) return false;

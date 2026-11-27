@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/features/library/library_search.dart';
 import 'package:linthra/features/library/song_search_index.dart';
 import 'package:linthra/features/library/unified_library_providers.dart';
@@ -59,39 +58,32 @@ const List<String> _queries = <String>[
 void main() {
   final List<Track> catalog = _catalog(2500);
 
-  for (final bool useRustCore in <bool>[true, false]) {
-    final String which = useRustCore ? 'Rust core' : 'Dart fallback';
-    group('SongSearchIndex with the $which', () {
-      late SongSearchIndex index;
+  group('SongSearchIndex', () {
+    late SongSearchIndex index;
 
-      setUpAll(() async {
-        index = await buildSongSearchIndex(catalog, useRustCore: useRustCore);
-      });
-      tearDownAll(() => index.dispose());
+    setUpAll(() async {
+      index = await buildSongSearchIndex(catalog);
+    });
+    tearDownAll(() => index.dispose());
 
-      test('finds exactly what filterTracks finds, in catalog order', () {
-        for (final String query in _queries) {
-          expect(
-            index.filter(query).map((Track t) => t.id).toList(),
-            filterTracks(catalog, query).map((Track t) => t.id).toList(),
-            reason: 'query "$query"',
-          );
-        }
-      });
+    test('finds exactly what filterTracks finds, in catalog order', () {
+      for (final String query in _queries) {
+        expect(
+          index.filter(query).map((Track t) => t.id).toList(),
+          filterTracks(catalog, query).map((Track t) => t.id).toList(),
+          reason: 'query "$query"',
+        );
+      }
+    });
 
-      test('a blank query keeps the very same list', () {
-        expect(index.filter(''), same(catalog));
-      });
-    },
-        skip: useRustCore && !LinthraCore.isAvailable
-            ? 'Rust core not built in this environment'
-            : false);
-  }
+    test('a blank query keeps the very same list', () {
+      expect(index.filter(''), same(catalog));
+    });
+  });
 
   group('searchSongs', () {
     test('answers from the index built from this exact list', () async {
-      final SongSearchIndex index =
-          await buildSongSearchIndex(catalog, useRustCore: false);
+      final SongSearchIndex index = await buildSongSearchIndex(catalog);
       addTearDown(index.dispose);
       expect(
         searchSongs(catalog, 'bjork', index).map((Track t) => t.id),
@@ -100,8 +92,7 @@ void main() {
     });
 
     test('filters directly when the index is for another list', () async {
-      final SongSearchIndex index =
-          await buildSongSearchIndex(catalog, useRustCore: false);
+      final SongSearchIndex index = await buildSongSearchIndex(catalog);
       addTearDown(index.dispose);
       final List<Track> newer = <Track>[
         ...catalog,

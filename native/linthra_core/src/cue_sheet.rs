@@ -8,8 +8,9 @@
 //! (not `trim`'s, which adds U+0085), the keywords ignore ASCII case only,
 //! `.` stops at line terminators, and a TITLE whose quotes don't close the
 //! line can still match by giving back a space it had already taken.
-//! `test/core/sources/local/cue_sheet_native_test.dart` replays tricky and
-//! random sheets through both and fails on any difference.
+//! `test/fixtures/cue_sheet_cases.json` holds what the Dart reader gave for
+//! tricky and random sheets before it was removed, and
+//! `cue_sheet_cases_test.dart` replays it.
 
 use crate::library_grouping::{dart_trim, is_dart_whitespace};
 

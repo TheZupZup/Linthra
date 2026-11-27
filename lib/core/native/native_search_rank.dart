@@ -4,20 +4,16 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// The search's mixed-result order in the Rust core
 /// (native/linthra_core/src/search_rank.rs).
 ///
-/// Use `rankSearchResults`, which calls this and falls back to its Dart rule
-/// without the Rust core.
+/// Use `rankSearchResults`, which calls this.
 abstract final class NativeSearchRank {
   /// The positions of the results ([kinds] as `SearchResultKind.index`, with
-  /// their [names]) in the order to show them for [query], or null when there
-  /// is no Rust core or it refused the input.
-  static List<int>? rank(String query, List<int> kinds, List<String> names) {
-    if (!LinthraCore.isAvailable) return null;
+  /// their [names]) in the order to show them for [query].
+  static List<int> rank(String query, List<int> kinds, List<String> names) {
     final int count = kinds.length;
     final Uint8List queryBytes = utf8.encode(query);
     final BytesBuilder text = BytesBuilder(copy: false);
@@ -50,7 +46,11 @@ abstract final class NativeSearchRank {
         count,
         out,
       );
-      if (status != LinthraStatus.ok) return null;
+      // Every span was written here from Dart strings, so a refusal means the
+      // two sides of the ABI disagree.
+      if (status != LinthraStatus.ok) {
+        throw StateError('linthra_search_rank refused its input');
+      }
       return List<int>.of(out.asTypedList(count));
     });
   }

@@ -1,13 +1,13 @@
-//! Audio CDs: what a drive's table of contents and CD-Text say, decoded with
-//! the rules of lib/core/services/optical/cd_toc_reading.dart,
-//! cd_text_reading.dart and cd_disc_id.dart, where the reasoning lives.
+//! Audio CDs: what a drive's table of contents and CD-Text say, for
+//! lib/core/services/optical/cd_toc_reading.dart, cd_text_reading.dart and
+//! cd_disc_id.dart, where the reasoning lives.
 //!
-//! Every function refuses rather than repairs, as the Dart ones do: a TOC
-//! that contradicts itself has no tracks and no identity, and CD-Text that
-//! cannot be trusted is no CD-Text. Integer arithmetic wraps like Dart's, so
-//! even a drive answering with absurd numbers gets the same answer from both.
-//! `test/core/services/optical/optical_native_test.dart` replays the fixture
-//! discs and random ones through both.
+//! Every function refuses rather than repairs: a TOC that contradicts itself
+//! has no tracks and no identity, and CD-Text that cannot be trusted is no
+//! CD-Text. Integer arithmetic wraps like Dart's, so a drive answering with
+//! absurd numbers gets the answer the Dart decoder gave.
+//! `test/core/services/optical/` holds the fixture discs, and
+//! `optical_random_input_test.dart` throws random ones at it.
 
 /// Frames from the start of the lead-in to LBA 0 (`cdLeadInFrames`).
 pub const LEAD_IN_FRAMES: i64 = 150;

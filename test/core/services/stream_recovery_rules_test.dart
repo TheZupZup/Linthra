@@ -1,118 +1,172 @@
-// The stream recovery rules give the same answers in Dart and in the Rust
-// core (native/linthra_core/src/stream_recovery.rs): every status the rules
-// read, a grid of positions around each threshold, and the reconnect budget
-// through the same runs of position reports.
+// The stream recovery rules, which run in the Rust core
+// (native/linthra_core/src/stream_recovery.rs): whether a source that went
+// away ended or was lost, the buffering watchdog, and the quick reconnect
+// budget, through the same calls the player makes.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/playback_state.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/services/stream_recovery_rules.dart';
 
 const Duration _s = Duration(seconds: 1);
 
+SourceEnd _end(
+  SourceGone gone, {
+  bool linux = true,
+  bool stream = true,
+  PlaybackStatus status = PlaybackStatus.playing,
+  required Duration position,
+  Duration duration = const Duration(minutes: 4),
+}) =>
+    sourceEnd(
+      gone,
+      engineReportsFailureAsIdle: linux,
+      stream: stream,
+      status: status,
+      position: position,
+      duration: duration,
+    );
+
 void main() {
-  final Object skip =
-      LinthraCore.isAvailable ? false : 'Rust core not built in this build';
+  group('the end or loss of a source', () {
+    test('an idle heard to within two seconds of the end is its end', () {
+      expect(_end(SourceGone.idle, position: _s * 239), SourceEnd.ended);
+      expect(_end(SourceGone.idle, position: _s * 230), SourceEnd.lost);
+    });
 
-  test('the end or loss of a source', skip: skip, () {
-    final List<Duration> durations = <Duration>[
-      Duration.zero,
-      const Duration(milliseconds: 4048),
-      _s * 40,
-      _s * 3600,
-    ];
-    int compared = 0;
-    for (final Duration duration in durations) {
-      // Around every threshold: a quarter, two seconds, a tenth, ten seconds.
-      final Set<Duration> positions = <Duration>{
-        Duration.zero,
-        -_s,
-        duration,
-        duration + _s,
-        for (final Duration back in <Duration>[
-          duration ~/ 4,
-          _s * 2,
-          duration ~/ 10,
-          _s * 10,
-        ])
-          for (final int nudge in <int>[-1, 0, 1])
-            duration - back + Duration(microseconds: nudge),
-      };
-      for (final SourceGone gone in SourceGone.values) {
-        for (final bool linux in <bool>[false, true]) {
-          for (final bool stream in <bool>[false, true]) {
-            for (final PlaybackStatus status in PlaybackStatus.values) {
-              for (final Duration position in positions) {
-                SourceEnd answer({required bool useNative}) => sourceEnd(
-                      gone,
-                      engineReportsFailureAsIdle: linux,
-                      stream: stream,
-                      status: status,
-                      position: position,
-                      duration: duration,
-                      useNative: useNative,
-                    );
-                expect(answer(useNative: true), answer(useNative: false),
-                    reason: '$gone linux=$linux stream=$stream $status '
-                        '$position of $duration');
-                compared++;
-              }
-            }
-          }
-        }
-      }
-    }
-    expect(compared, 3584);
+    test('a short track counts a quarter of it as the end', () {
+      expect(
+        _end(SourceGone.idle, position: _s * 3, duration: _s * 4),
+        SourceEnd.ended,
+      );
+      expect(
+        _end(SourceGone.idle, position: _s * 2, duration: _s * 4),
+        SourceEnd.lost,
+      );
+    });
+
+    test('an idle not heard (paused, stopped) is a loss', () {
+      expect(
+        _end(
+          SourceGone.idle,
+          status: PlaybackStatus.paused,
+          position: _s * 239,
+        ),
+        SourceEnd.lost,
+      );
+    });
+
+    test("a Linux stream's completion well short of its end is a loss (#905)",
+        () {
+      expect(_end(SourceGone.completed, position: _s * 100), SourceEnd.lost);
+      // Within ten seconds or a tenth of the track it ended, an estimated
+      // VBR length included.
+      expect(_end(SourceGone.completed, position: _s * 230), SourceEnd.ended);
+      expect(
+        _end(SourceGone.completed, stream: false, position: _s * 100),
+        SourceEnd.ended,
+      );
+      expect(
+        _end(SourceGone.completed, linux: false, position: _s * 100),
+        SourceEnd.ended,
+      );
+    });
   });
 
-  test('the buffering watchdog', skip: skip, () {
-    for (final PlaybackStatus a in PlaybackStatus.values) {
-      for (final PlaybackStatus b in PlaybackStatus.values) {
-        for (final bool flag in <bool>[false, true]) {
-          expect(watchdogArms(a, b, hasPlayed: flag),
-              watchdogArms(a, b, hasPlayed: flag, useNative: false),
-              reason: 'arms $a $b $flag');
-        }
-      }
-      for (final bool recovery in <bool>[false, true]) {
-        for (final bool track in <bool>[false, true]) {
-          expect(
-              watchdogFails(a, recoveryUnderway: recovery, hasTrack: track),
-              watchdogFails(a,
-                  recoveryUnderway: recovery,
-                  hasTrack: track,
-                  useNative: false),
-              reason: 'fails $a $recovery $track');
-        }
-      }
-    }
+  group('the buffering watchdog', () {
+    test('arms on a stall while playing, or after the track has played', () {
+      expect(
+        watchdogArms(
+          PlaybackStatus.buffering,
+          PlaybackStatus.playing,
+          hasPlayed: false,
+        ),
+        isTrue,
+      );
+      expect(
+        watchdogArms(
+          PlaybackStatus.buffering,
+          PlaybackStatus.paused,
+          hasPlayed: true,
+        ),
+        isTrue,
+      );
+      // A first load is not a stall.
+      expect(
+        watchdogArms(
+          PlaybackStatus.buffering,
+          PlaybackStatus.loading,
+          hasPlayed: false,
+        ),
+        isFalse,
+      );
+      expect(
+        watchdogArms(
+          PlaybackStatus.playing,
+          PlaybackStatus.playing,
+          hasPlayed: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('fails only while stalled, with a track and no recovery under way',
+        () {
+      expect(
+        watchdogFails(
+          PlaybackStatus.buffering,
+          recoveryUnderway: false,
+          hasTrack: true,
+        ),
+        isTrue,
+      );
+      expect(
+        watchdogFails(
+          PlaybackStatus.reconnecting,
+          recoveryUnderway: false,
+          hasTrack: true,
+        ),
+        isTrue,
+      );
+      expect(
+        watchdogFails(
+          PlaybackStatus.buffering,
+          recoveryUnderway: true,
+          hasTrack: true,
+        ),
+        isFalse,
+      );
+      expect(
+        watchdogFails(
+          PlaybackStatus.playing,
+          recoveryUnderway: false,
+          hasTrack: true,
+        ),
+        isFalse,
+      );
+    });
   });
 
-  test('the reconnect budget', skip: skip, () {
-    // Runs of reports: steady playback, a seek forward, a step back, time
-    // that doesn't count, and a refill partway.
-    final List<(Duration, bool)> reports = <(Duration, bool)>[
-      for (int i = 0; i < 40; i++) (_s * i ~/ 2, true),
-      (_s * 30, true),
-      (_s * 29, true),
-      (_s * 29 + _s ~/ 4, false),
-      for (int i = 0; i < 80; i++) (_s * 30 + _s * i ~/ 4, true),
-    ];
-    final ReconnectBudget rust = ReconnectBudget();
-    final ReconnectBudget dart = ReconnectBudget(useNative: false);
-    for (final ReconnectBudget budget in <ReconnectBudget>[rust, dart]) {
-      expect(budget.claim(retryable: false, max: 1), isFalse);
-      expect(budget.claim(retryable: true, max: 1), isTrue);
-      expect(budget.claim(retryable: true, max: 1), isFalse);
+  test('the reconnect budget is spent once and earned back by playback', () {
+    final ReconnectBudget budget = ReconnectBudget();
+    expect(budget.claim(retryable: false, max: 1), isFalse);
+    expect(budget.claim(retryable: true, max: 1), isTrue);
+    expect(budget.claim(retryable: true, max: 1), isFalse);
+
+    // A seek forward, a step back and time that doesn't count earn nothing.
+    budget.noteProgress(_s * 10, counting: true, refillAfter: _s * 15);
+    budget.noteProgress(_s * 40, counting: true, refillAfter: _s * 15);
+    budget.noteProgress(_s * 39, counting: true, refillAfter: _s * 15);
+    budget.noteProgress(_s * 50, counting: false, refillAfter: _s * 15);
+    expect(budget.spent, 1);
+
+    // Fifteen seconds of steady playback give it back.
+    for (int i = 0; i <= 40; i++) {
+      budget.noteProgress(
+        _s * 60 + _s * i ~/ 2,
+        counting: true,
+        refillAfter: _s * 15,
+      );
     }
-    for (final (Duration position, bool counting) in reports) {
-      for (final ReconnectBudget budget in <ReconnectBudget>[rust, dart]) {
-        budget.noteProgress(position, counting: counting, refillAfter: _s * 15);
-      }
-      expect('${rust.spent} ${rust.played} ${rust.last}',
-          '${dart.spent} ${dart.played} ${dart.last}',
-          reason: 'at $position counting=$counting');
-    }
-    // The run gave the reconnect back.
-    expect(rust.spent, 0);
+    expect(budget.spent, 0);
+    expect(budget.claim(retryable: true, max: 1), isTrue);
   });
 }

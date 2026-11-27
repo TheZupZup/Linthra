@@ -1,13 +1,11 @@
 // FilesystemLocalMetadataReader asks the Rust core first for FLAC, Ogg Vorbis,
-// Opus, MP3, MP4, WAV, AIFF and Monkey's Audio. These tell its answer from the package's, so they show which path
-// ran. Skipped in a build without the Rust core, where the package path is
-// covered by the rest of this folder.
+// Opus, MP3, MP4, WAV, AIFF and Monkey's Audio. These tell its answer from
+// the package's, so they show which path ran.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_audio_metadata.dart';
@@ -50,10 +48,7 @@ void main() {
   String write(String name, Uint8List bytes) =>
       (File('${root.path}/$name')..writeAsBytesSync(bytes, flush: true)).path;
 
-  final Object skip =
-      LinthraCore.isAvailable ? false : 'Rust core not built in this build';
-
-  test('a blank first title gives way to the next one', skip: skip, () async {
+  test('a blank first title gives way to the next one', () async {
     // The package keeps the first TITLE whatever it holds, and a blank one
     // then leaves the track named after its file.
     final String path = write(
@@ -69,7 +64,7 @@ void main() {
     expect(tags.duration, const Duration(seconds: 3));
   });
 
-  test('an Opus file comes back whole, cover included', skip: skip, () async {
+  test('an Opus file comes back whole, cover included', () async {
     final String path = write(
       'song.opus',
       AudioTagFixtures.opus(
@@ -86,7 +81,7 @@ void main() {
     expect(File(tags.artworkUri!.toFilePath()).existsSync(), isTrue);
   });
 
-  test('an MP3 is read by the Rust core too', skip: skip, () async {
+  test('an MP3 is read by the Rust core too', () async {
     final String path =
         write('song.mp3', AudioTagFixtures.mp3(title: 'Mp3', artist: 'A'));
 
@@ -98,7 +93,7 @@ void main() {
   });
 
   group('#855: odd text in an MP3 tag no longer drops the file', () {
-    test('a UTF-8 frame holding Latin-1 bytes', skip: skip, () async {
+    test('a UTF-8 frame holding Latin-1 bytes', () async {
       final LocalMetadataRead read = await reader
           .readWithOutcome('test/fixtures/tags/id3v24_invalid_utf8.mp3');
 
@@ -108,7 +103,7 @@ void main() {
       expect(read.metadata!.duration, isNotNull);
     });
 
-    test('only an ID3v1 tag, Latin-1 and NUL-padded', skip: skip, () async {
+    test('only an ID3v1 tag, Latin-1 and NUL-padded', () async {
       final LocalMetadataRead read =
           await reader.readWithOutcome('test/fixtures/tags/id3v1_only.mp3');
 
@@ -120,7 +115,7 @@ void main() {
   });
 
   group('MP4', () {
-    test('an unfinished encode keeps its tags', skip: skip, () async {
+    test('an unfinished encode keeps its tags', () async {
       // Its `mdat` is still sized 0, the box the package looped on; the MP4
       // guard refuses it on the Dart path.
       final LocalMetadataRead read = await reader
@@ -130,8 +125,7 @@ void main() {
       expect(read.metadata!.title, 'Unfinished');
     });
 
-    test('#855: a CDDB track number of A1 no longer drops the file', skip: skip,
-        () async {
+    test('#855: a CDDB track number of A1 no longer drops the file', () async {
       final LocalMetadataRead read =
           await reader.readWithOutcome('test/fixtures/tags/m4a_cddb_vinyl.m4a');
 
@@ -140,7 +134,7 @@ void main() {
       expect(read.metadata!.trackNumber, isNull);
     });
 
-    test('the album artist is read', skip: skip, () async {
+    test('the album artist is read', () async {
       final LocalAudioMetadata? tags =
           await reader.readFromPath('test/fixtures/tags/m4a_basic.m4a');
 
@@ -151,7 +145,7 @@ void main() {
   });
 
   group('WAV, AIFF and APE', () {
-    test("a WAV's id3 chunk wins over its INFO list", skip: skip, () async {
+    test("a WAV's id3 chunk wins over its INFO list", () async {
       final LocalAudioMetadata? tags =
           await reader.readFromPath('test/fixtures/tags/wav_id3.wav');
 
@@ -161,8 +155,7 @@ void main() {
       expect(tags.duration, const Duration(seconds: 1));
     });
 
-    test('an AIFF has its length from its 80-bit sample rate', skip: skip,
-        () async {
+    test('an AIFF has its length from its 80-bit sample rate', () async {
       final LocalAudioMetadata? tags =
           await reader.readFromPath('test/fixtures/tags/aiff_22050.aiff');
 
@@ -170,7 +163,7 @@ void main() {
       expect(tags.duration, const Duration(milliseconds: 1500));
     });
 
-    test('an MP3 with only an APE tag keeps it', skip: skip, () async {
+    test('an MP3 with only an APE tag keeps it', () async {
       final LocalAudioMetadata? tags =
           await reader.readFromPath('test/fixtures/tags/mp3_with_ape.mp3');
 
@@ -179,7 +172,7 @@ void main() {
       expect(tags.trackNumber, 5);
     });
 
-    test("a Monkey's Audio file has a length", skip: skip, () async {
+    test("a Monkey's Audio file has a length", () async {
       final LocalMetadataRead read =
           await reader.readWithOutcome('test/fixtures/tags/monkeys_new.ape');
 

@@ -126,9 +126,9 @@ void main() {
     });
 
     test('every automatic skip gets the same visible countdown', () {
-      expect(policy.delayBeforeAdvance(1), const Duration(seconds: 5));
-      expect(policy.delayBeforeAdvance(2), const Duration(seconds: 5));
-      expect(policy.delayBeforeAdvance(50), const Duration(seconds: 5));
+      expect(_advanceDelay(policy, 1), const Duration(seconds: 5));
+      expect(_advanceDelay(policy, 2), const Duration(seconds: 5));
+      expect(_advanceDelay(policy, 50), const Duration(seconds: 5));
     });
 
     test('a policy that asks for it backs off between moves, capped', () {
@@ -136,17 +136,17 @@ void main() {
         advanceDelay: Duration(seconds: 1),
         maxAdvanceDelay: Duration(seconds: 8),
       );
-      expect(backingOff.delayBeforeAdvance(1), const Duration(seconds: 1));
-      expect(backingOff.delayBeforeAdvance(2), const Duration(seconds: 2));
-      expect(backingOff.delayBeforeAdvance(3), const Duration(seconds: 4));
-      expect(backingOff.delayBeforeAdvance(4), const Duration(seconds: 8));
-      expect(backingOff.delayBeforeAdvance(50), const Duration(seconds: 8));
+      expect(_advanceDelay(backingOff, 1), const Duration(seconds: 1));
+      expect(_advanceDelay(backingOff, 2), const Duration(seconds: 2));
+      expect(_advanceDelay(backingOff, 3), const Duration(seconds: 4));
+      expect(_advanceDelay(backingOff, 4), const Duration(seconds: 8));
+      expect(_advanceDelay(backingOff, 50), const Duration(seconds: 8));
     });
 
     test('the whole walk is bounded in time as well as in tracks', () {
       Duration total = policy.retryDelay;
       for (int f = 1; f < policy.maxConsecutiveFailures; f++) {
-        total += policy.delayBeforeAdvance(f);
+        total += _advanceDelay(policy, f);
       }
       expect(total, lessThanOrEqualTo(const Duration(seconds: 40)));
     });
@@ -181,4 +181,27 @@ void main() {
       expect(streak.retrySpent, isFalse);
     });
   });
+}
+
+/// The countdown [policy] gives before moving past the [failures]th failed
+/// track in a row, its retry spent, with every move still allowed.
+Duration _advanceDelay(PlaybackRecoveryPolicy policy, int failures) {
+  final PlaybackRecoveryPolicy uncapped = PlaybackRecoveryPolicy(
+    retryDelay: policy.retryDelay,
+    advanceDelay: policy.advanceDelay,
+    maxAdvanceDelay: policy.maxAdvanceDelay,
+    maxConsecutiveFailures: 1000,
+  );
+  final PlaybackFailureStreak streak = PlaybackFailureStreak()..noteRetry();
+  for (int i = 0; i < failures - 1; i++) {
+    streak.record('jellyfin:$i');
+  }
+  final PlaybackRecoveryDecision decision = uncapped.decide(
+    kind: PlaybackFailureKind.temporarySource,
+    failedUri: 'jellyfin:failed',
+    nextUri: 'jellyfin:next',
+    streak: streak,
+  );
+  expect(decision.step, PlaybackRecoveryStep.advance);
+  return decision.delay;
 }

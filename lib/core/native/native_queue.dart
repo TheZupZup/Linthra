@@ -2,7 +2,6 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// An edit to the playback queue, numbered as the Rust core's edit codes
@@ -46,20 +45,20 @@ typedef QueueEditAnswer = ({QueueEditResult? edit});
 /// The playback queue's moves and edits in the Rust core
 /// (native/linthra_core/src/queue_moves.rs and queue_edits.rs).
 ///
-/// `PlaybackQueue` calls this and falls back to its Dart rules without the
-/// Rust core. Each method returns null when there is no Rust core, or when the
-/// Rust side refused its input.
+/// `PlaybackQueue` calls this. Every input comes from a queue's own state, so
+/// a refusal means the two sides of the ABI disagree, and throws.
 abstract final class NativeQueue {
-  /// The current position after [move] (a `QueueMove.index`), as a record so
-  /// that a null position (the move does nothing) is told apart from no answer.
-  static ({int? target})? move(int length, int current, int move, int index) {
-    if (!LinthraCore.isAvailable) return null;
+  /// The current position after [move] (a `QueueMove.index`), or null when
+  /// the move does nothing.
+  static int? move(int length, int current, int move, int index) {
     final int target = linthraQueueMove(length, current, move, index);
-    if (target == LinthraQueueMove.invalid) return null;
-    return (target: target == LinthraQueueMove.none ? null : target);
+    if (target == LinthraQueueMove.invalid) {
+      throw StateError('linthra_queue_move refused move $move');
+    }
+    return target == LinthraQueueMove.none ? null : target;
   }
 
-  static QueueEditAnswer? edit(
+  static QueueEditAnswer edit(
     QueueEditOp op, {
     required List<int> ids,
     required int current,
@@ -70,7 +69,6 @@ abstract final class NativeQueue {
     List<bool>? removed,
     List<bool>? removedOriginal,
   }) {
-    if (!LinthraCore.isAvailable) return null;
     final List<int> original = originalIds ?? const <int>[];
     return using((Arena arena) {
       final Pointer<Int64> idsPtr = arena<Int64>(ids.length + 1);
@@ -105,7 +103,9 @@ abstract final class NativeQueue {
         removedPtr,
         removedOriginalPtr,
       );
-      if (result == nullptr) return null;
+      if (result == nullptr) {
+        throw StateError('linthra_queue_edit refused ${op.name}');
+      }
       try {
         if (!linthraQueueEditChanged(result)) return (edit: null);
         final int length = linthraQueueEditLen(result);

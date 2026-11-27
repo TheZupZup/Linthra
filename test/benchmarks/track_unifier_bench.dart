@@ -1,8 +1,8 @@
 // A measurement harness, not a regression test.
 //
 // Times unifyTracks, which merges one song's copies from different servers,
-// over libraries of several sizes held on two servers: once on the Dart rules
-// and once in the Rust core, all marshalling included. It runs every time the
+// over libraries of several sizes held on two servers, in the Rust core with
+// all marshalling included. It runs every time the
 // library changes, over the whole catalog.
 //
 // Named `_bench.dart` so `flutter test` does not pick it up. Run it with:
@@ -12,7 +12,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/source_priority.dart';
 import 'package:linthra/core/catalog/track_unifier.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 
 /// [songs] songs, each on Jellyfin and on Navidrome, the second copy's title
 /// carrying a featured artist half the time. Names vary from their first
@@ -42,26 +41,17 @@ int _ms(void Function() run) {
 }
 
 void main() {
-  test('unifyTracks: Dart rules vs Rust core', () {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
+  test('unifyTracks in the Rust core', () {
     const SourcePriority priority =
         SourcePriority(<String>['jellyfin', 'subsonic']);
-    final StringBuffer report =
-        StringBuffer('tracks       Dart       Rust (ms)\n');
+    final StringBuffer report = StringBuffer('tracks       Rust (ms)\n');
     for (final int songs in <int>[5000, 25000, 100000]) {
       final List<Track> library = _library(songs);
-      // Warm both paths once.
-      unifyTracks(library, priority, useNative: false);
-      unifyTracks(library, priority);
-      final int dart =
-          _ms(() => unifyTracks(library, priority, useNative: false));
+      unifyTracks(library, priority); // warm up
       final int rust = _ms(() => unifyTracks(library, priority));
       expect(unifyTracks(library, priority).length, songs);
       report.writeln('${'${library.length}'.padLeft(7)}'
-          '${'$dart'.padLeft(11)}${'$rust'.padLeft(11)}');
+          '${'$rust'.padLeft(11)}');
     }
     // ignore: avoid_print
     print(report);

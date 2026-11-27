@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../repositories/download_store.dart';
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// The Rust core's answer for one eviction: whether the download fits, and
@@ -15,13 +14,12 @@ typedef NativeEvictionPlan = ({bool fits, List<int> evict});
 /// Runs the cache eviction policy in the Rust core
 /// (native/linthra_core/src/cache_eviction.rs).
 ///
-/// Use `CacheEvictionPolicy.plan`, which calls this and falls back to its Dart
-/// rules without the Rust core.
+/// Use `CacheEvictionPolicy.plan`, which calls this.
 abstract final class NativeCacheEviction {
-  /// The plan for [cached], or null when this build has no Rust core.
+  /// The plan for [cached].
   ///
   /// [protectKeys] and [incomingKey] are [CachedTrack.cacheKey]s.
-  static NativeEvictionPlan? plan({
+  static NativeEvictionPlan plan({
     required List<CachedTrack> cached,
     required int incomingBytes,
     required int maxBytes,
@@ -29,7 +27,6 @@ abstract final class NativeCacheEviction {
     required bool onlyPreloaded,
     String? incomingKey,
   }) {
-    if (!LinthraCore.isAvailable) return null;
     final _Text text = _Text(cached.length);
     final int count = cached.length;
     // A key without the separator is not one [CachedTrack.cacheKey] makes, so
@@ -109,8 +106,9 @@ abstract final class NativeCacheEviction {
       // Every span was written by [_Text] from Dart strings, so a refusal
       // means the two sides of the ABI disagree.
       if (result == nullptr) {
-        // Refused, or it panicked: the caller plans the Dart way.
-        return null;
+        // Refused (the two sides of the ABI disagree), or Rust's safe answer
+        // panicked too.
+        throw StateError('linthra_eviction_plan gave no answer');
       }
       try {
         final int length = linthraEvictionResultLen(result);

@@ -1,5 +1,5 @@
-//! Replays test/fixtures/search_cases.txt, the cases the Dart fallback
-//! (test/core/catalog/search_shared_cases_test.dart) replays too. See the
+//! Replays test/fixtures/search_cases.txt, the cases
+//! test/core/catalog/search_shared_cases_test.dart replays through the app. See the
 //! file's header for the format.
 
 use crate::normalize::normalized_tokens;

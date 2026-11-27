@@ -5,29 +5,26 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../models/track.dart';
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// The Songs list's order in the Rust core
-/// (native/linthra_core/src/song_sort.rs). Use `sortSongs`, which calls this
-/// and runs its Dart rules without the Rust core.
+/// (native/linthra_core/src/song_sort.rs). Use `sortSongs`, which calls this.
 abstract final class NativeSongSort {
   static const int _none = -0x8000000000000000;
 
   /// The order of [tracks] (positions in it) and each one's section
   /// character (null for an order without sections), filing albums against
-  /// [catalog] when given; null without the Rust core.
+  /// [catalog] when given.
   ///
   /// [field] is a `SongSortField` index. [addedAt] gives each song's first
   /// sighting in microseconds, by uri.
-  static (List<int>, List<String>?)? sort(
+  static (List<int>, List<String>?) sort(
     List<Track> tracks, {
     List<Track>? catalog,
     required int field,
     required bool descending,
     Map<String, DateTime> addedAt = const <String, DateTime>{},
   }) {
-    if (!LinthraCore.isAvailable) return null;
     // The songs are their own catalog: no need to send them twice.
     final List<Track> filing = catalog == null || identical(catalog, tracks)
         ? const <Track>[]
@@ -98,9 +95,10 @@ abstract final class NativeSongSort {
         field,
         descending,
       );
+      // Refused (the two sides of the ABI disagree), or Rust's safe answer
+      // panicked too.
       if (result == nullptr) {
-        // Refused, or it panicked: the caller sorts the Dart way.
-        return null;
+        throw StateError('linthra_song_sort gave no answer');
       }
       try {
         final List<int> order = List<int>.of(

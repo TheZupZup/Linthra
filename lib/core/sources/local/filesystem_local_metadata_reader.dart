@@ -93,7 +93,7 @@ class FilesystemLocalMetadataReader
   final bool Function(File file) _guard;
 
   /// Whether the parser isolate asks the Rust core first ([NativeTags]).
-  /// False only in tests of the Dart path, such as the ones that fail a
+  /// False only in tests of the package path, such as the ones that fail a
   /// file's reads through [IOOverrides], which the Rust core's reads don't
   /// go through.
   final bool _useNativeTags;

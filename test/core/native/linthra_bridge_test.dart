@@ -6,11 +6,7 @@ import 'package:linthra/core/native/linthra_core.dart';
 /// The flutter_rust_bridge path works end to end on the library the hook
 /// builds: an async call and a stream. Every backend phase rides on this.
 void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
-
-  group('Rust bridge', skip: skip, () {
+  group('Rust bridge', () {
     test('starts on the library the hook built', () async {
       expect(await LinthraBridgeLoader.ready(), isTrue);
     });

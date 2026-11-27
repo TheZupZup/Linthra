@@ -118,13 +118,7 @@ class PlaybackRecoveryPolicy {
     this.advanceDelay = const Duration(seconds: 5),
     this.maxAdvanceDelay = const Duration(seconds: 5),
     this.maxConsecutiveFailures = 6,
-    this.useNative = true,
   }) : assert(maxConsecutiveFailures >= 1);
-
-  /// Whether [decide] asks the Rust core (native/linthra_core/src/
-  /// playback_rules.rs) when the build has it. False keeps to the Dart rules
-  /// below, for the tests that hold the two to the same answers.
-  final bool useNative;
 
   /// How long to wait before the one automatic retry of a failed track.
   final Duration retryDelay;
@@ -141,24 +135,9 @@ class PlaybackRecoveryPolicy {
   /// How many different tracks may fail back to back before the player stops.
   final int maxConsecutiveFailures;
 
-  /// Whether a failure of [kind] may clear up if the same track is simply tried
-  /// again in a moment. Only a source problem can: a rejected sign-in, bytes
-  /// that won't decode, or a missing file give the same answer seconds later.
-  bool retriesAutomatically(PlaybackFailureKind kind) =>
-      kind == PlaybackFailureKind.temporarySource;
-
   /// Whether a failure of [kind] is about this track (so another track may
   /// well play) rather than about the engine every track plays through.
   bool movesPast(PlaybackFailureKind kind) => !kind.isEngineFailure;
-
-  /// The wait before moving past the [failures]th consecutive failed track.
-  Duration delayBeforeAdvance(int failures) {
-    Duration delay = advanceDelay;
-    for (int i = 1; i < failures && delay < maxAdvanceDelay; i++) {
-      delay *= 2;
-    }
-    return delay > maxAdvanceDelay ? maxAdvanceDelay : delay;
-  }
 
   /// What to do after the track [failedUri] failed with [kind], given the
   /// [streak] so far and the track the queue would move to next ([nextUri],
@@ -170,45 +149,28 @@ class PlaybackRecoveryPolicy {
     required String? nextUri,
     required PlaybackFailureStreak streak,
   }) {
-    if (useNative) {
-      final (int, Duration)? native = NativePlaybackRules.recoveryDecision(
-        kind: kind.index,
-        failuresBefore: streak.length,
-        retrySpent: streak.retrySpent,
-        next: nextUri == null
-            ? NativeNextTrack.none
-            : nextUri == failedUri
-                ? NativeNextTrack.same
-                : streak.contains(nextUri)
-                    ? NativeNextTrack.failedBefore
-                    : NativeNextTrack.fresh,
-        retryDelay: retryDelay,
-        advanceDelay: advanceDelay,
-        maxAdvanceDelay: maxAdvanceDelay,
-        maxConsecutiveFailures: maxConsecutiveFailures,
-      );
-      if (native != null) {
-        return switch (PlaybackRecoveryStep.values[native.$1]) {
-          PlaybackRecoveryStep.retry =>
-            PlaybackRecoveryDecision.retry(native.$2),
-          PlaybackRecoveryStep.advance =>
-            PlaybackRecoveryDecision.advance(native.$2),
-          PlaybackRecoveryStep.settle => PlaybackRecoveryDecision.settle,
-        };
-      }
-    }
-    if (!movesPast(kind)) return PlaybackRecoveryDecision.settle;
-    if (streak.isEmpty && !streak.retrySpent && retriesAutomatically(kind)) {
-      return PlaybackRecoveryDecision.retry(retryDelay);
-    }
-    // This failure plus the ones before it.
-    final int failures = streak.length + 1;
-    if (failures >= maxConsecutiveFailures) {
-      return PlaybackRecoveryDecision.settle;
-    }
-    if (nextUri == null || nextUri == failedUri || streak.contains(nextUri)) {
-      return PlaybackRecoveryDecision.settle;
-    }
-    return PlaybackRecoveryDecision.advance(delayBeforeAdvance(failures));
+    // Decided by the Rust core (native/linthra_core/src/playback_rules.rs).
+    final (int, Duration) native = NativePlaybackRules.recoveryDecision(
+      kind: kind.index,
+      failuresBefore: streak.length,
+      retrySpent: streak.retrySpent,
+      next: nextUri == null
+          ? NativeNextTrack.none
+          : nextUri == failedUri
+              ? NativeNextTrack.same
+              : streak.contains(nextUri)
+                  ? NativeNextTrack.failedBefore
+                  : NativeNextTrack.fresh,
+      retryDelay: retryDelay,
+      advanceDelay: advanceDelay,
+      maxAdvanceDelay: maxAdvanceDelay,
+      maxConsecutiveFailures: maxConsecutiveFailures,
+    );
+    return switch (PlaybackRecoveryStep.values[native.$1]) {
+      PlaybackRecoveryStep.retry => PlaybackRecoveryDecision.retry(native.$2),
+      PlaybackRecoveryStep.advance =>
+        PlaybackRecoveryDecision.advance(native.$2),
+      PlaybackRecoveryStep.settle => PlaybackRecoveryDecision.settle,
+    };
   }
 }

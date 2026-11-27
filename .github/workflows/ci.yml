@@ -71,12 +71,9 @@ jobs:
         run: python3 test/tooling/check_vendored_packages_test.py
 
       # hook/build.dart builds the Rust core with the runner's preinstalled
-      # cargo. A build without Rust skips it and the app falls back to Dart;
-      # here that would hide a broken hook, so test/core/native/ fails instead.
+      # cargo, and fails the run without it.
       - name: Run tests
         run: flutter test
-        env:
-          LINTHRA_REQUIRE_RUST: '1'
 
   secret-scan:
     name: Secret & privacy scan

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/cache_eviction_policy.dart';
 
@@ -64,22 +63,15 @@ void main() {
     expect(names.toSet().length, names.length);
   });
 
-  _replay('cache eviction cases (Dart)', cases,
-      const CacheEvictionPolicy(useNative: false));
-  // The Rust core is held to the same cases. Without it in this build (no
-  // Rust installed) the group is skipped; test/core/native/ fails the run
-  // instead when LINTHRA_REQUIRE_RUST=1.
-  _replay('cache eviction cases (Rust)', cases, const CacheEvictionPolicy(),
-      skip: LinthraCore.isAvailable ? false : 'Rust core not built');
+  _replay('cache eviction cases', cases, const CacheEvictionPolicy());
 }
 
 void _replay(
   String name,
   List<Map<String, dynamic>> cases,
-  CacheEvictionPolicy policy, {
-  Object skip = false,
-}) {
-  group(name, skip: skip, () {
+  CacheEvictionPolicy policy,
+) {
+  group(name, () {
     for (final Map<String, dynamic> c in cases) {
       test(c['name'] as String, () {
         final List<dynamic> rawTracks = c['cached'] as List<dynamic>;

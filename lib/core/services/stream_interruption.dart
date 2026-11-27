@@ -1,5 +1,4 @@
 import '../native/native_playback_rules.dart';
-import 'linux_playback_runtime.dart';
 
 /// Why a remote stream stopped mid-playback, classified from the audio engine's
 /// raw error so the player can recover (a bounded retry) or show a precise,
@@ -57,11 +56,6 @@ class StreamInterruption {
 /// retried.
 const int unsupportedAudioFormatErrorCode = 4005;
 
-/// A protocol version or an `I/O` in an engine error: slashes that start no
-/// location.
-final RegExp _notALocation =
-    RegExp(r'\b(?:HTTP/\d(?:\.\d)?|I/O)\b', caseSensitive: false);
-
 /// Classifies an audio-engine error into a [StreamInterruption].
 ///
 /// Security invariant: the engine's raw error can carry the tokenized stream URL
@@ -76,73 +70,10 @@ final RegExp _notALocation =
 /// slashes that aren't one: a status line's `HTTP/1.1` and an `I/O`, which
 /// would otherwise take the status or the reason after them along.
 ///
-/// The Rust core reads the text when the build has it
-/// (native/linthra_core/src/playback_rules.rs); [useNative] false keeps to the
-/// Dart rule below, for the tests that hold the two to the same answers.
-StreamInterruption classifyEngineError(Object error, {bool useNative = true}) {
-  final int? native =
-      useNative ? NativePlaybackRules.classifyError(error.toString()) : null;
-  if (native != null &&
-      native < StreamInterruptionKind.values.length &&
-      native != StreamInterruptionKind.localFileUnavailable.index) {
-    return _interruptions[StreamInterruptionKind.values[native]]!;
-  }
-  final String text = LinuxPlaybackRuntime.redactLocations(
-    error.toString().replaceAll(_notALocation, ' '),
-  ).toLowerCase();
-
-  // Structural, not wording: the Android engine's "no decoder on this device
-  // for this audio" error carries Media3's code, and just_audio renders
-  // an engine error as "(<code>) <message>". Checked before anything else so no
-  // digit or word in the message can route it elsewhere.
-  if (text.startsWith('($unsupportedAudioFormatErrorCode)')) {
-    return _interruptions[StreamInterruptionKind.formatUnsupported]!;
-  }
-
-  bool mentions(List<String> needles) =>
-      needles.any((String needle) => text.contains(needle));
-
-  // Auth first: a rejected session is not worth retrying — prompt a sign-in.
-  if (mentions(<String>['401', '403', 'unauthor', 'forbidden'])) {
-    return _interruptions[StreamInterruptionKind.sessionExpired]!;
-  }
-  // A decode failure won't fix itself by retrying the same bytes.
-  if (mentions(<String>[
-    'unsupported',
-    'decoder',
-    'codec',
-    'unable to instantiate',
-    'parse',
-  ])) {
-    return _interruptions[StreamInterruptionKind.formatUnsupported]!;
-  }
-  // The server isn't answering at all — worth one retry, then a friendly notice.
-  if (mentions(<String>[
-    'unreachable',
-    'refused',
-    'failed host lookup',
-    'no address',
-    'name resolution',
-  ])) {
-    return _interruptions[StreamInterruptionKind.serverUnreachable]!;
-  }
-  // A transient network drop mid-stream — the common case to recover from.
-  if (mentions(<String>[
-    'timeout',
-    'timed out',
-    'network',
-    'connection',
-    'reset',
-    'source error',
-    'socket',
-    'broken pipe',
-    'eof',
-  ])) {
-    return _interruptions[StreamInterruptionKind.networkDropped]!;
-  }
-  // Unknown: assume a transient glitch and allow a single retry.
-  return _interruptions[StreamInterruptionKind.unknown]!;
-}
+/// The Rust core reads the text (native/linthra_core/src/playback_rules.rs).
+StreamInterruption classifyEngineError(Object error) =>
+    _interruptions[StreamInterruptionKind
+        .values[NativePlaybackRules.classifyError(error.toString())]]!;
 
 /// The one message and retry rule for each kind [classifyEngineError]
 /// returns: fixed strings, so nothing of the engine's own text is ever shown.

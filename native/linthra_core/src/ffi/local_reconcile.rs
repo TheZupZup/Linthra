@@ -42,48 +42,59 @@ pub unsafe extern "C" fn linthra_local_reconcile(
     count: usize,
 ) -> *mut ReconcileResult {
     crate::ffi::guard(ptr::null_mut(), || {
-        let input = || -> Option<ReconcileResult> {
-            u32::try_from(count).ok()?;
-            if previous_count > count {
-                return None;
-            }
-            let text = array(text, text_len)?;
-            let spans = array(spans, count.checked_mul(12)?)?;
-            let durations = array(durations, count)?;
-            let numbers = array(track_numbers, count)?;
-            let refreshed: Vec<bool> = array(refreshed, previous_count)?
-                .iter()
-                .map(|&b| b != 0)
-                .collect();
-            let tracks = (0..count)
-                .map(|i| {
-                    let s = &spans[12 * i..12 * i + 12];
-                    Some(ReconcileTrack {
-                        uri: part(text, s[0], s[1])?,
-                        title: part(text, s[2], s[3])?,
-                        artist: part(text, s[4], s[5])?,
-                        album: part(text, s[6], s[7])?,
-                        album_artist: part(text, s[8], s[9])?,
-                        album_id: part(text, s[10], s[11])?,
-                        duration_micros: durations[i],
-                        track_number: (numbers[i] != i64::MIN).then_some(numbers[i]),
+        crate::ffi::fail_safe(
+            || {
+                let input = || -> Option<ReconcileResult> {
+                    u32::try_from(count).ok()?;
+                    if previous_count > count {
+                        return None;
+                    }
+                    let text = array(text, text_len)?;
+                    let spans = array(spans, count.checked_mul(12)?)?;
+                    let durations = array(durations, count)?;
+                    let numbers = array(track_numbers, count)?;
+                    let refreshed: Vec<bool> = array(refreshed, previous_count)?
+                        .iter()
+                        .map(|&b| b != 0)
+                        .collect();
+                    let tracks = (0..count)
+                        .map(|i| {
+                            let s = &spans[12 * i..12 * i + 12];
+                            Some(ReconcileTrack {
+                                uri: part(text, s[0], s[1])?,
+                                title: part(text, s[2], s[3])?,
+                                artist: part(text, s[4], s[5])?,
+                                album: part(text, s[6], s[7])?,
+                                album_artist: part(text, s[8], s[9])?,
+                                album_id: part(text, s[10], s[11])?,
+                                duration_micros: durations[i],
+                                track_number: (numbers[i] != i64::MIN).then_some(numbers[i]),
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?;
+                    let (previous, scanned) = tracks.split_at(previous_count);
+                    let Reconciliation { moves, removed } = resolve(previous, &refreshed, scanned);
+                    Some(ReconcileResult {
+                        moves: moves
+                            .into_iter()
+                            .flat_map(|(from, to)| [from as u32, to as u32])
+                            .collect(),
+                        removed: removed.into_iter().map(|i| i as u32).collect(),
                     })
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let (previous, scanned) = tracks.split_at(previous_count);
-            let Reconciliation { moves, removed } = resolve(previous, &refreshed, scanned);
-            Some(ReconcileResult {
-                moves: moves
-                    .into_iter()
-                    .flat_map(|(from, to)| [from as u32, to as u32])
-                    .collect(),
-                removed: removed.into_iter().map(|i| i as u32).collect(),
-            })
-        };
-        match input() {
-            Some(result) => Box::into_raw(Box::new(result)),
-            None => ptr::null_mut(),
-        }
+                };
+                match input() {
+                    Some(result) => Box::into_raw(Box::new(result)),
+                    None => ptr::null_mut(),
+                }
+            },
+            || {
+                Box::into_raw(Box::new(ReconcileResult {
+                    // Safe answer: nothing moved, nothing removed.
+                    moves: Vec::new(),
+                    removed: Vec::new(),
+                }))
+            },
+        )
     })
 }
 

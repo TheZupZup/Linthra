@@ -3,11 +3,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/search_tokens.dart';
 import 'package:linthra/core/catalog/search_typos.dart';
+import 'package:linthra/core/native/linthra_core.dart';
 
 /// Replays test/fixtures/search_cases.txt, the cases the Rust core
 /// (native/linthra_core/src/shared_cases_test.rs) replays too. Rust is the
-/// reference: a failure here means the Dart fallback would find something the
-/// Rust search doesn't, or miss something it finds.
+/// reference: a failure here means the Library's direct filters, which cut
+/// words and match typos in Dart, would find something the Rust index
+/// doesn't, or miss something it finds.
 const String _casesPath = 'test/fixtures/search_cases.txt';
 
 /// Undoes the fixture's escapes: \t, \n, \\ and \u{HEX}.
@@ -79,14 +81,15 @@ void main() {
     expect(seen, greaterThan(0), reason: 'no F cases read');
   });
 
-  test('matches match the shared cases', () {
-    final List<SearchableTrack> tracks = <SearchableTrack>[];
+  test('the Rust index matches the shared cases', () {
+    final List<NativeSearchRecord> tracks = <NativeSearchRecord>[];
     final List<(String, List<int>)> queries = <(String, List<int>)>[];
     for (final List<String> fields in _cases()) {
       switch (fields[0]) {
         case 'R':
           tracks.add(
-            SearchableTrack(
+            NativeSearchRecord(
+              id: '${tracks.length}',
               title: _unescape(fields[2]),
               artist: _unescape(fields[3]),
               album: _unescape(fields[4]),
@@ -109,7 +112,8 @@ void main() {
     }
     expect(queries, isNotEmpty, reason: 'no M cases read');
 
-    final DartSearchIndex index = DartSearchIndex(tracks);
+    final NativeSearchIndex index = NativeSearchIndex.build(tracks);
+    addTearDown(index.dispose);
     for (final (String query, List<int> expected) in queries) {
       expect(index.matchPositions(query), expected,
           reason: 'matches for "$query"');

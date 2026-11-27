@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../sources/local/local_audio_metadata.dart';
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// What the Rust core made of one file.
@@ -31,13 +30,11 @@ typedef NativeTagRead = ({
 /// Reads audio tags in the Rust core (native/linthra_core/src/tags/).
 ///
 /// `FilesystemLocalMetadataReader` asks this first, on its parser isolate,
-/// and reads the file the Dart way when there is no Rust core or the format
-/// isn't one it handles.
+/// and hands a file it doesn't handle to `audio_metadata_reader`.
 abstract final class NativeTags {
   /// The tags of the file at [path], and its cover when [withCover]; null
-  /// when this build has no Rust core.
+  /// only when the read and its own panic answer both failed.
   static NativeTagRead? read(String path, {required bool withCover}) {
-    if (!LinthraCore.isAvailable) return null;
     return using((Arena arena) {
       // dart:io opens a path by its UTF-8 bytes, so Rust is handed the same.
       final Uint8List encoded = utf8.encode(path);
@@ -49,8 +46,8 @@ abstract final class NativeTags {
         encoded.length,
         withCover,
       );
-      // Refused, or it panicked outside the read: the caller reads the
-      // file the Dart way.
+      // Refused, or it panicked outside the read: the caller hands the file
+      // to the package.
       if (result == nullptr) return null;
       try {
         final Pointer<Size> length = arena<Size>();

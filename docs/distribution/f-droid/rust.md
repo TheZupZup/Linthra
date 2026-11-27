@@ -56,13 +56,10 @@ bot copies for each new version. Per entry:
   `android/app/build.gradle` uses it). Another NDK links another library, and
   the APKs no longer match. Check it again whenever `.flutter-version`
   changes.
-- **`require_rust`** makes `hook/build.dart` fail when it can't build the Rust
-  core, instead of skipping it (see `hook/rust_requirement.dart`). It is a
-  hook user-define, read from the app's `pubspec.yaml`, because the hooks
-  runner hands a hook only a fixed set of environment variables: a
-  `LINTHRA_REQUIRE_RUST` exported in the recipe never reaches it. Without it, a
-  build server missing Rust would build an APK without the core and F-Droid
-  would only report that it doesn't match the signed one.
+- **`require_rust`** was the hook user-define that made `hook/build.dart`
+  fail instead of skipping the Rust core. The hook now requires the core on
+  every build, so the define changes nothing; it stays in the recipe for the
+  versions built before that.
 - **`check_apk_rust_core.py`** looks at the APK itself, the same check the
   release workflows run.
 

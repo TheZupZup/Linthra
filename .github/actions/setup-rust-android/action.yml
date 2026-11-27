@@ -2,7 +2,7 @@ name: Set up pinned Rust for Android
 description: >-
   Installs the Rust toolchain pinned in .rust-version, with the standard
   library for every Android ABI Linthra ships, so hook/build.dart builds the
-  Rust core (native/linthra_core) into the APK instead of skipping it.
+  Rust core (native/linthra_core) into the APK; without it the build fails.
 
 # Every workflow that builds an Android app uses this action, so the Rust that
 # goes into a release is one line in .rust-version. The F-Droid recipe reads
