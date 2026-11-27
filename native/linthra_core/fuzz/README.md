@@ -17,23 +17,32 @@ unreadable, so every one found is a bug to fix, with a regression test.
 
 ## Running
 
-cargo-fuzz needs a nightly toolchain:
+cargo-fuzz needs nightly. `rust-toolchain.toml` here pins the date, so from
+this folder cargo picks it up on its own:
 
 ```bash
-rustup toolchain install nightly --profile minimal
-cargo install cargo-fuzz --locked
+cargo install cargo-fuzz --version 0.13.2 --locked
 ```
 
-From `native/linthra_core/`, seed the corpora from the test fixtures, then
-run a target for a while:
+From `native/linthra_core/fuzz/`, seed the corpora from the test fixtures,
+then run a target for a while:
 
 ```bash
-./fuzz/seed.sh
-cargo +nightly fuzz run -O tags_mp4 -- -max_total_time=300 -max_len=65536
+./seed.sh
+cargo fuzz run -O tags_mp4 -- -max_total_time=300 -max_len=65536
 ```
 
-A panic leaves the input under `fuzz/artifacts/<target>/`. Replay it with
-`cargo +nightly fuzz run -O <target> <file>`, turn it into a test next to the
+A panic leaves the input under `artifacts/<target>/`. Replay it with
+`cargo fuzz run -O <target> <file>`, turn it into a test next to the
 reader it broke, and fix the reader. `corpus/` and `artifacts/` are not
 committed; `seeds/` holds the inputs `seed.sh` can't take from
 `test/fixtures/`.
+
+## In CI
+
+`.github/workflows/rust-fuzz.yml` runs every target for 10 minutes each
+Sunday, and for a minute on a pull request that touches the parsers or the
+targets. A panic fails the run and keeps the input as an artifact
+(`fuzz-crash-<target>`). Moving the nightly pin is a change of its own:
+bump the date in `rust-toolchain.toml` and let the pull request's short run
+check it builds.
