@@ -8,13 +8,17 @@
 // using its Dart code paths (LinthraCore.isAvailable is then false). A build
 // that does start and then fails is a real error and fails the hook.
 //
-// CI makes the native core mandatory where it matters by running the tests
-// with LINTHRA_REQUIRE_RUST=1 (see test/core/native/).
+// A build that must carry it asks for it with the `require_rust` user-define
+// (see rust_requirement.dart): then every case above fails the build instead
+// of skipping. CI's `flutter test` runs fail without it through
+// LINTHRA_REQUIRE_RUST=1 (see test/core/native/).
 
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
+
+import 'rust_requirement.dart';
 
 /// The crate, relative to the package root.
 const String _crateDir = 'native/linthra_core/';
@@ -31,6 +35,9 @@ Future<void> main(List<String> args) async {
     if (!input.config.buildCodeAssets) return;
     final CodeConfig code = input.config.code;
     final Uri crate = input.packageRoot.resolve(_crateDir);
+    final bool required =
+        rustCoreRequired(input.userDefines[requireRustDefine]);
+    void skip(String reason) => missingRustCore(reason, required: required);
 
     // Declared first, so that installing Rust later or editing the crate
     // re-runs the hook even after a run that skipped.
@@ -38,25 +45,25 @@ Future<void> main(List<String> args) async {
 
     final _RustTarget? target = _RustTarget.of(code);
     if (target == null) {
-      _skip('no Rust target is set up for '
+      skip('no Rust target is set up for '
           '${code.targetOS.name}/${code.targetArchitecture.name}');
       return;
     }
     final String? cargo = _findTool('cargo');
     final String? rustc = _findTool('rustc');
     if (cargo == null || rustc == null) {
-      _skip('cargo/rustc not found on PATH or in ~/.cargo/bin');
+      skip('cargo/rustc not found on PATH or in ~/.cargo/bin');
       return;
     }
     // Off Android, rustc links with the system's `cc`. An immutable desktop
     // (Fedora Kinoite, Silverblue) can have rustup in ~/.cargo but no
     // compiler outside a toolbox; skip there rather than fail the app build.
     if (target.androidClangPrefix == null && _findTool('cc') == null) {
-      _skip('no C linker (cc) on PATH for ${target.triple}');
+      skip('no C linker (cc) on PATH for ${target.triple}');
       return;
     }
     if (!await _hasStandardLibrary(rustc, target.triple)) {
-      _skip('the Rust standard library for ${target.triple} is not '
+      skip('the Rust standard library for ${target.triple} is not '
           'installed (rustup target add ${target.triple})');
       return;
     }
@@ -248,8 +255,4 @@ Future<bool> _hasStandardLibrary(String rustc, String triple) async {
   if (result.exitCode != 0) return false;
   final String libdir = (result.stdout as String).trim();
   return libdir.isNotEmpty && Directory(libdir).existsSync();
-}
-
-void _skip(String reason) {
-  stderr.writeln('linthra_core: building without the Rust core: $reason.');
 }

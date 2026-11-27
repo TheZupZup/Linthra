@@ -251,6 +251,85 @@ void main() {
     });
   });
 
+  group('the F-Droid template builds the Rust core', () {
+    // fdroiddata's update bot copies the last build entries for each new
+    // version, so those are the ones that must build liblinthra_core.so the
+    // way the signed release does (docs/distribution/f-droid/rust.md). A
+    // build without it can never match the signed APK.
+    const Map<String, String> rustTargets = <String, String>{
+      'android-arm': 'armv7-linux-androideabi',
+      'android-arm64': 'aarch64-linux-android',
+      'android-x64': 'x86_64-linux-android',
+    };
+    late List<String> template;
+
+    setUp(() {
+      final List<String> blocks = metadata.split('\n  - versionName: ');
+      template = blocks.sublist(blocks.length - 3);
+    });
+
+    test('each entry installs the pinned Rust for its own ABI', () {
+      for (final String block in template) {
+        final String platform =
+            RegExp(r'--target-platform="([^"]+)"').firstMatch(block)!.group(1)!;
+        expect(block, contains(r'- rustup@'), reason: platform);
+        expect(block, contains(r'rustVersion=$(cat .rust-version)'));
+        expect(
+          block,
+          matches(RegExp(
+            r'rustup-init\.sh -y --profile minimal --default-toolchain '
+            '\\\$rustVersion\\s+--target '
+            '${RegExp.escape(rustTargets[platform]!)}',
+          )),
+          reason: platform,
+        );
+        expect(block, contains(r'source $HOME/.cargo/env'), reason: platform);
+      }
+    });
+
+    test('each entry requires the Rust core and checks the APK for it', () {
+      for (final String block in template) {
+        expect(
+          block,
+          contains(r"user_defines:\n    linthra:\n      require_rust: true"),
+        );
+        final String output =
+            RegExp(r'output: (\S+)').firstMatch(block)!.group(1)!;
+        expect(
+          block,
+          contains('python3 scripts/check_apk_rust_core.py $output'),
+        );
+        // The define goes in before `flutter pub get --enforce-lockfile`.
+        expect(
+          block.indexOf('require_rust'),
+          lessThan(block.indexOf('pub get --enforce-lockfile')),
+        );
+      }
+    });
+
+    test("each entry links with the pinned Flutter's NDK", () {
+      final String? flutterRoot = Platform.environment['FLUTTER_ROOT'];
+      expect(flutterRoot, isNotNull, reason: 'run through `flutter test`');
+      final String extension = _read(p.join(
+        flutterRoot!,
+        'packages',
+        'flutter_tools',
+        'gradle',
+        'src',
+        'main',
+        'kotlin',
+        'FlutterExtension.kt',
+      ));
+      final String ndk = RegExp(r'val ndkVersion: String = "([^"]+)"')
+          .firstMatch(extension)!
+          .group(1)!;
+      expect(buildGradle, contains('ndkVersion = flutter.ndkVersion'));
+      for (final String block in template) {
+        expect(block, contains('    ndk: $ndk\n'));
+      }
+    });
+  });
+
   group('fdroiddata commit: fields are full 40-char SHAs', () {
     test('every metadata commit: is a 40-hex-digit SHA, not a tag name', () {
       // docs/distribution/release-process.md: a manual fdroiddata Builds entry must pin the
