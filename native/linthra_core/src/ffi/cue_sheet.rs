@@ -34,12 +34,12 @@ pub struct CueTracks {
 /// `bytes` must be null or valid for reads of `len` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_decode(bytes: *const u8, len: usize) -> *mut CueText {
-    match array(bytes, len) {
+    crate::ffi::guard(ptr::null_mut(), || match array(bytes, len) {
         Some(bytes) => Box::into_raw(Box::new(CueText {
             units: decode(bytes).encode_utf16().collect(),
         })),
         None => ptr::null_mut(),
-    }
+    })
 }
 
 /// The decoded text as UTF-16 code units, their count written to `len`.
@@ -50,13 +50,15 @@ pub unsafe extern "C" fn linthra_cue_decode(bytes: *const u8, len: usize) -> *mu
 /// for one write. The units live until the text is freed.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_text(text: *const CueText, len: *mut usize) -> *const u16 {
-    let (units, length) = text
-        .as_ref()
-        .map_or((ptr::null(), 0), |t| (t.units.as_ptr(), t.units.len()));
-    if !len.is_null() {
-        *len = length;
-    }
-    units
+    crate::ffi::guard(ptr::null(), || {
+        let (units, length) = text
+            .as_ref()
+            .map_or((ptr::null(), 0), |t| (t.units.as_ptr(), t.units.len()));
+        if !len.is_null() {
+            *len = length;
+        }
+        units
+    })
 }
 
 /// Frees a decoded text. Null is a no-op.
@@ -67,9 +69,11 @@ pub unsafe extern "C" fn linthra_cue_text(text: *const CueText, len: *mut usize)
 /// been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_text_free(text: *mut CueText) {
-    if !text.is_null() {
-        drop(Box::from_raw(text));
-    }
+    crate::ffi::guard((), || {
+        if !text.is_null() {
+            drop(Box::from_raw(text));
+        }
+    })
 }
 
 /// Parses a sheet's text (`len` bytes of UTF-8). Returns null when `text` is
@@ -81,12 +85,16 @@ pub unsafe extern "C" fn linthra_cue_text_free(text: *mut CueText) {
 /// `text` must be null or valid for reads of `len` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_parse(text: *const u8, len: usize) -> *mut CueTracks {
-    match array(text, len).and_then(|b| std::str::from_utf8(b).ok()) {
-        Some(text) => Box::into_raw(Box::new(CueTracks {
-            tracks: parse(text),
-        })),
-        None => ptr::null_mut(),
-    }
+    crate::ffi::guard(ptr::null_mut(), || {
+        match array(text, len).and_then(|b| std::str::from_utf8(b).ok()) {
+            // A sheet the parser panics on has no tracks: its audio file is
+            // listed on its own, as for a sheet that can't be read.
+            Some(text) => Box::into_raw(Box::new(CueTracks {
+                tracks: crate::ffi::guard(Vec::new(), || parse(text)),
+            })),
+            None => ptr::null_mut(),
+        }
+    })
 }
 
 /// How many tracks the sheet holds. 0 for null.
@@ -96,7 +104,7 @@ pub unsafe extern "C" fn linthra_cue_parse(text: *const u8, len: usize) -> *mut 
 /// `tracks` must be null or live from [linthra_cue_parse].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_track_count(tracks: *const CueTracks) -> usize {
-    tracks.as_ref().map_or(0, |t| t.tracks.len())
+    crate::ffi::guard(0, || tracks.as_ref().map_or(0, |t| t.tracks.len()))
 }
 
 /// Track `i`'s number. 0 when `i` is out of range or `tracks` null.
@@ -106,7 +114,7 @@ pub unsafe extern "C" fn linthra_cue_track_count(tracks: *const CueTracks) -> us
 /// `tracks` must be null or live from [linthra_cue_parse].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_number(tracks: *const CueTracks, i: usize) -> i64 {
-    track(tracks, i).map_or(0, |t| t.number)
+    crate::ffi::guard(0, || track(tracks, i).map_or(0, |t| t.number))
 }
 
 /// Track `i`'s start in milliseconds. 0 when `i` is out of range or `tracks`
@@ -117,7 +125,7 @@ pub unsafe extern "C" fn linthra_cue_number(tracks: *const CueTracks, i: usize) 
 /// `tracks` must be null or live from [linthra_cue_parse].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_start_ms(tracks: *const CueTracks, i: usize) -> i64 {
-    track(tracks, i).map_or(0, |t| t.start_ms)
+    crate::ffi::guard(0, || track(tracks, i).map_or(0, |t| t.start_ms))
 }
 
 /// One text field of track `i` as UTF-8 bytes, its length written to `len`.
@@ -135,18 +143,20 @@ pub unsafe extern "C" fn linthra_cue_field(
     field: u8,
     len: *mut usize,
 ) -> *const u8 {
-    let text = track(tracks, i).and_then(|t| match field {
-        CUE_FILE => Some(t.file.as_str()),
-        CUE_TITLE => t.title.as_deref(),
-        CUE_PERFORMER => t.performer.as_deref(),
-        CUE_ALBUM => t.album.as_deref(),
-        CUE_ALBUM_PERFORMER => t.album_performer.as_deref(),
-        _ => None,
-    });
-    if !len.is_null() {
-        *len = text.map_or(0, str::len);
-    }
-    text.map_or(ptr::null(), str::as_ptr)
+    crate::ffi::guard(ptr::null(), || {
+        let text = track(tracks, i).and_then(|t| match field {
+            CUE_FILE => Some(t.file.as_str()),
+            CUE_TITLE => t.title.as_deref(),
+            CUE_PERFORMER => t.performer.as_deref(),
+            CUE_ALBUM => t.album.as_deref(),
+            CUE_ALBUM_PERFORMER => t.album_performer.as_deref(),
+            _ => None,
+        });
+        if !len.is_null() {
+            *len = text.map_or(0, str::len);
+        }
+        text.map_or(ptr::null(), str::as_ptr)
+    })
 }
 
 /// Frees parsed tracks. Null is a no-op.
@@ -157,9 +167,11 @@ pub unsafe extern "C" fn linthra_cue_field(
 /// been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cue_tracks_free(tracks: *mut CueTracks) {
-    if !tracks.is_null() {
-        drop(Box::from_raw(tracks));
-    }
+    crate::ffi::guard((), || {
+        if !tracks.is_null() {
+            drop(Box::from_raw(tracks));
+        }
+    })
 }
 
 unsafe fn track<'a>(tracks: *const CueTracks, i: usize) -> Option<&'a CueTrack> {

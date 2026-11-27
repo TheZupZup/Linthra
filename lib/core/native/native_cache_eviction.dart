@@ -70,10 +70,12 @@ abstract final class NativeCacheEviction {
             (downloaded != null ? LinthraEvictionFlag.hasCachedAt : 0);
       }
 
-      final Pointer<Uint32> protectSpans =
-          arena<Uint32>(4 * protect.length + 4);
-      final Uint32List protectList =
-          protectSpans.asTypedList(4 * protect.length);
+      final Pointer<Uint32> protectSpans = arena<Uint32>(
+        4 * protect.length + 4,
+      );
+      final Uint32List protectList = protectSpans.asTypedList(
+        4 * protect.length,
+      );
       for (int i = 0; i < protect.length; i++) {
         text.addKey(protectList, 4 * i, protect[i]);
       }
@@ -107,7 +109,8 @@ abstract final class NativeCacheEviction {
       // Every span was written by [_Text] from Dart strings, so a refusal
       // means the two sides of the ABI disagree.
       if (result == nullptr) {
-        throw StateError('linthra_eviction_plan refused its input');
+        // Refused, or it panicked: the caller plans the Dart way.
+        return null;
       }
       try {
         final int length = linthraEvictionResultLen(result);

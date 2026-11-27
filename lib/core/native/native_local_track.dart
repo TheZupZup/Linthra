@@ -108,9 +108,15 @@ abstract final class NativeLocalTrack {
       final Pointer<Uint8> text = arena<Uint8>(all.length + 1);
       text.asTypedList(all.length).setAll(0, all);
       final Pointer<LinthraMappedTrack> mapped = linthraLocalTrackMap(
-          _kinds[source]!, text, all.length, bounds, values);
+        _kinds[source]!,
+        text,
+        all.length,
+        bounds,
+        values,
+      );
       if (mapped == nullptr) {
-        throw StateError('linthra_local_track_map refused its input');
+        // Refused, or it panicked: the caller maps the Dart way.
+        return null;
       }
       try {
         final Pointer<Size> length = arena<Size>();

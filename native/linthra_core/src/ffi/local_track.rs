@@ -58,10 +58,12 @@ pub unsafe extern "C" fn linthra_local_track_map(
     bounds: *const i64,
     numbers: *const i64,
 ) -> *mut MappedTrack {
-    match map(kind, text, text_len, bounds, numbers) {
-        Some(mapped) => Box::into_raw(Box::new(MappedTrack { mapped })),
-        None => ptr::null_mut(),
-    }
+    crate::ffi::guard(ptr::null_mut(), || {
+        match map(kind, text, text_len, bounds, numbers) {
+            Some(mapped) => Box::into_raw(Box::new(MappedTrack { mapped })),
+            None => ptr::null_mut(),
+        }
+    })
 }
 
 unsafe fn map(
@@ -136,21 +138,23 @@ pub unsafe extern "C" fn linthra_mapped_text(
     field: u8,
     len: *mut usize,
 ) -> *const u8 {
-    let text = mapped.as_ref().and_then(|m| {
-        let m = &m.mapped;
-        match field {
-            MAPPED_TITLE => Some(m.title.as_str()),
-            MAPPED_ARTIST => m.artist.as_deref(),
-            MAPPED_ALBUM => m.album.as_deref(),
-            MAPPED_ALBUM_ID => m.album_id.as_deref(),
-            MAPPED_ALBUM_ARTIST => m.album_artist.as_deref(),
-            _ => None,
+    crate::ffi::guard(ptr::null(), || {
+        let text = mapped.as_ref().and_then(|m| {
+            let m = &m.mapped;
+            match field {
+                MAPPED_TITLE => Some(m.title.as_str()),
+                MAPPED_ARTIST => m.artist.as_deref(),
+                MAPPED_ALBUM => m.album.as_deref(),
+                MAPPED_ALBUM_ID => m.album_id.as_deref(),
+                MAPPED_ALBUM_ARTIST => m.album_artist.as_deref(),
+                _ => None,
+            }
+        });
+        if !len.is_null() {
+            *len = text.map_or(0, str::len);
         }
-    });
-    if !len.is_null() {
-        *len = text.map_or(0, str::len);
-    }
-    text.map_or(ptr::null(), str::as_ptr)
+        text.map_or(ptr::null(), str::as_ptr)
+    })
 }
 
 /// One number of the answer, whether it is there written to `present`. 0
@@ -166,19 +170,21 @@ pub unsafe extern "C" fn linthra_mapped_number(
     field: u8,
     present: *mut u8,
 ) -> i64 {
-    let value = mapped.as_ref().and_then(|m| {
-        let m = &m.mapped;
-        match field {
-            MAPPED_TRACK_NUMBER => m.track_number,
-            MAPPED_DURATION_US => Some(m.duration_us),
-            MAPPED_CUE_END_US => m.cue_end_us,
-            _ => None,
+    crate::ffi::guard(0, || {
+        let value = mapped.as_ref().and_then(|m| {
+            let m = &m.mapped;
+            match field {
+                MAPPED_TRACK_NUMBER => m.track_number,
+                MAPPED_DURATION_US => Some(m.duration_us),
+                MAPPED_CUE_END_US => m.cue_end_us,
+                _ => None,
+            }
+        });
+        if !present.is_null() {
+            *present = u8::from(value.is_some());
         }
-    });
-    if !present.is_null() {
-        *present = u8::from(value.is_some());
-    }
-    value.unwrap_or(0)
+        value.unwrap_or(0)
+    })
 }
 
 /// Frees a mapped track. Null is a no-op.
@@ -189,9 +195,11 @@ pub unsafe extern "C" fn linthra_mapped_number(
 /// has not been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_mapped_free(mapped: *mut MappedTrack) {
-    if !mapped.is_null() {
-        drop(Box::from_raw(mapped));
-    }
+    crate::ffi::guard((), || {
+        if !mapped.is_null() {
+            drop(Box::from_raw(mapped));
+        }
+    })
 }
 
 #[cfg(test)]

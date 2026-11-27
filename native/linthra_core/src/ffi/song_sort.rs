@@ -35,49 +35,51 @@ pub unsafe extern "C" fn linthra_song_sort(
     field: u8,
     descending: bool,
 ) -> *mut Sorted {
-    let Some(field) = SortField::from_code(field) else {
-        return ptr::null_mut();
-    };
-    let n = count + catalog_count;
-    let text = if text_len == 0 {
-        &[][..]
-    } else if text.is_null() {
-        return ptr::null_mut();
-    } else {
-        std::slice::from_raw_parts(text, text_len)
-    };
-    if n > 0 && (spans.is_null() || discs.is_null() || tracks.is_null() || added.is_null()) {
-        return ptr::null_mut();
-    }
-    let number = |p: *const i64, i: usize| {
-        let v = *p.add(i);
-        (v != i64::MIN).then_some(v)
-    };
-    let read = |i: usize| -> Option<SortTrack> {
-        let span = std::slice::from_raw_parts(spans.add(14 * i), 14);
-        let part = |k: usize| {
-            let start = span[2 * k] as usize;
-            let bytes = text.get(start..start.checked_add(span[2 * k + 1] as usize)?)?;
-            std::str::from_utf8(bytes).ok()
+    crate::ffi::guard(ptr::null_mut(), || {
+        let Some(field) = SortField::from_code(field) else {
+            return ptr::null_mut();
         };
-        Some(SortTrack {
-            uri: part(0)?,
-            title: part(1)?,
-            title_lower: part(2)?,
-            artist_lower: part(3)?,
-            album_lower: part(4)?,
-            album_artist_lower: part(5)?,
-            album_id: part(6)?,
-            disc: number(discs, i),
-            track: number(tracks, i),
-            added_at: number(added, i),
-        })
-    };
-    let Some(entries) = (0..n).map(read).collect::<Option<Vec<_>>>() else {
-        return ptr::null_mut();
-    };
-    let (songs, catalog) = entries.split_at(count);
-    Box::into_raw(Box::new(sort_songs(songs, catalog, field, descending)))
+        let n = count + catalog_count;
+        let text = if text_len == 0 {
+            &[][..]
+        } else if text.is_null() {
+            return ptr::null_mut();
+        } else {
+            std::slice::from_raw_parts(text, text_len)
+        };
+        if n > 0 && (spans.is_null() || discs.is_null() || tracks.is_null() || added.is_null()) {
+            return ptr::null_mut();
+        }
+        let number = |p: *const i64, i: usize| {
+            let v = *p.add(i);
+            (v != i64::MIN).then_some(v)
+        };
+        let read = |i: usize| -> Option<SortTrack> {
+            let span = std::slice::from_raw_parts(spans.add(14 * i), 14);
+            let part = |k: usize| {
+                let start = span[2 * k] as usize;
+                let bytes = text.get(start..start.checked_add(span[2 * k + 1] as usize)?)?;
+                std::str::from_utf8(bytes).ok()
+            };
+            Some(SortTrack {
+                uri: part(0)?,
+                title: part(1)?,
+                title_lower: part(2)?,
+                artist_lower: part(3)?,
+                album_lower: part(4)?,
+                album_artist_lower: part(5)?,
+                album_id: part(6)?,
+                disc: number(discs, i),
+                track: number(tracks, i),
+                added_at: number(added, i),
+            })
+        };
+        let Some(entries) = (0..n).map(read).collect::<Option<Vec<_>>>() else {
+            return ptr::null_mut();
+        };
+        let (songs, catalog) = entries.split_at(count);
+        Box::into_raw(Box::new(sort_songs(songs, catalog, field, descending)))
+    })
 }
 
 /// The sorted order, `count` positions, valid until freed.
@@ -87,7 +89,9 @@ pub unsafe extern "C" fn linthra_song_sort(
 /// `result` must be null or a live pointer from [linthra_song_sort].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_song_sort_order(result: *const Sorted) -> *const u32 {
-    result.as_ref().map_or(ptr::null(), |r| r.order.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        result.as_ref().map_or(ptr::null(), |r| r.order.as_ptr())
+    })
 }
 
 /// Each sorted song's section as an ASCII character, or null for an order
@@ -98,10 +102,12 @@ pub unsafe extern "C" fn linthra_song_sort_order(result: *const Sorted) -> *cons
 /// As for [linthra_song_sort_order].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_song_sort_sections(result: *const Sorted) -> *const u8 {
-    result
-        .as_ref()
-        .filter(|r| !r.sections.is_empty())
-        .map_or(ptr::null(), |r| r.sections.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        result
+            .as_ref()
+            .filter(|r| !r.sections.is_empty())
+            .map_or(ptr::null(), |r| r.sections.as_ptr())
+    })
 }
 
 /// Frees a result. Null is a no-op.
@@ -111,9 +117,11 @@ pub unsafe extern "C" fn linthra_song_sort_sections(result: *const Sorted) -> *c
 /// `result` must be null or a pointer from [linthra_song_sort] not yet freed.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_song_sort_free(result: *mut Sorted) {
-    if !result.is_null() {
-        drop(Box::from_raw(result));
-    }
+    crate::ffi::guard((), || {
+        if !result.is_null() {
+            drop(Box::from_raw(result));
+        }
+    })
 }
 
 #[cfg(test)]

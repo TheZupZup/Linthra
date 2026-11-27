@@ -18,6 +18,9 @@ pub const TAGS_NOT_HANDLED: u8 = 1;
 /// [TagsResult] status: the file could not be read. Nothing is known about
 /// its tags.
 pub const TAGS_IO_ERROR: u8 = 2;
+/// [TagsResult] status: the reader panicked on the file, a malformed one it
+/// doesn't hold up against. Dart takes it for one that could not be read.
+pub const TAGS_PANICKED: u8 = 3;
 
 /// Field index for [linthra_tags_text]: title, artist, album artist, album.
 pub const TAGS_TITLE: u8 = 0;
@@ -45,35 +48,41 @@ pub unsafe extern "C" fn linthra_tags_read(
     path_len: usize,
     with_cover: bool,
 ) -> *mut TagsResult {
-    if path.is_null() && path_len != 0 {
-        return ptr::null_mut();
-    }
-    let bytes = if path_len == 0 {
-        &[][..]
-    } else {
-        std::slice::from_raw_parts(path, path_len)
-    };
-    let result = match path_from_bytes(bytes) {
-        None => TagsResult {
-            status: TAGS_IO_ERROR,
-            tags: AudioTags::default(),
-        },
-        Some(path) => match read_file(&path, with_cover) {
-            Ok(Some(tags)) => TagsResult {
-                status: TAGS_READ,
-                tags,
-            },
-            Ok(None) => TagsResult {
-                status: TAGS_NOT_HANDLED,
-                tags: AudioTags::default(),
-            },
-            Err(_) => TagsResult {
+    crate::ffi::guard(ptr::null_mut(), || {
+        if path.is_null() && path_len != 0 {
+            return ptr::null_mut();
+        }
+        let bytes = if path_len == 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(path, path_len)
+        };
+        let result = match path_from_bytes(bytes) {
+            None => TagsResult {
                 status: TAGS_IO_ERROR,
                 tags: AudioTags::default(),
             },
-        },
-    };
-    Box::into_raw(Box::new(result))
+            Some(path) => match std::panic::catch_unwind(|| read_file(&path, with_cover)) {
+                Err(_) => TagsResult {
+                    status: TAGS_PANICKED,
+                    tags: AudioTags::default(),
+                },
+                Ok(Ok(Some(tags))) => TagsResult {
+                    status: TAGS_READ,
+                    tags,
+                },
+                Ok(Ok(None)) => TagsResult {
+                    status: TAGS_NOT_HANDLED,
+                    tags: AudioTags::default(),
+                },
+                Ok(Err(_)) => TagsResult {
+                    status: TAGS_IO_ERROR,
+                    tags: AudioTags::default(),
+                },
+            },
+        };
+        Box::into_raw(Box::new(result))
+    })
 }
 
 #[cfg(unix)]
@@ -95,7 +104,9 @@ fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
 /// `result` must be null or a live pointer from [linthra_tags_read].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_tags_status(result: *const TagsResult) -> u8 {
-    result.as_ref().map_or(TAGS_IO_ERROR, |r| r.status)
+    crate::ffi::guard(TAGS_IO_ERROR, || {
+        result.as_ref().map_or(TAGS_IO_ERROR, |r| r.status)
+    })
 }
 
 /// One text field as UTF-8 bytes, its length written to `len`. Null (and a
@@ -111,17 +122,19 @@ pub unsafe extern "C" fn linthra_tags_text(
     field: u8,
     len: *mut usize,
 ) -> *const u8 {
-    let text = result.as_ref().and_then(|r| match field {
-        TAGS_TITLE => r.tags.title.as_deref(),
-        TAGS_ARTIST => r.tags.artist.as_deref(),
-        TAGS_ALBUM_ARTIST => r.tags.album_artist.as_deref(),
-        TAGS_ALBUM => r.tags.album.as_deref(),
-        _ => None,
-    });
-    if !len.is_null() {
-        *len = text.map_or(0, str::len);
-    }
-    text.map_or(ptr::null(), str::as_ptr)
+    crate::ffi::guard(ptr::null(), || {
+        let text = result.as_ref().and_then(|r| match field {
+            TAGS_TITLE => r.tags.title.as_deref(),
+            TAGS_ARTIST => r.tags.artist.as_deref(),
+            TAGS_ALBUM_ARTIST => r.tags.album_artist.as_deref(),
+            TAGS_ALBUM => r.tags.album.as_deref(),
+            _ => None,
+        });
+        if !len.is_null() {
+            *len = text.map_or(0, str::len);
+        }
+        text.map_or(ptr::null(), str::as_ptr)
+    })
 }
 
 /// The track number, or 0 when there is none (a real one is always positive).
@@ -131,10 +144,12 @@ pub unsafe extern "C" fn linthra_tags_text(
 /// As for [linthra_tags_status].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_tags_track_number(result: *const TagsResult) -> i64 {
-    result
-        .as_ref()
-        .and_then(|r| r.tags.track_number)
-        .unwrap_or(0)
+    crate::ffi::guard(0, || {
+        result
+            .as_ref()
+            .and_then(|r| r.tags.track_number)
+            .unwrap_or(0)
+    })
 }
 
 /// The length in microseconds, or 0 when unknown (a real one is positive).
@@ -144,10 +159,12 @@ pub unsafe extern "C" fn linthra_tags_track_number(result: *const TagsResult) ->
 /// As for [linthra_tags_status].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_tags_duration_micros(result: *const TagsResult) -> i64 {
-    result
-        .as_ref()
-        .and_then(|r| r.tags.duration_micros)
-        .unwrap_or(0)
+    crate::ffi::guard(0, || {
+        result
+            .as_ref()
+            .and_then(|r| r.tags.duration_micros)
+            .unwrap_or(0)
+    })
 }
 
 /// The cover's bytes, their count written to `len`; null and 0 when there is
@@ -161,11 +178,13 @@ pub unsafe extern "C" fn linthra_tags_cover(
     result: *const TagsResult,
     len: *mut usize,
 ) -> *const u8 {
-    let cover = result.as_ref().and_then(|r| r.tags.cover.as_deref());
-    if !len.is_null() {
-        *len = cover.map_or(0, <[u8]>::len);
-    }
-    cover.map_or(ptr::null(), <[u8]>::as_ptr)
+    crate::ffi::guard(ptr::null(), || {
+        let cover = result.as_ref().and_then(|r| r.tags.cover.as_deref());
+        if !len.is_null() {
+            *len = cover.map_or(0, <[u8]>::len);
+        }
+        cover.map_or(ptr::null(), <[u8]>::as_ptr)
+    })
 }
 
 /// Frees a result. Null is a no-op.
@@ -176,9 +195,11 @@ pub unsafe extern "C" fn linthra_tags_cover(
 /// been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_tags_free(result: *mut TagsResult) {
-    if !result.is_null() {
-        drop(Box::from_raw(result));
-    }
+    crate::ffi::guard((), || {
+        if !result.is_null() {
+            drop(Box::from_raw(result));
+        }
+    })
 }
 
 #[cfg(test)]

@@ -38,27 +38,29 @@ pub unsafe extern "C" fn linthra_unify_tracks(
     track_numbers: *const i64,
     count: usize,
 ) -> *mut UnifyResult {
-    let Some(tracks) = read_tracks(
-        text,
-        text_len,
-        spans,
-        sources,
-        ranks,
-        durations,
-        track_numbers,
-        count,
-    ) else {
-        return ptr::null_mut();
-    };
-    let rows = unify(&tracks);
-    let mut starts = Vec::with_capacity(rows.len() + 1);
-    let mut indices = Vec::with_capacity(count);
-    for row in rows {
+    crate::ffi::guard(ptr::null_mut(), || {
+        let Some(tracks) = read_tracks(
+            text,
+            text_len,
+            spans,
+            sources,
+            ranks,
+            durations,
+            track_numbers,
+            count,
+        ) else {
+            return ptr::null_mut();
+        };
+        let rows = unify(&tracks);
+        let mut starts = Vec::with_capacity(rows.len() + 1);
+        let mut indices = Vec::with_capacity(count);
+        for row in rows {
+            starts.push(indices.len() as u32);
+            indices.extend(row);
+        }
         starts.push(indices.len() as u32);
-        indices.extend(row);
-    }
-    starts.push(indices.len() as u32);
-    Box::into_raw(Box::new(UnifyResult { starts, indices }))
+        Box::into_raw(Box::new(UnifyResult { starts, indices }))
+    })
 }
 
 /// Whether `row` is the playing `current` track: `isCurrentPlaybackTrack`
@@ -79,20 +81,22 @@ pub unsafe extern "C" fn linthra_is_current_track(
     durations: *const i64,
     track_numbers: *const i64,
 ) -> u8 {
-    let ranks = [0u32; 2];
-    match read_tracks(
-        text,
-        text_len,
-        spans,
-        sources,
-        ranks.as_ptr(),
-        durations,
-        track_numbers,
-        2,
-    ) {
-        Some(tracks) => is_current_playback(&tracks[0], &tracks[1]) as u8,
-        None => CURRENT_TRACK_INVALID,
-    }
+    crate::ffi::guard(u8::MAX, || {
+        let ranks = [0u32; 2];
+        match read_tracks(
+            text,
+            text_len,
+            spans,
+            sources,
+            ranks.as_ptr(),
+            durations,
+            track_numbers,
+            2,
+        ) {
+            Some(tracks) => is_current_playback(&tracks[0], &tracks[1]) as u8,
+            None => CURRENT_TRACK_INVALID,
+        }
+    })
 }
 
 /// [linthra_is_current_track]'s answer to input it could not read.
@@ -163,7 +167,7 @@ unsafe fn read_tracks<'a>(
 /// `result` must be null or a live pointer from [linthra_unify_tracks].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_unify_rows(result: *const UnifyResult) -> usize {
-    result.as_ref().map_or(0, |r| r.starts.len() - 1)
+    crate::ffi::guard(0, || result.as_ref().map_or(0, |r| r.starts.len() - 1))
 }
 
 /// The rows' start offsets, rows + 1 of them, valid until freed.
@@ -173,7 +177,9 @@ pub unsafe extern "C" fn linthra_unify_rows(result: *const UnifyResult) -> usize
 /// As for [linthra_unify_rows].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_unify_starts(result: *const UnifyResult) -> *const u32 {
-    result.as_ref().map_or(ptr::null(), |r| r.starts.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        result.as_ref().map_or(ptr::null(), |r| r.starts.as_ptr())
+    })
 }
 
 /// The track indices of every row, back to back, valid until freed.
@@ -183,7 +189,9 @@ pub unsafe extern "C" fn linthra_unify_starts(result: *const UnifyResult) -> *co
 /// As for [linthra_unify_rows].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_unify_indices(result: *const UnifyResult) -> *const u32 {
-    result.as_ref().map_or(ptr::null(), |r| r.indices.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        result.as_ref().map_or(ptr::null(), |r| r.indices.as_ptr())
+    })
 }
 
 /// Frees a result. Null is a no-op.
@@ -194,9 +202,11 @@ pub unsafe extern "C" fn linthra_unify_indices(result: *const UnifyResult) -> *c
 /// been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_unify_free(result: *mut UnifyResult) {
-    if !result.is_null() {
-        drop(Box::from_raw(result));
-    }
+    crate::ffi::guard((), || {
+        if !result.is_null() {
+            drop(Box::from_raw(result));
+        }
+    })
 }
 
 #[cfg(test)]

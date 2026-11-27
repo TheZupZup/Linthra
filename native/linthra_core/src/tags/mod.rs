@@ -32,6 +32,55 @@ mod riff;
 mod shared_cases_test;
 mod vorbis_comments;
 
+/// Each format's reader on its own, for the fuzz targets in `fuzz/`: through
+/// [read] a format is only reached once the fuzzer has found its magic.
+/// Built only when `cargo fuzz` builds the crate (`--cfg fuzzing`).
+#[cfg(fuzzing)]
+pub mod fuzz {
+    use std::io::Cursor;
+
+    /// Runs the reader `format` names on `data`, with and without the
+    /// cover, and drops whatever it reads: a fuzz run only looks for panics.
+    pub fn read(format: &str, data: &[u8]) {
+        for with_cover in [false, true] {
+            let mut source = Cursor::new(data);
+            let _ = match format {
+                "flac" => super::flac::read(&mut source, with_cover).map(|_| ()),
+                "ogg" => super::ogg::read(&mut source, with_cover).map(|_| ()),
+                "mp3" => super::mp3::read(&mut source, with_cover).map(|_| ()),
+                "mp4" => super::mp4::read(&mut source, with_cover).map(|_| ()),
+                "wav" => super::riff::read_wav(&mut source, with_cover).map(|_| ()),
+                "aiff" => super::riff::read_aiff(&mut source, with_cover).map(|_| ()),
+                "ape" => super::ape::read_monkeys_audio(&mut source, with_cover).map(|_| ()),
+                "any" => super::read(&mut source, with_cover).map(|_| ()),
+                _ => panic!("no fuzz target for {format}"),
+            };
+        }
+    }
+
+    /// The parsers that work on bytes already read: an ID3v2 body (its
+    /// version and flags from the first two bytes), Vorbis comments and a
+    /// FLAC picture block.
+    pub fn parse(format: &str, data: &[u8]) {
+        match format {
+            "id3v2" => {
+                if let [major, flags, body @ ..] = data {
+                    let _ = super::id3v2::parse(*major, *flags, body, true);
+                }
+            }
+            "vorbis_comments" => {
+                for skip in [false, true] {
+                    let _ = super::vorbis_comments::parse(data, data.len() as u64, skip);
+                }
+            }
+            "picture" => {
+                let _ = super::picture::parse(data);
+            }
+            _ => panic!("no fuzz target for {format}"),
+        }
+    }
+}
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};

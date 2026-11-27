@@ -55,7 +55,10 @@ abstract final class NativeSongSort {
       // Rust lower-cases ASCII exactly as Dart does.
       final bool ascii = !sorted || text.lengthOf(title) == t.title.length;
       text.span(
-          spans, at + 4, ascii ? text.empty : text.add(t.title.toLowerCase()));
+        spans,
+        at + 4,
+        ascii ? text.empty : text.add(t.title.toLowerCase()),
+      );
       text.span(spans, at + 6, shared(lowered, t.artistName ?? '', true));
       text.span(spans, at + 8, shared(lowered, t.albumName ?? '', true));
       text.span(spans, at + 10, shared(lowered, t.albumArtistName ?? '', true));
@@ -77,7 +80,9 @@ abstract final class NativeSongSort {
       Pointer<T> copy<T extends NativeType>(TypedData data, int size) {
         final Pointer<Uint8> p = arena<Uint8>(data.lengthInBytes + 1);
         p.asTypedList(data.lengthInBytes).setAll(
-            0, data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+              0,
+              data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+            );
         return p.cast<T>();
       }
 
@@ -94,11 +99,13 @@ abstract final class NativeSongSort {
         descending,
       );
       if (result == nullptr) {
-        throw StateError('linthra_song_sort refused its input');
+        // Refused, or it panicked: the caller sorts the Dart way.
+        return null;
       }
       try {
         final List<int> order = List<int>.of(
-            linthraSongSortOrder(result).asTypedList(tracks.length));
+          linthraSongSortOrder(result).asTypedList(tracks.length),
+        );
         final Pointer<Uint8> sections = linthraSongSortSections(result);
         return (
           order,

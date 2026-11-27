@@ -52,6 +52,21 @@ pub struct LibraryGroupsView {
     pub track_artist: *const u32,
 }
 
+impl LibraryGroupsView {
+    /// What [linthra_grouping_result_view] answers if it panics: nothing.
+    pub const EMPTY: LibraryGroupsView = LibraryGroupsView {
+        album_count: 0,
+        artist_count: 0,
+        ids: ptr::null(),
+        album_ids: ptr::null(),
+        artist_ids: ptr::null(),
+        album_fields: ptr::null(),
+        artist_fields: ptr::null(),
+        track_album: ptr::null(),
+        track_artist: ptr::null(),
+    };
+}
+
 /// Groups `count` tracks described by `spans` (`8 * count` values) into
 /// `text`. The album, artist and album artist must already be lower-cased
 /// with Dart's `String.toLowerCase`; the album id is passed as the source
@@ -73,31 +88,33 @@ pub unsafe extern "C" fn linthra_library_group(
     spans: *const u32,
     count: usize,
 ) -> *mut GroupingResult {
-    let input = || -> Option<GroupingResult> {
-        if u32::try_from(count).ok()? == GROUPING_NO_TRACK {
-            return None;
-        }
-        let text = array(text, text_len)?;
-        let spans = array(spans, count.checked_mul(8)?)?;
-        let tracks = spans
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|span| {
-                Some(GroupingTrack {
-                    album_id: part(text, span[0], span[1])?,
-                    album: part(text, span[2], span[3])?,
-                    artist: part(text, span[4], span[5])?,
-                    album_artist: part(text, span[6], span[7])?,
+    crate::ffi::guard(ptr::null_mut(), || {
+        let input = || -> Option<GroupingResult> {
+            if u32::try_from(count).ok()? == GROUPING_NO_TRACK {
+                return None;
+            }
+            let text = array(text, text_len)?;
+            let spans = array(spans, count.checked_mul(8)?)?;
+            let tracks = spans
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|span| {
+                    Some(GroupingTrack {
+                        album_id: part(text, span[0], span[1])?,
+                        album: part(text, span[2], span[3])?,
+                        artist: part(text, span[4], span[5])?,
+                        album_artist: part(text, span[6], span[7])?,
+                    })
                 })
-            })
-            .collect::<Option<Vec<_>>>()?;
-        layout(group(&tracks))
-    };
-    match input() {
-        Some(result) => Box::into_raw(Box::new(result)),
-        None => ptr::null_mut(),
-    }
+                .collect::<Option<Vec<_>>>()?;
+            layout(group(&tracks))
+        };
+        match input() {
+            Some(result) => Box::into_raw(Box::new(result)),
+            None => ptr::null_mut(),
+        }
+    })
 }
 
 /// The arrays of `result`. All zero and null for a null `result`.
@@ -109,7 +126,7 @@ pub unsafe extern "C" fn linthra_library_group(
 pub unsafe extern "C" fn linthra_grouping_result_view(
     result: *const GroupingResult,
 ) -> LibraryGroupsView {
-    match result.as_ref() {
+    crate::ffi::guard(LibraryGroupsView::EMPTY, || match result.as_ref() {
         Some(r) => LibraryGroupsView {
             album_count: r.album_ids.len() - 1,
             artist_count: r.artist_ids.len() - 1,
@@ -132,7 +149,7 @@ pub unsafe extern "C" fn linthra_grouping_result_view(
             track_album: ptr::null(),
             track_artist: ptr::null(),
         },
-    }
+    })
 }
 
 /// Frees a grouping. Null is a no-op.
@@ -143,9 +160,11 @@ pub unsafe extern "C" fn linthra_grouping_result_view(
 /// not been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_grouping_result_free(result: *mut GroupingResult) {
-    if !result.is_null() {
-        drop(Box::from_raw(result));
-    }
+    crate::ffi::guard((), || {
+        if !result.is_null() {
+            drop(Box::from_raw(result));
+        }
+    })
 }
 
 /// Flattens `groups` into a [GroupingResult]. None when the ids outgrow a

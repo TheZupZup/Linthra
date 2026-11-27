@@ -36,44 +36,46 @@ pub unsafe extern "C" fn linthra_search_rank(
     count: usize,
     out: *mut u32,
 ) -> i32 {
-    let (Some(query), Some(text), Some(kinds), Some(spans)) = (
-        bytes(query, query_len),
-        bytes(text, text_len),
-        bytes(kinds, count),
-        count.checked_mul(2).and_then(|n| bytes(spans, n)),
-    ) else {
-        return STATUS_NULL_ARGUMENT;
-    };
-    if count > 0 && out.is_null() {
-        return STATUS_NULL_ARGUMENT;
-    }
-    let Ok(query) = std::str::from_utf8(query) else {
-        return STATUS_INVALID_UTF8;
-    };
-    let mut results: Vec<(ResultKind, &str)> = Vec::with_capacity(count);
-    for i in 0..count {
-        let kind = match kinds[i] {
-            0 => ResultKind::Artist,
-            1 => ResultKind::Album,
-            2 => ResultKind::Song,
-            _ => return STATUS_INVALID_INPUT,
+    crate::ffi::guard(crate::ffi::STATUS_PANIC, || {
+        let (Some(query), Some(text), Some(kinds), Some(spans)) = (
+            bytes(query, query_len),
+            bytes(text, text_len),
+            bytes(kinds, count),
+            count.checked_mul(2).and_then(|n| bytes(spans, n)),
+        ) else {
+            return STATUS_NULL_ARGUMENT;
         };
-        let start = spans[2 * i] as usize;
-        let Some(end) = start.checked_add(spans[2 * i + 1] as usize) else {
-            return STATUS_INVALID_INPUT;
-        };
-        let Some(raw) = text.get(start..end) else {
-            return STATUS_INVALID_INPUT;
-        };
-        let Ok(name) = std::str::from_utf8(raw) else {
+        if count > 0 && out.is_null() {
+            return STATUS_NULL_ARGUMENT;
+        }
+        let Ok(query) = std::str::from_utf8(query) else {
             return STATUS_INVALID_UTF8;
         };
-        results.push((kind, name));
-    }
-    for (slot, position) in rank_results(query, &results).into_iter().enumerate() {
-        *out.add(slot) = position as u32;
-    }
-    STATUS_OK
+        let mut results: Vec<(ResultKind, &str)> = Vec::with_capacity(count);
+        for i in 0..count {
+            let kind = match kinds[i] {
+                0 => ResultKind::Artist,
+                1 => ResultKind::Album,
+                2 => ResultKind::Song,
+                _ => return STATUS_INVALID_INPUT,
+            };
+            let start = spans[2 * i] as usize;
+            let Some(end) = start.checked_add(spans[2 * i + 1] as usize) else {
+                return STATUS_INVALID_INPUT;
+            };
+            let Some(raw) = text.get(start..end) else {
+                return STATUS_INVALID_INPUT;
+            };
+            let Ok(name) = std::str::from_utf8(raw) else {
+                return STATUS_INVALID_UTF8;
+            };
+            results.push((kind, name));
+        }
+        for (slot, position) in rank_results(query, &results).into_iter().enumerate() {
+            *out.add(slot) = position as u32;
+        }
+        STATUS_OK
+    })
 }
 
 /// `len` values at `p`, or none when `p` is null while `len` is not zero.

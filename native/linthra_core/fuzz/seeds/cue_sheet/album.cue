@@ -1,0 +1,15 @@
+REM GENRE Rock
+PERFORMER "Band"
+TITLE "Album"
+FILE "disc.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    INDEX 00 00:00:00
+    INDEX 01 00:02:33
+  TRACK 02 AUDIO
+    TITLE "Two"
+    PERFORMER "Guest"
+    INDEX 01 04:10:74
+FILE "bonus.wav" WAVE
+  TRACK 03 AUDIO
+    INDEX 01 00:00:00

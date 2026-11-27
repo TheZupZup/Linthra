@@ -82,8 +82,10 @@ fn held_code(action: HeldAction) -> u8 {
 /// [download_gate]: the gate's code, or [DOWNLOAD_INVALID].
 #[no_mangle]
 pub extern "C" fn linthra_download_gate(network_code: u8, allow_mobile_data: bool) -> u8 {
-    network(network_code).map_or(DOWNLOAD_INVALID, |n| {
-        gate_code(download_gate(n, allow_mobile_data))
+    crate::ffi::guard(u8::MAX, || {
+        network(network_code).map_or(DOWNLOAD_INVALID, |n| {
+            gate_code(download_gate(n, allow_mobile_data))
+        })
     })
 }
 
@@ -91,10 +93,12 @@ pub extern "C" fn linthra_download_gate(network_code: u8, allow_mobile_data: boo
 /// [DOWNLOAD_INVALID].
 #[no_mangle]
 pub extern "C" fn linthra_download_settle_canceled(row_status: u8, committed_copy: u8) -> u8 {
-    match (row(row_status), committed(committed_copy)) {
-        (Some(r), Some(c)) => row_code(settle_canceled(r, c)),
-        _ => DOWNLOAD_INVALID,
-    }
+    crate::ffi::guard(u8::MAX, || {
+        match (row(row_status), committed(committed_copy)) {
+            (Some(r), Some(c)) => row_code(settle_canceled(r, c)),
+            _ => DOWNLOAD_INVALID,
+        }
+    })
 }
 
 /// [held_action]: the action's code, or [DOWNLOAD_INVALID].
@@ -104,8 +108,10 @@ pub extern "C" fn linthra_download_held_action(
     in_flight: bool,
     row_status: u8,
 ) -> u8 {
-    row(row_status).map_or(DOWNLOAD_INVALID, |r| {
-        held_code(held_action(same_account, in_flight, r))
+    crate::ffi::guard(u8::MAX, || {
+        row(row_status).map_or(DOWNLOAD_INVALID, |r| {
+            held_code(held_action(same_account, in_flight, r))
+        })
     })
 }
 

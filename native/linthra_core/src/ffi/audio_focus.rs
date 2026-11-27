@@ -25,28 +25,30 @@ pub unsafe extern "C" fn linthra_audio_focus_step(
     capacity: usize,
     count: *mut usize,
 ) -> u16 {
-    let Some(event) = FocusEvent::from_code(event) else {
-        return FOCUS_INVALID;
-    };
-    if steps.is_null() || count.is_null() {
-        return FOCUS_INVALID;
-    }
-    let (next, out) = step(
-        FocusState::from_bits(state),
-        event,
-        FocusContext::from_bits(context),
-    );
-    if out.len() > capacity {
-        return FOCUS_INVALID;
-    }
-    for (i, s) in out.iter().enumerate() {
-        *steps.add(i) = match (s.0, s.1) {
-            (FocusCommand::Diagnostic, Some(d)) => DIAGNOSTIC_BASE + d as u8,
-            (command, _) => command as u8,
+    crate::ffi::guard(u16::MAX, || {
+        let Some(event) = FocusEvent::from_code(event) else {
+            return FOCUS_INVALID;
         };
-    }
-    *count = out.len();
-    u16::from(next.bits())
+        if steps.is_null() || count.is_null() {
+            return FOCUS_INVALID;
+        }
+        let (next, out) = step(
+            FocusState::from_bits(state),
+            event,
+            FocusContext::from_bits(context),
+        );
+        if out.len() > capacity {
+            return FOCUS_INVALID;
+        }
+        for (i, s) in out.iter().enumerate() {
+            *steps.add(i) = match (s.0, s.1) {
+                (FocusCommand::Diagnostic, Some(d)) => DIAGNOSTIC_BASE + d as u8,
+                (command, _) => command as u8,
+            };
+        }
+        *count = out.len();
+        u16::from(next.bits())
+    })
 }
 
 #[cfg(test)]

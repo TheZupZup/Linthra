@@ -1,0 +1,4 @@
+ï»¿FILE "ÐŸ.flac" WAVE
+  TRACK 1 AUDIO
+    TITLE "Àá"
+    INDEX 01 99:59:74
