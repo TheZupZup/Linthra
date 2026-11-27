@@ -3,3 +3,4 @@
 //! `flutter_rust_bridge_codegen generate` after changing anything here.
 
 pub mod core;
+pub mod scan;

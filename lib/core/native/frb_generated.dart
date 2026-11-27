@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'api/core.dart';
+import 'api/scan.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
@@ -71,7 +72,7 @@ class LinthraBridge extends BaseEntrypoint<LinthraBridgeApi,
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1233995340;
+  int get rustContentHash => 5095893;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -85,6 +86,9 @@ abstract class LinthraBridgeApi extends BaseApi {
   Future<int> crateApiCoreBridgeAbiVersion();
 
   Stream<int> crateApiCoreBridgeCount({required int to});
+
+  Future<FolderWalk> crateApiScanWalkFolder(
+      {required String folder, required int stallLimitMs});
 }
 
 class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
@@ -147,6 +151,32 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         argNames: ["to", "sink"],
       );
 
+  @override
+  Future<FolderWalk> crateApiScanWalkFolder(
+      {required String folder, required int stallLimitMs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(folder, serializer);
+        sse_encode_u_32(stallLimitMs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 3, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_folder_walk,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiScanWalkFolderConstMeta,
+      argValues: [folder, stallLimitMs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiScanWalkFolderConstMeta => const TaskConstMeta(
+        debugName: "walk_folder",
+        argNames: ["folder", "stallLimitMs"],
+      );
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -166,9 +196,65 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
+  int dco_decode_box_autoadd_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_walk_fault(raw);
+  }
+
+  @protected
+  FolderWalk dco_decode_folder_walk(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return FolderWalk(
+      paths: dco_decode_list_String(arr[0]),
+      unreadable: dco_decode_list_String(arr[1]),
+      unopenable: dco_decode_list_String(arr[2]),
+      failure: dco_decode_opt_box_autoadd_walk_fault(arr[3]),
+    );
+  }
+
+  @protected
+  int dco_decode_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_32(raw);
+  }
+
+  @protected
+  WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_walk_fault(raw);
   }
 
   @protected
@@ -187,6 +273,19 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   void dco_decode_unit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return;
+  }
+
+  @protected
+  WalkFault dco_decode_walk_fault(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return WalkFault(
+      interrupted: dco_decode_bool(arr[0]),
+      stalled: dco_decode_bool(arr[1]),
+      errno: dco_decode_opt_box_autoadd_i_32(arr[2]),
+    );
   }
 
   @protected
@@ -211,10 +310,83 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_walk_fault(deserializer));
+  }
+
+  @protected
+  FolderWalk sse_decode_folder_walk(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_paths = sse_decode_list_String(deserializer);
+    final var_unreadable = sse_decode_list_String(deserializer);
+    final var_unopenable = sse_decode_list_String(deserializer);
+    final var_failure = sse_decode_opt_box_autoadd_walk_fault(deserializer);
+    return FolderWalk(
+        paths: var_paths,
+        unreadable: var_unreadable,
+        unopenable: var_unopenable,
+        failure: var_failure);
+  }
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getInt32();
+  }
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <String>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     final len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  WalkFault? sse_decode_opt_box_autoadd_walk_fault(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_walk_fault(deserializer));
+    } else {
+      return null;
+    }
   }
 
   @protected
@@ -235,15 +407,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer) {
+  WalkFault sse_decode_walk_fault(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getInt32();
-  }
-
-  @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
+    final var_interrupted = sse_decode_bool(deserializer);
+    final var_stalled = sse_decode_bool(deserializer);
+    final var_errno = sse_decode_opt_box_autoadd_i_32(deserializer);
+    return WalkFault(
+        interrupted: var_interrupted, stalled: var_stalled, errno: var_errno);
   }
 
   @protected
@@ -273,11 +443,75 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_walk_fault(
+      WalkFault self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_walk_fault(self, serializer);
+  }
+
+  @protected
+  void sse_encode_folder_walk(FolderWalk self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_String(self.paths, serializer);
+    sse_encode_list_String(self.unreadable, serializer);
+    sse_encode_list_String(self.unopenable, serializer);
+    sse_encode_opt_box_autoadd_walk_fault(self.failure, serializer);
+  }
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putInt32(self);
+  }
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_32(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_walk_fault(
+      WalkFault? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_walk_fault(self, serializer);
+    }
   }
 
   @protected
@@ -298,14 +532,10 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
-  void sse_encode_i_32(int self, SseSerializer serializer) {
+  void sse_encode_walk_fault(WalkFault self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putInt32(self);
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
+    sse_encode_bool(self.interrupted, serializer);
+    sse_encode_bool(self.stalled, serializer);
+    sse_encode_opt_box_autoadd_i_32(self.errno, serializer);
   }
 }

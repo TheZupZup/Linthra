@@ -129,7 +129,13 @@ const Set<int> _unavailableErrno = <int>{
 /// recognise, is [LocalRootFault.unknown].
 LocalRootFault classifyFilesystemFault(Object error) {
   if (error is! FileSystemException) return LocalRootFault.unknown;
-  final int? code = error.osError?.errorCode;
+  return classifyErrno(error.osError?.errorCode);
+}
+
+/// [classifyFilesystemFault] for a bare errno, as the Rust walk reports it
+/// (native/linthra_core/src/scan/walk.rs): null or unrecognised is
+/// [LocalRootFault.unknown].
+LocalRootFault classifyErrno(int? code) {
   if (code == null) return LocalRootFault.unknown;
   if (_permissionErrno.contains(code)) return LocalRootFault.permissionDenied;
   if (_missingErrno.contains(code)) return LocalRootFault.missing;
