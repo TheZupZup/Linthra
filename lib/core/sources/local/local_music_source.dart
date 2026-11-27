@@ -22,6 +22,7 @@ import 'local_metadata_reader.dart';
 import 'local_root_fault.dart';
 import 'local_scan_report.dart';
 import 'local_track_mapper.dart';
+import 'native_audio_file_scanner.dart';
 import 'native_file_reads.dart';
 import 'saf_document_lister.dart';
 
@@ -97,7 +98,7 @@ class LocalScan {
 class LocalMusicSource implements MusicSource {
   const LocalMusicSource({
     required this.folderPath,
-    AudioFileScanner scanner = const IoAudioFileScanner(),
+    AudioFileScanner scanner = const NativeAudioFileScanner(),
     SafDocumentLister safDocumentLister = const UnsupportedSafDocumentLister(),
     AndroidMediaLibrary androidMediaLibrary =
         const UnsupportedAndroidMediaLibrary(),

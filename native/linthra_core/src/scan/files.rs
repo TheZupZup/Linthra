@@ -1,8 +1,14 @@
 //! What a scan reads about each file the walk listed: its stamp (size and
 //! mtime), whether a file it could not read is really gone, and the bytes of
-//! a CUE sheet. The rules are `IoLocalFileStatReader`
-//! (lib/core/sources/local/local_file_stat.dart) and the CUE read in
-//! `LocalMusicSource._scanFiles`, where the reasoning lives.
+//! a CUE sheet, for `NativeLocalFileStatReader` and `readScanFile`
+//! (lib/core/sources/local/native_file_reads.dart).
+//!
+//! A stamp decides whether a file needs parsing again; one that can't be
+//! read is no stamp, and the file is parsed. A file the walk listed and then
+//! couldn't read may have been moved or deleted, or its drive may have gone
+//! away, or its storage may be failing for a moment. Only the first is
+//! "gone", and the evidence for it is the one a later walk would have: the
+//! folder it was in answers, and answers without it.
 //!
 //! Each call can land on storage that stopped answering, and a blocked
 //! `stat` or `read` can't be interrupted. So each runs on a worker thread of
@@ -139,8 +145,8 @@ fn bounded<T: Send + 'static>(
     Some(value)
 }
 
-/// `IoLocalFileStatReader.stamp`: the stamp of the file at `path`, or `None`
-/// when it isn't a file, can't be stat'ed, or the `stat` doesn't answer.
+/// The stamp of the file at `path`, or `None` when it isn't a file, can't be
+/// stat'ed, or the `stat` doesn't answer.
 pub fn stamp(files: Arc<dyn Files>, path: &str, stall_limit: Duration) -> Option<Stamp> {
     let path = path.to_owned();
     stamp_of(bounded(stall_limit, move || files.stat(&path))?)
@@ -199,10 +205,12 @@ pub fn read(files: Arc<dyn Files>, path: &str, stall_limit: Duration) -> Option<
     bounded(stall_limit, move || files.read(&path))?.ok()
 }
 
-/// `IoLocalFileStatReader.isGone`: whether `path`, inside the selected
-/// folder `root`, is gone, because the nearest folder on the way up to
-/// `root` that can be listed answers without it. False whenever that can't
-/// be shown.
+/// Whether `path`, inside the selected folder `root`, is gone, because the
+/// nearest folder on the way up to `root` that can be listed answers without
+/// it. A folder that renamed or moved away is gone the same way, from the
+/// folder above it. False whenever that can't be shown: no folder up to
+/// `root` answers (a drive that went away), or the folder still lists `path`
+/// (a read that failed for a moment).
 pub fn is_gone(files: Arc<dyn Files>, path: &str, root: &str, stall_limit: Duration) -> bool {
     let top = normalize(root);
     let mut child = normalize(path);
@@ -221,9 +229,9 @@ pub fn is_gone(files: Arc<dyn Files>, path: &str, root: &str, stall_limit: Durat
     }
 }
 
-/// `_namesIn`: the names `folder` lists, as Dart has them, or `None` when it
-/// can't be listed in full. Each next name gets `stall_limit`, as Dart's
-/// `Stream.timeout` counts it.
+/// The names `folder` lists, as Dart has them (a name that isn't UTF-8 with
+/// U+FFFD in it), or `None` when it can't be listed in full. Each next name
+/// gets `stall_limit`.
 fn names_in(
     files: &Arc<dyn Files>,
     folder: &str,

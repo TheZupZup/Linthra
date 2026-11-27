@@ -9,16 +9,15 @@ import '../frb_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `file_stamp`
 
-/// Walks `folder` the way `IoAudioFileScanner.listFiles` does, waiting at
-/// most `stall_limit_ms` for each next entry.
+/// Walks `folder` for `NativeAudioFileScanner.listFiles` (see
+/// `scan::walk`), waiting at most `stall_limit_ms` for each next entry.
 Future<FolderWalk> walkFolder(
         {required String folder, required int stallLimitMs}) =>
     LinthraBridge.instance.api
         .crateApiScanWalkFolder(folder: folder, stallLimitMs: stallLimitMs);
 
-/// The stamp of the file at `path`, as `IoLocalFileStatReader.stamp` reads
-/// it, or `None` when it isn't a file, can't be stat'ed, or the `stat` takes
-/// longer than `stall_limit_ms`.
+/// The stamp of the file at `path`, or `None` when it isn't a file, can't be
+/// stat'ed, or the `stat` takes longer than `stall_limit_ms`.
 Future<FileStamp?> stampFile(
         {required String path, required int stallLimitMs}) =>
     LinthraBridge.instance.api
@@ -32,8 +31,8 @@ Future<List<FileStamp?>> stampFiles(
     LinthraBridge.instance.api
         .crateApiScanStampFiles(paths: paths, stallLimitMs: stallLimitMs);
 
-/// Whether `path`, inside the selected folder `root`, is gone, as
-/// `IoLocalFileStatReader.isGone` decides it.
+/// Whether `path`, inside the selected folder `root`, is gone: the nearest
+/// folder on the way up to `root` that can be listed answers without it.
 Future<bool> isFileGone(
         {required String path,
         required String root,

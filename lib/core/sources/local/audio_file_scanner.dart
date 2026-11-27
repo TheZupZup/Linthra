@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'directory_readability.dart';
 import 'folder_location.dart';
@@ -34,7 +33,7 @@ abstract interface class AudioFileScanner {
   /// not the same as not being there.
   ///
   /// A file or folder whose name the platform can't hand over as a path that
-  /// opens it (a name that isn't valid UTF-8, see [IoAudioFileScanner]) is
+  /// opens it (a name that isn't valid UTF-8, see [NativeAudioFileScanner]) is
   /// left out of the result, and [onUnopenableName] is called for it, so it is
   /// never indexed as a song that can't play.
   Future<List<String>> listFiles(
@@ -42,150 +41,6 @@ abstract interface class AudioFileScanner {
     void Function(String directory)? onUnreadableDirectory,
     void Function(String path)? onUnopenableName,
   });
-}
-
-/// An [AudioFileScanner] backed by `dart:io` for real filesystem paths.
-///
-/// This is the desktop/Linux scanner and the final hop for any Android folder
-/// that resolves to a path. It does not understand `content://` URIs — routing
-/// is [PlatformAudioFileScanner]'s job.
-class IoAudioFileScanner implements AudioFileScanner {
-  const IoAudioFileScanner({
-    DirectoryReadability presence = const IoDirectoryReadability(),
-    Duration stallLimit = storageStallLimit,
-  })  : _presence = presence,
-        _stallLimit = stallLimit;
-
-  /// Asks whether the selected folder is still readable once the walk is done.
-  /// Injected so "the drive was pulled mid-scan" can be reproduced in a test
-  /// without a drive to pull.
-  final DirectoryReadability _presence;
-
-  /// How long a directory listing may go without its next entry before that
-  /// directory counts as not answering. See [storageStallLimit].
-  final Duration _stallLimit;
-
-  @override
-  Future<List<String>> listFiles(
-    String folder, {
-    void Function(String directory)? onUnreadableDirectory,
-    void Function(String path)? onUnopenableName,
-  }) async {
-    // Walk one directory at a time (rather than `list(recursive: true)`) so a
-    // single unreadable *subfolder* — common under scoped storage / on removable
-    // SD cards — is skipped instead of aborting the whole scan and zeroing out
-    // the library. `followLinks: false` keeps symlinked directories from being
-    // descended, avoiding cycles.
-    //
-    // The selected *root* is different: if it cannot be listed at all (it is
-    // gone, the mount went away, access was revoked), surface that as a failure
-    // rather than returning an empty list. An empty result would be persisted
-    // as a successful "no music" scan and wipe a catalog the user's files are
-    // still behind.
-    //
-    // The root's own failure is classified rather than merely reported: a
-    // folder that was deleted, one this process may not read, and one whose
-    // storage stopped answering have three different fixes, and the errno the
-    // walk already has is the only place that distinction exists. It travels
-    // on the exception's [FolderScanException.code], never as raw OS text.
-    final List<String> paths = <String>[];
-    final List<Directory> pending = <Directory>[Directory(folder)];
-    bool isRoot = true;
-    while (pending.isNotEmpty) {
-      final Directory directory = pending.removeLast();
-      final bool wasRoot = isRoot;
-      isRoot = false;
-      try {
-        await for (final FileSystemEntity entity
-            in directory.list(followLinks: false).timeout(_stallLimit)) {
-          if (await _namesNothing(entity)) {
-            onUnopenableName?.call(entity.path);
-            continue;
-          }
-          if (entity is File) {
-            paths.add(entity.absolute.path);
-          } else if (entity is Directory) {
-            pending.add(entity);
-          }
-        }
-      } on TimeoutException {
-        // The storage stopped answering mid-listing: a share whose server went
-        // away blocks it for as long as the mount retries. The listing
-        // stays blocked on its I/O thread; the walk doesn't wait for it.
-        if (wasRoot) {
-          throw rootFaultException(folder, LocalRootFault.unavailable);
-        }
-        // Deeper down, it can be a share mounted inside the music folder that
-        // went away on its own, skipped like any unreadable subfolder. Or it
-        // is the whole folder, and every directory still pending would stall
-        // the same way, one limit at a time: the folder itself says which.
-        onUnreadableDirectory?.call(directory.absolute.path);
-        final LocalRootFault? gone = await _inspect(folder);
-        if (gone != null) throw interruptedScanException(folder, gone);
-        continue;
-      } on FileSystemException catch (error) {
-        if (wasRoot) {
-          throw rootFaultException(folder, classifyFilesystemFault(error));
-        }
-        // Unreadable subtree: skip it and keep scanning the rest, but say
-        // which one. Every file under it is missing from the result, and a
-        // caller that cannot tell "not listed" from "not there" would conclude
-        // they were all deleted. It may be a subfolder whose permissions
-        // changed, a network mount inside the music folder that went stale,
-        // or one deleted while the walk was running; only a later walk that
-        // lists its parent can tell the last case apart.
-        onUnreadableDirectory?.call(directory.absolute.path);
-        continue;
-      }
-    }
-
-    // The walk only means something if the folder was still there at the end of
-    // it, and a drive unplugged *mid-scan* is exactly the case where it wasn't.
-    // Every directory still pending when the mount went away fails, and the rule
-    // just above deliberately skips those, because one unreadable subfolder must
-    // not fail a whole scan. Without this check that half-walk would be reported as
-    // a complete one, and every file it never reached would be concluded
-    // deleted: a drive being unplugged would delete the user's index of it,
-    // which is the one thing that must never happen. So a folder that has gone
-    // away since the walk began is reported exactly like one that was already
-    // gone: unavailable, keep what is indexed.
-    final LocalRootFault? interrupted = await _inspect(folder);
-    if (interrupted != null) {
-      throw interruptedScanException(folder, interrupted);
-    }
-    return paths;
-  }
-
-  /// Whether [entity]'s path names nothing on disk, though the listing just
-  /// found it there.
-  ///
-  /// A name that isn't valid UTF-8 (Latin-1 bytes from an old Windows rip
-  /// copied with tar, a share mounted without a UTF-8 charset) reaches Dart
-  /// with U+FFFD in place of each byte it couldn't decode, and that string
-  /// names no file: it can't be stat'ed, read, played or listed. Carrying the
-  /// raw bytes instead would have to reach the catalog, the queue, playlists,
-  /// downloads, the saved session and the audio engine, which all hold paths
-  /// as text. So such an entry is left out and reported rather than indexed
-  /// as a song that can never play, or walked as a folder that can never be
-  /// listed. A name that really contains U+FFFD opens fine and is kept.
-  ///
-  /// A stat that doesn't answer within [_stallLimit] says nothing about the
-  /// name: it throws a [TimeoutException], and the directory counts as not
-  /// answering like a stalled listing, so what was indexed under it is kept.
-  Future<bool> _namesNothing(FileSystemEntity entity) async {
-    if (!entity.path.contains('\uFFFD')) return false;
-    final FileSystemEntityType type = await FileSystemEntity.type(
-      entity.path,
-      followLinks: false,
-    ).timeout(_stallLimit);
-    return type == FileSystemEntityType.notFound;
-  }
-
-  /// Why [folder] can't be listed now, a folder that doesn't answer within
-  /// [_stallLimit] being [LocalRootFault.unavailable].
-  Future<LocalRootFault?> _inspect(String folder) => _presence
-      .inspect(folder)
-      .timeout(_stallLimit, onTimeout: () => LocalRootFault.unavailable);
 }
 
 /// The recoverable failure to raise for a selected folder that went away, or
@@ -242,7 +97,7 @@ FolderScanException rootFaultException(String folder, LocalRootFault fault) {
 ///
 /// This is the Android-capable scanner. It does not touch `dart:io` itself: it
 /// resolves the URI with a [SafTreeUriResolver] and hands the resulting path to
-/// an injected [AudioFileScanner] (the real one is [IoAudioFileScanner]).
+/// an injected [AudioFileScanner] (the real one is [NativeAudioFileScanner]).
 ///
 /// Two cases throw [FolderScanException] so the user sees a clear message
 /// instead of a silently empty library:
@@ -308,7 +163,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
 /// handle it based on whether it is a filesystem path or a `content://` URI.
 ///
 /// Desktop/Linux selections are filesystem paths and go straight to
-/// [IoAudioFileScanner], preserving existing behavior exactly. Android SAF
+/// [NativeAudioFileScanner], preserving existing behavior exactly. Android SAF
 /// selections are `content://` URIs and go to [ContentUriAudioFileScanner].
 /// MediaStore is handled before this scanner by [LocalMusicSource]; seeing that
 /// sentinel here is a programming error and fails closed rather than treating it
