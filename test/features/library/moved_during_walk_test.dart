@@ -9,17 +9,17 @@
 // outlived the move: the next scan found the old path gone and the new one
 // already indexed, with nothing to match it to.
 //
-// Staged with the Dart walk (IoAudioFileScanner over a temp folder), the real
-// stat reader, the real tag reader and artwork cache, the production
-// Recording-over-Drift catalog, and the real favourites and play-history
-// repositories. The only staged part is *when* the user's move happens: an
-// IOOverrides Directory for the music folder performs it right after the walk
-// has listed the music folder itself.
+// Staged on a real disk with the production walk, stat reader, tag reader and
+// artwork cache (in the Rust core), the production Recording-over-Drift
+// catalog, and the real favourites and play-history repositories. The only
+// staged part is *when* the user's move happens: right after the music folder
+// itself has been listed, before the folders in it are walked.
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/play_history.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
@@ -27,7 +27,13 @@ import 'package:linthra/core/repositories/favorites_store.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
+import 'package:linthra/core/sources/local/folder_scan_exception.dart';
+import 'package:linthra/core/sources/local/local_audio_metadata.dart';
+import 'package:linthra/core/sources/local/local_file_stat.dart';
+import 'package:linthra/core/sources/local/local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
+import 'package:linthra/core/sources/local/native_audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/native_file_reads.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/favorites_repository_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
@@ -47,67 +53,91 @@ import 'package:path/path.dart' as p;
 import '../../core/sources/local/audio_tag_fixtures.dart';
 import 'fake_folder_picker_service.dart';
 
-/// The music folder as the walk sees it, except that once its own listing has
-/// been read to the end, the user's move happens.
-class _ListThenMove implements Directory {
-  _ListThenMove(this._real, this._move);
-
-  final Directory _real;
-  final void Function() _move;
-
-  @override
-  String get path => _real.path;
-
-  @override
-  Directory get absolute => _real.absolute;
-
-  @override
-  Uri get uri => _real.uri;
-
-  @override
-  Stream<FileSystemEntity> list({
-    bool recursive = false,
-    bool followLinks = true,
-  }) async* {
-    yield* _real.list(recursive: recursive, followLinks: followLinks);
-    _move();
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName}');
-}
-
-final class _MoveDuringWalk extends IOOverrides {
-  _MoveDuringWalk({required this.root, required this.move});
-
-  final String root;
-  final void Function() move;
+/// The production walk, one folder at a time as it walks, with [move] made
+/// once the music folder's own listing has been read and before the folders
+/// in it are walked.
+class _MoveDuringWalk implements AudioFileScanner {
+  void Function()? move;
   bool moved = false;
 
   @override
-  Directory createDirectory(String path) {
-    final Directory real = super.createDirectory(path);
-    if (moved || path != root) return real;
-    return _ListThenMove(real, () {
-      if (moved) return;
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
+  }) async {
+    final List<String> paths = <String>[];
+    final List<String> folders = <String>[];
+    for (final FileSystemEntity entity
+        in Directory(folder).listSync(followLinks: false)) {
+      if (entity is File) paths.add(entity.path);
+      if (entity is Directory) folders.add(entity.path);
+    }
+    final void Function()? pending = move;
+    if (pending != null && !moved) {
       moved = true;
-      move();
-    });
+      pending();
+    }
+    for (final String inner in folders) {
+      try {
+        paths.addAll(await const NativeAudioFileScanner().listFiles(
+          inner,
+          onUnreadableDirectory: onUnreadableDirectory,
+          onUnopenableName: onUnopenableName,
+        ));
+      } on FolderScanException {
+        // Moved away after the music folder listed it: skipped and reported,
+        // as the walk skips a folder it can't list.
+        onUnreadableDirectory?.call(inner);
+      }
+    }
+    return paths;
   }
 }
 
-/// One file the scan cannot stat or read for the length of a scan, though it
-/// is still in its folder: a read that failed for a moment on a flaky drive.
-final class _ReadFailsFor extends IOOverrides {
-  _ReadFailsFor(this.path, this.notFound);
-
-  final String path;
-  final FileStat notFound;
+/// The production stat reader, except that [failing] can't be stat'ed: a file
+/// a flaky drive fails to answer for the length of a scan, though it is
+/// still in its folder.
+class _Stats
+    implements LocalFileStatReader, LocalFileStampBatch, LocalFileAbsence {
+  String? failing;
+  static const NativeLocalFileStatReader _real = NativeLocalFileStatReader();
 
   @override
-  Future<FileStat> stat(String other) =>
-      other == path ? Future<FileStat>.value(notFound) : super.stat(other);
+  Future<LocalFileStamp?> stamp(String path) async =>
+      path == failing ? null : _real.stamp(path);
+
+  @override
+  Future<List<LocalFileStamp?>> stampAll(List<String> paths) async {
+    final List<LocalFileStamp?> stamps = await _real.stampAll(paths);
+    return <LocalFileStamp?>[
+      for (int i = 0; i < stamps.length; i++)
+        paths[i] == failing ? null : stamps[i],
+    ];
+  }
+
+  @override
+  Future<bool> isGone(String path, {required String root}) =>
+      _real.isGone(path, root: root);
+}
+
+/// The production tag reader, except that the file [stats] can't stat can't
+/// be read either.
+class _Reads implements LocalMetadataReader, LocalMetadataReadOutcomes {
+  _Reads(this._real, this._stats);
+
+  final FilesystemLocalMetadataReader _real;
+  final _Stats _stats;
+
+  @override
+  Future<LocalAudioMetadata?> readFromPath(String path) async =>
+      path == _stats.failing ? null : _real.readFromPath(path);
+
+  @override
+  Future<LocalMetadataRead> readWithOutcome(String path) async =>
+      path == _stats.failing
+          ? (metadata: null, failed: true)
+          : _real.readWithOutcome(path);
 }
 
 void main() {
@@ -119,9 +149,13 @@ void main() {
   late InMemoryLibraryAddedStore addedStore;
   late InMemoryFavoritesStore favoritesStore;
   late InMemoryPlayHistoryStore historyStore;
+  late _MoveDuringWalk walk;
+  late _Stats stats;
   late ProviderContainer c;
 
   setUp(() async {
+    walk = _MoveDuringWalk();
+    stats = _Stats();
     sandbox = await Directory.systemTemp.createTemp('linthra_moved_walk_');
     music = p.join(sandbox.path, 'Music');
     Directory(music).createSync();
@@ -148,16 +182,9 @@ void main() {
         recordingDriftMusicLibraryRepositoryOverride,
         favoritesStoreProvider.overrideWithValue(favoritesStore),
         playHistoryStoreProvider.overrideWithValue(historyStore),
-        // The dart:io walk: the move is staged through IOOverrides, and the
-        // Rust walk (NativeAudioFileScanner) doesn't list folders through
-        // dart:io. native_audio_file_scanner_test.dart holds the two walks
-        // to the same answers. The real stat reader is the production
-        // default.
-        audioFileScannerProvider
-            .overrideWithValue(const PlatformAudioFileScanner(
-          filesystemScanner: IoAudioFileScanner(),
-        )),
-        localMetadataReaderProvider.overrideWithValue(reader),
+        audioFileScannerProvider.overrideWithValue(walk),
+        localFileStatReaderProvider.overrideWithValue(stats),
+        localMetadataReaderProvider.overrideWithValue(_Reads(reader, stats)),
         hostPlatformProvider.overrideWithValue(HostPlatform.linux),
       ],
     );
@@ -230,12 +257,9 @@ void main() {
     // A live-update scan is walking when the listener files the track into
     // its album folder: the music folder was already listed, the album folder
     // not yet.
-    final _MoveDuringWalk move = _MoveDuringWalk(
-      root: music,
-      move: () => File(from).renameSync(to),
-    );
-    await IOOverrides.runWithIOOverrides(rescan, move);
-    expect(move.moved, isTrue);
+    walk.move = () => File(from).renameSync(to);
+    await rescan();
+    expect(walk.moved, isTrue);
 
     expect(await catalog(), <String>{to});
     await expectHistoryAt(to);
@@ -258,12 +282,9 @@ void main() {
     Directory(artist).createSync();
     await indexWithHistory(from);
 
-    final _MoveDuringWalk move = _MoveDuringWalk(
-      root: music,
-      move: () => Directory(album).renameSync(p.join(artist, 'Bon Iver')),
-    );
-    await IOOverrides.runWithIOOverrides(rescan, move);
-    expect(move.moved, isTrue);
+    walk.move = () => Directory(album).renameSync(p.join(artist, 'Bon Iver'));
+    await rescan();
+    expect(walk.moved, isTrue);
     await rescan();
 
     expect(await catalog(), <String>{to});
@@ -282,16 +303,13 @@ void main() {
     await indexWithHistory(original);
     writeHolocene(copy);
 
-    final FileStat notFound =
-        await FileStat.stat(p.join(sandbox.path, 'not-there'));
-    await IOOverrides.runWithIOOverrides(
-      rescan,
-      _ReadFailsFor(original, notFound),
-    );
+    stats.failing = original;
+    await rescan();
 
     expect(await catalog(), <String>{original, copy});
     await expectHistoryAt(original);
 
+    stats.failing = null;
     await rescan();
 
     expect(await catalog(), <String>{original, copy});

@@ -1,9 +1,4 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
 import '../../models/local_file_stamp.dart';
-import 'directory_readability.dart';
 
 /// Reads the cheap facts about a file that decide whether it needs re-parsing:
 /// its size and last-modified time.
@@ -11,7 +6,8 @@ import 'directory_readability.dart';
 /// A seam beside [AudioFileScanner] and [LocalMetadataReader], for the same
 /// reason as those: it is the only place an incremental scan touches storage
 /// beyond listing and parsing, so keeping it injectable is what lets the
-/// "unchanged files are not re-parsed" rule be tested without a disk.
+/// "unchanged files are not re-parsed" rule be tested without a disk. The
+/// production one is `NativeLocalFileStatReader`, in the Rust core.
 ///
 /// Never throws. A file that cannot be stat'ed (deleted between the listing and
 /// here, a permission change, a mount that went away) answers null, and a null
@@ -50,62 +46,6 @@ abstract interface class LocalFileAbsence {
   /// (a drive that went away), or the folder still lists [path] (a read that
   /// failed for a moment). Never throws.
   Future<bool> isGone(String path, {required String root});
-}
-
-/// The production [LocalFileStatReader]: one `stat` per file through
-/// `dart:io`.
-class IoLocalFileStatReader implements LocalFileStatReader, LocalFileAbsence {
-  const IoLocalFileStatReader({Duration stallLimit = storageStallLimit})
-      : _stallLimit = stallLimit;
-
-  /// How long a `stat` or a listing may go without an answer before it counts
-  /// as one that failed. See [storageStallLimit].
-  final Duration _stallLimit;
-
-  @override
-  Future<bool> isGone(String path, {required String root}) async {
-    final String top = p.normalize(root);
-    String child = p.normalize(path);
-    if (!p.isWithin(top, child)) return false;
-    while (true) {
-      final String folder = p.dirname(child);
-      final Set<String>? names = await _namesIn(folder);
-      if (names != null) return !names.contains(p.basename(child));
-      if (!p.isWithin(top, folder)) return false;
-      child = folder;
-    }
-  }
-
-  /// The names [folder] lists, or null when it cannot be listed in full, a
-  /// listing that stops answering included.
-  Future<Set<String>?> _namesIn(String folder) async {
-    try {
-      final Set<String> names = <String>{};
-      await for (final FileSystemEntity entity
-          in Directory(folder).list(followLinks: false).timeout(_stallLimit)) {
-        names.add(p.basename(entity.path));
-      }
-      return names;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  Future<LocalFileStamp?> stamp(String path) async {
-    try {
-      // A `stat` that doesn't answer (a share that went away) is one
-      // that failed, and is left blocked on its I/O thread.
-      final FileStat stat = await FileStat.stat(path).timeout(_stallLimit);
-      if (stat.type != FileSystemEntityType.file) return null;
-      return LocalFileStamp(
-        sizeBytes: stat.size,
-        modifiedAtMs: stat.modified.millisecondsSinceEpoch,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
 }
 
 /// A [LocalFileStatReader] that answers nothing, for the platforms where an

@@ -32,8 +32,8 @@ pub struct WalkFault {
     pub errno: Option<i32>,
 }
 
-/// Walks `folder` the way `IoAudioFileScanner.listFiles` does, waiting at
-/// most `stall_limit_ms` for each next entry.
+/// Walks `folder` for `NativeAudioFileScanner.listFiles` (see
+/// `scan::walk`), waiting at most `stall_limit_ms` for each next entry.
 pub async fn walk_folder(folder: String, stall_limit_ms: u32) -> FolderWalk {
     let limit = Duration::from_millis(stall_limit_ms as u64);
     match walk(&folder, limit, Arc::new(SystemLister)) {
@@ -72,9 +72,8 @@ pub struct FileStamp {
     pub modified_at_ms: i64,
 }
 
-/// The stamp of the file at `path`, as `IoLocalFileStatReader.stamp` reads
-/// it, or `None` when it isn't a file, can't be stat'ed, or the `stat` takes
-/// longer than `stall_limit_ms`.
+/// The stamp of the file at `path`, or `None` when it isn't a file, can't be
+/// stat'ed, or the `stat` takes longer than `stall_limit_ms`.
 pub async fn stamp_file(path: String, stall_limit_ms: u32) -> Option<FileStamp> {
     let limit = Duration::from_millis(stall_limit_ms as u64);
     files::stamp(Arc::new(SystemFiles), &path, limit).map(file_stamp)
@@ -98,8 +97,8 @@ fn file_stamp(stamp: files::Stamp) -> FileStamp {
     }
 }
 
-/// Whether `path`, inside the selected folder `root`, is gone, as
-/// `IoLocalFileStatReader.isGone` decides it.
+/// Whether `path`, inside the selected folder `root`, is gone: the nearest
+/// folder on the way up to `root` that can be listed answers without it.
 pub async fn is_file_gone(path: String, root: String, stall_limit_ms: u32) -> bool {
     let limit = Duration::from_millis(stall_limit_ms as u64);
     files::is_gone(Arc::new(SystemFiles), &path, &root, limit)

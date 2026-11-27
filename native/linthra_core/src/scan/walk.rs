@@ -1,13 +1,24 @@
-//! Walking a music folder: the rules of `IoAudioFileScanner.listFiles`
-//! (lib/core/sources/local/audio_file_scanner.dart), where the reasoning
-//! lives.
+//! Walking a music folder, for `NativeAudioFileScanner.listFiles`
+//! (lib/core/sources/local/native_audio_file_scanner.dart).
 //!
-//! One directory at a time, so an unreadable subfolder is skipped and
-//! reported instead of failing the scan; the root itself failing, or the
-//! folder going away mid-walk, fails it, because an empty answer would be
-//! saved as "no music" and wipe the library. Symlinks are neither walked nor
-//! indexed; anything else that isn't a directory (a FIFO, a socket) is listed
-//! as a file, as Dart's listing does.
+//! One directory at a time, so an unreadable subfolder (permissions that
+//! changed, a stale mount inside the music folder) is skipped and reported
+//! instead of failing the scan. The caller has to know which part is
+//! missing: a file under a skipped folder was not found, which is not the
+//! same as not being there. The root itself failing, or the folder going
+//! away mid-walk, fails the walk, because an empty or half answer would be
+//! saved as "no music" and wipe the library: a drive unplugged mid-scan
+//! fails every folder still pending, so the walk only counts if the folder
+//! still answers at its end. Symlinks are neither walked nor indexed;
+//! anything else that isn't a directory (a FIFO, a socket) is listed as a
+//! file, as Dart's listing does.
+//!
+//! A name that isn't valid UTF-8 (Latin-1 bytes from an old Windows rip, a
+//! share mounted without a UTF-8 charset) reaches Dart as text with U+FFFD
+//! in it, and that text names nothing: it can't be stat'ed, read, played or
+//! listed. Such an entry is reported as unopenable rather than indexed as a
+//! song that can never play. A name that really holds U+FFFD opens fine and
+//! is kept.
 //!
 //! Storage that stops answering is the hard part. A directory listing on a
 //! share whose server went away blocks for as long as the mount retries, and
@@ -183,12 +194,13 @@ fn list_into(lister: &dyn Lister, dir: &str, out: &Sender<Item>) {
     let _ = out.send(last);
 }
 
-/// `_namesNothing`, then the entry: a name that isn't UTF-8 reaches Dart as
-/// text with U+FFFD in it, and a path holding U+FFFD is kept only when it
-/// names something (then it is that thing, as in Dart). Dart checks the whole
-/// path, so under a folder whose name really holds U+FFFD every entry is
-/// checked; and its check answers "nothing there" for any error, so does
-/// this one.
+/// The entry for `raw`, or that its name names nothing: a name that isn't
+/// UTF-8 reaches Dart as text with U+FFFD in it, and a path holding U+FFFD is
+/// kept only when it names something (then it is that thing). The whole path
+/// is checked, so under a folder whose name really holds U+FFFD every entry
+/// is; any error answers "nothing there". A check that never answers stalls
+/// the listing, and the folder counts as not answering, which says nothing
+/// about the name.
 fn item_for(lister: &dyn Lister, dir: &str, raw: RawEntry) -> Item {
     let path = join(dir, &String::from_utf8_lossy(&raw.name));
     if path.contains('\u{FFFD}') && !lister.exists(&path).unwrap_or(false) {
@@ -200,8 +212,8 @@ fn item_for(lister: &dyn Lister, dir: &str, raw: RawEntry) -> Item {
     }
 }
 
-/// `IoDirectoryReadability.inspect`: can `dir` be opened and its first entry
-/// read?
+/// Can `dir` be opened and its first entry read? The check
+/// `IoDirectoryReadability.inspect` makes.
 fn inspect_into(lister: &dyn Lister, dir: &str, out: &Sender<Item>) {
     let mut failed = None;
     let result = lister.list(dir, &mut |entry| {
@@ -257,7 +269,8 @@ impl Walker {
         }
     }
 
-    /// `_inspect`: why `folder` can't be listed now, `None` when it can.
+    /// Why `folder` can't be listed now, `None` when it can; one that doesn't
+    /// answer within the stall limit is [`Fault::Stalled`].
     fn inspect(&mut self, folder: &str) -> Option<Fault> {
         let items = self.worker.run(Job::Inspect(folder.to_owned()));
         match self.next(&items) {
@@ -268,7 +281,8 @@ impl Walker {
     }
 }
 
-/// Walks `folder` as `IoAudioFileScanner.listFiles` does.
+/// Walks `folder`: every file under it, depth first, with the folders it had
+/// to skip and the names it couldn't use (see the module docs).
 pub fn walk(
     folder: &str,
     stall_limit: Duration,
@@ -328,10 +342,16 @@ mod tests {
     use std::sync::Mutex;
 
     /// A filesystem in memory: each directory lists its entries, or fails
-    /// with an errno, or never answers.
+    /// with an errno, or never answers. A directory can change once it has
+    /// been listed ([FakeFs::then]), the way a drive pulled mid-walk does,
+    /// and every listing is counted.
     #[derive(Default)]
     struct FakeFs {
         dirs: Mutex<HashMap<String, Listing>>,
+        after_listing: Mutex<HashMap<String, Listing>>,
+        listings: Mutex<HashMap<String, usize>>,
+        /// Whether asking if a name holding U+FFFD exists never answers.
+        exists_stalls: bool,
     }
 
     #[derive(Clone)]
@@ -357,6 +377,19 @@ mod tests {
         fn set(&self, dir: &str, listing: Listing) {
             self.dirs.lock().unwrap().insert(dir.to_owned(), listing);
         }
+
+        /// Once `dir` has been listed, it answers with `listing` instead.
+        fn then(&self, dir: &str, listing: Listing) {
+            self.after_listing
+                .lock()
+                .unwrap()
+                .insert(dir.to_owned(), listing);
+        }
+
+        /// How many times `dir` was listed (or inspected).
+        fn listed(&self, dir: &str) -> usize {
+            self.listings.lock().unwrap().get(dir).copied().unwrap_or(0)
+        }
     }
 
     impl Lister for FakeFs {
@@ -365,7 +398,16 @@ mod tests {
             dir: &str,
             sink: &mut dyn FnMut(io::Result<RawEntry>) -> bool,
         ) -> io::Result<()> {
+            *self
+                .listings
+                .lock()
+                .unwrap()
+                .entry(dir.to_owned())
+                .or_default() += 1;
             let listing = self.dirs.lock().unwrap().get(dir).cloned();
+            if let Some(next) = self.after_listing.lock().unwrap().remove(dir) {
+                self.set(dir, next);
+            }
             let emit = |entries: &[(&[u8], Kind)],
                         sink: &mut dyn FnMut(io::Result<RawEntry>) -> bool| {
                 for (name, kind) in entries {
@@ -396,6 +438,11 @@ mod tests {
         }
 
         fn exists(&self, _path: &str) -> io::Result<bool> {
+            if self.exists_stalls {
+                loop {
+                    thread::sleep(Duration::from_secs(3600));
+                }
+            }
             Ok(false)
         }
     }
@@ -480,6 +527,108 @@ mod tests {
         assert_eq!(walker.inspect("/m"), None);
         shared.set("/m", Listing::Fails(19));
         assert_eq!(walker.inspect("/m"), Some(Fault::Io(Some(19))));
+    }
+
+    #[test]
+    fn a_folder_gone_by_the_end_fails_the_whole_walk() {
+        // A drive pulled mid-walk: the subfolder still to list fails, which
+        // alone would only skip it, and the folder itself is gone by the
+        // check at the end. Half a walk must not pass for a whole one.
+        let fs = FakeFs::with(&[
+            (
+                "/m",
+                Listing::Entries(vec![(b"a.flac", Kind::Other), (b"sub", Kind::Dir)]),
+            ),
+            ("/m/sub", Listing::Fails(5)),
+        ]);
+        fs.then("/m", Listing::Fails(2));
+        assert_eq!(
+            walk("/m", LIMIT, fs),
+            Err(WalkFailure::Interrupted(Fault::Io(Some(2))))
+        );
+    }
+
+    #[test]
+    fn a_folder_that_stops_answering_the_last_check_is_interrupted() {
+        let fs = FakeFs::with(&[("/m", Listing::Entries(vec![(b"a.flac", Kind::Other)]))]);
+        fs.then("/m", Listing::Stalls);
+        assert_eq!(
+            walk("/m", LIMIT, fs),
+            Err(WalkFailure::Interrupted(Fault::Stalled))
+        );
+    }
+
+    #[test]
+    fn a_share_gone_after_its_top_folder_ends_the_walk_at_the_first_stall() {
+        // Every folder still to list would stall, one limit after the other:
+        // the folder itself is asked once, and the walk ends there.
+        let fs = FakeFs::with(&[
+            (
+                "/m",
+                Listing::Entries(vec![
+                    (b"A", Kind::Dir),
+                    (b"B", Kind::Dir),
+                    (b"C", Kind::Dir),
+                    (b"D", Kind::Dir),
+                ]),
+            ),
+            ("/m/A", Listing::Stalls),
+            ("/m/B", Listing::Stalls),
+            ("/m/C", Listing::Stalls),
+            ("/m/D", Listing::Stalls),
+        ]);
+        fs.then("/m", Listing::Stalls);
+        let shared = fs.clone();
+        assert_eq!(
+            walk("/m", LIMIT, fs),
+            Err(WalkFailure::Interrupted(Fault::Stalled))
+        );
+        let stalled: usize = ["/m/A", "/m/B", "/m/C", "/m/D"]
+            .iter()
+            .map(|d| shared.listed(d))
+            .sum();
+        assert_eq!(stalled, 1);
+        // Listed once, then asked once whether it still answers.
+        assert_eq!(shared.listed("/m"), 2);
+    }
+
+    #[test]
+    fn names_that_are_not_utf8_are_reported_not_listed() {
+        let fs = FakeFs::with(&[(
+            "/m",
+            Listing::Entries(vec![
+                (b"caf\xe9.flac", Kind::Other),
+                (b"bad\xffdir", Kind::Dir),
+                (b"fine.flac", Kind::Other),
+            ]),
+        )]);
+        let walk = walk("/m", LIMIT, fs).unwrap();
+        assert_eq!(walk.paths, ["/m/fine.flac"]);
+        assert_eq!(
+            walk.unopenable,
+            ["/m/caf\u{FFFD}.flac", "/m/bad\u{FFFD}dir"]
+        );
+        // The folder isn't unreadable: nothing under it was ever indexed.
+        assert!(walk.unreadable.is_empty());
+    }
+
+    #[test]
+    fn a_name_whose_check_never_answers_leaves_its_folder_unreadable() {
+        // Whether a name holding U+FFFD names anything can't be told when the
+        // storage stops answering: that says nothing about the name, so its
+        // folder counts as not answering and what was indexed under it stays.
+        let fs = Arc::new(FakeFs {
+            exists_stalls: true,
+            ..FakeFs::default()
+        });
+        fs.set("/m", Listing::Entries(vec![(b"Album", Kind::Dir)]));
+        fs.set(
+            "/m/Album",
+            Listing::Entries(vec![(b"odd \xe8 name.flac", Kind::Other)]),
+        );
+        let walk = walk("/m", LIMIT, fs).unwrap();
+        assert!(walk.unopenable.is_empty());
+        assert_eq!(walk.unreadable, ["/m/Album"]);
     }
 
     #[test]

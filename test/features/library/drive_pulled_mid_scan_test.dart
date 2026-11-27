@@ -1,18 +1,18 @@
 // A drive that goes away after the walk, while the scan is still stat'ing and
 // parsing the files it listed, must not cost the library their tags or covers.
 //
-// IoAudioFileScanner checks the selected folder is still there once the walk
-// is done (#415), so a drive pulled *during the walk* fails the folder and
-// keeps its music. The files the walk listed are then stat'ed and parsed one
-// at a time, and from the moment the drive is gone each of them can be neither
-// stat'ed nor read. That is unknown, not "a file with no tags": the row already
-// indexed for it is kept instead of one rebuilt from the file name, and the
-// artwork sweep keeps the covers those rows still point at.
+// The walk checks the selected folder is still there once it is done (#415),
+// so a drive pulled *during the walk* fails the folder and keeps its music.
+// The files the walk listed are then stat'ed and parsed one at a time, and
+// from the moment the drive is gone each of them can be neither stat'ed nor
+// read. That is unknown, not "a file with no tags": the row already indexed
+// for it is kept instead of one rebuilt from the file name, and the artwork
+// sweep keeps the covers those rows still point at.
 //
-// Staged with the real walk (IoAudioFileScanner over a temp folder), the real
-// stat reader, the real tag reader and artwork cache, and the real Drift
-// catalog. The unplug is an IOOverrides `stat` that answers "not found" for the
-// music folder from the moment the walk's own presence check has passed.
+// Staged on a real disk with the production walk, stat reader, tag reader and
+// artwork cache (all in the Rust core) and the real Drift catalog. The unplug
+// is the drive's folder renamed away the moment the walk has answered, so
+// every read after it meets a drive that is really gone.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -24,11 +24,10 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
-import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
-import 'package:linthra/core/sources/local/local_file_stat.dart';
-import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
+import 'package:linthra/core/sources/local/native_audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/native_file_reads.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
@@ -42,38 +41,31 @@ import 'package:path/path.dart' as p;
 import '../../core/sources/local/audio_tag_fixtures.dart';
 import 'fake_folder_picker_service.dart';
 
-/// The walk's end-of-walk presence check. It answers "still there", and when
-/// [armed] the drive is pulled right after it has answered.
-class _PulledAfterWalk implements DirectoryReadability {
+/// The production walk, after which the drive is pulled when [armed]: its
+/// folder renamed away, as an unmount takes every path on it.
+class _PulledAfterWalk implements AudioFileScanner {
+  _PulledAfterWalk(this.mount);
+
+  final String mount;
   bool armed = false;
   bool pulled = false;
 
   @override
-  Future<LocalRootFault?> inspect(String path) async {
-    if (armed) pulled = true;
-    return null;
-  }
-}
-
-/// Once the drive is pulled, every path on it stats as not found, which is
-/// what `stat` answers for a mount point that udisks has torn down.
-final class _PulledDrive extends IOOverrides {
-  _PulledDrive({
-    required this.mount,
-    required this.notFound,
-    required this.drive,
-  });
-
-  final String mount;
-  final FileStat notFound;
-  final _PulledAfterWalk drive;
-
-  @override
-  Future<FileStat> stat(String path) {
-    if (drive.pulled && (path == mount || p.isWithin(mount, path))) {
-      return Future<FileStat>.value(notFound);
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
+  }) async {
+    final List<String> files = await const NativeAudioFileScanner().listFiles(
+      folder,
+      onUnreadableDirectory: onUnreadableDirectory,
+      onUnopenableName: onUnopenableName,
+    );
+    if (armed && !pulled) {
+      Directory(mount).renameSync('$mount-pulled');
+      pulled = true;
     }
-    return super.stat(path);
+    return files;
   }
 }
 
@@ -123,7 +115,7 @@ void main() {
       );
     }
 
-    final _PulledAfterWalk drive = _PulledAfterWalk();
+    final _PulledAfterWalk drive = _PulledAfterWalk(mount);
     final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
       artworkCache: LocalArtworkCache(directory: () async => artwork),
     );
@@ -139,11 +131,10 @@ void main() {
         linthraDatabaseExecutorProvider
             .overrideWithValue(NativeDatabase.memory()),
         driftMusicLibraryRepositoryOverride,
-        audioFileScannerProvider
-            .overrideWithValue(IoAudioFileScanner(presence: drive)),
+        audioFileScannerProvider.overrideWithValue(drive),
         localMetadataReaderProvider.overrideWithValue(reader),
         localFileStatReaderProvider
-            .overrideWithValue(const IoLocalFileStatReader()),
+            .overrideWithValue(const NativeLocalFileStatReader()),
         hostPlatformProvider.overrideWithValue(HostPlatform.linux),
       ],
     );
@@ -171,13 +162,8 @@ void main() {
 
     // Another scan (the user's Rescan, a watcher refresh): the walk finishes
     // with the drive still there, and the drive is pulled right after.
-    final FileStat notFound =
-        await FileStat.stat(p.join(sandbox.path, 'not-there'));
     drive.armed = true;
-    await IOOverrides.runWithIOOverrides(
-      () => c.read(localMusicControllerProvider.notifier).rescan(),
-      _PulledDrive(mount: mount, notFound: notFound, drive: drive),
-    );
+    await c.read(localMusicControllerProvider.notifier).rescan();
     expect(drive.pulled, isTrue);
 
     final List<Track> after = await catalog();

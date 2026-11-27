@@ -4,10 +4,11 @@ import '../../native/linthra_bridge.dart';
 import 'directory_readability.dart';
 import 'local_file_stat.dart';
 
-/// [IoLocalFileStatReader] in the Rust core
-/// (native/linthra_core/src/scan/files.rs): the same stamps, the same answer
-/// to "is this file gone?", and the same [storageStallLimit] on storage that
-/// stops answering.
+/// The production [LocalFileStatReader], in the Rust core
+/// (native/linthra_core/src/scan/files.rs, where the rules are explained):
+/// file stamps, one by one or all at once, and whether a file the scan
+/// couldn't read is really gone. A `stat` or a listing that doesn't answer
+/// within [storageStallLimit] counts as one that failed.
 class NativeLocalFileStatReader
     implements LocalFileStatReader, LocalFileStampBatch, LocalFileAbsence {
   const NativeLocalFileStatReader({Duration stallLimit = storageStallLimit})

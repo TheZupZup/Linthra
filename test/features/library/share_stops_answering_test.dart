@@ -5,15 +5,20 @@
 // rescan into such a share never returned, so the Local music card stayed busy
 // and the library watcher stopped refreshing every folder.
 //
-// Staged with the real walk, stat reader and tag reader over a temp folder and
-// the real Drift catalog. The share going away is an IOOverrides under which
-// every listing and every `stat` on it never answers.
+// Staged over a temp folder with the real tag reader and the real Drift
+// catalog. The walk and the stat reader read the share in the Rust core,
+// past any IOOverrides, so the dead share is staged in front of them: a walk
+// that answers, after its stall limit, the way the Rust walk does for a
+// folder that stopped answering (native/linthra_core/src/scan/walk.rs), and
+// stats that answer nothing (scan/files.rs). Anything else that still
+// reaches the share through dart:io never answers either.
 import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/models/local_file_stamp.dart';
 import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
@@ -23,6 +28,8 @@ import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/local_root_fault.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/core/sources/local/local_scan_report.dart';
+import 'package:linthra/core/sources/local/native_audio_file_scanner.dart';
+import 'package:linthra/core/sources/local/native_file_reads.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
 import 'package:linthra/data/repositories/host_platform_provider.dart';
 import 'package:linthra/data/repositories/in_memory_selected_music_folder_repository.dart';
@@ -82,6 +89,63 @@ final class _DeadShare extends IOOverrides {
   }
 }
 
+/// The production walk, until the share is [dead]: then a walk of a folder on
+/// it gets no answer for its stall limit, and fails as the Rust walk fails a
+/// folder that stopped answering.
+class _ShareWalk implements AudioFileScanner {
+  _ShareWalk(this.mount);
+
+  final String mount;
+  bool dead = false;
+
+  @override
+  Future<List<String>> listFiles(
+    String folder, {
+    void Function(String directory)? onUnreadableDirectory,
+    void Function(String path)? onUnopenableName,
+  }) async {
+    if (dead && _on(mount, folder)) {
+      await Future<void>.delayed(_stall);
+      throw rootFaultException(folder, LocalRootFault.unavailable);
+    }
+    return const NativeAudioFileScanner(stallLimit: _stall).listFiles(
+      folder,
+      onUnreadableDirectory: onUnreadableDirectory,
+      onUnopenableName: onUnopenableName,
+    );
+  }
+}
+
+/// The production stat reader, until the share is [dead]: then nothing on it
+/// has a stamp, a batch stops at once, and nothing on it is known to be gone,
+/// as the Rust reads answer for storage that stopped answering.
+class _ShareStats
+    implements LocalFileStatReader, LocalFileStampBatch, LocalFileAbsence {
+  _ShareStats(this.mount);
+
+  final String mount;
+  bool dead = false;
+  static const NativeLocalFileStatReader _real =
+      NativeLocalFileStatReader(stallLimit: _stall);
+
+  @override
+  Future<LocalFileStamp?> stamp(String path) async {
+    if (!dead || !_on(mount, path)) return _real.stamp(path);
+    await Future<void>.delayed(_stall);
+    return null;
+  }
+
+  @override
+  Future<List<LocalFileStamp?>> stampAll(List<String> paths) async =>
+      dead ? const <LocalFileStamp?>[] : _real.stampAll(paths);
+
+  @override
+  Future<bool> isGone(String path, {required String root}) async =>
+      dead && _on(mount, path) ? false : _real.isGone(path, root: root);
+}
+
+bool _on(String mount, String path) => path == mount || p.isWithin(mount, path);
+
 void main() {
   setUp(LocalScanDiagnostics.reset);
   tearDown(LocalScanDiagnostics.reset);
@@ -111,6 +175,8 @@ void main() {
       );
     }
 
+    final _ShareWalk walk = _ShareWalk(mount);
+    final _ShareStats stats = _ShareStats(mount);
     final FilesystemLocalMetadataReader reader = FilesystemLocalMetadataReader(
       artworkCache: LocalArtworkCache(directory: () async => artwork),
     );
@@ -126,11 +192,9 @@ void main() {
         linthraDatabaseExecutorProvider
             .overrideWithValue(NativeDatabase.memory()),
         driftMusicLibraryRepositoryOverride,
-        audioFileScannerProvider
-            .overrideWithValue(const IoAudioFileScanner(stallLimit: _stall)),
+        audioFileScannerProvider.overrideWithValue(walk),
         localMetadataReaderProvider.overrideWithValue(reader),
-        localFileStatReaderProvider
-            .overrideWithValue(const IoLocalFileStatReader(stallLimit: _stall)),
+        localFileStatReaderProvider.overrideWithValue(stats),
         hostPlatformProvider.overrideWithValue(HostPlatform.linux),
       ],
     );
@@ -148,6 +212,8 @@ void main() {
     await c.read(localMusicControllerProvider.notifier).rescan();
     expect(await titles(), <String>['Flume', 'Lump Sum']);
 
+    walk.dead = true;
+    stats.dead = true;
     await IOOverrides.runWithIOOverrides(
       () => c.read(localMusicControllerProvider.notifier).rescan(),
       _DeadShare(mount),
