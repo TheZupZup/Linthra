@@ -5,30 +5,20 @@ import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/album.dart';
 import 'package:linthra/core/models/artist.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/native/native_library_grouping.dart';
 
-/// The Rust grouping has to give exactly what the Dart rules give: the same
-/// albums and artists, labels, counts, artwork and order, and above all the
-/// same ids, because album and artist pages look their tracks up with the ids
-/// Dart computes one track at a time.
-///
-/// Runs through the real Rust library hook/build.dart builds for the test
-/// host, and is skipped without it (CI sets LINTHRA_REQUIRE_RUST=1, which
-/// fails linthra_core_test.dart instead).
+/// The Rust grouping's album and artist ids have to be the ones
+/// `albumIdForTrack` and `artistIdForTrack` compute in Dart, one track at a
+/// time: album and artist pages look their tracks up with those.
 void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
-
-  group('native library grouping', skip: skip, () {
-    test('matches Dart on names that are easy to get wrong', () {
-      _expectSameAsDart(_tricky());
+  group('native library grouping', () {
+    test("gives Dart's ids on names that are easy to get wrong", () {
+      _expectSameIds(_tricky());
     });
 
-    test('matches Dart on random catalogs', () {
+    test("gives Dart's ids on random catalogs", () {
       for (int seed = 0; seed < 200; seed++) {
-        _expectSameAsDart(_randomCatalog(Random(seed)));
+        _expectSameIds(_randomCatalog(Random(seed)));
       }
     });
 
@@ -57,16 +47,11 @@ void main() {
       _expectSameIds(tracks);
     });
 
-    test('leaves text with an unpaired surrogate to Dart', () {
-      // UTF-8 would carry the lone surrogate as U+FFFD, which sorts after
-      // U+E000 where the surrogate itself sorts before it.
-      final List<Track> tracks = <Track>[
+    test('reads an unpaired surrogate as U+FFFD, as the Dart ids do', () {
+      _expectSameIds(<Track>[
         _track('1', album: 'Broken \uE000', artist: 'A'),
-        _track('2', album: 'Broken \uD83C', artist: 'A'),
-      ];
-      expect(NativeLibraryGrouping.group(tracks), isNull);
-      expect(_albums(groupAlbums(tracks)), _albums(groupAlbumsInDart(tracks)));
-      expect(groupAlbums(tracks).first.title, 'Broken \uD83C');
+        _track('2', album: 'Broken \uD83C', artist: 'A\uDC00'),
+      ]);
     });
 
     test('an empty catalog has no albums or artists', () {
@@ -78,19 +63,9 @@ void main() {
   });
 }
 
-void _expectSameAsDart(List<Track> tracks) {
-  final ({List<Album> albums, List<Artist> artists}) groups =
-      groupLibrary(tracks);
-  expect(_albums(groups.albums), _albums(groupAlbumsInDart(tracks)));
-  expect(_artists(groups.artists), _artists(groupArtistsInDart(tracks)));
-  expect(_albums(groupAlbums(tracks)), _albums(groups.albums));
-  expect(_artists(groupArtists(tracks)), _artists(groups.artists));
-  _expectSameIds(tracks);
-}
-
 /// Every track's native album and artist ids are the ones Dart computes.
 void _expectSameIds(List<Track> tracks) {
-  final NativeLibraryGroups native = NativeLibraryGrouping.group(tracks)!;
+  final NativeLibraryGroups native = NativeLibraryGrouping.group(tracks);
   for (int i = 0; i < tracks.length; i++) {
     final Track track = tracks[i];
     final String album = native.albumIds[native.trackAlbum[i]];
@@ -111,18 +86,6 @@ void _expectSameIds(List<Track> tracks) {
 String _codes(String? text) => text == null
     ? 'null'
     : text.codeUnits.map((int u) => u.toRadixString(16)).join(' ');
-
-List<String> _albums(List<Album> albums) => <String>[
-      for (final Album a in albums)
-        '${a.id} | ${a.title} | ${a.artistName} | ${a.artworkUri} | '
-            '${a.trackCount}',
-    ];
-
-List<String> _artists(List<Artist> artists) => <String>[
-      for (final Artist a in artists)
-        '${a.id} | ${a.name} | ${a.albumCount} | ${a.trackCount} | '
-            '${a.artworkUri}',
-    ];
 
 Track _track(
   String id, {

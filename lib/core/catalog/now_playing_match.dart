@@ -16,8 +16,8 @@ import 'track_identity.dart';
 ///    little metadata to be matched any other way — so it only ever lights up its
 ///    own row.
 ///  * **Cross-provider fallback.** When [row] and [current] come from *different*
-///    providers, they count as the same song only when [isLikelySameTrack]
-///    confidently agrees. This is the exact predicate the library unifier merges
+///    providers, they count as the same song only when the library merge's
+///    match (`unifyTracks`) confidently agrees. This is the exact predicate the library unifier merges
 ///    duplicates on, so the indicator stays consistent with how the rest of the
 ///    app already reasons about "the same song across sources": if the user
 ///    tapped a Jellyfin row but playback fell back to the Navidrome copy, the
@@ -29,25 +29,14 @@ import 'track_identity.dart';
 /// to be the playing track.
 ///
 /// Decided by the Rust core (native/linthra_core/src/track_unifier.rs, the
-/// same match the library merge uses) when the build has it. [useNative]
-/// false always takes the Dart path, for tests.
-bool isCurrentPlaybackTrack(
-  Track row,
-  Track current, {
-  bool useNative = true,
-}) {
+/// same match the library merge uses).
+bool isCurrentPlaybackTrack(Track row, Track current) {
   if (row.uri == current.uri) return true;
-  final bool sameSource = trackSourceId(row) == trackSourceId(current);
-  if (useNative) {
-    final bool? native = NativeTrackUnifier.isCurrent(
-      _native(row),
-      _native(current),
-      sameSource: sameSource,
-    );
-    if (native != null) return native;
-  }
-  if (sameSource) return false;
-  return isLikelySameTrack(row, current);
+  return NativeTrackUnifier.isCurrent(
+    _native(row),
+    _native(current),
+    sameSource: trackSourceId(row) == trackSourceId(current),
+  );
 }
 
 /// What the Rust match reads of [track]. Its source and rank are set by

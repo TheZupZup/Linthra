@@ -8,6 +8,7 @@ import 'app/linthra_app.dart';
 import 'core/app_info.dart';
 import 'core/models/desktop_density.dart';
 import 'core/models/theme_mode_preference.dart';
+import 'core/native/linthra_core.dart';
 import 'core/services/android_user_ca_trust.dart';
 import 'data/repositories/desktop_density_store_provider.dart';
 import 'data/repositories/linux_shared_preferences_store.dart';
@@ -35,6 +36,9 @@ Future<void> main(List<String> arguments) async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
+  // The backend runs in the Rust core. A build without it can't do anything
+  // useful, so it says so now rather than on the first scan or playback.
+  LinthraCore.ensureAvailable();
   // Load Android user-installed CAs before creating network clients.
   // Keep normal TLS validation even if the CA store is unavailable.
   try {

@@ -1,17 +1,16 @@
-import 'dart:typed_data';
-
-import 'search_typos.dart';
-
-/// Library search in Dart: the fallback for builds without the Rust core.
+/// The search's words, cut in Dart for the Library's direct filters
+/// (library_search.dart).
 ///
-/// It has to find exactly what native/linthra_core finds, or a search would
-/// depend on how the app was built. test/fixtures/search_cases.txt holds the
-/// cases both sides replay; Rust is the reference, and a case belongs there
-/// before a behaviour is changed on either side.
+/// They have to find exactly what the Rust index (native/linthra_core) finds,
+/// or a search would answer differently below and above the indexed size.
+/// test/fixtures/search_cases.txt holds the cases both sides replay; Rust is
+/// the reference, and a case belongs there before a behaviour is changed on
+/// either side.
 ///
-/// Not [foldText] (text_folding.dart): that folds whole strings for the
+/// Not `foldText` (text_folding.dart): that folds whole strings for the
 /// older substring search, with its own table. This one cuts text into words
 /// the way the Rust core's normalize.rs does.
+library;
 
 /// Anything but a letter, a number, or a combining accent separates tokens.
 /// `\p{Alphabetic}` and `\p{N}` are what Rust's `char::is_alphanumeric`
@@ -120,69 +119,4 @@ String _lowerCase(String word) {
     }
   }
   return out.toString();
-}
-
-/// One track as the Dart search sees it: the same fields as the Rust index.
-class SearchableTrack {
-  const SearchableTrack({
-    required this.title,
-    required this.artist,
-    required this.album,
-    this.albumArtist,
-    required this.provider,
-  });
-
-  final String title;
-  final String artist;
-  final String album;
-  final String? albumArtist;
-  final String provider;
-}
-
-/// The Dart fallback for the Rust core's library search: same matching
-/// rules, no ranking. Each track's tokens are cut once, up front; a query
-/// then checks every track, which is fine for the libraries that run without
-/// the Rust core and is why the Rust index exists for the large ones.
-class DartSearchIndex {
-  DartSearchIndex(Iterable<SearchableTrack> tracks)
-      : _tokens = <List<String>>[
-          for (final SearchableTrack track in tracks)
-            <String>{
-              ...searchTokens(track.title),
-              ...searchTokens(track.artist),
-              ...searchTokens(track.album),
-              if (track.albumArtist != null)
-                ...searchTokens(track.albumArtist!),
-              ...searchTokens(track.provider),
-            }.toList(growable: false),
-        ];
-
-  final List<List<String>> _tokens;
-
-  /// Every token of every track, for deciding which query words match
-  /// within their typos (see search_typos.dart). Built on first use.
-  late final Set<String> _allTokens = <String>{
-    for (final List<String> tokens in _tokens) ...tokens,
-  };
-
-  /// Number of tracks in the index.
-  int get length => _tokens.length;
-
-  /// The positions, in the order the tracks were given, of every track where
-  /// each word of [query] starts one of its tokens (or, for a word that starts
-  /// no token at all, matches one within its typos). Ascending; empty for an
-  /// empty or whitespace-only query.
-  Uint32List matchPositions(String query) {
-    final List<String> terms = searchTokens(query);
-    if (terms.isEmpty) return Uint32List(0);
-    final List<bool Function(String token)>? matchers =
-        termMatchers(terms, _allTokens);
-    if (matchers == null) return Uint32List(0);
-    final List<int> positions = <int>[];
-    for (int position = 0; position < _tokens.length; position++) {
-      final List<String> tokens = _tokens[position];
-      if (matchers.every(tokens.any)) positions.add(position);
-    }
-    return Uint32List.fromList(positions);
-  }
 }

@@ -1,11 +1,18 @@
 //! Merging one song's copies from different servers into one library row.
 //!
-//! The same rules as `lib/core/catalog/track_identity.dart` and
-//! `track_unifier.dart`, which are the fallback; `track_unifier_native_test`
-//! on the Dart side compares the two. Conservative by design: two rows stay
-//! apart unless their title, album and artist agree closely, their lengths
-//! are within two seconds, their track numbers don't conflict, and they come
-//! from different servers.
+//! `unifyTracks` (lib/core/catalog/track_unifier.dart) calls it. Conservative
+//! by design: two rows stay apart unless their title, album and artist agree
+//! closely, their lengths are within two seconds, their track numbers don't
+//! conflict, and they come from different servers.
+//!
+//! Why a score and not one exact key: two servers rarely tag a song byte for
+//! byte alike. Featured artists drift (`CAREFUL` and `CAREFUL feat. Cordae`,
+//! `NF` and `NF, Cordae`), album editions drift (`25` and `25 (Deluxe)`), and
+//! a duration bucket splits a one-second rounding gap that straddles its edge.
+//! So two eligible rows are compared on near-same length, album, title words,
+//! artist words and track number, and merge only when the weighted score
+//! clears a high threshold and no veto fires: keeping two rows apart beats
+//! merging songs that might differ.
 //!
 //! Text is read with the search tokenizer ([crate::normalize]), which keeps
 //! the letters of every script, so a song tagged in Cyrillic, Greek or CJK

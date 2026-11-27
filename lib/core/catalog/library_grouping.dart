@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-
 import '../models/album.dart';
 import '../models/artist.dart';
 import '../models/track.dart';
@@ -117,67 +115,25 @@ String artistIdForTrack(Track track) {
 /// [groupArtists] sort them. Cheaper than calling both when a screen needs
 /// both: the Rust core groups them in one pass.
 ({List<Album> albums, List<Artist> artists}) groupLibrary(List<Track> tracks) {
-  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
-  if (native != null) {
-    return (
-      albums: _nativeAlbums(tracks, native),
-      artists: _nativeArtists(tracks, native),
-    );
-  }
+  final NativeLibraryGroups native = NativeLibraryGrouping.group(tracks);
   return (
-    albums: groupAlbumsInDart(tracks),
-    artists: groupArtistsInDart(tracks),
+    albums: _nativeAlbums(tracks, native),
+    artists: _nativeArtists(tracks, native),
   );
 }
 
 /// All albums in [tracks], sorted by title then artist (then id), ascending.
 ///
-/// Runs in the Rust core (native/linthra_core/src/library_grouping.rs) when
-/// the build carries it, and in [groupAlbumsInDart] otherwise. Both give the
-/// same albums, in the same order, with the same ids.
-List<Album> groupAlbums(List<Track> tracks) {
-  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
-  if (native != null) return _nativeAlbums(tracks, native);
-  return groupAlbumsInDart(tracks);
-}
+/// Runs in the Rust core (native/linthra_core/src/library_grouping.rs). The
+/// first non-empty title, album artist (else track artist) and artwork among
+/// an album's tracks label it.
+List<Album> groupAlbums(List<Track> tracks) =>
+    _nativeAlbums(tracks, NativeLibraryGrouping.group(tracks));
 
 /// All artists in [tracks], sorted by name (then id), ascending. Runs in the
-/// Rust core when it can, like [groupAlbums].
-List<Artist> groupArtists(List<Track> tracks) {
-  final NativeLibraryGroups? native = NativeLibraryGrouping.group(tracks);
-  if (native != null) return _nativeArtists(tracks, native);
-  return groupArtistsInDart(tracks);
-}
-
-/// [groupAlbums] without the Rust core: the reference rules.
-@visibleForTesting
-List<Album> groupAlbumsInDart(List<Track> tracks) {
-  final Map<String, _AlbumAgg> byId = <String, _AlbumAgg>{};
-  for (final Track track in tracks) {
-    byId.putIfAbsent(albumIdForTrack(track), () => _AlbumAgg()).add(track);
-  }
-  final List<Album> albums = <Album>[
-    for (final MapEntry<String, _AlbumAgg> e in byId.entries)
-      e.value.toAlbum(e.key),
-  ];
-  albums.sort(_albumCompare);
-  return albums;
-}
-
-/// [groupArtists] without the Rust core: the reference rules.
-@visibleForTesting
-List<Artist> groupArtistsInDart(List<Track> tracks) {
-  final Map<String, _ArtistAgg> byId = <String, _ArtistAgg>{};
-  for (final Track track in tracks) {
-    byId.putIfAbsent(artistIdForTrack(track), () => _ArtistAgg()).add(track);
-  }
-  final List<Artist> artists = <Artist>[
-    for (final MapEntry<String, _ArtistAgg> e in byId.entries)
-      e.value.toArtist(e.key),
-  ];
-  artists.sort(_artistCompare);
-  return artists;
-}
+/// Rust core, like [groupAlbums].
+List<Artist> groupArtists(List<Track> tracks) =>
+    _nativeArtists(tracks, NativeLibraryGrouping.group(tracks));
 
 /// Builds the albums the Rust core grouped. It names which track labels each
 /// album, so every display string is read from [tracks] exactly as
@@ -293,21 +249,6 @@ List<Album> albumsForArtist(List<Track> tracks, String artistId) {
   ]);
 }
 
-int _albumCompare(Album a, Album b) {
-  final int byTitle = foldText(a.title).compareTo(foldText(b.title));
-  if (byTitle != 0) return byTitle;
-  final int byArtist =
-      foldText(a.artistName ?? '').compareTo(foldText(b.artistName ?? ''));
-  if (byArtist != 0) return byArtist;
-  return a.id.compareTo(b.id);
-}
-
-int _artistCompare(Artist a, Artist b) {
-  final int byName = foldText(a.name).compareTo(foldText(b.name));
-  if (byName != 0) return byName;
-  return a.id.compareTo(b.id);
-}
-
 int _trackInAlbumCompare(Track a, Track b) {
   final int byDisc = _byNumbering(a.discNumber, b.discNumber);
   if (byDisc != 0) return byDisc;
@@ -338,81 +279,4 @@ int _trackForArtistCompare(Track a, Track b) {
   final int byAlbumId = albumIdForTrack(a).compareTo(albumIdForTrack(b));
   if (byAlbumId != 0) return byAlbumId;
   return _trackInAlbumCompare(a, b);
-}
-
-/// Accumulates one album's display fields as its tracks are seen. The first
-/// non-empty title/artist/artwork wins, so a stray untagged track in the group
-/// can't blank out a name the others provide.
-class _AlbumAgg {
-  String? _title;
-
-  /// The first [Track.albumArtistName] and the first [Track.artistName] seen,
-  /// kept **separate** until [toAlbum]. Collapsing them as tracks arrive would
-  /// make the label order-dependent: a first track carrying only a per-track
-  /// credit ("Main Artist feat. Guest") would win and then block the real
-  /// album artist a later track supplies. Resolving at the end lets any album
-  /// artist in the group supersede the track-artist fallback, whatever order
-  /// the tracks are aggregated in.
-  String? _albumArtist;
-  String? _trackArtist;
-
-  Uri? _artwork;
-  int _count = 0;
-
-  void add(Track track) {
-    _count++;
-    final String? album = track.albumName;
-    if ((_title == null || _title!.isEmpty) &&
-        album != null &&
-        album.isNotEmpty) {
-      _title = album;
-    }
-    _albumArtist ??= _nonBlank(track.albumArtistName);
-    _trackArtist ??= _nonBlank(track.artistName);
-    _artwork ??= track.artworkUri;
-  }
-
-  Album toAlbum(String id) {
-    // The album artist labels the album whenever *any* track in the group
-    // carries one; otherwise the first track artist seen, which is the
-    // pre-existing behavior for sources that report no album artist.
-    return Album(
-      id: id,
-      title: (_title == null || _title!.isEmpty) ? kUnknownAlbum : _title!,
-      artistName: _albumArtist ?? _trackArtist,
-      artworkUri: _artwork,
-      trackCount: _count,
-    );
-  }
-}
-
-/// Accumulates one artist's display fields and how many distinct albums and
-/// tracks they have.
-class _ArtistAgg {
-  String? _name;
-  Uri? _artwork;
-  final Set<String> _albumIds = <String>{};
-  int _trackCount = 0;
-
-  void add(Track track) {
-    _trackCount++;
-    final String? artist = track.artistName;
-    if ((_name == null || _name!.isEmpty) &&
-        artist != null &&
-        artist.isNotEmpty) {
-      _name = artist;
-    }
-    _artwork ??= track.artworkUri;
-    _albumIds.add(albumIdForTrack(track));
-  }
-
-  Artist toArtist(String id) {
-    return Artist(
-      id: id,
-      name: (_name == null || _name!.isEmpty) ? kUnknownArtist : _name!,
-      albumCount: _albumIds.length,
-      trackCount: _trackCount,
-      artworkUri: _artwork,
-    );
-  }
 }

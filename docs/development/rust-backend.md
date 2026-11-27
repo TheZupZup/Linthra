@@ -23,8 +23,8 @@ Stays in Dart or Kotlin, because the platform owns it:
 
 ## Rules for every phase
 
-- **One phase, one PR**, and the Dart path stays as the fallback until the Rust path has passed parity tests and shipped in a release. Then the Dart path is removed in its own PR.
-- **Parity first.** Every phase replays the existing Dart tests through Rust and adds a test that compares both paths on generated input. A change of behaviour is its own PR with its own reason, never a side effect of the port.
+- **The Rust core is required.** The hook fails a build without it and the app checks it at startup, so a rule lives in Rust only: no Dart copy is kept as a fallback.
+- **Parity first.** A port is written against the Dart rules it replaces: the existing Dart tests run through Rust, and a test compares both on generated input until the Dart copy is deleted, in the same PR or the next. A change of behaviour is its own PR with its own reason, never a side effect of the port.
 - **Break it on purpose.** Each parity test is checked by mutating the Rust rule and watching the test fail.
 - **CI's Rust.** Checks run on the toolchain pinned in `.rust-version`, not whatever is installed locally.
 
@@ -51,4 +51,5 @@ Before the first phase moves:
 ## Progress
 
 - Phase 0 landed in #991.
-- Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses, with `IoAudioFileScanner` as the fallback. Then what the scan reads about each file: `NativeLocalFileStatReader` stamps every listed file in one call (a call per file costs more than the `stat`), decides whether a file it could not read is gone, and CUE sheets are read in Rust. Then mapping files to tracks: `LocalTrackMapper` names every track in Rust, files, Android documents and CUE tracks alike. The scan's orchestration follows.
+- Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses. Then what the scan reads about each file: `NativeLocalFileStatReader` stamps every listed file in one call (a call per file costs more than the `stat`), decides whether a file it could not read is gone, and CUE sheets are read in Rust. Then mapping files to tracks: `LocalTrackMapper` names every track in Rust, files, Android documents and CUE tracks alike. The scan's orchestration follows.
+- The Dart copies of every rule already in Rust were removed once the core became required.

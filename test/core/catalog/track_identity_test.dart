@@ -1,6 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linthra/core/catalog/now_playing_match.dart';
 import 'package:linthra/core/catalog/track_identity.dart';
 import 'package:linthra/core/models/track.dart';
+
+/// Whether the library merge takes [a] and [b] (from different servers) for
+/// one song: decided by the Rust core, through the now-playing match.
+bool _same(Track a, Track b) => isCurrentPlaybackTrack(a, b);
 
 /// A Jellyfin-shaped track: opaque `jellyfin:<id>` uri and full tags.
 Track _jelly(
@@ -58,66 +63,41 @@ void main() {
     });
   });
 
-  group('canMatchAcrossProviders / matchBlockKey — eligibility', () {
-    test('a fully tagged track is eligible', () {
-      expect(canMatchAcrossProviders(_jelly('j', title: 'Hello')), isTrue);
-      expect(matchBlockKey(_jelly('j', title: 'Hello')), isNotNull);
-    });
-
-    test('the same song on two providers shares a block key', () {
-      expect(
-        matchBlockKey(_jelly('j', title: 'Hello')),
-        matchBlockKey(_sub('s', title: 'Hello')),
-      );
-    });
-
-    test('a featured-artist title still blocks with the plain copy', () {
-      // The block key strips the feat. qualifier, so the two copies that the
-      // scorer must compare actually land in the same block.
-      expect(
-        matchBlockKey(_jelly('j', title: 'CAREFUL')),
-        matchBlockKey(_sub('s', title: 'CAREFUL feat. Cordae')),
-      );
-    });
-
-    test('different songs by the same artist get different block keys', () {
-      expect(
-        matchBlockKey(_jelly('j', title: 'Hello')),
-        isNot(matchBlockKey(_jelly('k', title: 'Skyfall'))),
-      );
-    });
-
-    test('no artist, no album, or a zero duration is ineligible', () {
-      expect(canMatchAcrossProviders(_jelly('j', title: 'X', artist: null)),
-          isFalse);
-      expect(canMatchAcrossProviders(_jelly('j', title: 'X', album: null)),
-          isFalse);
-      expect(
-        canMatchAcrossProviders(
-          _jelly('j', title: 'X', duration: Duration.zero),
+  group('eligibility', () {
+    test('no artist, no album, or a zero duration never matches', () {
+      for (final (Track a, Track b) in <(Track, Track)>[
+        (
+          _jelly('j', title: 'X', artist: null),
+          _sub('s', title: 'X', artist: null)
         ),
-        isFalse,
-      );
+        (
+          _jelly('j', title: 'X', album: null),
+          _sub('s', title: 'X', album: null)
+        ),
+        (
+          _jelly('j', title: 'X', duration: Duration.zero),
+          _sub('s', title: 'X', duration: Duration.zero),
+        ),
+      ]) {
+        expect(_same(a, b), isFalse);
+      }
     });
 
-    test('an untagged local file (title only) is never matchable', () {
+    test('an untagged local file (title only) is never matched', () {
       const Track local = Track(id: '/m/x.mp3', title: 'x', uri: '/m/x.mp3');
-      expect(canMatchAcrossProviders(local), isFalse);
-      expect(matchBlockKey(local), isNull);
+      expect(_same(local, _sub('s', title: 'x')), isFalse);
     });
   });
 
-  group('isLikelySameTrack — the same song across providers', () {
+  group('the same song — the same song across providers', () {
     test('identical tags match', () {
-      expect(
-          isLikelySameTrack(
-              _jelly('j', title: 'Hello'), _sub('s', title: 'Hello')),
+      expect(_same(_jelly('j', title: 'Hello'), _sub('s', title: 'Hello')),
           isTrue);
     });
 
     test('case and accents fold, so they never split a match', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Café', artist: 'Beyoncé'),
           _sub('s', title: 'cafe', artist: 'beyonce'),
         ),
@@ -127,7 +107,7 @@ void main() {
 
     test('a 1-second rounding difference still matches', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', duration: const Duration(seconds: 180)),
           _sub('s', title: 'Hello', duration: const Duration(seconds: 181)),
         ),
@@ -139,7 +119,7 @@ void main() {
       // 181s and 182s fell in different 2-second *buckets* before; as an
       // absolute *difference* they are 1s apart and match.
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', duration: const Duration(seconds: 181)),
           _sub('s', title: 'Hello', duration: const Duration(seconds: 182)),
         ),
@@ -148,11 +128,11 @@ void main() {
     });
   });
 
-  group('isLikelySameTrack — real Jellyfin/Navidrome metadata drift', () {
+  group('the same song — real Jellyfin/Navidrome metadata drift', () {
     test('a featured artist in the title is ignored (CAREFUL feat. Cordae)',
         () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'CAREFUL'),
           _sub('s', title: 'CAREFUL feat. Cordae'),
         ),
@@ -162,7 +142,7 @@ void main() {
 
     test('a parenthesised featured artist in the title is ignored', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'CAREFUL'),
           _sub('s', title: 'CAREFUL (feat. Cordae)'),
         ),
@@ -173,7 +153,7 @@ void main() {
     test('an extra featured artist in the artist field is ignored (NF, Cordae)',
         () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'CAREFUL', artist: 'NF'),
           _sub('s', title: 'CAREFUL', artist: 'NF, Cordae'),
         ),
@@ -183,7 +163,7 @@ void main() {
 
     test('the full reported drift (title + artist) still matches', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'CAREFUL', artist: 'NF'),
           _sub('s', title: 'CAREFUL feat. Cordae', artist: 'NF, Cordae'),
         ),
@@ -193,7 +173,7 @@ void main() {
 
     test('an album edition suffix is tolerated (25 vs 25 (Deluxe))', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', album: '25'),
           _sub('s', title: 'Hello', album: '25 (Deluxe)'),
         ),
@@ -203,7 +183,7 @@ void main() {
 
     test('a matching track number reinforces a match', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', trackNumber: 3),
           _sub('s', title: 'Hello', trackNumber: 3),
         ),
@@ -212,10 +192,10 @@ void main() {
     });
   });
 
-  group('isLikelySameTrack — staying conservative', () {
+  group('the same song — staying conservative', () {
     test('a different album is not a match', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', album: '25'),
           _sub('s', title: 'Hello', album: '21'),
         ),
@@ -227,7 +207,7 @@ void main() {
         'two different songs that share a title + artist + duration but sit on '
         'different albums are not merged', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Intro', album: 'Album A'),
           _sub('s', title: 'Intro', album: 'Album B'),
         ),
@@ -237,7 +217,7 @@ void main() {
 
     test('a different artist is not a match', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', artist: 'Adele'),
           _sub('s', title: 'Hello', artist: 'Lionel'),
         ),
@@ -247,7 +227,7 @@ void main() {
 
     test('a clearly different duration is vetoed', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', duration: const Duration(minutes: 3)),
           _sub('s', title: 'Hello', duration: const Duration(minutes: 5)),
         ),
@@ -257,7 +237,7 @@ void main() {
 
     test('a 3-second duration gap is vetoed', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', duration: const Duration(seconds: 180)),
           _sub('s', title: 'Hello', duration: const Duration(seconds: 183)),
         ),
@@ -267,7 +247,7 @@ void main() {
 
     test('a version qualifier keeps a remix/live distinct', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello'),
           _sub('s', title: 'Hello (Live)'),
         ),
@@ -279,7 +259,7 @@ void main() {
       // Same title/artist/album/duration but a different position on the album:
       // a strong signal these are different songs, so never merge.
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', trackNumber: 3),
           _sub('s', title: 'Hello', trackNumber: 4),
         ),
@@ -289,62 +269,12 @@ void main() {
 
     test('a missing track number on one side never vetoes', () {
       expect(
-        isLikelySameTrack(
+        _same(
           _jelly('j', title: 'Hello', trackNumber: 3),
           _sub('s', title: 'Hello'),
         ),
         isTrue,
       );
-    });
-  });
-
-  group('trackMatchScore — the score itself', () {
-    test('an exact match scores 1.0', () {
-      expect(
-        trackMatchScore(_jelly('j', title: 'Hello'), _sub('s', title: 'Hello')),
-        closeTo(1.0, 1e-9),
-      );
-    });
-
-    test('a duration veto scores exactly 0.0', () {
-      // A hard veto (here, durations too far apart) collapses the score to 0,
-      // regardless of how well the other fields agree.
-      expect(
-        trackMatchScore(
-          _jelly('j', title: 'Hello', duration: const Duration(minutes: 3)),
-          _sub('s', title: 'Hello', duration: const Duration(minutes: 5)),
-        ),
-        0.0,
-      );
-    });
-
-    test('a track-number conflict scores exactly 0.0', () {
-      expect(
-        trackMatchScore(
-          _jelly('j', title: 'Hello', trackNumber: 3),
-          _sub('s', title: 'Hello', trackNumber: 4),
-        ),
-        0.0,
-      );
-    });
-
-    test('a different artist scores low but is not a hard veto', () {
-      // Different artists share no tokens, so the artist signal is 0; the score
-      // stays well below the merge threshold without needing a veto.
-      final double score = trackMatchScore(
-        _jelly('j', title: 'Hello', artist: 'Adele'),
-        _sub('s', title: 'Hello', artist: 'Lionel'),
-      );
-      expect(score, lessThan(kTrackMatchScore));
-    });
-
-    test('a low-confidence pair scores below the merge threshold', () {
-      final double score = trackMatchScore(
-        _jelly('j', title: 'Intro', album: 'Album A'),
-        _sub('s', title: 'Intro', album: 'Album B'),
-      );
-      expect(score, lessThan(kTrackMatchScore));
-      expect(score, greaterThan(0.0));
     });
   });
 }

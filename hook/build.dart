@@ -1,24 +1,16 @@
 // Builds native/linthra_core (Rust) as a shared library and hands it to
 // Flutter as a code asset, so `flutter run`, `flutter build` and `flutter test`
-// bundle it next to the app. lib/core/native/linthra_core_ffi.dart calls it.
+// bundle it next to the app. lib/core/native/ calls it.
 //
-// The Rust core is optional at this stage: when cargo/rustc are not installed,
-// or the Rust standard library for the target is missing (an Android ABI
-// without `rustup target add`), the hook skips the asset and the app keeps
-// using its Dart code paths (LinthraCore.isAvailable is then false). A build
-// that does start and then fails is a real error and fails the hook.
-//
-// A build that must carry it asks for it with the `require_rust` user-define
-// (see rust_requirement.dart): then every case above fails the build instead
-// of skipping. CI's `flutter test` runs fail without it through
-// LINTHRA_REQUIRE_RUST=1 (see test/core/native/).
+// The Rust core is required: the backend runs there and has no Dart copy. A
+// build without Rust for the target (cargo/rustc not installed, no C linker,
+// the target's standard library missing) fails here, saying what to install,
+// rather than producing an app that can't start.
 
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
-
-import 'rust_requirement.dart';
 
 /// The crate, relative to the package root.
 const String _crateDir = 'native/linthra_core/';
@@ -35,37 +27,32 @@ Future<void> main(List<String> args) async {
     if (!input.config.buildCodeAssets) return;
     final CodeConfig code = input.config.code;
     final Uri crate = input.packageRoot.resolve(_crateDir);
-    final bool required =
-        rustCoreRequired(input.userDefines[requireRustDefine]);
-    void skip(String reason) => missingRustCore(reason, required: required);
 
     // Declared first, so that installing Rust later or editing the crate
-    // re-runs the hook even after a run that skipped.
+    // re-runs the hook even after a run that failed.
     output.dependencies.addAll(_crateInputs(crate));
 
     final _RustTarget? target = _RustTarget.of(code);
     if (target == null) {
-      skip('no Rust target is set up for '
+      _missing('Linthra builds its Rust core for Linux and Android only, not '
           '${code.targetOS.name}/${code.targetArchitecture.name}');
-      return;
     }
     final String? cargo = _findTool('cargo');
     final String? rustc = _findTool('rustc');
     if (cargo == null || rustc == null) {
-      skip('cargo/rustc not found on PATH or in ~/.cargo/bin');
-      return;
+      _missing('cargo/rustc not found on PATH or in ~/.cargo/bin. Install '
+          'Rust (https://rustup.rs), the version in .rust-version');
     }
     // Off Android, rustc links with the system's `cc`. An immutable desktop
     // (Fedora Kinoite, Silverblue) can have rustup in ~/.cargo but no
-    // compiler outside a toolbox; skip there rather than fail the app build.
+    // compiler outside a toolbox.
     if (target.androidClangPrefix == null && _findTool('cc') == null) {
-      skip('no C linker (cc) on PATH for ${target.triple}');
-      return;
+      _missing('no C linker (cc) on PATH for ${target.triple}. Install gcc, '
+          'or build inside a toolbox that has it');
     }
     if (!await _hasStandardLibrary(rustc, target.triple)) {
-      skip('the Rust standard library for ${target.triple} is not '
+      _missing('the Rust standard library for ${target.triple} is not '
           'installed (rustup target add ${target.triple})');
-      return;
     }
 
     final Uri targetDir = input.outputDirectoryShared.resolve('cargo-target/');
@@ -255,4 +242,8 @@ Future<bool> _hasStandardLibrary(String rustc, String triple) async {
   if (result.exitCode != 0) return false;
   final String libdir = (result.stdout as String).trim();
   return libdir.isNotEmpty && Directory(libdir).existsSync();
+}
+
+Never _missing(String reason) {
+  throw Exception('linthra_core: cannot build the Rust core: $reason.');
 }

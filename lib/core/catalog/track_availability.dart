@@ -77,50 +77,17 @@ enum TrackAvailabilityStatus {
 /// whether the listener can hear the song has not. That is also why
 /// [offlineCopy] is reported even while a probe is still running.
 ///
-/// Decided by the Rust core (native/linthra_core/src/track_availability.rs)
-/// when the build has it, held to this rule by
-/// test/fixtures/track_availability_cases.txt, which both replay.
-/// [useNative] false always takes the Dart path, for tests.
+/// Decided by the Rust core (native/linthra_core/src/track_availability.rs),
+/// held to test/fixtures/track_availability_cases.txt.
 TrackAvailabilityStatus resolveTrackAvailability({
   required bool isRemote,
   required bool hasOfflineCopy,
   required bool isExplicitDownload,
   required SourceAvailability availability,
-  bool useNative = true,
-}) {
-  if (useNative) {
-    final int? native = NativeTrackAvailability.resolve(
+}) =>
+    TrackAvailabilityStatus.values[NativeTrackAvailability.resolve(
       isRemote: isRemote,
       hasOfflineCopy: hasOfflineCopy,
       isExplicitDownload: isExplicitDownload,
       availabilityIndex: availability.index,
-    );
-    if (native != null) return TrackAvailabilityStatus.values[native];
-  }
-  if (!isRemote) return TrackAvailabilityStatus.none;
-
-  if (hasOfflineCopy) {
-    // The only case where the server's absence changes the sentence rather
-    // than silencing it: the copy is not a convenience any more, it is the
-    // whole reason this row works.
-    if (availability.isUnavailable) return TrackAvailabilityStatus.offlineCopy;
-    return isExplicitDownload
-        ? TrackAvailabilityStatus.downloaded
-        : TrackAvailabilityStatus.cached;
-  }
-
-  // Nothing saved locally, so the server is the only way this plays.
-  if (availability == SourceAvailability.authenticationError) {
-    return TrackAvailabilityStatus.sessionRejected;
-  }
-  if (availability == SourceAvailability.unreachable) {
-    return TrackAvailabilityStatus.unreachable;
-  }
-  if (availability.isChecking) return TrackAvailabilityStatus.checking;
-
-  // `available`, and `notConfigured` with it: an unconfigured source has no
-  // rows, and the availability map treats every source it does not list as
-  // reachable (see `sourceAvailabilityProvider`). Either way there is no
-  // server fact worth putting on the row.
-  return TrackAvailabilityStatus.none;
-}
+    )];

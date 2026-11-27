@@ -183,8 +183,8 @@ jobs:
         uses: ./.github/actions/setup-flutter
 
       # The Rust pinned in .rust-version, with the Android targets, so the
-      # APK carries the Rust core (native/linthra_core) instead of the Dart
-      # fallback. The F-Droid recipe installs the same version.
+      # APK carries the Rust core (native/linthra_core), which the app can't
+      # run without. The F-Droid recipe installs the same version.
       - name: Set up Rust
         uses: ./.github/actions/setup-rust-android
 
