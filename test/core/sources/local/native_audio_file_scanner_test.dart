@@ -4,7 +4,6 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/folder_scan_exception.dart';
 import 'package:linthra/core/sources/local/native_audio_file_scanner.dart';
@@ -15,21 +14,15 @@ import 'package:linthra/core/sources/local/native_audio_file_scanner.dart';
 /// ones that are gone.
 ///
 /// Real folders, through the real Rust library hook/build.dart builds for
-/// the test host; skipped without it (CI sets LINTHRA_REQUIRE_RUST=1, which
-/// fails linthra_core_test.dart instead). Stalled storage and unreadable
-/// subfolders can't be staged here without running a process (chmod), so
-/// the Rust tests (native/linthra_core/src/scan/walk.rs) cover them with a
-/// fake filesystem.
+/// the test host. Stalled storage and unreadable subfolders can't be staged
+/// here without running a process (chmod), so the Rust tests
+/// (native/linthra_core/src/scan/walk.rs) cover them with a fake filesystem.
 void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
-
   late Directory temp;
   setUp(() => temp = Directory.systemTemp.createTempSync('linthra_walk_'));
   tearDown(() => temp.deleteSync(recursive: true));
 
-  group('native folder walk', skip: skip, () {
+  group('native folder walk', () {
     test('matches Dart on a tree with every kind of entry', () async {
       final String root = temp.path;
       _file('$root/a.flac');

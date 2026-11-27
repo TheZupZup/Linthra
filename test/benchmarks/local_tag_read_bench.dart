@@ -3,7 +3,7 @@
 // Times FilesystemLocalMetadataReader over a folder of FLAC, Ogg Vorbis,
 // Opus, MP3, M4A and WAV files (FLAC, Ogg, Opus and MP3 with covers), as a
 // first scan reads them: once with the Rust core reading the tags, once with
-// the Dart path (the package, then a second read for the FLAC artists). Each
+// the package path (then a second read for the FLAC artists). Each
 // run gets an empty artwork cache, so every cover is extracted and stored.
 //
 // Named `_bench.dart` so `flutter test` does not pick it up. Run it with:
@@ -13,7 +13,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_metadata_reader.dart';
@@ -47,11 +46,7 @@ Future<int> _scan(List<String> paths, {required bool useNativeTags}) async {
 }
 
 void main() {
-  test('local tag reading: Dart path vs Rust core', () async {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
+  test('local tag reading: package vs Rust core', () async {
     final Directory root =
         await Directory.systemTemp.createTemp('linthra_tag_bench_');
     try {

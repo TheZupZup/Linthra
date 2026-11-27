@@ -1,22 +1,16 @@
 // A measurement harness, not a regression test.
 //
-// Times one eviction plan on the Dart rules and on the Rust core, for caches
-// of several sizes. The Rust time includes everything the app pays for: the
+// Times one eviction plan in the Rust core, for caches of several sizes. The
+// time includes everything the app pays for: the
 // metadata copied into native memory, the call, and the plan read back.
 //
 // Named `_bench.dart`, not `_test.dart`, so `flutter test` does not pick it
-// up: the numbers depend on the machine and its load. That both paths give
-// the same plan is covered by real tests (cache_eviction_cases_test.dart and
-// cache_eviction_policy_test.dart). Run it explicitly:
+// up: the numbers depend on the machine and its load. Run it explicitly:
 //
 //     flutter test test/benchmarks/cache_eviction_bench.dart
-//
-// `flutter test` runs Dart in JIT mode, so the Dart numbers are somewhat
-// slower than a release build's. Compare the two paths on the same run.
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/cache_eviction_policy.dart';
 
@@ -71,10 +65,6 @@ int _time(CacheEvictionPolicy policy, List<CachedTrack> cached, int maxBytes) {
 
 void main() {
   test('cache eviction in the Rust core', () {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
     const CacheEvictionPolicy rust = CacheEvictionPolicy();
     final StringBuffer report = StringBuffer()
       ..writeln('entries       Rust   (median of $_runs, µs)');

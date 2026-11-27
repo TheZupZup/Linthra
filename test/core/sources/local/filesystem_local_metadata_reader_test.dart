@@ -16,11 +16,12 @@ import 'package:linthra/core/sources/local/mp4_box_guard.dart';
 
 import 'audio_tag_fixtures.dart';
 
-// Every reader here takes the Dart path (useNativeTags: false), the one a
-// build without the Rust core takes: the package, the MP4 guard in front of
-// it, and the parser isolate that stops a parse that runs away. With the Rust
-// core, FLAC, Ogg, Opus, MP3 and MP4 never reach that path; they are covered
-// by native_tag_reading_test.dart and the shared cases in test/fixtures/tags/.
+// Every reader here takes the package path (useNativeTags: false), the one a
+// file the Rust core doesn't handle takes: the package, the MP4 guard in
+// front of it, and the parser isolate that stops a parse that runs away. A
+// FLAC, Ogg, Opus, MP3 or MP4 the Rust core reads never reaches that path;
+// they are covered by native_tag_reading_test.dart and the shared cases in
+// test/fixtures/tags/.
 void main() {
   late FilesystemLocalMetadataReader reader;
   late Directory root;

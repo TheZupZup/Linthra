@@ -5,34 +5,29 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../models/track.dart';
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// Works out moved and deleted local files in the Rust core
 /// (native/linthra_core/src/local_reconcile.rs). Use
-/// `LocalCatalogReconciliation.resolve`, which calls this and runs its Dart
-/// rules without the Rust core.
+/// `LocalCatalogReconciliation.resolve`, which calls this.
 abstract final class NativeLocalReconcile {
   static const int _noNumber = -0x8000000000000000;
 
   /// The moves as (previous, scanned) position pairs and the positions of
-  /// the previous tracks that are gone, or null when this build has no Rust
-  /// core or a field holds text UTF-8 cannot carry. Two different malformed
-  /// strings would both cross as U+FFFD and could look like one file, so
-  /// those stay with Dart.
-  static ({Uint32List moves, Uint32List removed})? resolve({
+  /// the previous tracks that are gone.
+  ///
+  /// A panic gets Rust's safe answer (nothing moved, nothing confirmed gone),
+  /// so this throws only when that panicked too.
+  static ({Uint32List moves, Uint32List removed}) resolve({
     required List<Track> previous,
     required List<bool> refreshed,
     required List<Track> scanned,
   }) {
-    if (!LinthraCore.isAvailable) return null;
     final int count = previous.length + scanned.length;
     final BytesBuilder text = BytesBuilder(copy: false);
     final Uint32List spans = Uint32List(12 * count);
-    bool lossy = false;
     void add(int at, String part) {
-      if (!lossy && _hasUnpairedSurrogate(part)) lossy = true;
-      final Uint8List bytes = utf8.encode(part);
+      final Uint8List bytes = utf8.encode(_wellFormed(part));
       spans[at] = text.length;
       spans[at + 1] = bytes.length;
       text.add(bytes);
@@ -51,7 +46,6 @@ abstract final class NativeLocalReconcile {
       add(12 * i + 8, t.albumArtistName?.toLowerCase() ?? '');
       add(12 * i + 10, t.albumId?.toLowerCase() ?? '');
     }
-    if (lossy) return null;
     final Uint8List bytes = text.toBytes();
     return using((Arena arena) {
       final Pointer<Uint8> textPointer = arena<Uint8>(bytes.length + 1);
@@ -80,8 +74,7 @@ abstract final class NativeLocalReconcile {
         count,
       );
       if (result == nullptr) {
-        // Refused, or it panicked: the caller reconciles the Dart way.
-        return null;
+        throw StateError('linthra_local_reconcile gave no answer');
       }
       try {
         final int moves = linthraReconcileMoveCount(result);
@@ -104,16 +97,29 @@ abstract final class NativeLocalReconcile {
     });
   }
 
-  /// Whether [text] has a surrogate without its other half.
-  static bool _hasUnpairedSurrogate(String text) {
+  /// [text] with each surrogate that lacks its other half (which UTF-8
+  /// cannot carry) turned into its own private-use character, U+F0000 and
+  /// up. U+FFFD would do for display, but two different malformed paths
+  /// would then cross as one, and this compares them.
+  static String _wellFormed(String text) {
+    StringBuffer? out;
+    int copied = 0;
     for (int i = 0; i < text.length; i++) {
       final int unit = text.codeUnitAt(i);
       if (unit < 0xD800 || unit > 0xDFFF) continue;
-      if (unit > 0xDBFF || i + 1 == text.length) return true;
-      final int next = text.codeUnitAt(i + 1);
-      if (next < 0xDC00 || next > 0xDFFF) return true;
-      i++;
+      if (unit <= 0xDBFF && i + 1 < text.length) {
+        final int next = text.codeUnitAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          i++;
+          continue;
+        }
+      }
+      (out ??= StringBuffer())
+        ..write(text.substring(copied, i))
+        ..writeCharCode(0xF0000 + unit - 0xD800);
+      copied = i + 1;
     }
-    return false;
+    if (out == null) return text;
+    return (out..write(text.substring(copied))).toString();
   }
 }

@@ -1,8 +1,8 @@
 // A measurement harness, not a regression test.
 //
 // Times unifyTracks, which merges one song's copies from different servers,
-// over libraries of several sizes held on two servers: once on the Dart rules
-// and once in the Rust core, all marshalling included. It runs every time the
+// over libraries of several sizes held on two servers, in the Rust core with
+// all marshalling included. It runs every time the
 // library changes, over the whole catalog.
 //
 // Named `_bench.dart` so `flutter test` does not pick it up. Run it with:
@@ -12,7 +12,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/source_priority.dart';
 import 'package:linthra/core/catalog/track_unifier.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 
 /// [songs] songs, each on Jellyfin and on Navidrome, the second copy's title
 /// carrying a featured artist half the time. Names vary from their first
@@ -43,10 +42,6 @@ int _ms(void Function() run) {
 
 void main() {
   test('unifyTracks in the Rust core', () {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
     const SourcePriority priority =
         SourcePriority(<String>['jellyfin', 'subsonic']);
     final StringBuffer report = StringBuffer('tracks       Rust (ms)\n');

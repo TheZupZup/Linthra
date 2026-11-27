@@ -1,6 +1,6 @@
-//! The Songs list's order and A–Z sections, the same as
-//! `lib/features/library/song_sort.dart` (`sortSongs`), which is the fallback;
-//! `test/features/library/song_sort_native_test.dart` compares the two.
+//! The Songs list's order and A–Z sections, for
+//! `lib/features/library/song_sort.dart` (`sortSongs`), where the reasoning
+//! lives.
 //!
 //! Text arrives lower-cased by Dart, as for [crate::library_grouping], and is
 //! folded and compared the way Dart folds and compares it: [fold] for

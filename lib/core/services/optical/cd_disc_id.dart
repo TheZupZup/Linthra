@@ -1,11 +1,5 @@
-import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
-
 import '../../models/audio_cd.dart';
 import '../../native/native_optical.dart';
-import 'cd_toc_reading.dart';
 import 'cdrom_toc_source.dart';
 
 /// A stable identifier for the disc [toc] came off, or null when the table of
@@ -61,62 +55,5 @@ import 'cdrom_toc_source.dart';
 /// than having none — the tracks are still read and still playable, they are
 /// simply not claimed to be a disc anybody else would recognise.
 ///
-/// Computed by the Rust core (native/linthra_core/src/optical.rs) when the
-/// build carries it, and by [musicBrainzDiscIdInDart] otherwise.
-String? musicBrainzDiscId(RawCdToc toc) {
-  final ({String? id})? native = NativeOptical.discId(toc);
-  if (native != null) return native.id;
-  return musicBrainzDiscIdInDart(toc);
-}
-
-/// [musicBrainzDiscId] without the Rust core: the reference rules.
-@visibleForTesting
-String? musicBrainzDiscIdInDart(RawCdToc toc) {
-  final List<RawCdTocTrack>? entries = normalizedTocEntriesInDart(toc);
-  if (entries == null) return null;
-
-  int lastAudioIndex = -1;
-  for (int i = 0; i < entries.length; i++) {
-    if (!entries[i].isData) lastAudioIndex = i;
-  }
-  if (lastAudioIndex < 0) return null;
-
-  final int firstTrack = toc.firstTrack;
-  final int lastAudioTrack = entries[lastAudioIndex].number;
-  if (lastAudioTrack < firstTrack) return null;
-
-  // Offset 0 is the lead-out; the rest are indexed by track number.
-  final List<int> offsets = List<int>.filled(100, 0);
-  for (final RawCdTocTrack entry in entries) {
-    if (entry.number > lastAudioTrack) continue;
-    // A start of zero turns up on deliberately broken discs, where it would
-    // otherwise hash as "before the lead-in". libdiscid pins it to the
-    // lead-in, and agreeing with it is the point of using its algorithm.
-    offsets[entry.number] =
-        entry.startLba > 0 ? entry.startLba + cdLeadInFrames : cdLeadInFrames;
-  }
-
-  final RawCdTocTrack? afterLastAudio =
-      lastAudioIndex + 1 < entries.length ? entries[lastAudioIndex + 1] : null;
-  offsets[0] = afterLastAudio == null
-      ? toc.leadOutLba + cdLeadInFrames
-      : afterLastAudio.startLba - cdXaInterval + cdLeadInFrames;
-  if (offsets[0] <= offsets[lastAudioTrack]) return null;
-
-  final StringBuffer input = StringBuffer()
-    ..write(_hex(firstTrack, 2))
-    ..write(_hex(lastAudioTrack, 2));
-  for (final int offset in offsets) {
-    input.write(_hex(offset, 8));
-  }
-
-  final Digest digest = sha1.convert(ascii.encode(input.toString()));
-  return base64
-      .encode(digest.bytes)
-      .replaceAll('+', '.')
-      .replaceAll('/', '_')
-      .replaceAll('=', '-');
-}
-
-String _hex(int value, int width) =>
-    value.toRadixString(16).toUpperCase().padLeft(width, '0');
+/// Computed by the Rust core (native/linthra_core/src/optical.rs).
+String? musicBrainzDiscId(RawCdToc toc) => NativeOptical.discId(toc);

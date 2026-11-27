@@ -24,8 +24,9 @@ Stays in Dart or Kotlin, because the platform owns it:
 ## Rules for every phase
 
 - **The Rust core is required.** The hook fails a build without it and the app checks it at startup, so a rule lives in Rust only: no Dart copy is kept as a fallback.
-- **Parity first.** A port is written against the Dart rules it replaces: the existing Dart tests run through Rust, and a test compares both on generated input until the Dart copy is deleted, in the same PR or the next. A change of behaviour is its own PR with its own reason, never a side effect of the port.
-- **Break it on purpose.** Each parity test is checked by mutating the Rust rule and watching the test fail.
+- **Parity first.** A port is written against the Dart rules it replaces: the existing Dart tests run through Rust, and a test compares both on generated input. Before the Dart copy is deleted (in the same PR or the next), what it answered is recorded as fixed cases under `test/fixtures/`, so the Rust rule stays held to it. A change of behaviour is its own PR with its own reason, never a side effect of the port.
+- **A panic has a Rust answer.** Every rule's entry point runs it through `fail_safe` (`src/ffi.rs`): a rule that panics gets a simple safe answer written in Rust (keep the order, refuse the input, do nothing), and the app goes on. Dart throws only when that panicked too.
+- **Break it on purpose.** Each parity and fixed-case test is checked by mutating the Rust rule and watching the test fail.
 - **CI's Rust.** Checks run on the toolchain pinned in `.rust-version`, not whatever is installed locally.
 
 ## Crates and the bridge
@@ -52,4 +53,4 @@ Before the first phase moves:
 
 - Phase 0 landed in #991.
 - Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses. Then what the scan reads about each file: `NativeLocalFileStatReader` stamps every listed file in one call (a call per file costs more than the `stat`), decides whether a file it could not read is gone, and CUE sheets are read in Rust. Then mapping files to tracks: `LocalTrackMapper` names every track in Rust, files, Android documents and CUE tracks alike. The scan's orchestration follows.
-- The Dart copies of every rule already in Rust were removed once the core became required.
+- The Dart copies of every rule already in Rust were removed once the core became required, their answers kept as fixed cases. The `dart:io` folder walk and file stats (`IoAudioFileScanner`, `IoLocalFileStatReader`) stay for now: the scan's fault-injection tests stage pulled drives and stalled shares through `IOOverrides`, which the Rust reads don't go through.

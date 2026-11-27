@@ -10,9 +10,9 @@
 //! the identity is built with); trimming and the whitespace collapse happen
 //! here, with Dart's `trim` and `RegExp(r'\s+')` character sets.
 //!
-//! `test/core/sources/local/local_catalog_reconciliation_native_test.dart`
-//! replays tricky and random libraries through both and fails on any
-//! difference.
+//! `test/fixtures/local_reconcile_cases.txt` holds what the Dart rules gave
+//! for tricky and random libraries before they were removed, and
+//! `local_catalog_reconciliation_cases_test.dart` replays it.
 
 use std::collections::{HashMap, HashSet};
 

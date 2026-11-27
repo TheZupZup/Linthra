@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// One audio track of a CUE sheet as the Rust core parses it: its FILE name
@@ -22,12 +21,13 @@ typedef NativeCueTrack = ({
 
 /// Decodes and parses CUE sheets in the Rust core
 /// (native/linthra_core/src/cue_sheet.rs). Use `CueSheet.decode` and
-/// `CueSheet.parse`, which call this and run their Dart rules without the
-/// Rust core.
+/// `CueSheet.parse`, which call this.
+///
+/// A rule that panics gets Rust's safe answer (lossy UTF-8, no tracks), so
+/// these throw only when that panicked too.
 abstract final class NativeCueSheet {
-  /// [bytes] decoded as UTF-8 or Windows-1251, or null without the Rust core.
-  static String? decode(List<int> bytes) {
-    if (!LinthraCore.isAvailable) return null;
+  /// [bytes] decoded as UTF-8 or Windows-1251.
+  static String decode(List<int> bytes) {
     return using((Arena arena) {
       final Pointer<Uint8> input = arena<Uint8>(bytes.length + 1);
       input.asTypedList(bytes.length).setAll(0, bytes);
@@ -36,8 +36,7 @@ abstract final class NativeCueSheet {
         bytes.length,
       );
       if (text == nullptr) {
-        // It panicked: the caller decodes the Dart way.
-        return null;
+        throw StateError('linthra_cue_decode gave no answer');
       }
       try {
         final Pointer<Size> length = arena<Size>();
@@ -53,12 +52,9 @@ abstract final class NativeCueSheet {
     });
   }
 
-  /// The audio tracks of [contents], or null without the Rust core or when
-  /// [contents] holds text UTF-8 cannot carry (an unpaired surrogate).
-  static List<NativeCueTrack>? parse(String contents) {
-    if (!LinthraCore.isAvailable || _hasUnpairedSurrogate(contents)) {
-      return null;
-    }
+  /// The audio tracks of [contents]. Text with an unpaired surrogate (which
+  /// UTF-8 cannot carry) is read as if it held U+FFFD there.
+  static List<NativeCueTrack> parse(String contents) {
     final Uint8List bytes = utf8.encode(contents);
     return using((Arena arena) {
       final Pointer<Uint8> input = arena<Uint8>(bytes.length + 1);
@@ -68,8 +64,7 @@ abstract final class NativeCueSheet {
         bytes.length,
       );
       if (tracks == nullptr) {
-        // It panicked: the caller parses the Dart way.
-        return null;
+        throw StateError('linthra_cue_parse gave no answer');
       }
       try {
         final Pointer<Size> length = arena<Size>();
@@ -97,17 +92,5 @@ abstract final class NativeCueSheet {
         linthraCueTracksFree(tracks);
       }
     });
-  }
-
-  static bool _hasUnpairedSurrogate(String text) {
-    for (int i = 0; i < text.length; i++) {
-      final int unit = text.codeUnitAt(i);
-      if (unit < 0xD800 || unit > 0xDFFF) continue;
-      if (unit > 0xDBFF || i + 1 == text.length) return true;
-      final int next = text.codeUnitAt(i + 1);
-      if (next < 0xDC00 || next > 0xDFFF) return true;
-      i++;
-    }
-    return false;
   }
 }

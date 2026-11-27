@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/models/audio_cd.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/services/optical/cd_disc_id.dart';
 import 'package:linthra/core/services/optical/cd_text_reading.dart';
 import 'package:linthra/core/services/optical/cd_toc_reading.dart';
@@ -11,75 +10,64 @@ import 'package:linthra/core/services/optical/cdrom_toc_source.dart';
 
 import 'cd_toc_fixtures.dart';
 
-/// The Rust CD decoding has to give exactly what the Dart rules give: the
-/// same tracks, the same disc id, and the same CD-Text, refused in the same
-/// cases. A drift names a disc after the wrong release or a track after the
-/// wrong song.
-///
-/// Runs through the real Rust library hook/build.dart builds for the test
-/// host, and is skipped without it (CI sets LINTHRA_REQUIRE_RUST=1, which
-/// fails linthra_core_test.dart instead).
+/// Throws the CD decoding at thousands of random tables of contents and
+/// CD-Text answers, broken in the ways real damaged and copy-protected discs
+/// are. Whatever the input, every answer has to hold together: tracks in
+/// order with positive lengths, a disc id only for a readable disc.
 void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
+  test('random tables of contents give coherent answers', () {
+    final Random random = Random(3);
+    int identified = 0;
+    int rejected = 0;
+    for (int i = 0; i < 5000; i++) {
+      final RawCdToc toc = _randomToc(random);
+      final List<RawCdTocTrack>? entries = normalizedTocEntries(toc);
+      final String? id = musicBrainzDiscId(toc);
+      if (entries == null) {
+        rejected++;
+        expect(id, isNull, reason: '$toc');
+        continue;
+      }
+      for (int k = 1; k < entries.length; k++) {
+        expect(entries[k].number, entries[k - 1].number + 1, reason: '$toc');
+        expect(
+          entries[k].startLba,
+          greaterThanOrEqualTo(entries[k - 1].startLba),
+          reason: '$toc',
+        );
+      }
+      for (final AudioCdTrack t
+          in playableAudioTracks(entries, toc.leadOutLba)) {
+        expect(t.frameCount, greaterThan(0), reason: '$toc');
+      }
+      if (id != null) {
+        identified++;
+        expect(id, hasLength(28), reason: '$toc');
+      }
+    }
+    // Both sides are really exercised.
+    expect(identified, greaterThan(500));
+    expect(rejected, greaterThan(500));
+  });
 
-  group('native optical decoding', skip: skip, () {
-    test('matches Dart on the fixture discs', () {
-      for (final RawCdToc toc in <RawCdToc>[
-        sevenTrackAudioCd(),
-        sevenTrackCdExtra(),
-        mixedModeCd(),
-        singleTrackCd(),
+  test('random CD-Text decodes or is refused, never half-read', () {
+    final Random random = Random(5);
+    int decoded = 0;
+    for (int i = 0; i < 5000; i++) {
+      final Uint8List response = _randomCdText(random);
+      final CdTextMetadata text = cdTextFrom(response);
+      if (!text.isEmpty) decoded++;
+      for (final int track in <int>[
+        ...text.trackTitles.keys,
+        ...text.trackPerformers.keys,
       ]) {
-        _expectSameToc(toc);
+        expect(track, inInclusiveRange(1, 99), reason: '$response');
       }
-    });
-
-    test('matches Dart on random tables of contents', () {
-      final Random random = Random(3);
-      int identified = 0;
-      for (int i = 0; i < 5000; i++) {
-        final RawCdToc toc = _randomToc(random);
-        _expectSameToc(toc);
-        if (musicBrainzDiscIdInDart(toc) != null) identified++;
-      }
-      // Enough valid discs that the ids are really compared.
-      expect(identified, greaterThan(500));
-    });
-
-    test('matches Dart on random CD-Text', () {
-      final Random random = Random(5);
-      int decoded = 0;
-      for (int i = 0; i < 5000; i++) {
-        final Uint8List response = _randomCdText(random);
-        final CdTextMetadata dart = cdTextFromInDart(response);
-        expect(cdTextFrom(response), dart, reason: '$response');
-        if (!dart.isEmpty) decoded++;
-      }
-      expect(decoded, greaterThan(500));
-      expect(cdTextFrom(null), cdTextFromInDart(null));
-    });
+    }
+    expect(decoded, greaterThan(500));
+    expect(cdTextFrom(null), CdTextMetadata.empty);
   });
 }
-
-void _expectSameToc(RawCdToc toc) {
-  final List<RawCdTocTrack>? dartEntries = normalizedTocEntriesInDart(toc);
-  expect(normalizedTocEntries(toc), dartEntries, reason: '$toc');
-  expect(musicBrainzDiscId(toc), musicBrainzDiscIdInDart(toc), reason: '$toc');
-  if (dartEntries != null) {
-    expect(
-      _describe(playableAudioTracks(dartEntries, toc.leadOutLba)),
-      _describe(playableAudioTracksInDart(dartEntries, toc.leadOutLba)),
-      reason: '$toc',
-    );
-  }
-}
-
-List<String> _describe(List<AudioCdTrack> tracks) => <String>[
-      for (final AudioCdTrack t in tracks)
-        '${t.number} ${t.startFrame} ${t.frameCount}',
-    ];
 
 /// Mostly plausible discs (so many get an id), with the faults the decoder
 /// refuses mixed in: gaps, duplicates, backwards starts, negative positions,

@@ -14,7 +14,8 @@
 ///
 /// The Rust grouping keeps a copy (`diacritic` in
 /// native/linthra_core/src/library_grouping.rs): change both together.
-/// test/core/catalog/library_grouping_native_test.dart fails when they drift.
+/// test/core/catalog/library_grouping_native_test.dart fails when they drift
+/// (album and artist ids are built here, one track at a time).
 const Map<String, String> _diacritics = <String, String>{
   'á': 'a',
   'à': 'a',

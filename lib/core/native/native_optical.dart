@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import '../services/optical/cdrom_toc_source.dart';
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// CD-Text as the Rust core decodes it: texts by item (0 the disc, 1-99 the
@@ -20,13 +19,13 @@ typedef NativeAudioTrack = ({int number, int startFrame, int frameCount});
 /// Audio CD decoding in the Rust core (native/linthra_core/src/optical.rs).
 ///
 /// Use `cdTextFrom`, `normalizedTocEntries`, `playableAudioTracks` and
-/// `musicBrainzDiscId`, which call this and run their Dart rules without the
-/// Rust core. Every method returns null when this build has no Rust core.
+/// `musicBrainzDiscId`, which call this. A rule that panics gets Rust's safe
+/// answer (no CD-Text, an unreadable disc, no tracks, no id), so these throw
+/// only when that panicked too, or the two sides of the ABI disagree.
 abstract final class NativeOptical {
   /// The decoded CD-Text, `(titles: [], performers: [])` when there is none
   /// to trust.
-  static NativeCdText? cdText(Uint8List? response) {
-    if (!LinthraCore.isAvailable) return null;
+  static NativeCdText cdText(Uint8List? response) {
     if (response == null) return (titles: const [], performers: const []);
     return using((Arena arena) {
       final Pointer<Uint8> input = arena<Uint8>(response.length + 1);
@@ -52,10 +51,9 @@ abstract final class NativeOptical {
     });
   }
 
-  /// The positions of [toc]'s tracks in track order, or `ok: false` for a
-  /// TOC that contradicts itself.
-  static ({bool ok, List<int> order})? tocOrder(RawCdToc toc) {
-    if (!LinthraCore.isAvailable) return null;
+  /// The positions of [toc]'s tracks in track order, or null for a TOC that
+  /// contradicts itself.
+  static List<int>? tocOrder(RawCdToc toc) {
     return using((Arena arena) {
       final _Entries e = _Entries(arena, toc.tracks);
       final int n = toc.tracks.length;
@@ -70,18 +68,19 @@ abstract final class NativeOptical {
         n,
         order,
       );
-      if (written == linthraPanicCount) return null;
-      if (written < 0) return (ok: false, order: const <int>[]);
-      return (ok: true, order: List<int>.of(order.asTypedList(written)));
+      if (written == linthraPanicCount) {
+        throw StateError('linthra_cd_toc_order gave no answer');
+      }
+      if (written < 0) return null;
+      return List<int>.of(order.asTypedList(written));
     });
   }
 
   /// The playable audio tracks of [entries], already in track order.
-  static List<NativeAudioTrack>? playableTracks(
+  static List<NativeAudioTrack> playableTracks(
     List<RawCdTocTrack> entries,
     int leadOutLba,
   ) {
-    if (!LinthraCore.isAvailable) return null;
     return using((Arena arena) {
       final _Entries e = _Entries(arena, entries);
       final int n = entries.length;
@@ -94,8 +93,11 @@ abstract final class NativeOptical {
         leadOutLba,
         out,
       );
-      // Refused, or it panicked: the caller works it out the Dart way.
-      if (written < 0) return null;
+      // Refused (the two sides of the ABI disagree), or Rust's safe answer
+      // panicked too.
+      if (written < 0) {
+        throw StateError('linthra_cd_playable_tracks gave no answer');
+      }
       return <NativeAudioTrack>[
         for (int k = 0; k < written; k++)
           (
@@ -107,9 +109,8 @@ abstract final class NativeOptical {
     });
   }
 
-  /// [toc]'s MusicBrainz disc id, `(id: null)` when it has none.
-  static ({String? id})? discId(RawCdToc toc) {
-    if (!LinthraCore.isAvailable) return null;
+  /// [toc]'s MusicBrainz disc id, null when it has none.
+  static String? discId(RawCdToc toc) {
     return using((Arena arena) {
       final _Entries e = _Entries(arena, toc.tracks);
       final Pointer<Uint8> out = arena<Uint8>(linthraDiscIdLength);
@@ -123,13 +124,11 @@ abstract final class NativeOptical {
         toc.tracks.length,
         out,
       );
-      // Refused, or it panicked: the caller works it out the Dart way.
-      if (answer < 0) return null;
-      return (
-        id: answer == 0
-            ? null
-            : String.fromCharCodes(out.asTypedList(linthraDiscIdLength)),
-      );
+      // Refused (the two sides of the ABI disagree), or Rust's safe answer
+      // panicked too.
+      if (answer < 0) throw StateError('linthra_cd_disc_id gave no answer');
+      if (answer == 0) return null;
+      return String.fromCharCodes(out.asTypedList(linthraDiscIdLength));
     });
   }
 

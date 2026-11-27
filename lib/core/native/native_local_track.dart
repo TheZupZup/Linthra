@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import 'linthra_core.dart';
 import 'linthra_core_ffi.dart';
 
 /// A track's names and numbers as the Rust core maps them; its id, uri and
@@ -48,19 +47,21 @@ enum NativeTrackSource { path, document, cue }
 
 /// Maps scanned files to tracks in the Rust core
 /// (native/linthra_core/src/scan/mapper.rs). Use `LocalTrackMapper`, which
-/// calls this and runs its Dart rules without the Rust core.
+/// calls this.
 abstract final class NativeLocalTrack {
   /// The file at [path] (a filesystem path, a document's name, or a CUE
-  /// track's audio path, by [source]), or null without the Rust core or when
-  /// a text holds what UTF-8 cannot carry (an unpaired surrogate).
-  static NativeMappedTrack? map({
+  /// track's audio path, by [source]). Text with an unpaired surrogate
+  /// (which UTF-8 cannot carry) is read as if it held U+FFFD there.
+  ///
+  /// A panic gets Rust's safe answer (the file name as the title), so this
+  /// throws only when that panicked too.
+  static NativeMappedTrack map({
     required NativeTrackSource source,
     required String path,
     String? scanRoot,
     NativeTrackTags? tags,
     NativeCueTrackInput? cue,
   }) {
-    if (!LinthraCore.isAvailable) return null;
     final List<String?> texts = <String?>[
       path,
       scanRoot,
@@ -74,9 +75,6 @@ abstract final class NativeLocalTrack {
       cue?.album,
       cue?.albumPerformer,
     ];
-    if (texts.any((String? t) => t != null && _hasUnpairedSurrogate(t))) {
-      return null;
-    }
     final List<int?> numbers = <int?>[
       tags?.trackNumber,
       tags?.durationUs,
@@ -115,8 +113,7 @@ abstract final class NativeLocalTrack {
         values,
       );
       if (mapped == nullptr) {
-        // Refused, or it panicked: the caller maps the Dart way.
-        return null;
+        throw StateError('linthra_local_track_map gave no answer');
       }
       try {
         final Pointer<Size> length = arena<Size>();
@@ -166,17 +163,5 @@ abstract final class NativeLocalTrack {
     }
     return '\uFEFF' * marks +
         utf8.decode(Uint8List.sublistView(bytes, 3 * marks));
-  }
-
-  static bool _hasUnpairedSurrogate(String text) {
-    for (int i = 0; i < text.length; i++) {
-      final int unit = text.codeUnitAt(i);
-      if (unit < 0xD800 || unit > 0xDFFF) continue;
-      if (unit > 0xDBFF || i + 1 == text.length) return true;
-      final int next = text.codeUnitAt(i + 1);
-      if (next < 0xDC00 || next > 0xDFFF) return true;
-      i++;
-    }
-    return false;
   }
 }

@@ -185,6 +185,20 @@ List<Uint8List> cdTextPacksFor({
   return packs;
 }
 
+/// CRC-16/CCITT (polynomial 0x1021, zero seed) over the first sixteen bytes of
+/// [pack], inverted: the value CD-Text stores in a pack's last two bytes.
+int cdTextPackCrc(Uint8List pack) {
+  int crc = 0;
+  for (int i = 0; i < 16; i++) {
+    crc ^= pack[i] << 8;
+    for (int bit = 0; bit < 8; bit++) {
+      crc = (crc & 0x8000) != 0 ? ((crc << 1) ^ 0x1021) : (crc << 1);
+      crc &= 0xffff;
+    }
+  }
+  return crc ^ 0xffff;
+}
+
 /// The same pack with a correct CRC written into its last two bytes.
 Uint8List withPackCrc(Uint8List pack) {
   final int crc = cdTextPackCrc(pack);

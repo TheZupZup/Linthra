@@ -364,9 +364,10 @@ void main() {
     // file; what is read around it on this isolate goes through a file that
     // gives an I/O error on any read touching [failFrom, failTo).
     //
-    // These hold the Dart path to it, the one a build without the Rust core
-    // takes: the Rust core reads the file itself, past [IOOverrides], and
-    // its own I/O errors are tested in native/linthra_core/src/ffi/tags.rs.
+    // These hold the package path to it, the one a file the Rust core
+    // doesn't handle takes: the Rust core reads the file itself, past
+    // [IOOverrides], and its own I/O errors are tested in
+    // native/linthra_core/src/ffi/tags.rs.
     Future<(LocalMetadataRead, List<Symbol>)> readFailing(
       String path, {
       required int failFrom,

@@ -4,7 +4,6 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/sources/local/directory_readability.dart';
 import 'package:linthra/core/sources/local/local_file_stat.dart';
 import 'package:linthra/core/sources/local/native_file_reads.dart';
@@ -16,15 +15,10 @@ import 'package:linthra/core/sources/local/native_file_reads.dart';
 /// song that is only out of reach.
 ///
 /// Real folders, through the real Rust library hook/build.dart builds for
-/// the test host; skipped without it (CI sets LINTHRA_REQUIRE_RUST=1, which
-/// fails linthra_core_test.dart instead). Storage that stops answering can't
-/// be staged here, so the Rust tests (native/linthra_core/src/scan/files.rs)
-/// cover it with a fake filesystem.
+/// the test host. Storage that stops answering can't be staged here, so the
+/// Rust tests (native/linthra_core/src/scan/files.rs) cover it with a fake
+/// filesystem.
 void main() {
-  final Object skip = LinthraCore.isAvailable
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
-
   const IoLocalFileStatReader dart = IoLocalFileStatReader();
   const NativeLocalFileStatReader rust = NativeLocalFileStatReader();
 
@@ -44,7 +38,7 @@ void main() {
     );
     expect(
       await readScanFile(path, storageStallLimit),
-      await readScanFileInDart(path, storageStallLimit),
+      await _readWhole(path),
       reason: 'read $path',
     );
   }
@@ -65,7 +59,7 @@ void main() {
     );
   }
 
-  group('native file reads', skip: skip, () {
+  group('native file reads', () {
     test('stamp and read every kind of entry like Dart', () async {
       _file('$root/a.flac', 'abc');
       _file('$root/empty.cue', '');
@@ -253,3 +247,12 @@ List<String> _randomTree(Random random, String dir, {required int depth}) {
 /// [name]'s raw bytes under [dir].
 Uint8List _raw(String dir, List<int> name) =>
     Uint8List.fromList(<int>[...utf8.encode('$dir/'), ...name]);
+
+/// The whole file through `dart:io`, or null when it can't be read.
+Future<List<int>?> _readWhole(String path) async {
+  try {
+    return await File(path).readAsBytes();
+  } on FileSystemException {
+    return null;
+  }
+}

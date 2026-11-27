@@ -119,10 +119,6 @@ void main() {
   test(
     'Dart vs Rust search on $_trackCount tracks',
     () {
-      if (!LinthraCore.isAvailable) {
-        markTestSkipped('Rust core not built: install Rust and run again');
-        return;
-      }
       final List<Track> dartTracks = _dartLibrary();
       final List<NativeSearchRecord> rustRecords = _rustLibrary();
 

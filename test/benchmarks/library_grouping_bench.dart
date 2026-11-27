@@ -1,14 +1,12 @@
 // A measurement harness, not a regression test.
 //
-// Times the Library's album and artist grouping on the Dart rules and on the
-// Rust core, for catalogs of several sizes. The Rust time includes everything
+// Times the Library's album and artist grouping in the Rust core, for
+// catalogs of several sizes. The time includes everything
 // the app pays for: lower-casing, copying the names into native memory, the
 // call, and building the Album and Artist models from the answer.
 //
 // Named `_bench.dart`, not `_test.dart`, so `flutter test` does not pick it
-// up: the numbers depend on the machine and its load. That both paths give
-// the same albums and artists is covered by
-// test/core/catalog/library_grouping_native_test.dart. Run it explicitly:
+// up: the numbers depend on the machine and its load. Run it explicitly:
 //
 //     flutter test test/benchmarks/library_grouping_bench.dart
 //
@@ -17,7 +15,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/catalog/library_grouping.dart';
 import 'package:linthra/core/models/track.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 
 const List<int> _sizes = <int>[100, 1000, 10000, 50000, 200000];
 const int _runs = 10;
@@ -57,10 +54,6 @@ String _ms(int micros) => '${(micros / 1000).toStringAsFixed(1)} ms';
 
 void main() {
   test('library grouping in the Rust core', () {
-    if (!LinthraCore.isAvailable) {
-      markTestSkipped('Rust core not built');
-      return;
-    }
     final StringBuffer out = StringBuffer()
       ..writeln('albums + artists, median of $_runs')
       ..writeln('  tracks        Rust');
