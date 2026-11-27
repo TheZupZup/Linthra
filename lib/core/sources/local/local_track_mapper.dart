@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../models/track.dart';
+import '../../native/native_local_track.dart';
 import 'cue_sheet.dart';
 import 'cue_track_uri.dart';
 import 'local_audio_metadata.dart';
@@ -9,8 +11,30 @@ import 'saf_document_lister.dart';
 /// Builds a [Track] from an on-device source — a local file path or an Android
 /// SAF document — merging any audio tags the source read over a clean
 /// filename/folder fallback.
+///
+/// The rules run in the Rust core (native/linthra_core/src/scan/mapper.rs)
+/// when the build carries it, and in the `…InDart` methods otherwise.
 abstract final class LocalTrackMapper {
   static Track fromPath(
+    String path, {
+    LocalAudioMetadata? metadata,
+    String? scanRoot,
+  }) {
+    final NativeMappedTrack? native = NativeLocalTrack.map(
+      source: NativeTrackSource.path,
+      path: path,
+      scanRoot: scanRoot,
+      tags: _tags(metadata),
+    );
+    if (native == null) {
+      return fromPathInDart(path, metadata: metadata, scanRoot: scanRoot);
+    }
+    return _fromNative(native, id: path, metadata: metadata);
+  }
+
+  /// [fromPath] without the Rust core: the reference rules.
+  @visibleForTesting
+  static Track fromPathInDart(
     String path, {
     LocalAudioMetadata? metadata,
     String? scanRoot,
@@ -28,6 +52,18 @@ abstract final class LocalTrackMapper {
   }
 
   static Track fromSafDocument(SafAudioDocument document) {
+    final NativeMappedTrack? native = NativeLocalTrack.map(
+      source: NativeTrackSource.document,
+      path: document.name,
+      tags: _tags(document.metadata),
+    );
+    if (native == null) return fromSafDocumentInDart(document);
+    return _fromNative(native, id: document.uri, metadata: document.metadata);
+  }
+
+  /// [fromSafDocument] without the Rust core: the reference rules.
+  @visibleForTesting
+  static Track fromSafDocumentInDart(SafAudioDocument document) {
     return _build(
       id: document.uri,
       uri: document.uri,
@@ -37,6 +73,58 @@ abstract final class LocalTrackMapper {
   }
 
   static Track fromCueTrack(
+    CueSheetTrack cueTrack, {
+    required String cuePath,
+    required LocalAudioMetadata? metadata,
+    required String scanRoot,
+    int? cueSheetSizeBytes,
+    int? cueSheetModifiedAtMs,
+  }) {
+    final NativeMappedTrack? native = NativeLocalTrack.map(
+      source: NativeTrackSource.cue,
+      path: cueTrack.audioPath,
+      scanRoot: scanRoot,
+      tags: _tags(metadata),
+      cue: (
+        number: cueTrack.number,
+        startUs: cueTrack.start.inMicroseconds,
+        endUs: cueTrack.end?.inMicroseconds,
+        title: cueTrack.title,
+        performer: cueTrack.performer,
+        album: cueTrack.album,
+        albumPerformer: cueTrack.albumPerformer,
+      ),
+    );
+    if (native == null) {
+      return fromCueTrackInDart(
+        cueTrack,
+        cuePath: cuePath,
+        metadata: metadata,
+        scanRoot: scanRoot,
+        cueSheetSizeBytes: cueSheetSizeBytes,
+        cueSheetModifiedAtMs: cueSheetModifiedAtMs,
+      );
+    }
+    final int? cueEndUs = native.cueEndUs;
+    return _fromNative(
+      native,
+      id: CueTrackUri.forTrack(
+        audioPath: cueTrack.audioPath,
+        cuePath: cuePath,
+        trackNumber: cueTrack.number,
+      ),
+      metadata: metadata,
+    ).copyWith(
+      cueStart: cueTrack.start,
+      cueEnd: cueEndUs == null ? null : Duration(microseconds: cueEndUs),
+      cueSheetSizeBytes: cueSheetSizeBytes,
+      cueSheetModifiedAtMs: cueSheetModifiedAtMs,
+    );
+  }
+
+  /// [fromCueTrack] without the Rust core: the reference rules.
+  @visibleForTesting
+  static Track fromCueTrackInDart(
     CueSheetTrack cueTrack, {
     required String cuePath,
     required LocalAudioMetadata? metadata,
@@ -90,6 +178,37 @@ abstract final class LocalTrackMapper {
       artworkUri: metadata?.artworkUri,
     );
   }
+
+  static NativeTrackTags? _tags(LocalAudioMetadata? metadata) =>
+      metadata == null
+          ? null
+          : (
+              title: metadata.title,
+              artist: metadata.artist,
+              album: metadata.album,
+              albumArtist: metadata.albumArtist,
+              albumId: metadata.albumId,
+              trackNumber: metadata.trackNumber,
+              durationUs: metadata.duration?.inMicroseconds,
+            );
+
+  static Track _fromNative(
+    NativeMappedTrack native, {
+    required String id,
+    LocalAudioMetadata? metadata,
+  }) =>
+      Track(
+        id: id,
+        uri: id,
+        title: native.title,
+        artistName: native.artist,
+        albumName: native.album,
+        albumId: native.albumId,
+        albumArtistName: native.albumArtist,
+        trackNumber: native.trackNumber,
+        duration: Duration(microseconds: native.durationUs),
+        artworkUri: metadata?.artworkUri,
+      );
 
   static Track _build({
     required String id,
