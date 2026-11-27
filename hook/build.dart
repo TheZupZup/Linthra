@@ -12,6 +12,8 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 
+import 'rust_homes.dart';
+
 /// The crate, relative to the package root.
 const String _crateDir = 'native/linthra_core/';
 
@@ -50,7 +52,12 @@ Future<void> main(List<String> args) async {
       _missing('no C linker (cc) on PATH for ${target.triple}. Install gcc, '
           'or build inside a toolbox that has it');
     }
-    if (!await _hasStandardLibrary(rustc, target.triple)) {
+    final Map<String, String> homes = rustHomes(
+      cargo: cargo,
+      packageRoot: input.packageRoot,
+      environment: Platform.environment,
+    );
+    if (!await _hasStandardLibrary(rustc, target.triple, homes)) {
       _missing('the Rust standard library for ${target.triple} is not '
           'installed (rustup target add ${target.triple})');
     }
@@ -76,7 +83,10 @@ Future<void> main(List<String> args) async {
         '--target-dir',
         targetDir.toFilePath(),
       ],
-      environment: target.cargoEnvironment(code),
+      environment: <String, String>{
+        ...homes,
+        ...target.cargoEnvironment(code, homes['CARGO_HOME']),
+      },
     );
     if (result.exitCode != 0) {
       throw Exception(
@@ -182,9 +192,10 @@ class _RustTarget {
   /// On Android, also links with the NDK's clang wrapper for the app's
   /// minimum API level, and aligns segments for 16 KB pages (required for
   /// apps targeting Android 15+ on such devices).
-  Map<String, String> cargoEnvironment(CodeConfig code) {
+  Map<String, String> cargoEnvironment(CodeConfig code, String? cargoHome) {
     final String key = triple.toUpperCase().replaceAll('-', '_');
-    final String remap = '--remap-path-prefix=${_cargoHome()}=/cargo';
+    final String remap =
+        '--remap-path-prefix=${cargoHome ?? _defaultCargoHome()}=/cargo';
     final String? prefix = androidClangPrefix;
     if (prefix == null) {
       return <String, String>{'CARGO_TARGET_${key}_RUSTFLAGS': remap};
@@ -210,8 +221,8 @@ class _RustTarget {
   }
 }
 
-/// Cargo's home directory, as cargo itself resolves it.
-String _cargoHome() {
+/// Cargo's home directory when nothing sets it.
+String _defaultCargoHome() {
   final Map<String, String> env = Platform.environment;
   return env['CARGO_HOME'] ?? '${env['HOME'] ?? ''}/.cargo';
 }
@@ -234,10 +245,15 @@ String? _findTool(String name) {
 
 /// Whether rustc has the standard library for [triple]: its target libdir
 /// exists only once the target is installed.
-Future<bool> _hasStandardLibrary(String rustc, String triple) async {
+Future<bool> _hasStandardLibrary(
+  String rustc,
+  String triple,
+  Map<String, String> homes,
+) async {
   final ProcessResult result = await Process.run(
     rustc,
     <String>['--print', 'target-libdir', '--target', triple],
+    environment: homes,
   );
   if (result.exitCode != 0) return false;
   final String libdir = (result.stdout as String).trim();

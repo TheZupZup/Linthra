@@ -46,7 +46,7 @@ The Rust core is **required**: the rules above run only here, with no Dart copy.
 | Linux (x64, arm64) | `cargo`, `rustc` and a C linker (`cc`) |
 | Android | the same, plus `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`; the hook links with the NDK's clang |
 
-`cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. The F-Droid recipe still sets the old `require_rust` hook user-define; the hook ignores it, since it now requires the core everywhere.
+`cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. The hooks runner doesn't pass `RUSTUP_HOME` or `CARGO_HOME` to the hook, so `hook/rust_homes.dart` works them out from disk: a rustup installed with both in one directory (the Flatpak's `/var/lib/rustup`), and the vendored crates' `cargo/config.toml` the Flatpak unpacks next to the app. The F-Droid recipe still sets the old `require_rust` hook user-define; the hook ignores it, since it now requires the core everywhere.
 
 A panic never reaches Dart. Every entry point that computes something runs its rule through `fail_safe` (`src/ffi.rs`), which answers a panic with a plain answer for the same call that can't panic and loses nothing (the files kept, the queue unchanged, nothing merged, playback stopped rather than guessed), and every C entry point runs through `guard` as the last resort. A tag reader that panics on a file reports it as unreadable (`TAGS_PANICKED`). The release profile unwinds for this. `fuzz/` holds cargo-fuzz targets for the tag readers and the CUE parser; see [fuzz/README.md](fuzz/README.md).
 
