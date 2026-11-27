@@ -7,6 +7,7 @@ import '../../models/album.dart';
 import '../../models/artist.dart';
 import '../../models/local_file_stamp.dart';
 import '../../models/track.dart';
+import '../../native/native_scan_plan.dart';
 import '../../services/local_playable_uri_resolver.dart';
 import '../../services/music_source.dart';
 import 'android_media_library.dart';
@@ -16,7 +17,6 @@ import 'cue_sheet.dart';
 import 'cue_track_uri.dart';
 import 'directory_readability.dart';
 import 'folder_location.dart';
-import 'local_audio_metadata.dart';
 import 'local_file_stat.dart';
 import 'local_metadata_reader.dart';
 import 'local_root_fault.dart';
@@ -322,6 +322,11 @@ class LocalMusicSource implements MusicSource {
   /// mapper, from this same path, under this same root, so rebuilding it would
   /// produce the same object with more work; and reusing it is what keeps a
   /// rescan from touching rows that did not change.
+  ///
+  /// The decisions, reuse or read and then which row a read file gets, are
+  /// the Rust core's (native/linthra_core/src/scan/incremental.rs, through
+  /// [NativeScanPlan]); this sequences the walk, the stamps and the reads
+  /// around them, through the injected seams.
   Future<LocalScan> _scanFiles(
     String folder, {
     required bool isContentUri,
@@ -408,24 +413,23 @@ class LocalMusicSource implements MusicSource {
               ),
             ),
         ];
-        final bool canReuse = !_readUnchanged &&
-            stamp != null &&
-            cueEntries
-                .every((entry) => cueSheetStamps[entry.cuePath] != null) &&
-            identified.every((entry) {
-              final StampedTrack? indexed = _alreadyIndexed[entry.uri];
-              final LocalFileStamp? cueStamp = cueSheetStamps[entry.cuePath];
-              return indexed != null &&
-                  !stamp.differsFrom(indexed.stamp) &&
-                  cueStamp != null &&
-                  indexed.track.cueSheetSizeBytes == cueStamp.sizeBytes &&
-                  indexed.track.cueSheetModifiedAtMs == cueStamp.modifiedAtMs &&
-                  !_missingArtwork.contains(indexed.track.artworkUri);
-            });
-        if (canReuse) {
+        final List<NativeScanCueEntry> cue = <NativeScanCueEntry>[
+          for (final entry in identified)
+            (
+              sheet: cueSheetStamps[entry.cuePath],
+              indexed: _alreadyIndexed[entry.uri],
+            ),
+        ];
+        if (NativeScanPlan.reuse(
+          stamp: stamp,
+          indexed: null,
+          cue: cue,
+          missingArtwork: _missingArtwork,
+          readUnchanged: _readUnchanged,
+        )) {
           for (final entry in identified) {
             tracks.add(_alreadyIndexed[entry.uri]!.track);
-            stamps[entry.uri] = stamp;
+            stamps[entry.uri] = stamp!;
             reused++;
           }
           continue;
@@ -445,21 +449,19 @@ class LocalMusicSource implements MusicSource {
           }
           read = (metadata: null, failed: true);
         }
-        final bool unchanged = stamp != null &&
-            identified.every((entry) {
-              final StampedTrack? indexed = _alreadyIndexed[entry.uri];
-              final LocalFileStamp? cueStamp = cueSheetStamps[entry.cuePath];
-              return indexed != null &&
-                  !stamp.differsFrom(indexed.stamp) &&
-                  cueStamp != null &&
-                  indexed.track.cueSheetSizeBytes == cueStamp.sizeBytes &&
-                  indexed.track.cueSheetModifiedAtMs == cueStamp.modifiedAtMs;
-            });
-        if (read.failed && unchanged) {
+        final NativeScanSettled settled = NativeScanPlan.settle(
+          stamp: stamp,
+          indexed: null,
+          cue: cue,
+          readUnchanged: _readUnchanged,
+          hasTags: read.metadata != null,
+          failed: read.failed,
+        );
+        if (settled.keep) {
           for (final entry in identified) {
             tracks.add(_alreadyIndexed[entry.uri]!.track);
-            if (!_readUnchanged) stamps[entry.uri] = stamp;
-            reused++;
+            if (settled.stamp && stamp != null) stamps[entry.uri] = stamp;
+            if (settled.reused) reused++;
           }
           continue;
         }
@@ -473,20 +475,20 @@ class LocalMusicSource implements MusicSource {
             cueSheetModifiedAtMs: cueSheetStamps[entry.cuePath]?.modifiedAtMs,
           );
           tracks.add(track);
-          if (stamp != null && !read.failed) {
-            stamps[track.uri] = stamp;
-          }
+          if (settled.stamp && stamp != null) stamps[track.uri] = stamp;
         }
         continue;
       }
 
       final StampedTrack? indexed = _alreadyIndexed[path];
-      if (!_readUnchanged &&
-          stamp != null &&
-          indexed != null &&
-          !stamp.differsFrom(indexed.stamp) &&
-          !_missingArtwork.contains(indexed.track.artworkUri)) {
-        tracks.add(indexed.track);
+      if (NativeScanPlan.reuse(
+        stamp: stamp,
+        indexed: indexed,
+        cue: const <NativeScanCueEntry>[],
+        missingArtwork: _missingArtwork,
+        readUnchanged: _readUnchanged,
+      )) {
+        tracks.add(indexed!.track);
         reused++;
         continue;
       }
@@ -509,68 +511,31 @@ class LocalMusicSource implements MusicSource {
         }
         read = (metadata: null, failed: true);
       }
-      final LocalAudioMetadata? metadata = read.metadata;
-      // Listed by the walk, but now it can be neither stat'ed nor read: the
-      // drive went away, or the file was moved, after the walk got to it.
-      // That says nothing about its tags, so the row already indexed for it
-      // stays as it was rather than being rebuilt from the file name (which
-      // would lose its tags, its cover, and the identity a move is matched
-      // by). Still unknown, so no stamp: the next scan parses it again, and
-      // if the file really is gone, the next walk drops it.
-      if (metadata == null && stamp == null && indexed != null) {
-        tracks.add(indexed.track);
-        vanished.add(path);
-        reused++;
+      // Which row the file gets now (native/linthra_core/src/scan/
+      // incremental.rs). A read that says nothing new never throws away a
+      // row that was right: a file listed by the walk and then gone, or an
+      // unchanged one read again for its cover or for a new way of reading
+      // tags, keeps its row. A row whose read failed is stored without its
+      // stamp, so the next scan reads the file again instead of keeping a
+      // row built from its file name for good.
+      final NativeScanSettled settled = NativeScanPlan.settle(
+        stamp: stamp,
+        indexed: indexed,
+        cue: const <NativeScanCueEntry>[],
+        readUnchanged: _readUnchanged,
+        hasTags: read.metadata != null,
+        failed: read.failed,
+      );
+      if (!settled.stamp) stamps.remove(path);
+      if (settled.keep) {
+        tracks.add(indexed!.track);
+        if (settled.vanished) vanished.add(path);
+        if (settled.reused) reused++;
         continue;
       }
-      // Unchanged since its row was written, and read again only because the
-      // artwork cache no longer holds its cover, or because the way tags are
-      // read changed. A read of those same bytes that failed this time
-      // (a drive answering with an I/O error, a parse that ran out of time)
-      // says nothing about the tags the row was built from, so the row stays
-      // as it was, cover reference included. Rebuilt from the file name, it
-      // would lose its tags for good: an unchanged file is never read again.
-      // The next scan asks for a missing cover again by itself. A file due
-      // for the new way of reading tags is stored without its stamp instead,
-      // so the next scan reads it again rather than leave it with the old
-      // reader's tags for good. One the new reader read fine and found
-      // nothing in is settled like any other file: the tags it lost were
-      // the old reader's.
-      if (metadata == null &&
-          stamp != null &&
-          indexed != null &&
-          !stamp.differsFrom(indexed.stamp) &&
-          (read.failed || !_readUnchanged)) {
-        if (_readUnchanged) stamps.remove(path);
-        tracks.add(indexed.track);
-        continue;
-      }
-      // Its row has no stamp, so there is no telling whether it changed: most
-      // likely a read failed last time too (above, or below). This failed read
-      // says nothing about its tags either, so the row stays as it was rather
-      // than being rebuilt from the file name. It keeps its stamp this time,
-      // so a file that can never be read, one the parser loops on, costs one
-      // more read rather than one every scan. Unless it is due for the new
-      // way of reading tags: like above, the next scan reads it again, and
-      // that one keeps the stamp if it fails too.
-      if (read.failed &&
-          stamp != null &&
-          indexed != null &&
-          indexed.stamp == null) {
-        if (_readUnchanged) stamps.remove(path);
-        tracks.add(indexed.track);
-        continue;
-      }
-      // New or changed, and it could not be read this time: a network share
-      // stalling past the parse limit, an I/O error. Its row is built from the
-      // file name as ever, but stored without its stamp. With it, every later
-      // scan would reuse that row as it is, and the tags would never come back
-      // short of a full rescan. Without it, the next scan reads the
-      // file again, once (see above).
-      if (read.failed) stamps.remove(path);
       tracks.add(LocalTrackMapper.fromPath(
         path,
-        metadata: metadata,
+        metadata: read.metadata,
         scanRoot: folder,
       ));
     }
