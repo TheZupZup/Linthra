@@ -21,6 +21,7 @@ import 'package:linthra/features/library/library_providers.dart';
 import 'package:linthra/features/settings/source/local_music_settings_section.dart';
 
 import '../../library/fake_audio_file_scanner.dart';
+import '../../library/fake_folder_picker_service.dart';
 
 /// Reports one fixed answer for "can this folder still be listed?", standing in
 /// for the real `dart:io` probe so the desktop lost-access state can be driven
@@ -879,13 +880,84 @@ void main() {
       );
     });
 
-    testWidgets('on Android the folder list has no remove action',
+    testWidgets('on Android folders can be added, changed and removed (#998)',
         (tester) async {
-      // Android holds one local grant at a time; "Forget local music" is the
-      // way out, and a per-folder remove would imply a list it cannot have.
+      // Each Android folder is a grant of its own: another can be added
+      // beside it, all of them changed for one, or one removed.
       await _pump(
         tester,
         initialFolder: _safFolder,
+        host: HostPlatform.android,
+      );
+
+      expect(find.byTooltip('Remove this folder'), findsOneWidget);
+      expect(find.text('Add a folder'), findsOneWidget);
+      expect(find.text('Change folder'), findsOneWidget);
+      expect(find.text('Use a folder'), findsNothing);
+    });
+
+    testWidgets('on Android removing one folder keeps the others (#998)',
+        (tester) async {
+      const String podcasts = 'content://com.android.externalstorage.documents/'
+          'tree/primary%3APodcasts';
+      final InMemorySelectedMusicFolderRepository folders =
+          InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>[_safFolder, podcasts],
+      );
+      await _pump(
+        tester,
+        folderRepo: folders,
+        host: HostPlatform.android,
+        readability: const _FixedReadability(true),
+        scanner: FakeAudioFileScanner(),
+      );
+      expect(find.byTooltip('Remove this folder'), findsNWidgets(2));
+
+      await tester.tap(find.byTooltip('Remove this folder').last);
+      await tester.pumpAndSettle();
+
+      expect(await folders.getSelectedFolders(), <String>[_safFolder]);
+    });
+
+    testWidgets('on Android Change puts one folder in place of all (#998)',
+        (tester) async {
+      const String podcasts = 'content://com.android.externalstorage.documents/'
+          'tree/primary%3APodcasts';
+      const String audiobooks = 'content://com.android.externalstorage.'
+          'documents/tree/primary%3AAudiobooks';
+      final InMemorySelectedMusicFolderRepository folders =
+          InMemorySelectedMusicFolderRepository(
+        initialFolders: <String>[_safFolder, podcasts],
+      );
+      await _pump(
+        tester,
+        folderRepo: folders,
+        host: HostPlatform.android,
+        readability: const _FixedReadability(true),
+        picker: FakeFolderPickerService(folder: audiobooks),
+        scanner: FakeAudioFileScanner(
+          filesByFolder: <String, List<String>>{
+            audiobooks: <String>[
+              '$audiobooks/document/primary%3AAudiobooks%2Fa.mp3',
+            ],
+          },
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Change folder'));
+      await tester.tap(find.text('Change folder'));
+      await tester.pumpAndSettle();
+
+      expect(await folders.getSelectedFolders(), <String>[audiobooks]);
+    });
+
+    testWidgets("Android's device-wide library is changed, not added to",
+        (tester) async {
+      // It already holds every folder: a folder replaces it, and "Forget
+      // local music" is how it goes.
+      await _pump(
+        tester,
+        initialFolder: _deviceLibrary,
         host: HostPlatform.android,
       );
 

@@ -96,11 +96,12 @@ class LocalMusicSettingsSection extends ConsumerWidget {
                 onReselect: action.busy ? null : controller.reselectFolder,
                 onConfirmEmpty:
                     action.busy ? null : controller.confirmFolderEmpty,
-                // Removing a folder is a desktop affordance: Android holds a
-                // single grant at a time, which "Forget local music" covers.
-                onRemove: host.isAndroid || action.busy
-                    ? null
-                    : controller.removeFolder,
+                // Android's device-wide library is a mode, not a folder:
+                // "Forget local music" is how it goes.
+                onRemove:
+                    action.busy || (location?.isAndroidMediaStore ?? false)
+                        ? null
+                        : controller.removeFolder,
               )
             else
               Text(
@@ -122,10 +123,13 @@ class LocalMusicSettingsSection extends ConsumerWidget {
               _FolderActions(
                 onRescan: controller.rescan,
                 onChange: controller.pickFolder,
-                onAdd: host.isAndroid ? null : controller.addFolder,
+                // Not beside the device-wide library, which already holds
+                // every folder.
+                onAdd:
+                    location!.isAndroidMediaStore ? null : controller.addFolder,
                 onForget: controller.forget,
                 onUseAllDeviceMusic:
-                    host.isAndroid && !location!.isAndroidMediaStore
+                    host.isAndroid && !location.isAndroidMediaStore
                         ? controller.useAllDeviceMusic
                         : null,
                 host: host,
@@ -167,7 +171,7 @@ class LocalMusicSettingsSection extends ConsumerWidget {
 String _blurbFor(HostPlatform host) {
   if (host.isAndroid) {
     return 'Choose all music on this device for device-wide MediaStore access, '
-        'or select one folder for narrower Android folder access. Android 13+ '
+        'or select folders for narrower Android folder access. Android 13+ '
         'uses the Music and audio permission; Android 12 and older use the '
         'legacy shared-storage read permission. Linthra never requests All '
         'files access.';
@@ -594,8 +598,8 @@ class _FolderActions extends StatelessWidget {
   final VoidCallback onChange;
   final VoidCallback onForget;
 
-  /// Adds another folder to the library. Null on Android, which holds a single
-  /// local grant at a time.
+  /// Adds another folder to the library. Null beside Android's device-wide
+  /// library, which already holds every folder.
   final VoidCallback? onAdd;
   final VoidCallback? onUseAllDeviceMusic;
   final HostPlatform host;
@@ -642,6 +646,17 @@ class _FolderActions extends StatelessWidget {
             ),
           ],
         ),
+        // Android's folders also get Change (#998): one folder standing in
+        // for all of them, as Android's single folder always could. Desktop
+        // changes a folder from its own row (Select again).
+        if (host.isAndroid && onAdd != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          OutlinedButton.icon(
+            onPressed: onChange,
+            icon: const Icon(Icons.folder_open_outlined),
+            label: const Text('Change folder'),
+          ),
+        ],
         const SizedBox(height: AppSpacing.sm),
         Align(
           alignment: Alignment.centerLeft,

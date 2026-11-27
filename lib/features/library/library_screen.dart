@@ -14,7 +14,6 @@ import '../../core/repositories/library_tab_store.dart';
 import '../../core/services/bulk_track_actions.dart';
 import '../../core/sources/local/folder_location.dart';
 import '../../core/sources/local/local_root_fault.dart';
-import '../../data/repositories/host_platform_provider.dart';
 import '../../data/repositories/library_tab_store_provider.dart';
 import '../../shared/layout/adaptive_layout.dart';
 import '../../shared/layout/desktop_presentation.dart';
@@ -898,14 +897,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   /// pick leaves everything untouched. The UI only talks to the two
   /// controllers — never to a picker plugin or the file system directly.
   ///
-  /// Desktop adds the folder to the ones already selected; Android replaces the
-  /// selection, because its local access is a single grant at a time.
+  /// The folder is added to the ones already selected, on Android too (#998),
+  /// except beside Android's device-wide library, which it replaces: that
+  /// library already holds every folder.
   Future<void> _pickAndScan() async {
     final SelectedFolderController folders =
         ref.read(selectedFolderControllerProvider.notifier);
-    final bool isAndroid = ref.read(hostPlatformProvider).isAndroid;
-    final String? path =
-        isAndroid ? await folders.pickAndPersist() : await folders.pickAndAdd();
+    final bool deviceWide =
+        (ref.read(selectedFolderControllerProvider).valueOrNull ?? <String>[])
+            .any((String f) => FolderLocation.parse(f).isAndroidMediaStore);
+    final String? path = deviceWide
+        ? await folders.pickAndPersist()
+        : await folders.pickAndAdd();
     if (path == null) return;
     final List<String> selected =
         ref.read(selectedFolderControllerProvider).valueOrNull ??

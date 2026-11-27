@@ -131,4 +131,79 @@ void main() {
       );
     });
   });
+
+  group('Android shared storage trees (#998)', () {
+    String tree(String id) =>
+        'content://com.android.externalstorage.documents/tree/'
+        '${Uri.encodeComponent(id)}';
+
+    test('a tree holds the trees inside it, and only those', () {
+      expect(
+        LocalMusicRoots.isCoveredBy(
+          tree('primary:Music/Rock'),
+          <String>[tree('primary:Music')],
+        ),
+        isTrue,
+      );
+      expect(
+        LocalMusicRoots.isCoveredBy(
+          tree('primary:Music'),
+          <String>[tree('primary:')],
+        ),
+        isTrue,
+      );
+      for (final String other in <String>[
+        tree('primary:Musical'),
+        tree('primary:Podcasts'),
+        tree('1234-ABCD:Music/Rock'),
+      ]) {
+        expect(
+          LocalMusicRoots.isCoveredBy(other, <String>[tree('primary:Music')]),
+          isFalse,
+          reason: other,
+        );
+      }
+    });
+
+    test('adding the outer tree drops the inner one', () {
+      expect(
+        LocalMusicRoots.normalize(<String>[
+          tree('primary:Music/Rock'),
+          tree('primary:Podcasts'),
+          tree('primary:Music'),
+        ]),
+        <String>[tree('primary:Podcasts'), tree('primary:Music')],
+      );
+    });
+
+    test("another provider's trees are compared as they are", () {
+      // Their ids mean nothing as paths.
+      const String drive =
+          'content://com.google.android.apps.docs.storage/tree/abc';
+      expect(
+        LocalMusicRoots.isCoveredBy(
+          '$drive%2Fdef',
+          <String>[drive],
+        ),
+        isFalse,
+      );
+      expect(
+        LocalMusicRoots.isCoveredBy(
+          tree('primary:Music/%ZZ').replaceAll('%25ZZ', '%ZZ'),
+          <String>[tree('primary:Music')],
+        ),
+        isFalse,
+        reason: 'not valid percent-encoding',
+      );
+    });
+
+    test('each tree owns the documents under it', () {
+      final String music = tree('primary:Music');
+      final String podcasts = tree('primary:Podcasts');
+      final String song =
+          '$podcasts/document/${Uri.encodeComponent('primary:Podcasts/a.mp3')}';
+      expect(
+          LocalMusicRoots.ownerOf(song, <String>[music, podcasts]), podcasts);
+    });
+  });
 }

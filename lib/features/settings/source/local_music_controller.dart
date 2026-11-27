@@ -29,21 +29,21 @@ class LocalMusicActionState {
 
 /// Drives the Settings ▸ Local music source card.
 ///
-/// Desktop treats local music as a set of folders: they are added and removed
-/// one at a time and scanned together as a single library.
+/// Local music is a set of folders: they are added and removed one at a time
+/// and scanned together as a single library. On Android each folder is a SAF
+/// grant of its own.
 ///
-/// Android exposes two deliberate choices instead, and exactly one at a time:
-///  - a targeted SAF folder grant; or
-///  - device-wide MediaStore access, backed by READ_MEDIA_AUDIO on Android 13+
-///    and the legacy shared-storage read permission on older Android releases.
-/// The second path is only requested when the user explicitly chooses it.
+/// Android also offers device-wide MediaStore access, backed by
+/// READ_MEDIA_AUDIO on Android 13+ and the legacy shared-storage read
+/// permission on older releases. It is only requested when the user
+/// explicitly chooses it, and it stands alone: it already holds every folder
+/// on the device, so it replaces the folders, and folders replace it.
 class LocalMusicController extends Notifier<LocalMusicActionState> {
   @override
   LocalMusicActionState build() => const LocalMusicActionState();
 
-  /// Picks a folder and makes it the only local source. This is the Android
-  /// path (one SAF grant at a time), the first-run/empty-library prompt, and
-  /// the card's Change button.
+  /// Picks a folder and makes it the only local source: the first-run and
+  /// empty-library prompt, and the card's Change button.
   Future<void> pickFolder() async {
     state = const LocalMusicActionState(busy: true);
     if (_selectedFolders().isNotEmpty) {
@@ -99,13 +99,21 @@ class LocalMusicController extends Notifier<LocalMusicActionState> {
   }
 
   /// Picks another folder and adds it to the library, keeping the folders
-  /// already selected. Desktop only: Android's local access is a single grant.
+  /// already selected (#998).
+  ///
+  /// Android's device-wide library already holds every folder, so adding one
+  /// to it changes nothing: Change is how it gives way to folders.
   Future<void> addFolder() async {
-    if (ref.read(hostPlatformProvider).isAndroid) {
-      await pickFolder();
+    final List<String> before = _selectedFolders();
+    if (before.any(
+      (String folder) => FolderLocation.parse(folder).isAndroidMediaStore,
+    )) {
+      state = const LocalMusicActionState(
+        message: 'All music on this device is already in your library. Use '
+            'Change to pick folders instead.',
+      );
       return;
     }
-    final List<String> before = _selectedFolders();
     state = const LocalMusicActionState(busy: true);
     final String? picked =
         await ref.read(selectedFolderControllerProvider.notifier).pickAndAdd();

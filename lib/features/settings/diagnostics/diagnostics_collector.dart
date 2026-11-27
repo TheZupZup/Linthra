@@ -67,21 +67,16 @@ class DiagnosticsCollector {
         _ref.read(subsonicSettingsControllerProvider);
     final CastState cast = _ref.read(castServiceProvider).state;
 
-    // Local-folder scan diagnostics: whether a folder is selected, whether a
-    // persisted SAF grant is still held for it (the removable-SD-card signal),
-    // and the counts from the last scan. All secret-free — never the path/URI.
-    // Only the first folder is probed for a SAF grant: content URIs are the
-    // Android case, and Android holds exactly one local selection. How many
-    // folders a desktop library spans is carried by the scan report's own
-    // counts, never as paths.
+    // Local-folder scan diagnostics: whether a folder is selected, whether the
+    // persisted SAF grants are still held (the removable-SD-card signal), and
+    // the counts from the last scan. All secret-free — never the path/URI.
+    // Every Android folder is a grant of its own, so the answer is whether
+    // all of them are still held. How many folders a library spans is carried
+    // by the scan report's own counts, never as paths.
     final List<String> selectedFolders = await _selectedFolders();
-    final String? selectedFolder =
-        selectedFolders.isEmpty ? null : selectedFolders.first;
     final bool folderSelected = selectedFolders.isNotEmpty;
-    final bool isContentFolder = selectedFolder != null &&
-        FolderLocation.parse(selectedFolder).isContentUri;
     final bool? persistedPermission =
-        await _persistedPermission(selectedFolder, isContentFolder);
+        await _persistedPermission(selectedFolders);
     final LocalScanReport? scan = LocalScanDiagnostics.last;
     final AudioDecoderCapabilities? audio = await _audioCapabilities();
     final SubsonicSyncDiagnostics subsonicSync = await collectSubsonicSync();
@@ -300,20 +295,24 @@ class DiagnosticsCollector {
   /// selection. Null when not applicable (no selection or a plain path) or not
   /// determinable (off Android); best-effort so a probe failure can't break the
   /// report.
-  Future<bool?> _persistedPermission(
-    String? folder,
-    bool isContentFolder,
-  ) async {
-    if (folder == null || !isContentFolder) {
-      return null;
+  /// Whether every SAF folder in [folders] still has its persisted grant:
+  /// null with none, or when a probe can't tell.
+  Future<bool?> _persistedPermission(List<String> folders) async {
+    bool? held;
+    for (final String folder in folders) {
+      if (!FolderLocation.parse(folder).isContentUri) continue;
+      try {
+        final bool? granted = await _ref
+            .read(safPermissionProbeProvider)
+            .hasPersistedPermission(folder);
+        if (granted == null) return null;
+        if (!granted) return false;
+        held = true;
+      } catch (_) {
+        return null;
+      }
     }
-    try {
-      return await _ref
-          .read(safPermissionProbeProvider)
-          .hasPersistedPermission(folder);
-    } catch (_) {
-      return null;
-    }
+    return held;
   }
 
   int? _cacheUsedBytes() =>

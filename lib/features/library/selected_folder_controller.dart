@@ -9,10 +9,10 @@ import 'library_providers.dart';
 /// app-defined source sentinel such as Android's device-wide MediaStore
 /// library.
 ///
-/// The state is an ordered list because a desktop library can span several
-/// folders. Android puts exactly one entry in it — a SAF tree or the MediaStore
-/// sentinel — so [setAndPersist] (replace everything) is the mutation it uses,
-/// while desktop adds and removes folders one at a time.
+/// The state is an ordered list because a library can span several folders,
+/// desktop paths or Android SAF trees, added and removed one at a time.
+/// Android's MediaStore sentinel stands alone: [setAndPersist] (replace
+/// everything) puts it in and takes it out.
 class SelectedFolderController extends AsyncNotifier<List<String>> {
   @override
   Future<List<String>> build() {
@@ -20,8 +20,8 @@ class SelectedFolderController extends AsyncNotifier<List<String>> {
   }
 
   /// Opens the folder picker and, if the user chooses one, replaces the
-  /// selection with it. Used where local music is a single choice: Android, and
-  /// the first-run/empty-library prompts.
+  /// selection with it: the first-run and empty-library prompts, Change, and
+  /// leaving Android's device-wide library.
   Future<String?> pickAndPersist() async {
     final picked = await ref.read(folderPickerServiceProvider).pickFolder();
     if (picked == null || picked.isEmpty) {

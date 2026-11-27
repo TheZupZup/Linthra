@@ -99,9 +99,9 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
   /// header action and the empty state.
   ///
   /// It delegates to [LocalMusicController], which owns picking, persisting and
-  /// scanning, including Android's single-grant rule, where adding a folder
-  /// replaces the grant instead of extending it. Nothing about folder state or
-  /// scanning is decided here; this screen only reports the outcome.
+  /// scanning, including Android's device-wide library, which a folder doesn't
+  /// get added to. Nothing about folder state or scanning is decided here;
+  /// this screen only reports the outcome.
   Future<void> _addFolder() async {
     await ref.read(localMusicControllerProvider.notifier).addFolder();
     if (!mounted) return;
@@ -138,7 +138,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
         // The same callback the header carries, null and all: one command, so
         // the two ways in are tappable together or not at all. A second tap
         // during the first pick would otherwise open a second folder dialog,
-        // and on Android the last one to answer would take the single grant.
+        // and the two picks would race each other's scan.
         onAddFolder: onAddFolder,
       );
     }
