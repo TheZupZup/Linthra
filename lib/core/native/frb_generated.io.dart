@@ -35,10 +35,16 @@ abstract class LinthraBridgeApiImplPlatform
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  FileStamp dco_decode_box_autoadd_file_stamp(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
   WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw);
+
+  @protected
+  FileStamp dco_decode_file_stamp(dynamic raw);
 
   @protected
   FolderWalk dco_decode_folder_walk(dynamic raw);
@@ -47,16 +53,28 @@ abstract class LinthraBridgeApiImplPlatform
   int dco_decode_i_32(dynamic raw);
 
   @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<FileStamp?> dco_decode_list_opt_box_autoadd_file_stamp(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  FileStamp? dco_decode_opt_box_autoadd_file_stamp(dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
   WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw);
+
+  @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -84,10 +102,16 @@ abstract class LinthraBridgeApiImplPlatform
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  FileStamp sse_decode_box_autoadd_file_stamp(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
   WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer);
+
+  @protected
+  FileStamp sse_decode_file_stamp(SseDeserializer deserializer);
 
   @protected
   FolderWalk sse_decode_folder_walk(SseDeserializer deserializer);
@@ -96,10 +120,21 @@ abstract class LinthraBridgeApiImplPlatform
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+
+  @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<FileStamp?> sse_decode_list_opt_box_autoadd_file_stamp(
+      SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  FileStamp? sse_decode_opt_box_autoadd_file_stamp(
+      SseDeserializer deserializer);
 
   @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
@@ -107,6 +142,9 @@ abstract class LinthraBridgeApiImplPlatform
   @protected
   WalkFault? sse_decode_opt_box_autoadd_walk_fault(
       SseDeserializer deserializer);
+
+  @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -135,11 +173,18 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_file_stamp(
+      FileStamp self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_walk_fault(
       WalkFault self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_file_stamp(FileStamp self, SseSerializer serializer);
 
   @protected
   void sse_encode_folder_walk(FolderWalk self, SseSerializer serializer);
@@ -148,11 +193,22 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_opt_box_autoadd_file_stamp(
+      List<FileStamp?> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_file_stamp(
+      FileStamp? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
@@ -160,6 +216,10 @@ abstract class LinthraBridgeApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_walk_fault(
       WalkFault? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+      Uint8List? self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

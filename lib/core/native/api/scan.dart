@@ -7,12 +7,68 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import '../frb_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `file_stamp`
+
 /// Walks `folder` the way `IoAudioFileScanner.listFiles` does, waiting at
 /// most `stall_limit_ms` for each next entry.
 Future<FolderWalk> walkFolder(
         {required String folder, required int stallLimitMs}) =>
     LinthraBridge.instance.api
         .crateApiScanWalkFolder(folder: folder, stallLimitMs: stallLimitMs);
+
+/// The stamp of the file at `path`, as `IoLocalFileStatReader.stamp` reads
+/// it, or `None` when it isn't a file, can't be stat'ed, or the `stat` takes
+/// longer than `stall_limit_ms`.
+Future<FileStamp?> stampFile(
+        {required String path, required int stallLimitMs}) =>
+    LinthraBridge.instance.api
+        .crateApiScanStampFile(path: path, stallLimitMs: stallLimitMs);
+
+/// [`stamp_file`] for each of `paths`, in order, in one call. A `stat` that
+/// takes longer than `stall_limit_ms` ends the list, with `None` for its
+/// path; the caller asks for the rest one by one.
+Future<List<FileStamp?>> stampFiles(
+        {required List<String> paths, required int stallLimitMs}) =>
+    LinthraBridge.instance.api
+        .crateApiScanStampFiles(paths: paths, stallLimitMs: stallLimitMs);
+
+/// Whether `path`, inside the selected folder `root`, is gone, as
+/// `IoLocalFileStatReader.isGone` decides it.
+Future<bool> isFileGone(
+        {required String path,
+        required String root,
+        required int stallLimitMs}) =>
+    LinthraBridge.instance.api.crateApiScanIsFileGone(
+        path: path, root: root, stallLimitMs: stallLimitMs);
+
+/// The bytes of the file at `path`, or `None` when it can't be read in full
+/// within `stall_limit_ms`.
+Future<Uint8List?> readFile(
+        {required String path, required int stallLimitMs}) =>
+    LinthraBridge.instance.api
+        .crateApiScanReadFile(path: path, stallLimitMs: stallLimitMs);
+
+/// A file's size and last-modified time (`LocalFileStamp`).
+class FileStamp {
+  final PlatformInt64 sizeBytes;
+  final PlatformInt64 modifiedAtMs;
+
+  const FileStamp({
+    required this.sizeBytes,
+    required this.modifiedAtMs,
+  });
+
+  @override
+  int get hashCode => sizeBytes.hashCode ^ modifiedAtMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FileStamp &&
+          runtimeType == other.runtimeType &&
+          sizeBytes == other.sizeBytes &&
+          modifiedAtMs == other.modifiedAtMs;
+}
 
 /// What walking a folder found, or why it couldn't.
 class FolderWalk {

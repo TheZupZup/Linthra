@@ -51,4 +51,4 @@ Before the first phase moves:
 ## Progress
 
 - Phase 0 landed in #991.
-- Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses, with `IoAudioFileScanner` as the fallback. Reading the files (stat, CUE, tags, mapping) and the scan's orchestration follow.
+- Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses, with `IoAudioFileScanner` as the fallback. Then what the scan reads about each file: `NativeLocalFileStatReader` stamps every listed file in one call (a call per file costs more than the `stat`), decides whether a file it could not read is gone, and CUE sheets are read in Rust. Mapping files to tracks and the scan's orchestration follow.

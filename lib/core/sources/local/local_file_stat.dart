@@ -21,6 +21,17 @@ abstract interface class LocalFileStatReader {
   Future<LocalFileStamp?> stamp(String path);
 }
 
+/// The optional half of a [LocalFileStatReader] that stamps many files in one
+/// call, for a scan that is about to stamp every file it listed.
+abstract interface class LocalFileStampBatch {
+  /// What [LocalFileStatReader.stamp] answers for each of [paths], in order.
+  ///
+  /// May answer fewer than asked, down to none: storage that stops answering
+  /// ends the list at the stamp that stalled, and the caller asks for the
+  /// rest one by one, as it would have without the batch. Never throws.
+  Future<List<LocalFileStamp?>> stampAll(List<String> paths);
+}
+
 /// The optional half of a [LocalFileStatReader] that can tell a file that is
 /// gone from one that only could not be reached.
 ///
