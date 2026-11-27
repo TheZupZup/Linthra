@@ -10,6 +10,7 @@ import 'dart:ffi' as ffi;
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
 import 'api/core.dart';
+import 'api/scan.dart';
 import 'frb_generated.dart';
 
 abstract class LinthraBridgeApiImplPlatform
@@ -31,7 +32,31 @@ abstract class LinthraBridgeApiImplPlatform
   String dco_decode_String(dynamic raw);
 
   @protected
+  bool dco_decode_bool(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_i_32(dynamic raw);
+
+  @protected
+  WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw);
+
+  @protected
+  FolderWalk dco_decode_folder_walk(dynamic raw);
+
+  @protected
+  int dco_decode_i_32(dynamic raw);
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
+
+  @protected
+  WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -41,6 +66,9 @@ abstract class LinthraBridgeApiImplPlatform
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  WalkFault dco_decode_walk_fault(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -53,7 +81,32 @@ abstract class LinthraBridgeApiImplPlatform
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
+
+  @protected
+  WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer);
+
+  @protected
+  FolderWalk sse_decode_folder_walk(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
+
+  @protected
+  WalkFault? sse_decode_opt_box_autoadd_walk_fault(
+      SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -65,10 +118,7 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer);
-
-  @protected
-  bool sse_decode_bool(SseDeserializer deserializer);
+  WalkFault sse_decode_walk_fault(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -82,8 +132,34 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_walk_fault(
+      WalkFault self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_folder_walk(FolderWalk self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_walk_fault(
+      WalkFault? self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
@@ -95,10 +171,7 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_unit(void self, SseSerializer serializer);
 
   @protected
-  void sse_encode_i_32(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer);
+  void sse_encode_walk_fault(WalkFault self, SseSerializer serializer);
 }
 
 // Section: wire_class

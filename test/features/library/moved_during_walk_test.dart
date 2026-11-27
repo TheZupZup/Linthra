@@ -9,7 +9,7 @@
 // outlived the move: the next scan found the old path gone and the new one
 // already indexed, with nothing to match it to.
 //
-// Staged with the real walk (IoAudioFileScanner over a temp folder), the real
+// Staged with the Dart walk (IoAudioFileScanner over a temp folder), the real
 // stat reader, the real tag reader and artwork cache, the production
 // Recording-over-Drift catalog, and the real favourites and play-history
 // repositories. The only staged part is *when* the user's move happens: an
@@ -25,6 +25,7 @@ import 'package:linthra/core/models/track.dart';
 import 'package:linthra/core/platform/host_platform.dart';
 import 'package:linthra/core/repositories/favorites_store.dart';
 import 'package:linthra/core/services/local_artwork_cache.dart';
+import 'package:linthra/core/sources/local/audio_file_scanner.dart';
 import 'package:linthra/core/sources/local/filesystem_local_metadata_reader.dart';
 import 'package:linthra/core/sources/local/local_scan_diagnostics.dart';
 import 'package:linthra/data/database/linthra_database_provider.dart';
@@ -147,7 +148,15 @@ void main() {
         recordingDriftMusicLibraryRepositoryOverride,
         favoritesStoreProvider.overrideWithValue(favoritesStore),
         playHistoryStoreProvider.overrideWithValue(historyStore),
-        // The real walk and the real stat reader are the production defaults.
+        // The Dart walk, which the app falls back to without the Rust core:
+        // the move is staged through IOOverrides, and the Rust walk
+        // (NativeAudioFileScanner) doesn't list folders through dart:io.
+        // native_audio_file_scanner_test.dart holds the two walks to the
+        // same answers. The real stat reader is the production default.
+        audioFileScannerProvider
+            .overrideWithValue(const PlatformAudioFileScanner(
+          filesystemScanner: IoAudioFileScanner(),
+        )),
         localMetadataReaderProvider.overrideWithValue(reader),
         hostPlatformProvider.overrideWithValue(HostPlatform.linux),
       ],

@@ -47,3 +47,8 @@ Before the first phase moves:
 - crate fetching in `hook/build.dart`, CI, the Flatpak (generated sources) and the F-Droid recipe;
 - `flutter_rust_bridge` wired to the library the hook already builds, on Linux, Android and in `flutter test`;
 - one small async call and one stream through it, with tests, to prove the path end to end.
+
+## Progress
+
+- Phase 0 landed in #991.
+- Phase 1, the local scan, lands in steps. First the folder walk: `NativeAudioFileScanner` runs it in Rust and is the filesystem scanner `PlatformAudioFileScanner` uses, with `IoAudioFileScanner` as the fallback. Reading the files (stat, CUE, tags, mapping) and the scan's orchestration follow.

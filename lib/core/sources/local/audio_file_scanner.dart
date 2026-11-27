@@ -5,6 +5,7 @@ import 'directory_readability.dart';
 import 'folder_location.dart';
 import 'folder_scan_exception.dart';
 import 'local_root_fault.dart';
+import 'native_audio_file_scanner.dart';
 import 'saf_tree_uri_resolver.dart';
 
 /// Discovers files under a folder on the device.
@@ -257,7 +258,7 @@ FolderScanException rootFaultException(String folder, LocalRootFault fault) {
 /// resolver is the documented native follow-up.
 class ContentUriAudioFileScanner implements AudioFileScanner {
   const ContentUriAudioFileScanner({
-    AudioFileScanner filesystemScanner = const IoAudioFileScanner(),
+    AudioFileScanner filesystemScanner = const NativeAudioFileScanner(),
     SafTreeUriResolver resolver = const SafTreeUriResolver(),
     DirectoryReadability readability = const IoDirectoryReadability(),
   })  : _filesystemScanner = filesystemScanner,
@@ -314,7 +315,7 @@ class ContentUriAudioFileScanner implements AudioFileScanner {
 /// as a filesystem path.
 class PlatformAudioFileScanner implements AudioFileScanner {
   const PlatformAudioFileScanner({
-    AudioFileScanner filesystemScanner = const IoAudioFileScanner(),
+    AudioFileScanner filesystemScanner = const NativeAudioFileScanner(),
     AudioFileScanner contentUriScanner = const ContentUriAudioFileScanner(),
   })  : _filesystemScanner = filesystemScanner,
         _contentUriScanner = contentUriScanner;

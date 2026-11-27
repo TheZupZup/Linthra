@@ -36,6 +36,7 @@ mod queue_edits_cases_test;
 pub mod queue_moves;
 #[cfg(test)]
 mod queue_moves_cases_test;
+pub mod scan;
 pub mod search_rank;
 #[cfg(test)]
 mod search_rank_cases_test;
