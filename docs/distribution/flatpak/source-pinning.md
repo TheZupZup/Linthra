@@ -22,6 +22,8 @@ Only four files decide what the build fetches. Everything under
 | --- | --- |
 | [`.flutter-version`](../../../.flutter-version) | The Flutter SDK tag, for the Flatpak and for every other build |
 | [`pubspec.lock`](../../../pubspec.lock) | Every Dart package version and its SHA-256 |
+| [`.rust-version`](../../../.rust-version) | The Rust toolchain that builds the Rust core, for the Flatpak and for every other build |
+| [`native/linthra_core/Cargo.lock`](../../../native/linthra_core/Cargo.lock) | Every crate the Rust core builds against and its SHA-256 |
 | [`flatpak/flatpak-flutter.yml`](../../../flatpak/flatpak-flutter.yml) | The native chain (ffmpeg, libplacebo, libass, mpv), the runtime, the sandbox, the Flutter source |
 | [`scripts/regenerate_flatpak_sources.sh`](../../../scripts/regenerate_flatpak_sources.sh) | Which `flatpak-flutter` produced the generated files (`TOOL_COMMIT`) |
 
@@ -33,6 +35,8 @@ And the derived files, all committed so a reviewer can read them:
 | `flatpak/generated/modules/flutter-sdk-<version>.json` | `.flutter-version`: the Flutter checkout plus every Dart SDK and Linux engine artifact for it |
 | `flatpak/generated/sources/pubspec.json` | `pubspec.lock` (and Flutter's own `flutter_tools` lockfile): one pinned pub.dev archive per package |
 | `flatpak/generated/patches/` | the per-plugin fixes flatpak-flutter keeps for the locked plugin versions |
+| `flatpak/generated/modules/rustup-<version>.json` | `.rust-version`, named in the template: the toolchain's channel manifest and components |
+| `flatpak/generated/sources/cargo.json` | `Cargo.lock`, through `flatpak/foreign.json`: one pinned crate archive per crate, plus the cargo config that builds from them instead of crates.io |
 
 ## What pins what
 
@@ -45,6 +49,8 @@ And the derived files, all committed so a reviewer can read them:
 | libplacebo | `tag` **and** `commit`, from the author's GitHub mirror | A git checkout rather than the code.videolan.org tarball, which kept failing CI with an error page (#863). Submodules are off; the ones the build reads are the pinned jinja/markupsafe/glad archives |
 | Plugin downloads (SQLite amalgamation, mimalloc) | URL + SHA-256, pre-fetched into the path the plugin's CMake reads | The committed CMake patch adds the matching `URL_HASH`, so the build cannot accept different bytes even if it did reach the network |
 | The app itself | the repository commit being built | A `type: dir` source, see below |
+| Rust toolchain | `static.rust-lang.org` URL + SHA-256 | The version is the one in `.rust-version`, read from the module's file name |
+| Crates | `static.crates.io` archive URL + SHA-256 | Taken from `Cargo.lock`; the generated cargo config replaces crates.io with these, so the build cannot fetch a crate |
 | `flatpak-flutter` | `TOOL_COMMIT`, a full commit | The generator decides every hash above, so which generator ran is part of the record |
 
 A note on GitHub's generated tag tarballs (`/archive/refs/tags/…`): the SHA-256
@@ -66,7 +72,6 @@ without a row fails, and a row for an input that is gone fails too.
 | `runtime:org.gnome.Platform` | A Flatpak runtime is a signed OSTree ref, resolved by branch at build and install time. `flatpak-builder` accepts a `runtime-commit`, but Flathub's build service updates runtimes in place precisely so published apps pick up platform security fixes; freezing one would keep Linthra on an unpatched GNOME/freedesktop stack | The branch is an exact released version, not a channel: no `master`, `stable` or `beta`. `scripts/check_flatpak_sources.py` rejects a non-numeric branch, and both manifests must name the same one. Contents are signed by the remote and verified by Flatpak |
 | `sdk:org.gnome.Sdk` | The same OSTree ref reasoning, for the build-time half | Same branch pin, same check. It affects the build only: the compiler and headers, not what ships |
 | `sdk-extension:org.freedesktop.Sdk.Extension.llvm22` | An SDK extension follows its SDK's branch, and has no per-commit form in a manifest | The LLVM major version is part of the extension name, so a compiler bump is a visible manifest change rather than a silent one, and it must match in both manifests |
-| `sdk-extension:org.freedesktop.Sdk.Extension.rust-stable` | An SDK extension follows its SDK's branch, and has no per-commit form in a manifest | Builds the Rust core (`native/linthra_core`), which has no crate dependencies, so only the compiler moves with the branch. It must match in both manifests |
 | `dir:..` | The app's own checkout, staged by path rather than downloaded. A digest of it would be a digest of the tree that Git already names | It is the commit being built: `git` is the content pin. The offline build smoke additionally refuses to stage a host `build/`, `.dart_tool/` or `.pub-cache/` tree, so a developer's untracked artifacts cannot enter the build |
 
 ## Refreshing the pins
@@ -97,6 +102,8 @@ Then read the diff. A pin change you did not expect is the finding, not noise.
 | --- | --- |
 | `.flutter-version` | Regenerate. Update the `commit` on the template's Flutter source to the one the new tag resolves to (`git ls-remote --tags https://github.com/flutter/flutter.git refs/tags/<version>`); the generated module records it too, and the check holds the two together |
 | `pubspec.lock` | Regenerate. Expect one archive plus one hosted-hash entry per moved package. A moved plugin with a native download (`sqlite3_flutter_libs`, `media_kit_libs_linux`) also moves a generated patch, which is the case worth reading closely |
+| `.rust-version` | Rename the template's `generated/modules/rustup-<version>.json` entry to the new version, then regenerate |
+| `native/linthra_core/Cargo.lock` | Regenerate. Expect one crate archive per moved crate in `cargo.json` |
 | A native module in the template | Regenerate, so the committed manifest matches the template. Verify the new SHA-256 yourself (`curl -L <url> \| sha256sum`) rather than trusting a bump |
 
 ## What CI checks

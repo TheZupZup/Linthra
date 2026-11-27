@@ -160,6 +160,7 @@ dependencies:
     sdk: flutter
   intl: any
 
+  flutter_rust_bridge: 2.11.1
 dependency_overrides:
   # Patched locally so headless Linux smoke tests can set libmpv `ao=alsa`
   # via [JustAudioMediaKit.mpvProperties] without forking production playback.

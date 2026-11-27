@@ -21,3 +21,6 @@ path = "src/bin/benchmark_200k.rs"
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+[dependencies]
+flutter_rust_bridge = "=2.11.1"

@@ -1,0 +1,7 @@
+{
+    "linthra_core": {
+        "cargo_locks": [
+            "native/linthra_core"
+        ]
+    }
+}

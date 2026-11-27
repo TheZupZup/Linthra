@@ -68,10 +68,13 @@ Future<void> main(List<String> args) async {
         'build',
         '--release',
         '--lib',
-        // The crate has no dependencies, and the lockfile must already say
-        // so: the build never reaches the network (Flatpak builds offline).
+        // The crates are exactly the ones Cargo.lock names, with their
+        // checksums. Where they are not cached yet cargo fetches them from
+        // crates.io. The Flatpak builds with the network off: its CARGO_HOME
+        // holds a config that replaces crates.io with the archives the
+        // manifest pinned (flatpak/generated/sources/cargo.json), so nothing
+        // is fetched there.
         '--locked',
-        '--offline',
         '--manifest-path',
         crate.resolve('Cargo.toml').toFilePath(),
         '--target',
@@ -175,24 +178,48 @@ class _RustTarget {
     return null;
   }
 
-  /// Extra environment for cargo. On Android, links with the NDK's clang
-  /// wrapper for the app's minimum API level, and aligns segments for 16 KB
-  /// pages (required for apps targeting Android 15+ on such devices).
+  /// Extra environment for cargo.
+  ///
+  /// Everywhere: the crates' sources sit under cargo's home directory, whose
+  /// path ends up in the library (in panic locations). It is remapped to
+  /// `/cargo` so the library does not depend on whose home built it: F-Droid
+  /// rebuilds the APK and compares it byte for byte with the one GitHub built.
+  ///
+  /// On Android, also links with the NDK's clang wrapper for the app's
+  /// minimum API level, and aligns segments for 16 KB pages (required for
+  /// apps targeting Android 15+ on such devices).
   Map<String, String> cargoEnvironment(CodeConfig code) {
+    final String key = triple.toUpperCase().replaceAll('-', '_');
+    final String remap = '--remap-path-prefix=${_cargoHome()}=/cargo';
     final String? prefix = androidClangPrefix;
-    if (prefix == null) return const <String, String>{};
+    if (prefix == null) {
+      return <String, String>{'CARGO_TARGET_${key}_RUSTFLAGS': remap};
+    }
     final CCompilerConfig? compiler = code.cCompiler;
     if (compiler == null) {
       throw Exception('Flutter passed no NDK compiler for $triple');
     }
     final String ndkBin = File.fromUri(compiler.compiler).parent.path;
     final String api = '${code.android.targetNdkApi}';
-    final String key = triple.toUpperCase().replaceAll('-', '_');
+    final String clang = '$ndkBin/$prefix$api-clang';
+    // cc-rs, which crates with C in them (dart-sys) build it with, reads
+    // CC_<target> and AR_<target>; without them it guesses a GCC-style name
+    // (`arm-linux-androideabi-clang`) the NDK doesn't ship.
+    final String ccKey = triple.replaceAll('-', '_');
     return <String, String>{
-      'CARGO_TARGET_${key}_LINKER': '$ndkBin/$prefix$api-clang',
-      'CARGO_TARGET_${key}_RUSTFLAGS': '-C link-arg=-Wl,-z,max-page-size=16384',
+      'CARGO_TARGET_${key}_LINKER': clang,
+      'CARGO_TARGET_${key}_RUSTFLAGS':
+          '-C link-arg=-Wl,-z,max-page-size=16384 $remap',
+      'CC_$ccKey': clang,
+      'AR_$ccKey': File.fromUri(compiler.archiver).path,
     };
   }
+}
+
+/// Cargo's home directory, as cargo itself resolves it.
+String _cargoHome() {
+  final Map<String, String> env = Platform.environment;
+  return env['CARGO_HOME'] ?? '${env['HOME'] ?? ''}/.cargo';
 }
 
 /// [name]'s path from PATH, then from cargo's default install location.

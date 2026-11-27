@@ -56,9 +56,11 @@ step starts a new shell:
 ```
 
 Nothing else changes. `hook/build.dart` finds cargo on the PATH, links with
-the NDK's clang and builds with `--offline --locked`. The crate has no
-dependencies, so there is nothing to vendor and `scandelete` needs no new
-entry.
+the NDK's clang and builds with `--locked`: cargo fetches the crates
+`native/linthra_core/Cargo.lock` pins, with their checksums, from crates.io
+into `$HOME/.cargo`, outside the source tree, so `scandelete` needs no new
+entry. The hook remaps that directory to `/cargo` in the library, so a
+different `$HOME` on the build server doesn't change the APK.
 
 ## Reproducibility
 
