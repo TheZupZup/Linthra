@@ -46,7 +46,7 @@ The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux
 | Linux (x64, arm64) | `cargo`, `rustc` and a C linker (`cc`) |
 | Android | the same, plus `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`; the hook links with the NDK's clang |
 
-`cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
+`cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. A build that must carry the core sets the `require_rust` hook user-define (`hooks: user_defines: linthra: require_rust: true` in `pubspec.yaml`, as the F-Droid recipe does), and every case above then fails it instead; an environment variable can't do this, since the hooks runner passes a hook only a fixed set of them. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
 
 The Flatpak builds it with the Rust in `.rust-version` (a generated rustup module) and gets the crates from pinned archives instead of crates.io (`flatpak/foreign.json`, `flatpak/generated/sources/cargo.json`); after a `Cargo.lock` change, run `./scripts/regenerate_flatpak_sources.sh`.
 

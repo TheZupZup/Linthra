@@ -10,36 +10,36 @@ F-Droid checks its own build of each release against the signed APK, byte for
 byte. So its recipe has to build the Rust core too, with the same rustc, or
 the two APKs differ and F-Droid stops taking updates. That recipe lives in
 [fdroiddata](https://gitlab.com/fdroid/fdroiddata), not in this repository;
-this page is the change to make there.
+this page is the change to make there, and `metadata/` holds a mirror of it.
 
 ## When
 
-Before, or together with, the first release whose APKs carry the Rust core:
-the first tag cut after `.rust-version` landed (#969). An F-Droid build of
-that release without Rust no longer matches it.
+Now: every release since `.rust-version` landed (#969) ships the Rust core,
+and an F-Droid build without Rust can't match it.
 
 ## The change, per build block
 
-In `metadata/io.github.thezupzup.linthra.yml`, for each `Builds` entry.
-
-Add the rustup srclib next to Flutter. Use the tag fdroiddata's
-`srclibs/rustup.yml` carries:
+The mirror in [`metadata/io.github.thezupzup.linthra.yml`](../../../metadata/io.github.thezupzup.linthra.yml)
+carries it in its last three `Builds` entries, the ones fdroiddata's update
+bot copies for each new version. Per entry:
 
 ```yaml
     srclibs:
       - flutter@stable
-      - rustup@<tag>
-```
-
-In `prebuild`, inside the repository and before `flutter pub get`, install the
-pinned Rust with that block's target only:
-
-```yaml
+      - rustup@1.29.3
+    ndk: 28.2.13676358
+    prebuild:
+      # after the Flutter checkout, before `flutter pub get`
       - rustVersion=$(cat .rust-version)
       - '[[ $rustVersion ]]'
       - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain $rustVersion
-          --target aarch64-linux-android
+        --target aarch64-linux-android
+      - 'printf ''\nhooks:\n  user_defines:\n    linthra:\n      require_rust: true\n'' >> pubspec.yaml'
+    build:
+      # inside $repo, around `flutter build apk`
       - source $HOME/.cargo/env
+      - $$flutter$$/bin/flutter build apk ...
+      - python3 scripts/check_apk_rust_core.py build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 ```
 
 | Block | `--target` |
@@ -48,15 +48,26 @@ pinned Rust with that block's target only:
 | arm64-v8a | `aarch64-linux-android` |
 | x86_64 | `x86_64-linux-android` |
 
-In `build`, before `flutter build apk`, put cargo back on the PATH, since each
-step starts a new shell:
+- **rustup** installs the Rust pinned in `.rust-version` with only that
+  block's target, as `.github/actions/setup-rust-android` does for the
+  release builds.
+- **`ndk`** is the NDK the release build links with: `flutter.ndkVersion` of
+  the Flutter in `.flutter-version` (3.47.5 ships 28.2.13676358;
+  `android/app/build.gradle` uses it). Another NDK links another library, and
+  the APKs no longer match. Check it again whenever `.flutter-version`
+  changes.
+- **`require_rust`** makes `hook/build.dart` fail when it can't build the Rust
+  core, instead of skipping it (see `hook/rust_requirement.dart`). It is a
+  hook user-define, read from the app's `pubspec.yaml`, because the hooks
+  runner hands a hook only a fixed set of environment variables: a
+  `LINTHRA_REQUIRE_RUST` exported in the recipe never reaches it. Without it, a
+  build server missing Rust would build an APK without the core and F-Droid
+  would only report that it doesn't match the signed one.
+- **`check_apk_rust_core.py`** looks at the APK itself, the same check the
+  release workflows run.
 
-```yaml
-      - source $HOME/.cargo/env
-```
-
-Nothing else changes. `hook/build.dart` finds cargo on the PATH, links with
-the NDK's clang and builds with `--locked`: cargo fetches the crates
+`hook/build.dart` finds cargo on the PATH, links with the NDK's clang and
+builds with `--locked`: cargo fetches the crates
 `native/linthra_core/Cargo.lock` pins, with their checksums, from crates.io
 into `$HOME/.cargo`, outside the source tree, so `scandelete` needs no new
 entry. The hook remaps that directory to `/cargo` in the library, so a
@@ -72,8 +83,3 @@ different `$HOME` on the build server doesn't change the APK.
 - **Check it** with `fdroid build -l io.github.thezupzup.linthra` and compare
   against the signed APK, as in
   [arm64 / x86_64 reproducibility](reproducibility-arm64.md).
-
-## After
-
-Once F-Droid builds with Rust, every shipped build carries the Rust core, and
-the Dart copies of the rules (the fallbacks in `lib/core/`) can go.
