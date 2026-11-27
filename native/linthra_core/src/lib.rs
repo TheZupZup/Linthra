@@ -45,6 +45,7 @@ mod shared_cases_test;
 pub mod song_sort;
 pub mod stream_recovery;
 pub mod streaming;
+pub mod subsonic;
 pub mod tags;
 pub mod track_availability;
 #[cfg(test)]

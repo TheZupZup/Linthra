@@ -4,3 +4,4 @@
 
 pub mod core;
 pub mod scan;
+pub mod subsonic;

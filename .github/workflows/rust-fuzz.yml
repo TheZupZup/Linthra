@@ -1,8 +1,9 @@
 name: Rust parser fuzzing
 
-# Throws mutated files at the tag readers and the CUE sheet parser
-# (native/linthra_core/fuzz/README.md) and fails on the first panic, leaving
-# the input that caused it as an artifact to turn into a regression test.
+# Throws mutated files at the tag readers, the CUE sheet parser and the
+# Subsonic answer reader (native/linthra_core/fuzz/README.md) and fails on the
+# first panic, leaving the input that caused it as an artifact to turn into a
+# regression test.
 #
 # Weekly, each target for a bounded time. A pull request that touches the
 # parsers or the targets gets a short run of each, so a target that stops
@@ -21,6 +22,7 @@ on:
       - 'native/linthra_core/fuzz/**'
       - 'native/linthra_core/src/tags/**'
       - 'native/linthra_core/src/cue_sheet.rs'
+      - 'native/linthra_core/src/subsonic/**'
       - '.github/workflows/rust-fuzz.yml'
 
 permissions:
@@ -39,6 +41,7 @@ jobs:
       matrix:
         target:
           - cue_sheet
+          - subsonic_response
           - tags_aiff
           - tags_any
           - tags_ape

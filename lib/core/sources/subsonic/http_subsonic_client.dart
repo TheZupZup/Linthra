@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -11,11 +10,13 @@ import 'subsonic_auth.dart';
 import 'subsonic_client.dart';
 import 'subsonic_endpoints.dart';
 import 'subsonic_exception.dart';
+import 'subsonic_reply.dart';
 
 /// The real [SubsonicClient], backed by `package:http`.
 ///
-/// The only file in the app that constructs Subsonic URLs and parses the
-/// `subsonic-response` envelope. Standard HTTPS already works through a reverse
+/// The only file in the app that constructs Subsonic URLs and sends Subsonic
+/// requests. What a server answers is read in the Rust core
+/// (`subsonic_reply.dart`). Standard HTTPS already works through a reverse
 /// proxy/Cloudflare, so there's nothing proxy-specific here beyond turning an
 /// HTML/5xx error page into a friendly [SubsonicErrorKind.notSubsonic] /
 /// [SubsonicErrorKind.serverError].
@@ -66,12 +67,7 @@ class HttpSubsonicClient implements SubsonicClient {
       username: username,
       credentials: credentials,
     );
-    final SubsonicEnvelope envelope = await _get(uri);
-    return SubsonicServerInfo(
-      apiVersion: envelope.version,
-      type: envelope.type,
-      serverVersion: envelope.serverVersion,
-    );
+    return serverInfoOf(await _get(uri, SubsonicRead.envelope));
   }
 
   @override
@@ -81,7 +77,7 @@ class HttpSubsonicClient implements SubsonicClient {
       username: session.username,
       credentials: _credentials(session),
     );
-    await _get(uri);
+    await _getOk(uri);
   }
 
   @override
@@ -91,27 +87,9 @@ class HttpSubsonicClient implements SubsonicClient {
       username: session.username,
       credentials: _credentials(session),
     );
-    final SubsonicEnvelope envelope = await _get(uri);
-
     // Shape: artists.index[].artist[]
-    final List<SubsonicArtistDto> artists = <SubsonicArtistDto>[];
-    final Object? root = envelope.data['artists'];
-    final List<Object?>? indexes =
-        _entries(root is Map<String, dynamic> ? root['index'] : null);
-    if (indexes != null) {
-      for (final Object? index in indexes) {
-        if (index is! Map<String, dynamic>) continue;
-        final List<Object?>? list = _entries(index['artist']);
-        if (list == null) continue;
-        for (final Object? entry in list) {
-          if (entry is Map<String, dynamic>) {
-            final SubsonicArtistDto? dto = SubsonicArtistDto.fromJson(entry);
-            if (dto != null) artists.add(dto);
-          }
-        }
-      }
-    }
-    return artists;
+    final SubsonicReply reply = await _get(uri, SubsonicRead.artists);
+    return <SubsonicArtistDto>[for (final a in reply.artists) artistDto(a)];
   }
 
   @override
@@ -143,22 +121,11 @@ class HttpSubsonicClient implements SubsonicClient {
       size: size,
       offset: offset,
     );
-    final SubsonicEnvelope envelope = await _get(uri);
-    final Object? root = envelope.data['albumList2'];
-    final List<Object?>? list =
-        _entries(root is Map<String, dynamic> ? root['album'] : null);
-    if (list == null) {
-      return const SubsonicAlbumPage(
-          albums: <SubsonicAlbumDto>[], entryCount: 0);
-    }
-    final List<SubsonicAlbumDto> albums = <SubsonicAlbumDto>[];
-    for (final Object? entry in list) {
-      if (entry is Map<String, dynamic>) {
-        final SubsonicAlbumDto? dto = SubsonicAlbumDto.fromJson(entry);
-        if (dto != null) albums.add(dto);
-      }
-    }
-    return SubsonicAlbumPage(albums: albums, entryCount: list.length);
+    final SubsonicReply reply = await _get(uri, SubsonicRead.albumPage);
+    return SubsonicAlbumPage(
+      albums: <SubsonicAlbumDto>[for (final a in reply.albums) albumDto(a)],
+      entryCount: reply.entryCount,
+    );
   }
 
   @override
@@ -172,19 +139,8 @@ class HttpSubsonicClient implements SubsonicClient {
       credentials: _credentials(session),
       albumId: albumId,
     );
-    final SubsonicEnvelope envelope = await _get(uri);
-    final Object? root = envelope.data['album'];
-    final List<Object?>? list =
-        _entries(root is Map<String, dynamic> ? root['song'] : null);
-    if (list == null) return const <SubsonicSongDto>[];
-    final List<SubsonicSongDto> songs = <SubsonicSongDto>[];
-    for (final Object? entry in list) {
-      if (entry is Map<String, dynamic>) {
-        final SubsonicSongDto? dto = SubsonicSongDto.fromJson(entry);
-        if (dto != null) songs.add(dto);
-      }
-    }
-    return songs;
+    final SubsonicReply reply = await _get(uri, SubsonicRead.albumSongs);
+    return <SubsonicSongDto>[for (final song in reply.songs) songDto(song)];
   }
 
   @override
@@ -205,7 +161,8 @@ class HttpSubsonicClient implements SubsonicClient {
         credentials: credentials,
         songId: songId,
       ),
-      _parseStructuredLyrics,
+      SubsonicRead.structuredLyrics,
+      _structuredLyrics,
     );
     if (structured != null) return structured;
     // Fallback: the legacy `getLyrics` (matched by artist + title) for servers
@@ -222,7 +179,8 @@ class HttpSubsonicClient implements SubsonicClient {
           artist: artist,
           title: title,
         ),
-        _parseLegacyLyrics,
+        SubsonicRead.legacyLyrics,
+        _legacyLyrics,
       );
     }
     return null;
@@ -288,7 +246,7 @@ class HttpSubsonicClient implements SubsonicClient {
     );
     // Only the envelope's ok/failed status matters; a server that rejects or
     // doesn't support scrobbling throws the usual typed, secret-free error.
-    await _get(uri);
+    await _getOk(uri);
   }
 
   @override
@@ -298,25 +256,14 @@ class HttpSubsonicClient implements SubsonicClient {
       username: session.username,
       credentials: _credentials(session),
     );
-    final SubsonicEnvelope envelope = await _get(uri);
     // Shape: starred2.song[].id
-    final Object? root = envelope.data['starred2'];
-    final List<Object?>? songs =
-        _entries(root is Map<String, dynamic> ? root['song'] : null);
-    if (songs == null) return <String>{};
-    final Set<String> ids = <String>{};
-    for (final Object? entry in songs) {
-      if (entry is Map<String, dynamic>) {
-        final Object? id = entry['id'];
-        if (id is String && id.isNotEmpty) ids.add(id);
-      }
-    }
-    return ids;
+    final SubsonicReply reply = await _get(uri, SubsonicRead.starredSongIds);
+    return reply.ids.toSet();
   }
 
   @override
   Future<void> star(SubsonicSession session, String songId) async {
-    await _get(SubsonicEndpoints.star(
+    await _getOk(SubsonicEndpoints.star(
       session.baseUrl,
       username: session.username,
       credentials: _credentials(session),
@@ -326,7 +273,7 @@ class HttpSubsonicClient implements SubsonicClient {
 
   @override
   Future<void> unstar(SubsonicSession session, String songId) async {
-    await _get(SubsonicEndpoints.unstar(
+    await _getOk(SubsonicEndpoints.unstar(
       session.baseUrl,
       username: session.username,
       credentials: _credentials(session),
@@ -343,20 +290,9 @@ class HttpSubsonicClient implements SubsonicClient {
       username: session.username,
       credentials: _credentials(session),
     );
-    final SubsonicEnvelope envelope = await _get(uri);
     // Shape: playlists.playlist[]
-    final Object? root = envelope.data['playlists'];
-    final List<Object?>? list =
-        _entries(root is Map<String, dynamic> ? root['playlist'] : null);
-    if (list == null) return const <SubsonicPlaylistDto>[];
-    final List<SubsonicPlaylistDto> playlists = <SubsonicPlaylistDto>[];
-    for (final Object? entry in list) {
-      if (entry is Map<String, dynamic>) {
-        final SubsonicPlaylistDto? dto = SubsonicPlaylistDto.fromJson(entry);
-        if (dto != null) playlists.add(dto);
-      }
-    }
-    return playlists;
+    final SubsonicReply reply = await _get(uri, SubsonicRead.playlists);
+    return <SubsonicPlaylistDto>[for (final p in reply.named) playlistDto(p)];
   }
 
   @override
@@ -370,9 +306,8 @@ class HttpSubsonicClient implements SubsonicClient {
       credentials: _credentials(session),
       playlistId: playlistId,
     );
-    final SubsonicEnvelope envelope = await _get(uri);
     // Shape: playlist.entry[].id, in server order.
-    return _entrySongIds(envelope.data['playlist']);
+    return (await _get(uri, SubsonicRead.playlistSongIds)).ids;
   }
 
   @override
@@ -388,13 +323,10 @@ class HttpSubsonicClient implements SubsonicClient {
       name: name,
       songIds: songIds,
     );
-    final SubsonicEnvelope envelope = await _sendSongList(session, uri);
     // Most servers (Navidrome) return the created playlist with its id.
-    final Object? root = envelope.data['playlist'];
-    if (root is Map<String, dynamic>) {
-      final Object? id = root['id'];
-      if (id is String && id.isNotEmpty) return id;
-    }
+    final String? id =
+        (await _sendSongList(session, uri, SubsonicRead.createdPlaylistId)).id;
+    if (id != null) return id;
     // Fallback for a server that returns an empty ok: find it by name (newest
     // match wins, since a fresh create is appended). Never leaks a credential.
     final List<SubsonicPlaylistDto> playlists = await getPlaylists(session);
@@ -423,6 +355,7 @@ class HttpSubsonicClient implements SubsonicClient {
         playlistId: playlistId,
         songIds: songIds,
       ),
+      SubsonicRead.envelope,
     );
   }
 
@@ -434,15 +367,16 @@ class HttpSubsonicClient implements SubsonicClient {
   /// the server lists `formPost`, and otherwise still as a GET (a server with
   /// no proxy in front takes it), with a URL that turns out too long reported
   /// as exactly that rather than as "not a Subsonic server".
-  Future<SubsonicEnvelope> _sendSongList(
+  Future<SubsonicReply> _sendSongList(
     SubsonicSession session,
     Uri request,
+    SubsonicRead what,
   ) async {
     if (request.toString().length > _shortUrlLength &&
         await _supportsFormPost(session)) {
-      return _postForm(request);
+      return _postForm(request, what);
     }
-    return _get(request, onRejectedStatus: (int code) {
+    return _get(request, what, onRejectedStatus: (int code) {
       if (code == 414 || code == 431) {
         throw SubsonicException.playlistTooLong(code);
       }
@@ -480,14 +414,15 @@ class HttpSubsonicClient implements SubsonicClient {
   /// showing. Anything else says nothing about the write.
   Future<bool?> _lookUpFormPost(SubsonicSession session) async {
     bool noSuchEndpoint = false;
-    final SubsonicEnvelope envelope;
+    final SubsonicReply reply;
     try {
-      envelope = await _get(
+      reply = await _get(
         SubsonicEndpoints.getOpenSubsonicExtensions(
           session.baseUrl,
           username: session.username,
           credentials: _credentials(session),
         ),
+        SubsonicRead.formPost,
         onRejectedStatus: (int code) {
           noSuchEndpoint = code == 404;
         },
@@ -517,18 +452,7 @@ class HttpSubsonicClient implements SubsonicClient {
           return noSuchEndpoint ? false : null;
       }
     }
-    final Object? extensions = envelope.data['openSubsonicExtensions'];
-    if (extensions is! List) return false;
-    for (final Object? extension in extensions) {
-      if (extension is! Map<String, dynamic>) continue;
-      final Object? versions = extension['versions'];
-      if (extension['name'] == 'formPost' &&
-          versions is List &&
-          versions.contains(1)) {
-        return true;
-      }
-    }
-    return false;
+    return reply.takesFormPosts;
   }
 
   /// [request] as an OpenSubsonic form POST: same endpoint, its parameters
@@ -537,7 +461,7 @@ class HttpSubsonicClient implements SubsonicClient {
   /// One carrying the legacy password is not sent on through a redirect
   /// either. The HTTP client follows only a 303 for a POST, and as a GET
   /// without the body, but that is the client's choice, not this one's.
-  Future<SubsonicEnvelope> _postForm(Uri request) async {
+  Future<SubsonicReply> _postForm(Uri request, SubsonicRead what) async {
     final ({Uri target, String body}) form =
         SubsonicEndpoints.asFormPost(request);
     const Map<String, String> headers = <String, String>{
@@ -560,7 +484,7 @@ class HttpSubsonicClient implements SubsonicClient {
     if (response.statusCode == 413) {
       throw SubsonicException.playlistTooLong(413);
     }
-    return _readEnvelope(response);
+    return _readReply(response, what);
   }
 
   @override
@@ -569,7 +493,7 @@ class HttpSubsonicClient implements SubsonicClient {
     String playlistId,
     String name,
   ) async {
-    await _get(SubsonicEndpoints.updatePlaylist(
+    await _getOk(SubsonicEndpoints.updatePlaylist(
       session.baseUrl,
       username: session.username,
       credentials: _credentials(session),
@@ -583,37 +507,12 @@ class HttpSubsonicClient implements SubsonicClient {
     SubsonicSession session,
     String playlistId,
   ) async {
-    await _get(SubsonicEndpoints.deletePlaylist(
+    await _getOk(SubsonicEndpoints.deletePlaylist(
       session.baseUrl,
       username: session.username,
       credentials: _credentials(session),
       playlistId: playlistId,
     ));
-  }
-
-  /// [value] as a list of entries, or null when it is none. Older servers
-  /// build their JSON from the XML answer, where a list holding one entry
-  /// comes out as that entry alone.
-  static List<Object?>? _entries(Object? value) => switch (value) {
-        final List<Object?> list => list,
-        final Map<String, dynamic> one => <Object?>[one],
-        _ => null,
-      };
-
-  /// The ordered song ids of a `playlist` object's `entry` list, skipping any
-  /// entry without a usable id.
-  static List<String> _entrySongIds(Object? playlist) {
-    final List<Object?>? entries =
-        _entries(playlist is Map<String, dynamic> ? playlist['entry'] : null);
-    if (entries == null) return const <String>[];
-    final List<String> ids = <String>[];
-    for (final Object? entry in entries) {
-      if (entry is Map<String, dynamic>) {
-        final Object? id = entry['id'];
-        if (id is String && id.isNotEmpty) ids.add(id);
-      }
-    }
-    return ids;
   }
 
   SubsonicCredentials _credentials(SubsonicSession session) {
@@ -636,20 +535,17 @@ class HttpSubsonicClient implements SubsonicClient {
   /// scary error. The credential-bearing URL is never logged or thrown.
   Future<Lyrics?> _tryLyrics(
     Uri uri,
-    Lyrics? Function(SubsonicEnvelope envelope) parse,
+    SubsonicRead what,
+    Lyrics? Function(SubsonicReply reply) parse,
   ) async {
     final http.Response response = await _getJson(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) return null;
-    final Map<String, dynamic> body;
-    try {
-      body = _decodeObject(response);
-    } on SubsonicException {
-      // A 2xx body that isn't JSON — treat as "no lyrics here", not an error.
-      return null;
-    }
-    final SubsonicEnvelope? envelope = SubsonicEnvelope.fromJson(body);
-    if (envelope == null || !envelope.isOk) return null;
-    return parse(envelope);
+    // A 2xx body that isn't a Subsonic answer, or one carrying an error:
+    // "no lyrics here", not an error.
+    final SubsonicReply reply =
+        await readSubsonicAnswer(response.bodyBytes, what);
+    if (reply.outcome != SubsonicOutcome.ok) return null;
+    return parse(reply);
   }
 
   /// Performs a JSON `GET`, then decodes and validates the `subsonic-response`
@@ -662,8 +558,9 @@ class HttpSubsonicClient implements SubsonicClient {
   /// [followRedirects] off answers a redirect with its own 3xx, which then
   /// fails like any other unexpected status. A redirect for a [uri] carrying
   /// the legacy password is never followed, and is refused as exactly that.
-  Future<SubsonicEnvelope> _get(
-    Uri uri, {
+  Future<SubsonicReply> _get(
+    Uri uri,
+    SubsonicRead what, {
     void Function(int statusCode)? onRejectedStatus,
     bool followRedirects = true,
   }) async {
@@ -674,8 +571,11 @@ class HttpSubsonicClient implements SubsonicClient {
     if (onRejectedStatus != null && (code < 200 || code >= 300)) {
       onRejectedStatus(code);
     }
-    return _readEnvelope(response);
+    return _readReply(response, what);
   }
+
+  /// [_get] for a request whose answer only has to be ok.
+  Future<void> _getOk(Uri uri) => _get(uri, SubsonicRead.envelope);
 
   /// GETs [uri] for a JSON answer. With [followRedirects] off, or for a [uri]
   /// carrying the legacy password, a redirect comes back as its own 3xx.
@@ -709,18 +609,19 @@ class HttpSubsonicClient implements SubsonicClient {
     }
   }
 
-  /// Checks [response]'s status and decodes its `subsonic-response` envelope.
-  SubsonicEnvelope _readEnvelope(http.Response response) {
+  /// Checks [response]'s status, then reads its `subsonic-response` envelope
+  /// and [what] in the Rust core. A body that isn't a Subsonic answer (an
+  /// HTML error page, say) is [SubsonicErrorKind.notSubsonic]; a Subsonic
+  /// error inside it maps by its code.
+  Future<SubsonicReply> _readReply(
+    http.Response response,
+    SubsonicRead what,
+  ) async {
     _checkStatus(response);
-    final SubsonicEnvelope? envelope =
-        SubsonicEnvelope.fromJson(_decodeObject(response));
-    if (envelope == null) {
-      throw SubsonicException.notSubsonic();
-    }
-    if (!envelope.isOk) {
-      throw _mapErrorCode(envelope.errorCode);
-    }
-    return envelope;
+    return okOrThrow(
+      await readSubsonicAnswer(response.bodyBytes, what),
+      _mapErrorCode,
+    );
   }
 
   /// Runs a request with a timeout, turning any transport-level failure into a
@@ -804,54 +705,34 @@ class HttpSubsonicClient implements SubsonicClient {
     }
   }
 
-  /// Parses an OpenSubsonic `getLyricsBySongId` envelope
-  /// (`lyricsList.structuredLyrics[]`) into [Lyrics], or `null` when it carries
-  /// no usable lines.
+  /// [Lyrics] from an OpenSubsonic `getLyricsBySongId` answer
+  /// (`lyricsList.structuredLyrics[]`), or `null` when it carries no usable
+  /// lines.
   ///
-  /// Each line has a `value` (text) and, for synced lyrics, a `start` in
-  /// **milliseconds**; an entry-level `offset` (ms, default 0) shifts every
-  /// timestamp. A line with no `start` (or a set explicitly flagged
-  /// `synced: false`) maps to a plain, untimed [LyricLine], so [Lyrics.isSynced]
-  /// then reports plain — exactly what the UI needs to pick the static vs. the
-  /// timed view. The first structured set with lines is used (servers list
-  /// multiple only for alternate languages).
-  static Lyrics? _parseStructuredLyrics(SubsonicEnvelope envelope) {
-    final Object? root = envelope.data['lyricsList'];
-    if (root is! Map<String, dynamic>) return null;
-    final Object? sets = root['structuredLyrics'];
-    if (sets is! List) return null;
-    for (final Object? set in sets) {
-      if (set is! Map<String, dynamic>) continue;
-      final Object? rawLines = set['line'];
-      if (rawLines is! List || rawLines.isEmpty) continue;
-      // Honor an explicit unsynced flag so a server that tags plain lyrics with
-      // stray zero timestamps isn't mistaken for a (mis)timed track; otherwise
-      // per-line `start` presence decides plain vs. synced.
-      final bool unsynced = set['synced'] == false;
-      final int offsetMs = _asInt(set['offset']) ?? 0;
-      final List<LyricLine> lines = <LyricLine>[];
-      for (final Object? raw in rawLines) {
-        if (raw is! Map<String, dynamic>) continue;
-        final Object? value = raw['value'];
-        if (value is! String) continue;
-        final int? startMs = unsynced ? null : _asInt(raw['start']);
-        lines.add(LyricLine(
-          text: value,
-          start: startMs == null ? null : _durationFromMs(startMs + offsetMs),
-        ));
-      }
-      if (lines.isNotEmpty) return Lyrics(lines: lines);
-    }
-    return null;
+  /// The Rust core reads the first set with lines (servers list several only
+  /// for other languages), each line's `start` shifted by the set's `offset`.
+  /// A line with no `start`, or in a set flagged `synced: false`, comes back
+  /// untimed, so [Lyrics.isSynced] then reports plain: exactly what the UI
+  /// needs to pick the static or the timed view.
+  static Lyrics? _structuredLyrics(SubsonicReply reply) {
+    final List<SubsonicLyricLine>? lines = reply.lyrics;
+    if (lines == null || lines.isEmpty) return null;
+    return Lyrics(lines: <LyricLine>[
+      for (final SubsonicLyricLine line in lines)
+        LyricLine(
+          text: line.text,
+          start: line.startMs == null
+              ? null
+              : Duration(milliseconds: line.startMs!),
+        ),
+    ]);
   }
 
-  /// Parses a legacy `getLyrics` envelope (`lyrics.value`, plain text or LRC)
-  /// into [Lyrics], or `null` when there is no usable text.
-  static Lyrics? _parseLegacyLyrics(SubsonicEnvelope envelope) {
-    final Object? root = envelope.data['lyrics'];
-    if (root is! Map<String, dynamic>) return null;
-    final Object? value = root['value'];
-    if (value is! String) return null;
+  /// [Lyrics] from a legacy `getLyrics` answer's `lyrics.value` (plain text
+  /// or LRC), or `null` when there is no usable text.
+  static Lyrics? _legacyLyrics(SubsonicReply reply) {
+    final String? value = reply.text;
+    if (value == null) return null;
     final Lyrics? parsed = LyricsTextParser.parseLrc(value);
     if (parsed?.isSynced ?? false) return parsed;
     if (value.trim().isEmpty) return null;
@@ -862,34 +743,5 @@ class HttpSubsonicClient implements SubsonicClient {
         .map((String line) => LyricLine(text: line))
         .toList();
     return lines.isEmpty ? null : Lyrics(lines: lines);
-  }
-
-  /// A non-negative [Duration] from milliseconds; clamps a negative result (an
-  /// offset can push an early line below zero) to zero.
-  static Duration _durationFromMs(int milliseconds) =>
-      Duration(milliseconds: milliseconds < 0 ? 0 : milliseconds);
-
-  /// Reads a numeric JSON field as an `int`, or `null` when it's absent, not a
-  /// number or too large to be finite, so a malformed `start`/`offset` can't
-  /// throw or mistime a line.
-  static int? _asInt(Object? value) =>
-      value is num && value.isFinite ? value.toInt() : null;
-
-  /// Decodes a JSON object body, or throws [SubsonicErrorKind.notSubsonic] when
-  /// the body isn't JSON (e.g. an HTML error page) or isn't an object.
-  Map<String, dynamic> _decodeObject(http.Response response) {
-    Object? decoded;
-    try {
-      // Decode the raw bytes as UTF-8 rather than `response.body` (which falls
-      // back to latin1 without a charset and would mangle non-ASCII titles).
-      final String text = utf8.decode(response.bodyBytes, allowMalformed: true);
-      decoded = jsonDecode(text);
-    } on FormatException {
-      throw SubsonicException.notSubsonic();
-    }
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
-    throw SubsonicException.notSubsonic();
   }
 }

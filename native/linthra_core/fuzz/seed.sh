@@ -23,3 +23,4 @@ seed tags_id3v2 seeds/id3v2/*
 seed tags_vorbis_comments seeds/vorbis_comments/*
 seed tags_picture seeds/picture/*
 seed cue_sheet seeds/cue_sheet/*
+seed subsonic_response seeds/subsonic_response/*
