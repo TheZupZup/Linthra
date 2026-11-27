@@ -1,0 +1,92 @@
+name: Rust parser fuzzing
+
+# Throws mutated files at the tag readers and the CUE sheet parser
+# (native/linthra_core/fuzz/README.md) and fails on the first panic, leaving
+# the input that caused it as an artifact to turn into a regression test.
+#
+# Weekly, each target for a bounded time. A pull request that touches the
+# parsers or the targets gets a short run of each, so a target that stops
+# building or a panic that is easy to hit shows up before merge.
+
+on:
+  schedule:
+    - cron: '41 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: '600'
+  pull_request:
+    paths:
+      - 'native/linthra_core/fuzz/**'
+      - 'native/linthra_core/src/tags/**'
+      - 'native/linthra_core/src/cue_sheet.rs'
+      - '.github/workflows/rust-fuzz.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - cue_sheet
+          - tags_aiff
+          - tags_any
+          - tags_ape
+          - tags_flac
+          - tags_id3v2
+          - tags_mp3
+          - tags_mp4
+          - tags_ogg
+          - tags_picture
+          - tags_vorbis_comments
+          - tags_wav
+    defaults:
+      run:
+        working-directory: native/linthra_core/fuzz
+    env:
+      # 10 minutes a target on the weekly run, 1 on a pull request.
+      SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # cargo-fuzz needs nightly. fuzz/rust-toolchain.toml pins the date, so
+      # a new nightly can't break the run on its own.
+      - name: Install the pinned nightly
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustc --version
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Seed the corpus from the test fixtures
+        run: ./seed.sh
+
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cargo fuzz run -O "${{ matrix.target }}" -- \
+            -max_total_time="$SECONDS_PER_TARGET" \
+            -max_len=65536 \
+            -rss_limit_mb=2048
+
+      - name: Keep the input that broke it
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: native/linthra_core/fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30
