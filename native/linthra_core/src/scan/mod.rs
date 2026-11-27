@@ -2,5 +2,6 @@
 //! phase (docs/development/rust-backend.md).
 
 pub mod files;
+pub mod incremental;
 pub mod mapper;
 pub mod walk;

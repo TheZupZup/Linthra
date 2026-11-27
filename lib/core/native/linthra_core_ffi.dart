@@ -448,6 +448,58 @@ external Pointer<Int64> linthraQueueEditOriginalSources(
 )
 external void linthraQueueEditFree(Pointer<LinthraQueueEditResult> result);
 
+/// The record layouts and answer bits of the incremental scan's two calls
+/// (native/linthra_core/src/ffi/scan_plan.rs).
+abstract final class LinthraScanPlan {
+  /// `[stamp known, size, mtime]`.
+  static const int fileFields = 3;
+
+  /// `[present, stamp known, size, mtime, cue size known, cue size, cue
+  /// mtime known, cue mtime, artwork missing]`.
+  static const int indexedFields = 9;
+
+  /// `[sheet stamp known, size, mtime]` then an indexed row.
+  static const int cueFields = 3 + indexedFields;
+
+  static const int keep = 1;
+  static const int stamp = 2;
+  static const int vanished = 4;
+  static const int reused = 8;
+}
+
+@Native<
+    Int32 Function(Pointer<Int64>, Pointer<Int64>, Pointer<Int64>, Size, Bool)>(
+  symbol: 'linthra_scan_plan',
+  isLeaf: true,
+)
+external int linthraScanPlan(
+  Pointer<Int64> file,
+  Pointer<Int64> indexed,
+  Pointer<Int64> cue,
+  int cueCount,
+  bool readUnchanged,
+);
+
+@Native<
+    Int32 Function(
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Size,
+      Bool,
+      Bool,
+      Bool,
+    )>(symbol: 'linthra_scan_settle', isLeaf: true)
+external int linthraScanSettle(
+  Pointer<Int64> file,
+  Pointer<Int64> indexed,
+  Pointer<Int64> cue,
+  int cueCount,
+  bool readUnchanged,
+  bool hasTags,
+  bool failed,
+);
+
 @Native<Uint8 Function(Uint8, Bool)>(
   symbol: 'linthra_track_end_action',
   isLeaf: true,

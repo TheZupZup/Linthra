@@ -40,6 +40,7 @@ pub mod local_track;
 pub mod optical;
 pub mod playback_rules;
 pub mod queue;
+pub mod scan_plan;
 pub mod search_rank;
 pub mod song_sort;
 pub mod stream_recovery;
@@ -49,7 +50,7 @@ pub mod track_end;
 pub mod track_unifier;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 21;
+pub const ABI_VERSION: u32 = 22;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;
@@ -735,7 +736,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert!(checked >= 96, "only {checked} entry points found");
+        assert!(checked >= 98, "only {checked} entry points found");
     }
 
     #[test]
@@ -778,6 +779,8 @@ mod tests {
             "linthra_playback_recovery_decide",
             "linthra_queue_move",
             "linthra_queue_edit",
+            "linthra_scan_plan",
+            "linthra_scan_settle",
             "linthra_search_rank",
             "linthra_song_sort",
             "linthra_reconnect_claim",
