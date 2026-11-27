@@ -72,7 +72,7 @@ class LinthraBridge extends BaseEntrypoint<LinthraBridgeApi,
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 5095893;
+  int get rustContentHash => 1291882723;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -86,6 +86,18 @@ abstract class LinthraBridgeApi extends BaseApi {
   Future<int> crateApiCoreBridgeAbiVersion();
 
   Stream<int> crateApiCoreBridgeCount({required int to});
+
+  Future<bool> crateApiScanIsFileGone(
+      {required String path, required String root, required int stallLimitMs});
+
+  Future<Uint8List?> crateApiScanReadFile(
+      {required String path, required int stallLimitMs});
+
+  Future<FileStamp?> crateApiScanStampFile(
+      {required String path, required int stallLimitMs});
+
+  Future<List<FileStamp?>> crateApiScanStampFiles(
+      {required List<String> paths, required int stallLimitMs});
 
   Future<FolderWalk> crateApiScanWalkFolder(
       {required String folder, required int stallLimitMs});
@@ -152,6 +164,111 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       );
 
   @override
+  Future<bool> crateApiScanIsFileGone(
+      {required String path, required String root, required int stallLimitMs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_String(root, serializer);
+        sse_encode_u_32(stallLimitMs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 3, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_bool,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiScanIsFileGoneConstMeta,
+      argValues: [path, root, stallLimitMs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiScanIsFileGoneConstMeta => const TaskConstMeta(
+        debugName: "is_file_gone",
+        argNames: ["path", "root", "stallLimitMs"],
+      );
+
+  @override
+  Future<Uint8List?> crateApiScanReadFile(
+      {required String path, required int stallLimitMs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_u_32(stallLimitMs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 4, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiScanReadFileConstMeta,
+      argValues: [path, stallLimitMs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiScanReadFileConstMeta => const TaskConstMeta(
+        debugName: "read_file",
+        argNames: ["path", "stallLimitMs"],
+      );
+
+  @override
+  Future<FileStamp?> crateApiScanStampFile(
+      {required String path, required int stallLimitMs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_u_32(stallLimitMs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 5, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_file_stamp,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiScanStampFileConstMeta,
+      argValues: [path, stallLimitMs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiScanStampFileConstMeta => const TaskConstMeta(
+        debugName: "stamp_file",
+        argNames: ["path", "stallLimitMs"],
+      );
+
+  @override
+  Future<List<FileStamp?>> crateApiScanStampFiles(
+      {required List<String> paths, required int stallLimitMs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_String(paths, serializer);
+        sse_encode_u_32(stallLimitMs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 6, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_opt_box_autoadd_file_stamp,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiScanStampFilesConstMeta,
+      argValues: [paths, stallLimitMs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiScanStampFilesConstMeta => const TaskConstMeta(
+        debugName: "stamp_files",
+        argNames: ["paths", "stallLimitMs"],
+      );
+
+  @override
   Future<FolderWalk> crateApiScanWalkFolder(
       {required String folder, required int stallLimitMs}) {
     return handler.executeNormal(NormalTask(
@@ -160,7 +277,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(folder, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 3, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_folder_walk,
@@ -202,6 +319,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  FileStamp dco_decode_box_autoadd_file_stamp(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_file_stamp(raw);
+  }
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -211,6 +334,18 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_walk_fault(raw);
+  }
+
+  @protected
+  FileStamp dco_decode_file_stamp(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return FileStamp(
+      sizeBytes: dco_decode_i_64(arr[0]),
+      modifiedAtMs: dco_decode_i_64(arr[1]),
+    );
   }
 
   @protected
@@ -234,15 +369,35 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeI64(raw);
+  }
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_String).toList();
   }
 
   @protected
+  List<FileStamp?> dco_decode_list_opt_box_autoadd_file_stamp(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_opt_box_autoadd_file_stamp)
+        .toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  FileStamp? dco_decode_opt_box_autoadd_file_stamp(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_file_stamp(raw);
   }
 
   @protected
@@ -255,6 +410,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_walk_fault(raw);
+  }
+
+  @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
   }
 
   @protected
@@ -316,6 +477,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  FileStamp sse_decode_box_autoadd_file_stamp(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_file_stamp(deserializer));
+  }
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_32(deserializer));
@@ -325,6 +492,14 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_walk_fault(deserializer));
+  }
+
+  @protected
+  FileStamp sse_decode_file_stamp(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_sizeBytes = sse_decode_i_64(deserializer);
+    final var_modifiedAtMs = sse_decode_i_64(deserializer);
+    return FileStamp(sizeBytes: var_sizeBytes, modifiedAtMs: var_modifiedAtMs);
   }
 
   @protected
@@ -348,6 +523,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -360,10 +541,35 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  List<FileStamp?> sse_decode_list_opt_box_autoadd_file_stamp(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <FileStamp?>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_opt_box_autoadd_file_stamp(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     final len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  FileStamp? sse_decode_opt_box_autoadd_file_stamp(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_file_stamp(deserializer));
+    } else {
+      return null;
+    }
   }
 
   @protected
@@ -384,6 +590,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_walk_fault(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_u_8_strict(deserializer));
     } else {
       return null;
     }
@@ -449,6 +666,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_file_stamp(
+      FileStamp self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_file_stamp(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self, serializer);
@@ -459,6 +683,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       WalkFault self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_walk_fault(self, serializer);
+  }
+
+  @protected
+  void sse_encode_file_stamp(FileStamp self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.sizeBytes, serializer);
+    sse_encode_i_64(self.modifiedAtMs, serializer);
   }
 
   @protected
@@ -477,6 +708,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
@@ -486,11 +723,32 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_opt_box_autoadd_file_stamp(
+      List<FileStamp?> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_opt_box_autoadd_file_stamp(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_file_stamp(
+      FileStamp? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_file_stamp(self, serializer);
+    }
   }
 
   @protected
@@ -511,6 +769,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_walk_fault(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+      Uint8List? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_u_8_strict(self, serializer);
     }
   }
 

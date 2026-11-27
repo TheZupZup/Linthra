@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
@@ -23,6 +22,7 @@ import 'local_metadata_reader.dart';
 import 'local_root_fault.dart';
 import 'local_scan_report.dart';
 import 'local_track_mapper.dart';
+import 'native_file_reads.dart';
 import 'saf_document_lister.dart';
 
 /// The tracks a local scan discovered, paired with a secret-free
@@ -345,14 +345,29 @@ class LocalMusicSource implements MusicSource {
       for (final String path in files)
         if (AudioFileTypes.isSupported(path)) p.normalize(path),
     };
-    for (final String cuePath in files.where(
-      (String path) => p.extension(path).toLowerCase() == '.cue',
-    )) {
+    final List<String> cuePaths = <String>[
+      for (final String path in files)
+        if (p.extension(path).toLowerCase() == '.cue') path,
+    ];
+    final Map<String, LocalFileStamp?> stampedAhead = await _stampAhead(
+      <String>[
+        ...cuePaths,
+        for (final String path in files)
+          if (AudioFileTypes.isSupported(path)) path,
+      ],
+    );
+    Future<LocalFileStamp?> stampOf(String path) async =>
+        stampedAhead.containsKey(path)
+            ? stampedAhead[path]
+            : _statReader.stamp(path);
+    for (final String cuePath in cuePaths) {
       try {
-        cueSheetStamps[cuePath] = await _statReader.stamp(cuePath);
-        final String contents = CueSheet.decode(
-          await File(cuePath).readAsBytes().timeout(_stallLimit),
-        );
+        cueSheetStamps[cuePath] = await stampOf(cuePath);
+        // An unreadable or stale cue sheet must not make its audio file
+        // disappear from the library.
+        final List<int>? bytes = await readScanFile(cuePath, _stallLimit);
+        if (bytes == null) continue;
+        final String contents = CueSheet.decode(bytes);
         for (final CueSheetTrack cueTrack
             in CueSheet.parse(cuePath, contents)) {
           final String audioPath = p.normalize(cueTrack.audioPath);
@@ -364,12 +379,6 @@ class LocalMusicSource implements MusicSource {
           )
               .add((cuePath: cuePath, track: cueTrack));
         }
-      } on FileSystemException {
-        // An unreadable or stale cue sheet must not make its audio file
-        // disappear from the library.
-        continue;
-      } on TimeoutException {
-        continue;
       } on FormatException {
         continue;
       }
@@ -377,7 +386,7 @@ class LocalMusicSource implements MusicSource {
     int reused = 0;
     for (final String path in files) {
       if (!AudioFileTypes.isSupported(path)) continue;
-      final LocalFileStamp? stamp = await _statReader.stamp(path);
+      final LocalFileStamp? stamp = await stampOf(path);
       if (stamp != null) stamps[path] = stamp;
 
       final List<({String cuePath, CueSheetTrack track})> cueEntries =
@@ -588,6 +597,24 @@ class LocalMusicSource implements MusicSource {
         unopenableNames: unopenable,
       ),
     );
+  }
+
+  /// The stamps of [paths], taken in one call when the stat reader can
+  /// ([LocalFileStampBatch]). A path it left unanswered is missing here, and
+  /// stamped on its own when its turn comes.
+  ///
+  /// Taking them all before any file is read keeps each stamp older than the
+  /// read it goes with, as stamping right before the read does: a file
+  /// changed in between is read again by the next scan.
+  Future<Map<String, LocalFileStamp?>> _stampAhead(List<String> paths) async {
+    final LocalFileStatReader reader = _statReader;
+    if (reader is! LocalFileStampBatch) return <String, LocalFileStamp?>{};
+    final List<LocalFileStamp?> stamps =
+        await (reader as LocalFileStampBatch).stampAll(paths);
+    return <String, LocalFileStamp?>{
+      for (int i = 0; i < stamps.length && i < paths.length; i++)
+        paths[i]: stamps[i],
+    };
   }
 
   /// [path]'s tags, and whether a null is a failed read. A reader that can't

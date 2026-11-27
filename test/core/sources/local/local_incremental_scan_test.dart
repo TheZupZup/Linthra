@@ -90,6 +90,25 @@ class _FakeStatReader implements LocalFileStatReader {
   }
 }
 
+/// [_FakeStatReader] that also stamps in one call, answering the first
+/// [answers] paths it is asked for (all of them when null), the way a batch
+/// that ran into storage that stopped answering ends early.
+class _BatchStatReader extends _FakeStatReader implements LocalFileStampBatch {
+  _BatchStatReader(super.stamps, {this.answers});
+
+  final int? answers;
+  final List<List<String>> batches = <List<String>>[];
+
+  @override
+  Future<List<LocalFileStamp?>> stampAll(List<String> paths) async {
+    batches.add(paths);
+    return <LocalFileStamp?>[
+      for (final String path in paths.take(answers ?? paths.length))
+        stamps[path],
+    ];
+  }
+}
+
 LocalFileStamp _stamp(int size, int mtime) =>
     LocalFileStamp(sizeBytes: size, modifiedAtMs: mtime);
 
@@ -621,6 +640,85 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('stamps taken in one call', () {
+    const List<String> listed = <String>[
+      '/music/a.flac',
+      '/music/cover.jpg',
+      '/music/b.flac',
+      '/music/gone.flac',
+      '/music/c.flac',
+    ];
+    final Map<String, LocalFileStamp> onDisk = <String, LocalFileStamp>{
+      '/music/a.flac': _stamp(100, 1000),
+      '/music/b.flac': _stamp(200, 2000),
+      '/music/c.flac': _stamp(300, 3000),
+      '/music/cover.jpg': _stamp(5, 5),
+    };
+
+    /// Two scans, the second handed what the first stored, with [stats].
+    Future<List<LocalScan>> scanTwice(_FakeStatReader stats) async {
+      LocalMusicSource source(Map<String, StampedTrack> indexed) =>
+          LocalMusicSource(
+            folderPath: '/music',
+            scanner: FakeAudioFileScanner(
+              filesByFolder: <String, List<String>>{'/music': listed},
+            ),
+            metadataReader: _CountingMetadataReader(),
+            statReader: stats,
+            alreadyIndexed: indexed,
+          );
+      final LocalScan first =
+          await source(const <String, StampedTrack>{}).scanTracks();
+      final LocalScan second = await source(<String, StampedTrack>{
+        for (final Track track in first.tracks)
+          track.uri: StampedTrack(track: track, stamp: first.stamps[track.uri]),
+      }).scanTracks();
+      return <LocalScan>[first, second];
+    }
+
+    void expectSameScans(List<LocalScan> batched, List<LocalScan> one) {
+      for (int i = 0; i < 2; i++) {
+        expect(batched[i].tracks, one[i].tracks);
+        expect(batched[i].stamps, one[i].stamps);
+        expect(batched[i].report.reusedTracks, one[i].report.reusedTracks);
+      }
+    }
+
+    test('stamps every audio file in one call, and none one by one', () async {
+      final _BatchStatReader batch = _BatchStatReader(onDisk);
+      final List<LocalScan> scans = await scanTwice(batch);
+
+      expect(batch.batches, <List<String>>[
+        for (int i = 0; i < 2; i++)
+          <String>[
+            '/music/a.flac',
+            '/music/b.flac',
+            '/music/gone.flac',
+            '/music/c.flac'
+          ],
+      ]);
+      expect(batch.statCount, 0);
+      expectSameScans(scans, await scanTwice(_FakeStatReader(onDisk)));
+    });
+
+    test('stamps the rest one by one when the call ends early', () async {
+      final _BatchStatReader batch = _BatchStatReader(onDisk, answers: 2);
+      final List<LocalScan> scans = await scanTwice(batch);
+
+      expect(batch.statCount, 4, reason: 'two left over, in each scan');
+      expectSameScans(scans, await scanTwice(_FakeStatReader(onDisk)));
+    });
+
+    test('stamps everything one by one when the call answers nothing',
+        () async {
+      final _BatchStatReader batch = _BatchStatReader(onDisk, answers: 0);
+      final List<LocalScan> scans = await scanTwice(batch);
+
+      expect(batch.statCount, 8);
+      expectSameScans(scans, await scanTwice(_FakeStatReader(onDisk)));
     });
   });
 

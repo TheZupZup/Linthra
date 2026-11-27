@@ -13,6 +13,7 @@ import '../../core/sources/local/local_metadata_reader.dart';
 import '../../core/sources/local/method_channel_android_media_library.dart';
 import '../../core/sources/local/method_channel_saf_document_lister.dart';
 import '../../core/sources/local/method_channel_saf_permission_probe.dart';
+import '../../core/sources/local/native_file_reads.dart';
 import '../../core/sources/local/saf_document_lister.dart';
 import '../../core/sources/local/saf_permission_probe.dart';
 import '../../data/repositories/host_platform_provider.dart';
@@ -96,5 +97,5 @@ final localMetadataReaderProvider = Provider<LocalMetadataReader>((ref) {
 final localFileStatReaderProvider = Provider<LocalFileStatReader>((ref) {
   return ref.watch(hostPlatformProvider).isAndroid
       ? const UnsupportedLocalFileStatReader()
-      : const IoLocalFileStatReader();
+      : const NativeLocalFileStatReader();
 });
