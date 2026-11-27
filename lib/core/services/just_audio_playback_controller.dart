@@ -1094,36 +1094,11 @@ class JustAudioPlaybackController implements LocalPlaybackController {
   /// branches still exist for iOS and any caller that ducks explicitly, and keep
   /// the volume-restore contract honest there.
   @visibleForTesting
-  static AudioFocusAction audioFocusAction(
-    AudioInterruptionEvent event, {
-    bool useNative = true,
-  }) {
-    final int? native = useNative
-        ? NativePlaybackRules.focusAction(
-            begin: event.begin,
-            interruption: event.type.index,
-          )
-        : null;
-    if (native != null) return AudioFocusAction.values[native];
-    if (event.begin) {
-      switch (event.type) {
-        case AudioInterruptionType.pause:
-          return AudioFocusAction.pauseTransient;
-        case AudioInterruptionType.unknown:
-          return AudioFocusAction.pausePermanent;
-        case AudioInterruptionType.duck:
-          return AudioFocusAction.duck;
-      }
-    }
-    // Interruption ended / focus regained.
-    switch (event.type) {
-      case AudioInterruptionType.pause:
-      case AudioInterruptionType.unknown:
-        return AudioFocusAction.resume;
-      case AudioInterruptionType.duck:
-        return AudioFocusAction.unduck;
-    }
-  }
+  static AudioFocusAction audioFocusAction(AudioInterruptionEvent event) =>
+      AudioFocusAction.values[NativePlaybackRules.focusAction(
+        begin: event.begin,
+        interruption: event.type.index,
+      )];
 
   /// Headphones unplugged / the output became the phone speaker: pause so audio
   /// doesn't suddenly blast out loud, and clear any armed transient-resume so it

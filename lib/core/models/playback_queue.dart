@@ -41,11 +41,6 @@ class PlaybackQueue {
 
   static const PlaybackQueue empty = PlaybackQueue();
 
-  /// Whether moves and edits ask the Rust core first. Tests turn it off to
-  /// run the Dart rules on a build that has the Rust core.
-  @visibleForTesting
-  static bool useNativeCore = true;
-
   /// Builds a queue from [tracks], starting playback at [startIndex] (clamped
   /// into range). An empty list yields the [empty] queue.
   factory PlaybackQueue.of(List<Track> tracks, {int startIndex = 0}) {
@@ -195,7 +190,6 @@ class PlaybackQueue {
       length: tracks.length,
       current: currentIndex,
       index: index,
-      useNative: useNativeCore,
     );
     return target == null ? this : _at(target);
   }
@@ -203,11 +197,10 @@ class PlaybackQueue {
   PlaybackQueue _at(int index) =>
       PlaybackQueue._(tracks, index, originalOrder, _ids, _originalIds);
 
-  /// [op] run by the Rust core, or null when this build has none (the caller
-  /// then runs its Dart rules). This queue itself when the edit changed
+  /// [op] run by the Rust core; this queue itself when the edit changed
   /// nothing. Rust works on entry ids only; the tracks are put back here from
   /// where it says each entry came from.
-  PlaybackQueue? _nativeEdit(
+  PlaybackQueue _nativeEdit(
     QueueEditOp op, {
     int a = 0,
     int b = 0,
@@ -215,9 +208,8 @@ class PlaybackQueue {
     List<Track> added = const <Track>[],
     bool Function(Track track)? test,
   }) {
-    if (!useNativeCore) return null;
     final List<Track>? original = originalOrder;
-    final QueueEditAnswer? answer = NativeQueue.edit(
+    final QueueEditAnswer answer = NativeQueue.edit(
       op,
       ids: _entryIds,
       current: currentIndex,
@@ -230,7 +222,6 @@ class PlaybackQueue {
           ? null
           : <bool>[for (final t in original) test(t)],
     );
-    if (answer == null) return null;
     final QueueEditResult? edit = answer.edit;
     if (edit == null) return this;
     if (edit.ids.isEmpty && edit.originalIds == null) return empty;
@@ -299,34 +290,10 @@ class PlaybackQueue {
   /// current entry's own place there for "play next" (its end when the current
   /// entry isn't in it), and at its end for "add to queue".
   PlaybackQueue _inserted(List<Track> added, {required bool afterCurrent}) {
-    final PlaybackQueue? native = _nativeEdit(
+    return _nativeEdit(
       afterCurrent ? QueueEditOp.insertNext : QueueEditOp.append,
       a: added.length,
       added: added,
-    );
-    if (native != null) return native;
-    final List<int> ids = _entryIds;
-    final List<int>? originalIds = _originalEntryIds;
-    final int first = _nextId(ids, originalIds ?? const <int>[]);
-    final List<int> addedIds =
-        List<int>.generate(added.length, (int i) => first + i);
-    final int at = afterCurrent ? currentIndex + 1 : tracks.length;
-    List<Track>? original = originalOrder;
-    List<int>? updatedOriginalIds = originalIds;
-    if (original != null && originalIds != null) {
-      final int own =
-          afterCurrent ? originalIds.indexOf(ids[currentIndex]) : -1;
-      final int originalAt = own < 0 ? originalIds.length : own + 1;
-      original = List<Track>.of(original)..insertAll(originalAt, added);
-      updatedOriginalIds = List<int>.of(originalIds)
-        ..insertAll(originalAt, addedIds);
-    }
-    return PlaybackQueue._(
-      List<Track>.of(tracks)..insertAll(at, added),
-      currentIndex,
-      original,
-      List<int>.of(ids)..insertAll(at, addedIds),
-      updatedOriginalIds,
     );
   }
 
@@ -337,29 +304,7 @@ class PlaybackQueue {
   /// later unshuffle can't resurrect it, and another copy of the same song
   /// keeps its place.
   PlaybackQueue removeUpNextAt(int upNextIndex) {
-    final PlaybackQueue? native =
-        _nativeEdit(QueueEditOp.removeUpNextAt, a: upNextIndex);
-    if (native != null) return native;
-    if (upNextIndex < 0 || upNextIndex >= upNext.length) return this;
-    final int absolute = currentIndex + 1 + upNextIndex;
-    final List<int> ids = _entryIds;
-    final List<int>? originalIds = _originalEntryIds;
-    List<Track>? original = originalOrder;
-    List<int>? updatedOriginalIds = originalIds;
-    if (original != null && originalIds != null) {
-      final int i = originalIds.indexOf(ids[absolute]);
-      if (i >= 0) {
-        original = List<Track>.of(original)..removeAt(i);
-        updatedOriginalIds = List<int>.of(originalIds)..removeAt(i);
-      }
-    }
-    return PlaybackQueue._(
-      List<Track>.of(tracks)..removeAt(absolute),
-      currentIndex,
-      original,
-      List<int>.of(ids)..removeAt(absolute),
-      updatedOriginalIds,
-    );
+    return _nativeEdit(QueueEditOp.removeUpNextAt, a: upNextIndex);
   }
 
   /// Moves the upcoming track from [oldUpNextIndex] to [newUpNextIndex] (both
@@ -371,28 +316,10 @@ class PlaybackQueue {
   /// [originalOrder] is left intact, so a later [unshuffled] restores the
   /// pre-shuffle order and drops the manual move — keeping shuffle coherent.
   PlaybackQueue reorderUpNext(int oldUpNextIndex, int newUpNextIndex) {
-    final PlaybackQueue? native = _nativeEdit(
+    return _nativeEdit(
       QueueEditOp.reorderUpNext,
       a: oldUpNextIndex,
       b: newUpNextIndex,
-    );
-    if (native != null) return native;
-    final int count = upNext.length;
-    if (oldUpNextIndex < 0 || oldUpNextIndex >= count) return this;
-    if (newUpNextIndex < 0 || newUpNextIndex >= count) return this;
-    if (oldUpNextIndex == newUpNextIndex) return this;
-    final int base = currentIndex + 1;
-    final updated = List<Track>.of(tracks);
-    final ids = List<int>.of(_entryIds);
-    updated.insert(
-        base + newUpNextIndex, updated.removeAt(base + oldUpNextIndex));
-    ids.insert(base + newUpNextIndex, ids.removeAt(base + oldUpNextIndex));
-    return PlaybackQueue._(
-      updated,
-      currentIndex,
-      originalOrder,
-      ids,
-      _originalEntryIds,
     );
   }
 
@@ -429,41 +356,7 @@ class PlaybackQueue {
   /// id, so copies of a song queued twice stay apart.
   PlaybackQueue removedWhere(bool Function(Track track) test) {
     if (!tracks.any(test)) return this;
-    final PlaybackQueue? native =
-        _nativeEdit(QueueEditOp.removeWhere, test: test);
-    if (native != null) return native;
-    final List<int> ids = _entryIds;
-    final List<Track> kept = <Track>[];
-    final List<int> keptIds = <int>[];
-    int index = -1;
-    for (int i = 0; i < tracks.length; i++) {
-      if (test(tracks[i])) continue;
-      // The current track when it stays, else the first one kept after it.
-      if (index < 0 && i >= currentIndex) index = kept.length;
-      kept.add(tracks[i]);
-      keptIds.add(ids[i]);
-    }
-    if (kept.isEmpty) return empty;
-    final List<Track>? original = originalOrder;
-    final List<int>? originalIds = _originalEntryIds;
-    List<Track>? keptOriginal;
-    List<int>? keptOriginalIds;
-    if (original != null && originalIds != null) {
-      keptOriginal = <Track>[];
-      keptOriginalIds = <int>[];
-      for (int i = 0; i < original.length; i++) {
-        if (test(original[i])) continue;
-        keptOriginal.add(original[i]);
-        keptOriginalIds.add(originalIds[i]);
-      }
-    }
-    return PlaybackQueue._(
-      kept,
-      index < 0 ? kept.length - 1 : index,
-      keptOriginal,
-      keptIds,
-      keptOriginalIds,
-    );
+    return _nativeEdit(QueueEditOp.removeWhere, test: test);
   }
 
   /// Returns a shuffled copy: the current track stays current (moved to the
@@ -472,30 +365,14 @@ class PlaybackQueue {
   /// [originalOrder]. A no-op on an empty queue, and re-shuffling keeps the
   /// first remembered order so [unshuffled] still restores the true original.
   ///
-  /// [random] only picks the seed: the order itself comes from
-  /// [shuffleWithSeed], which the Rust core runs too, so both give the same
-  /// order for the same [random].
+  /// [random] only picks the seed: the Rust core shuffles with it
+  /// (`shuffle_in_place` in queue_edits.rs), so the same [random] gives the
+  /// same order.
   PlaybackQueue shuffled([Random? random]) {
     if (current == null) return this;
     final Random source = random ?? Random();
     final int seed = (source.nextInt(1 << 32) << 32) | source.nextInt(1 << 32);
-    final PlaybackQueue? native = _nativeEdit(QueueEditOp.shuffle, seed: seed);
-    if (native != null) return native;
-    final List<int> ids = _entryIds;
-    // Positions are shuffled rather than tracks, so each entry keeps its id.
-    final List<int> rest = <int>[
-      for (int i = 0; i < tracks.length; i++)
-        if (i != currentIndex) i,
-    ];
-    shuffleWithSeed(rest, seed);
-    final List<int> order = <int>[currentIndex, ...rest];
-    return PlaybackQueue._(
-      <Track>[for (final int i in order) tracks[i]],
-      0,
-      originalOrder ?? List<Track>.of(tracks),
-      <int>[for (final int i in order) ids[i]],
-      _originalEntryIds ?? List<int>.of(ids),
-    );
+    return _nativeEdit(QueueEditOp.shuffle, seed: seed);
   }
 
   /// Restores the pre-shuffle order, keeping the current track current. A no-op
@@ -505,20 +382,7 @@ class PlaybackQueue {
   /// copy of the same song.
   PlaybackQueue unshuffled() {
     if (originalOrder == null) return this;
-    final PlaybackQueue? native = _nativeEdit(QueueEditOp.unshuffle);
-    if (native != null) return native;
-    final List<Track>? original = originalOrder;
-    final List<int>? originalIds = _originalEntryIds;
-    if (original == null || originalIds == null) return this;
-    final int index =
-        current == null ? -1 : originalIds.indexOf(_entryIds[currentIndex]);
-    return PlaybackQueue._(
-      List<Track>.of(original),
-      index < 0 ? (original.isEmpty ? -1 : 0) : index,
-      null,
-      List<int>.of(originalIds),
-      null,
-    );
+    return _nativeEdit(QueueEditOp.unshuffle);
   }
 
   /// Replaces the current track *in place* with [track], keeping its position,

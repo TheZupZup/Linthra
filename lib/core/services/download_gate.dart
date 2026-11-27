@@ -21,24 +21,9 @@ enum DownloadGate {
 ///    "Allow mobile data". An unknown link is never assumed to be free.
 ///  - Offline: never; the download waits for a connection.
 ///
-/// Decided by the Rust core when the build has it. [useNative] false always
-/// takes the Dart path, for tests.
+/// Decided by the Rust core.
 DownloadGate downloadGate(
   NetworkStatus network, {
   required bool allowMobileData,
-  bool useNative = true,
-}) {
-  if (useNative) {
-    final DownloadGate? native = NativeDownloads.gate(network, allowMobileData);
-    if (native != null) return native;
-  }
-  switch (network) {
-    case NetworkStatus.wifi:
-      return DownloadGate.allowed;
-    case NetworkStatus.mobile:
-    case NetworkStatus.unknown:
-      return allowMobileData ? DownloadGate.allowed : DownloadGate.needsWifi;
-    case NetworkStatus.offline:
-      return DownloadGate.offline;
-  }
-}
+}) =>
+    NativeDownloads.gate(network, allowMobileData);

@@ -70,15 +70,14 @@ int _time(CacheEvictionPolicy policy, List<CachedTrack> cached, int maxBytes) {
 }
 
 void main() {
-  test('cache eviction: Dart rules vs Rust core', () {
+  test('cache eviction in the Rust core', () {
     if (!LinthraCore.isAvailable) {
       markTestSkipped('Rust core not built');
       return;
     }
-    const CacheEvictionPolicy dart = CacheEvictionPolicy(useNative: false);
     const CacheEvictionPolicy rust = CacheEvictionPolicy();
     final StringBuffer report = StringBuffer()
-      ..writeln('entries      Dart       Rust   (median of $_runs, µs)');
+      ..writeln('entries       Rust   (median of $_runs, µs)');
     for (final int count in _sizes) {
       final List<CachedTrack> cached = _cache(count);
       final int used =
@@ -89,13 +88,10 @@ void main() {
       expect(
         rust
             .plan(cached: cached, incomingBytes: 40000000, maxBytes: maxBytes)
-            .evict,
-        dart
-            .plan(cached: cached, incomingBytes: 40000000, maxBytes: maxBytes)
-            .evict,
+            .fits,
+        isTrue,
       );
       report.writeln('${'$count'.padLeft(7)}'
-          '${'${_time(dart, cached, maxBytes)}'.padLeft(10)}'
           '${'${_time(rust, cached, maxBytes)}'.padLeft(11)}');
     }
     // ignore: avoid_print

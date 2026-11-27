@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:linthra/core/native/linthra_core.dart';
 import 'package:linthra/core/repositories/download_store.dart';
 import 'package:linthra/core/services/cache_eviction_policy.dart';
 
@@ -32,26 +31,11 @@ CachedTrack _managed(
 String _key(String id, {String? source}) => CachedTrack.cacheKeyFor(source, id);
 
 void main() {
-  // Every rule holds on both paths: the Rust core when this build has it, and
-  // the Dart fallback.
-  for (final (String path, CacheEvictionPolicy policy, Object skip) in <(
-    String,
-    CacheEvictionPolicy,
-    Object,
-  )>[
-    ('Dart', const CacheEvictionPolicy(useNative: false), false),
-    (
-      'Rust',
-      const CacheEvictionPolicy(),
-      LinthraCore.isAvailable ? false : 'Rust core not built',
-    ),
-  ]) {
-    _policyTests(path, policy, skip);
-  }
+  _policyTests(const CacheEvictionPolicy());
 }
 
-void _policyTests(String path, CacheEvictionPolicy policy, Object skip) {
-  group('CacheEvictionPolicy ($path)', skip: skip, () {
+void _policyTests(CacheEvictionPolicy policy) {
+  group('CacheEvictionPolicy', () {
     test('fits with no eviction when there is room', () {
       final plan = policy.plan(
         cached: <CachedTrack>[_managed('a', size: 100)],

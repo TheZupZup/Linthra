@@ -56,25 +56,18 @@ int _time(void Function() run) {
 String _ms(int micros) => '${(micros / 1000).toStringAsFixed(1)} ms';
 
 void main() {
-  test('library grouping: Dart vs Rust', () {
+  test('library grouping in the Rust core', () {
     if (!LinthraCore.isAvailable) {
       markTestSkipped('Rust core not built');
       return;
     }
     final StringBuffer out = StringBuffer()
       ..writeln('albums + artists, median of $_runs')
-      ..writeln('  tracks        Dart        Rust');
+      ..writeln('  tracks        Rust');
     for (final int size in _sizes) {
       final List<Track> tracks = _catalog(size);
-      final int dart = _time(() {
-        groupAlbumsInDart(tracks);
-        groupArtistsInDart(tracks);
-      });
       final int rust = _time(() => groupLibrary(tracks));
-      out.writeln(
-        '${size.toString().padLeft(8)}  ${_ms(dart).padLeft(10)}  '
-        '${_ms(rust).padLeft(10)}',
-      );
+      out.writeln('${size.toString().padLeft(8)}  ${_ms(rust).padLeft(10)}');
     }
     // ignore: avoid_print
     print(out);

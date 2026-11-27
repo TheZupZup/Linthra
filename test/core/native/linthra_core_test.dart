@@ -1,33 +1,15 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linthra/core/native/linthra_core.dart';
 
 /// These tests go through the real Rust library that hook/build.dart builds
-/// for the test host. Without Rust installed the hook skips it and they are
-/// skipped too, unless LINTHRA_REQUIRE_RUST=1 (as in CI), where a missing
-/// library is a failure.
+/// for the test host.
 void main() {
-  final bool required = Platform.environment['LINTHRA_REQUIRE_RUST'] == '1';
-  final bool available = LinthraCore.isAvailable;
-  final Object skip = available
-      ? false
-      : 'Rust core not built (install Rust, or see native/linthra_core/README.md)';
-
-  test('the Rust core is bundled when the build requires it', () {
-    if (!required) {
-      markTestSkipped('LINTHRA_REQUIRE_RUST is not set');
-      return;
-    }
-    expect(
-      available,
-      isTrue,
-      reason: 'LINTHRA_REQUIRE_RUST=1 but the Rust core did not load. Is cargo '
-          'on PATH where `flutter test` runs?',
-    );
+  test('the Rust core is bundled and speaks this ABI', () {
+    expect(LinthraCore.isAvailable, isTrue);
+    expect(LinthraCore.ensureAvailable, returnsNormally);
   });
 
-  group('NativeSearchIndex', skip: skip, () {
+  group('NativeSearchIndex', () {
     late NativeSearchIndex index;
 
     setUp(() {
@@ -54,7 +36,7 @@ void main() {
           album: 'Ace of Spades',
           provider: 'local',
         ),
-      ])!;
+      ]);
     });
 
     tearDown(() => index.dispose());
@@ -88,7 +70,7 @@ void main() {
             provider: 'local',
           ),
         ],
-      )!;
+      );
       addTearDown(ranked.dispose);
       expect(
         ranked.search('wildflower'),
@@ -119,14 +101,14 @@ void main() {
             provider: 'local',
           ),
         ],
-      )!;
+      );
       addTearDown(other.dispose);
       expect(other.search('title'), <String>['id:é✓ 東京']);
     });
 
     test('an empty index finds nothing', () {
       final NativeSearchIndex empty =
-          NativeSearchIndex.build(const <NativeSearchRecord>[])!;
+          NativeSearchIndex.build(const <NativeSearchRecord>[]);
       addTearDown(empty.dispose);
       expect(empty.length, 0);
       expect(empty.search('anything'), isEmpty);

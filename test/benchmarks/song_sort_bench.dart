@@ -39,7 +39,7 @@ void main() {
       return;
     }
     final StringBuffer report =
-        StringBuffer('songs     order           Dart       Rust (ms)\n');
+        StringBuffer('songs     order           Rust (ms)\n');
     for (final int size in <int>[20000, 200000]) {
       final List<Track> library = _library(size);
       for (final SongSort sort in <SongSort>[
@@ -47,14 +47,11 @@ void main() {
         SongSort.artistAscending,
         SongSort.albumAscending,
       ]) {
-        void run({required bool useNative}) => sortSongs(library, sort,
-            albums: SongAlbums.of(library), useNative: useNative);
-        run(useNative: false);
-        run(useNative: true);
-        final int dart = _ms(() => run(useNative: false));
-        final int rust = _ms(() => run(useNative: true));
+        void run() => sortSongs(library, sort, albums: SongAlbums.of(library));
+        run();
+        final int rust = _ms(run);
         report.writeln('${'$size'.padLeft(6)}  ${sort.name.padRight(16)}'
-            '${'$dart'.padLeft(6)}${'$rust'.padLeft(11)}');
+            '${'$rust'.padLeft(6)}');
       }
     }
     // ignore: avoid_print

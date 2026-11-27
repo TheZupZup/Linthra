@@ -49,14 +49,10 @@ class EvictionPlan {
 ///  - If even evicting every eligible track wouldn't make room, nothing is
 ///    evicted and the plan reports it doesn't fit.
 ///
-/// [plan] runs in the Rust core (native/linthra_core/src/cache_eviction.rs)
-/// when the build has it, and on the Dart rules below otherwise. Both replay
-/// test/fixtures/cache_eviction_cases.json, so they answer the same.
+/// [plan] runs in the Rust core (native/linthra_core/src/cache_eviction.rs),
+/// held to test/fixtures/cache_eviction_cases.json.
 class CacheEvictionPolicy {
-  /// [useNative] false always takes the Dart path, for tests and benchmarks.
-  const CacheEvictionPolicy({this.useNative = true});
-
-  final bool useNative;
+  const CacheEvictionPolicy();
 
   EvictionPlan plan({
     required Iterable<CachedTrack> cached,
@@ -67,91 +63,23 @@ class CacheEvictionPolicy {
     bool onlyPreloaded = false,
     String? incomingKey,
   }) {
-    if (useNative) {
-      final List<CachedTrack> tracks = cached.toList(growable: false);
-      final NativeEvictionPlan? native = NativeCacheEviction.plan(
-        cached: tracks,
-        incomingBytes: incomingBytes,
-        maxBytes: maxBytes,
-        protectKeys: <String>{
-          ...protectKeys,
-          if (protectKey != null) protectKey
-        },
-        onlyPreloaded: onlyPreloaded,
-        incomingKey: incomingKey,
-      );
-      if (native != null) {
-        if (!native.fits) {
-          return const EvictionPlan(evict: <CachedTrack>[], fits: false);
-        }
-        if (native.evict.isEmpty) return EvictionPlan.empty;
-        return EvictionPlan(
-          evict: <CachedTrack>[for (final int i in native.evict) tracks[i]],
-          fits: true,
-        );
-      }
-    }
-    return _planInDart(
-      cached: cached,
+    final List<CachedTrack> tracks = cached.toList(growable: false);
+    final NativeEvictionPlan native = NativeCacheEviction.plan(
+      cached: tracks,
       incomingBytes: incomingBytes,
       maxBytes: maxBytes,
-      protectKey: protectKey,
-      protectKeys: protectKeys,
+      protectKeys: <String>{...protectKeys, if (protectKey != null) protectKey},
       onlyPreloaded: onlyPreloaded,
       incomingKey: incomingKey,
     );
-  }
-
-  EvictionPlan _planInDart({
-    required Iterable<CachedTrack> cached,
-    required int incomingBytes,
-    required int maxBytes,
-    required String? protectKey,
-    required Set<String> protectKeys,
-    required bool onlyPreloaded,
-    required String? incomingKey,
-  }) {
-    int used = 0;
-    final List<CachedTrack> candidates = <CachedTrack>[];
-    for (final CachedTrack track in cached) {
-      // A re-download replaces its own old copy, so it doesn't count as
-      // already-used space and can't evict itself. Keyed by the provider-aware
-      // [CachedTrack.cacheKey] (scheme + id), so a same-id track from a
-      // *different* provider is never mistaken for the incoming track's copy.
-      if (track.cacheKey == incomingKey) continue;
-      used += track.sizeBytes;
-      if (isEvictable(
-        track,
-        protectKey: protectKey,
-        protectKeys: protectKeys,
-        onlyPreloaded: onlyPreloaded,
-      )) {
-        candidates.add(track);
-      }
-    }
-
-    if (used + incomingBytes <= maxBytes) return EvictionPlan.empty;
-
-    // A single track larger than the whole limit can never fit, even in an
-    // empty cache — refuse without evicting anything.
-    if (incomingBytes > maxBytes) {
+    if (!native.fits) {
       return const EvictionPlan(evict: <CachedTrack>[], fits: false);
     }
-
-    candidates.sort(_leastRecentlyUsedFirst);
-
-    final List<CachedTrack> evict = <CachedTrack>[];
-    int freed = 0;
-    for (final CachedTrack track in candidates) {
-      if (used - freed + incomingBytes <= maxBytes) break;
-      evict.add(track);
-      freed += track.sizeBytes;
-    }
-
-    final bool fits = used - freed + incomingBytes <= maxBytes;
-    return fits
-        ? EvictionPlan(evict: evict, fits: true)
-        : const EvictionPlan(evict: <CachedTrack>[], fits: false);
+    if (native.evict.isEmpty) return EvictionPlan.empty;
+    return EvictionPlan(
+      evict: <CachedTrack>[for (final int i in native.evict) tracks[i]],
+      fits: true,
+    );
   }
 
   /// Whether [track] may be removed to make room, under the same rules [plan]
@@ -169,26 +97,4 @@ class CacheEvictionPolicy {
       (!onlyPreloaded || track.preloaded) &&
       track.cacheKey != protectKey &&
       !protectKeys.contains(track.cacheKey);
-
-  static int _leastRecentlyUsedFirst(CachedTrack a, CachedTrack b) {
-    // Auto-preloaded entries are evicted before any user download.
-    if (a.preloaded != b.preloaded) return a.preloaded ? -1 : 1;
-    final int byAccess = _compareNullableOldestFirst(
-      a.lastAccessedAt,
-      b.lastAccessedAt,
-    );
-    if (byAccess != 0) return byAccess;
-    final int byCached = _compareNullableOldestFirst(a.cachedAt, b.cachedAt);
-    if (byCached != 0) return byCached;
-    return a.trackId.compareTo(b.trackId);
-  }
-
-  /// Orders two timestamps oldest-first, treating `null` (never accessed) as
-  /// older than any real time so it's evicted before played tracks.
-  static int _compareNullableOldestFirst(DateTime? a, DateTime? b) {
-    if (a == null && b == null) return 0;
-    if (a == null) return -1;
-    if (b == null) return 1;
-    return a.compareTo(b);
-  }
 }

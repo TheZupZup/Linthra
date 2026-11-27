@@ -1,6 +1,5 @@
-# Engine errors and the StreamInterruptionKind each one reads as. Written from
-# the Dart rule by test/core/services/playback_rules_parity_test.dart, which
-# holds the Rust core to it too, as does
+# Engine errors and the StreamInterruptionKind each one reads as, replayed by
+# test/core/services/playback_rules_test.dart and by
 # native/linthra_core/src/playback_rules.rs. TAB-separated: the error (\t,
 # \n and \\ escaped), then the kind.
 (4005) Source error	formatUnsupported

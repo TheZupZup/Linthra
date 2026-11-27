@@ -127,7 +127,7 @@ void main() {
       final List<NativeSearchRecord> rustRecords = _rustLibrary();
 
       final Stopwatch buildWatch = Stopwatch()..start();
-      final NativeSearchIndex index = NativeSearchIndex.build(rustRecords)!;
+      final NativeSearchIndex index = NativeSearchIndex.build(rustRecords);
       buildWatch.stop();
       addTearDown(index.dispose);
 

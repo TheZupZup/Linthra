@@ -42,26 +42,21 @@ int _ms(void Function() run) {
 }
 
 void main() {
-  test('unifyTracks: Dart rules vs Rust core', () {
+  test('unifyTracks in the Rust core', () {
     if (!LinthraCore.isAvailable) {
       markTestSkipped('Rust core not built');
       return;
     }
     const SourcePriority priority =
         SourcePriority(<String>['jellyfin', 'subsonic']);
-    final StringBuffer report =
-        StringBuffer('tracks       Dart       Rust (ms)\n');
+    final StringBuffer report = StringBuffer('tracks       Rust (ms)\n');
     for (final int songs in <int>[5000, 25000, 100000]) {
       final List<Track> library = _library(songs);
-      // Warm both paths once.
-      unifyTracks(library, priority, useNative: false);
-      unifyTracks(library, priority);
-      final int dart =
-          _ms(() => unifyTracks(library, priority, useNative: false));
+      unifyTracks(library, priority); // warm up
       final int rust = _ms(() => unifyTracks(library, priority));
       expect(unifyTracks(library, priority).length, songs);
       report.writeln('${'${library.length}'.padLeft(7)}'
-          '${'$dart'.padLeft(11)}${'$rust'.padLeft(11)}');
+          '${'$rust'.padLeft(11)}');
     }
     // ignore: avoid_print
     print(report);
