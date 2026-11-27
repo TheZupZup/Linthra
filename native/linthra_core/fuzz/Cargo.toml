@@ -1,0 +1,105 @@
+[package]
+name = "linthra_core_fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+# Fuzz targets for the parsers that read untrusted files: tags and CUE sheets.
+# See README.md. Not part of the app build: its own workspace and lockfile.
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+linthra_core = { path = ".." }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "tags_flac"
+path = "fuzz_targets/tags_flac.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_ogg"
+path = "fuzz_targets/tags_ogg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_mp3"
+path = "fuzz_targets/tags_mp3.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_mp4"
+path = "fuzz_targets/tags_mp4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_wav"
+path = "fuzz_targets/tags_wav.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_aiff"
+path = "fuzz_targets/tags_aiff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_ape"
+path = "fuzz_targets/tags_ape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_any"
+path = "fuzz_targets/tags_any.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_id3v2"
+path = "fuzz_targets/tags_id3v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_vorbis_comments"
+path = "fuzz_targets/tags_vorbis_comments.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_picture"
+path = "fuzz_targets/tags_picture.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cue_sheet"
+path = "fuzz_targets/cue_sheet.rs"
+test = false
+doc = false
+bench = false

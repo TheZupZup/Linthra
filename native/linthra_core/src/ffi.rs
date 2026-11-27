@@ -15,9 +15,15 @@
 //!   `*_finish`, which consumes the builder), and passing null to any of them is
 //!   a no-op, so the Dart side can free without checking.
 //! - No function here panics on bad input: a null or non-UTF-8 argument comes
-//!   back as a status code or a null pointer. The release profile aborts on
-//!   panic (`panic = "abort"`), so a panic would end the app rather than unwind
-//!   across the boundary.
+//!   back as a status code or a null pointer.
+//! - A panic still never crosses the boundary. The parsers read files from
+//!   NAS shares, USB drives and bad rips, and a bounds check they miss would
+//!   otherwise end the app mid-scan, and again on every rescan. So every
+//!   entry point runs its body through [guard], which catches the panic and
+//!   answers what the caller already reads as no answer: [STATUS_PANIC], a
+//!   null pointer, or the function's own "none" code (each says which). The
+//!   release profile unwinds (`panic = "unwind"`) for that; a panic escaping
+//!   an `extern "C"` function would abort anyway.
 
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
@@ -43,7 +49,7 @@ pub mod track_end;
 pub mod track_unifier;
 
 /// Version of this C ABI. Dart checks it before calling anything else.
-pub const ABI_VERSION: u32 = 20;
+pub const ABI_VERSION: u32 = 21;
 
 /// The call did what it was asked.
 pub const STATUS_OK: i32 = 0;
@@ -51,6 +57,14 @@ pub const STATUS_OK: i32 = 0;
 pub const STATUS_NULL_ARGUMENT: i32 = 1;
 /// A string argument was not valid UTF-8.
 pub const STATUS_INVALID_UTF8: i32 = 2;
+/// The call panicked and was stopped here (see [guard]).
+pub const STATUS_PANIC: i32 = 3;
+
+/// Runs an entry point's `body`, answering `on_panic` when it panics instead
+/// of letting the panic reach Dart. The panic message still goes to stderr.
+pub(crate) fn guard<T>(on_panic: T, body: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or(on_panic)
+}
 
 /// Collects tracks before the immutable [LibraryIndex] is built from them.
 pub struct IndexBuilder {
@@ -73,13 +87,15 @@ pub struct MatchResults {
 /// Returns [ABI_VERSION].
 #[no_mangle]
 pub extern "C" fn linthra_core_abi_version() -> u32 {
-    ABI_VERSION
+    crate::ffi::guard(0, || ABI_VERSION)
 }
 
 /// Starts an empty index builder. Never returns null.
 #[no_mangle]
 pub extern "C" fn linthra_index_builder_new() -> *mut IndexBuilder {
-    Box::into_raw(Box::new(IndexBuilder { tracks: Vec::new() }))
+    crate::ffi::guard(ptr::null_mut(), || {
+        Box::into_raw(Box::new(IndexBuilder { tracks: Vec::new() }))
+    })
 }
 
 /// Adds one track to `builder`. `album_artist` may be null (no album artist);
@@ -103,10 +119,12 @@ pub unsafe extern "C" fn linthra_index_builder_add(
     album_artist: *const c_char,
     provider: *const c_char,
 ) -> i32 {
-    match add_track(builder, id, title, artist, album, album_artist, provider) {
-        Ok(()) => STATUS_OK,
-        Err(status) => status,
-    }
+    crate::ffi::guard(crate::ffi::STATUS_PANIC, || {
+        match add_track(builder, id, title, artist, album, album_artist, provider) {
+            Ok(()) => STATUS_OK,
+            Err(status) => status,
+        }
+    })
 }
 
 /// [linthra_index_builder_add] with `?`: the error is the status to return.
@@ -160,11 +178,13 @@ unsafe fn add_track(
 pub unsafe extern "C" fn linthra_index_builder_finish(
     builder: *mut IndexBuilder,
 ) -> *mut LibraryIndex {
-    if builder.is_null() {
-        return ptr::null_mut();
-    }
-    let builder = Box::from_raw(builder);
-    Box::into_raw(Box::new(LibraryIndex::build(builder.tracks)))
+    crate::ffi::guard(ptr::null_mut(), || {
+        if builder.is_null() {
+            return ptr::null_mut();
+        }
+        let builder = Box::from_raw(builder);
+        Box::into_raw(Box::new(LibraryIndex::build(builder.tracks)))
+    })
 }
 
 /// Frees a builder without building anything. Null is a no-op.
@@ -175,9 +195,11 @@ pub unsafe extern "C" fn linthra_index_builder_finish(
 /// has not been finished or freed yet. It must not be used again afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_index_builder_free(builder: *mut IndexBuilder) {
-    if !builder.is_null() {
-        drop(Box::from_raw(builder));
-    }
+    crate::ffi::guard((), || {
+        if !builder.is_null() {
+            drop(Box::from_raw(builder));
+        }
+    })
 }
 
 /// Number of tracks in `index`, or 0 when `index` is null.
@@ -187,7 +209,7 @@ pub unsafe extern "C" fn linthra_index_builder_free(builder: *mut IndexBuilder) 
 /// `index` must be null or a live pointer from [linthra_index_builder_finish].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_index_len(index: *const LibraryIndex) -> usize {
-    index.as_ref().map_or(0, LibraryIndex::len)
+    crate::ffi::guard(0, || index.as_ref().map_or(0, LibraryIndex::len))
 }
 
 /// Frees an index. Null is a no-op.
@@ -198,9 +220,11 @@ pub unsafe extern "C" fn linthra_index_len(index: *const LibraryIndex) -> usize 
 /// has not been freed yet. It must not be used again afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_index_free(index: *mut LibraryIndex) {
-    if !index.is_null() {
-        drop(Box::from_raw(index));
-    }
+    crate::ffi::guard((), || {
+        if !index.is_null() {
+            drop(Box::from_raw(index));
+        }
+    })
 }
 
 /// Searches `index` for `query` (see [LibraryIndex::search]) and returns at
@@ -218,22 +242,24 @@ pub unsafe extern "C" fn linthra_index_search(
     query: *const c_char,
     limit: usize,
 ) -> *mut SearchResults {
-    let Some(index) = index.as_ref() else {
-        return ptr::null_mut();
-    };
-    if query.is_null() {
-        return ptr::null_mut();
-    }
-    let Ok(query) = utf8(query) else {
-        return ptr::null_mut();
-    };
-    let ids = index
-        .search(&query, limit)
-        .into_iter()
-        // An id came in as a C string, so it has no interior NUL to refuse.
-        .filter_map(|hit| CString::new(hit.track.id.as_str()).ok())
-        .collect();
-    Box::into_raw(Box::new(SearchResults { ids }))
+    crate::ffi::guard(ptr::null_mut(), || {
+        let Some(index) = index.as_ref() else {
+            return ptr::null_mut();
+        };
+        if query.is_null() {
+            return ptr::null_mut();
+        }
+        let Ok(query) = utf8(query) else {
+            return ptr::null_mut();
+        };
+        let ids = index
+            .search(&query, limit)
+            .into_iter()
+            // An id came in as a C string, so it has no interior NUL to refuse.
+            .filter_map(|hit| CString::new(hit.track.id.as_str()).ok())
+            .collect();
+        Box::into_raw(Box::new(SearchResults { ids }))
+    })
 }
 
 /// Number of hits in `results`, or 0 when `results` is null.
@@ -243,7 +269,9 @@ pub unsafe extern "C" fn linthra_index_search(
 /// `results` must be null or a live pointer from [linthra_index_search].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_search_results_len(results: *const SearchResults) -> usize {
-    results.as_ref().map_or(0, |results| results.ids.len())
+    crate::ffi::guard(0, || {
+        results.as_ref().map_or(0, |results| results.ids.len())
+    })
 }
 
 /// The id of hit `position` (0 is the best), or null when `results` is null or
@@ -258,10 +286,12 @@ pub unsafe extern "C" fn linthra_search_results_id(
     results: *const SearchResults,
     position: usize,
 ) -> *const c_char {
-    results
-        .as_ref()
-        .and_then(|results| results.ids.get(position))
-        .map_or(ptr::null(), |id| id.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        results
+            .as_ref()
+            .and_then(|results| results.ids.get(position))
+            .map_or(ptr::null(), |id| id.as_ptr())
+    })
 }
 
 /// Frees search results. Null is a no-op.
@@ -273,9 +303,11 @@ pub unsafe extern "C" fn linthra_search_results_id(
 /// afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_search_results_free(results: *mut SearchResults) {
-    if !results.is_null() {
-        drop(Box::from_raw(results));
-    }
+    crate::ffi::guard((), || {
+        if !results.is_null() {
+            drop(Box::from_raw(results));
+        }
+    })
 }
 
 /// Every track of `index` that `query` matches (see [LibraryIndex::matching]),
@@ -294,22 +326,24 @@ pub unsafe extern "C" fn linthra_index_match(
     index: *const LibraryIndex,
     query: *const c_char,
 ) -> *mut MatchResults {
-    let Some(index) = index.as_ref() else {
-        return ptr::null_mut();
-    };
-    if query.is_null() || u32::try_from(index.len()).is_err() {
-        return ptr::null_mut();
-    }
-    let Ok(query) = utf8(query) else {
-        return ptr::null_mut();
-    };
-    let positions = index
-        .matching(&query)
-        .into_iter()
-        // Every position is below the track count, which fits in a u32.
-        .map(|position| position as u32)
-        .collect();
-    Box::into_raw(Box::new(MatchResults { positions }))
+    crate::ffi::guard(ptr::null_mut(), || {
+        let Some(index) = index.as_ref() else {
+            return ptr::null_mut();
+        };
+        if query.is_null() || u32::try_from(index.len()).is_err() {
+            return ptr::null_mut();
+        }
+        let Ok(query) = utf8(query) else {
+            return ptr::null_mut();
+        };
+        let positions = index
+            .matching(&query)
+            .into_iter()
+            // Every position is below the track count, which fits in a u32.
+            .map(|position| position as u32)
+            .collect();
+        Box::into_raw(Box::new(MatchResults { positions }))
+    })
 }
 
 /// Number of positions in `results`, or 0 when `results` is null.
@@ -319,9 +353,11 @@ pub unsafe extern "C" fn linthra_index_match(
 /// `results` must be null or a live pointer from [linthra_index_match].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_match_results_len(results: *const MatchResults) -> usize {
-    results
-        .as_ref()
-        .map_or(0, |results| results.positions.len())
+    crate::ffi::guard(0, || {
+        results
+            .as_ref()
+            .map_or(0, |results| results.positions.len())
+    })
 }
 
 /// The positions themselves, [linthra_match_results_len] of them, or null
@@ -335,9 +371,11 @@ pub unsafe extern "C" fn linthra_match_results_len(results: *const MatchResults)
 pub unsafe extern "C" fn linthra_match_results_positions(
     results: *const MatchResults,
 ) -> *const u32 {
-    results
-        .as_ref()
-        .map_or(ptr::null(), |results| results.positions.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        results
+            .as_ref()
+            .map_or(ptr::null(), |results| results.positions.as_ptr())
+    })
 }
 
 /// Frees match results. Null is a no-op.
@@ -349,9 +387,11 @@ pub unsafe extern "C" fn linthra_match_results_positions(
 /// afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_match_results_free(results: *mut MatchResults) {
-    if !results.is_null() {
-        drop(Box::from_raw(results));
-    }
+    crate::ffi::guard((), || {
+        if !results.is_null() {
+            drop(Box::from_raw(results));
+        }
+    })
 }
 
 /// Copies a non-null C string, or fails with [STATUS_INVALID_UTF8].
@@ -626,5 +666,51 @@ mod tests {
             STATUS_OK
         );
         unsafe { linthra_index_builder_free(builder) };
+    }
+
+    /// An entry point whose body panics, as one would on a malformed file a
+    /// parser misses a bounds check on. Without [guard] the panic would
+    /// abort the whole process here (Rust aborts on a panic leaving an
+    /// `extern "C"` function), test runner included.
+    extern "C" fn panics() -> i32 {
+        guard(STATUS_PANIC, || panic!("a bounds check the parser missed"))
+    }
+
+    #[test]
+    fn a_panic_stops_at_the_boundary() {
+        assert_eq!(panics(), STATUS_PANIC);
+        assert_eq!(guard(7, || 1), 1);
+        assert!(guard(std::ptr::null_mut::<u8>(), || panic!("x")).is_null());
+    }
+
+    #[test]
+    fn every_entry_point_runs_through_the_guard() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = vec![dir.join("ffi.rs")];
+        for entry in std::fs::read_dir(dir.join("ffi")).unwrap() {
+            files.push(entry.unwrap().path());
+        }
+        let mut checked = 0;
+        for file in files {
+            let source = std::fs::read_to_string(&file).unwrap();
+            // Entry points live above each file's tests.
+            let source = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+            for (at, _) in source.match_indices("#[no_mangle]") {
+                let rest = &source[at..];
+                let name = rest
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|s| s.split('(').next())
+                    .unwrap();
+                let body = rest[rest.find('{').unwrap() + 1..].trim_start();
+                assert!(
+                    body.starts_with("crate::ffi::guard("),
+                    "{name} in {} doesn't run through guard",
+                    file.display()
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 96, "only {checked} entry points found");
     }
 }

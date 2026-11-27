@@ -63,10 +63,19 @@ abstract final class NativeTrackUnifier {
         durations[i] = t.durationSeconds;
         numbers[i] = t.trackNumber ?? _noNumber;
       }
-      final Pointer<LinthraUnifyResult> result = linthraUnifyTracks(textPointer,
-          bytes.length, spanPointer, sources, ranks, durations, numbers, count);
+      final Pointer<LinthraUnifyResult> result = linthraUnifyTracks(
+        textPointer,
+        bytes.length,
+        spanPointer,
+        sources,
+        ranks,
+        durations,
+        numbers,
+        count,
+      );
       if (result == nullptr) {
-        throw StateError('linthra_unify_tracks refused its input');
+        // Refused, or it panicked: the caller merges the Dart way.
+        return null;
       }
       try {
         final int rows = linthraUnifyRows(result);
@@ -141,9 +150,8 @@ abstract final class NativeTrackUnifier {
       );
       // Every span was written here from Dart strings, so anything but 0 or
       // 1 means the two sides of the ABI disagree.
-      if (answer > 1) {
-        throw StateError('linthra_is_current_track refused its input');
-      }
+      // Refused, or it panicked: the caller decides the Dart way.
+      if (answer > 1) return null;
       return answer == 1;
     });
   }

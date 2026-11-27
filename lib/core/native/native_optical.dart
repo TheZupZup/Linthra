@@ -60,8 +60,17 @@ abstract final class NativeOptical {
       final _Entries e = _Entries(arena, toc.tracks);
       final int n = toc.tracks.length;
       final Pointer<Uint32> order = arena<Uint32>(n + 1);
-      final int written = linthraCdTocOrder(toc.firstTrack, toc.lastTrack,
-          toc.leadOutLba, e.numbers, e.starts, e.data, n, order);
+      final int written = linthraCdTocOrder(
+        toc.firstTrack,
+        toc.lastTrack,
+        toc.leadOutLba,
+        e.numbers,
+        e.starts,
+        e.data,
+        n,
+        order,
+      );
+      if (written == linthraPanicCount) return null;
       if (written < 0) return (ok: false, order: const <int>[]);
       return (ok: true, order: List<int>.of(order.asTypedList(written)));
     });
@@ -78,10 +87,15 @@ abstract final class NativeOptical {
       final int n = entries.length;
       final Pointer<Int64> out = arena<Int64>(3 * n + 3);
       final int written = linthraCdPlayableTracks(
-          e.numbers, e.starts, e.data, n, leadOutLba, out);
-      if (written < 0) {
-        throw StateError('linthra_cd_playable_tracks refused its input');
-      }
+        e.numbers,
+        e.starts,
+        e.data,
+        n,
+        leadOutLba,
+        out,
+      );
+      // Refused, or it panicked: the caller works it out the Dart way.
+      if (written < 0) return null;
       return <NativeAudioTrack>[
         for (int k = 0; k < written; k++)
           (
@@ -99,9 +113,18 @@ abstract final class NativeOptical {
     return using((Arena arena) {
       final _Entries e = _Entries(arena, toc.tracks);
       final Pointer<Uint8> out = arena<Uint8>(linthraDiscIdLength);
-      final int answer = linthraCdDiscId(toc.firstTrack, toc.lastTrack,
-          toc.leadOutLba, e.numbers, e.starts, e.data, toc.tracks.length, out);
-      if (answer < 0) throw StateError('linthra_cd_disc_id refused its input');
+      final int answer = linthraCdDiscId(
+        toc.firstTrack,
+        toc.lastTrack,
+        toc.leadOutLba,
+        e.numbers,
+        e.starts,
+        e.data,
+        toc.tracks.length,
+        out,
+      );
+      // Refused, or it panicked: the caller works it out the Dart way.
+      if (answer < 0) return null;
       return (
         id: answer == 0
             ? null

@@ -23,10 +23,12 @@ pub const DISC_ID_LENGTH: usize = 28;
 /// `bytes` must be null or valid for reads of `len` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cd_text(bytes: *const u8, len: usize) -> *mut CdText {
-    match array(bytes, len).and_then(cd_text) {
-        Some(text) => Box::into_raw(Box::new(text)),
-        None => ptr::null_mut(),
-    }
+    crate::ffi::guard(ptr::null_mut(), || {
+        match array(bytes, len).and_then(cd_text) {
+            Some(text) => Box::into_raw(Box::new(text)),
+            None => ptr::null_mut(),
+        }
+    })
 }
 
 /// How many texts `list` holds. 0 for null or an unknown list.
@@ -36,7 +38,7 @@ pub unsafe extern "C" fn linthra_cd_text(bytes: *const u8, len: usize) -> *mut C
 /// `text` must be null or live from [linthra_cd_text].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cd_text_count(text: *const CdText, list: u8) -> usize {
-    texts(text, list).map_or(0, <[_]>::len)
+    crate::ffi::guard(0, || texts(text, list).map_or(0, <[_]>::len))
 }
 
 /// The item (0 the disc, 1-99 a track) of text `i` in `list`. 0 when out of
@@ -47,9 +49,11 @@ pub unsafe extern "C" fn linthra_cd_text_count(text: *const CdText, list: u8) ->
 /// `text` must be null or live from [linthra_cd_text].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cd_text_item(text: *const CdText, list: u8, i: usize) -> u32 {
-    texts(text, list)
-        .and_then(|t| t.get(i))
-        .map_or(0, |(item, _)| *item)
+    crate::ffi::guard(0, || {
+        texts(text, list)
+            .and_then(|t| t.get(i))
+            .map_or(0, |(item, _)| *item)
+    })
 }
 
 /// Text `i` of `list` as Latin-1 bytes, its length written to `len`. Null
@@ -66,11 +70,13 @@ pub unsafe extern "C" fn linthra_cd_text_value(
     i: usize,
     len: *mut usize,
 ) -> *const u8 {
-    let value = texts(text, list).and_then(|t| t.get(i)).map(|(_, v)| v);
-    if !len.is_null() {
-        *len = value.map_or(0, Vec::len);
-    }
-    value.map_or(ptr::null(), |v| v.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        let value = texts(text, list).and_then(|t| t.get(i)).map(|(_, v)| v);
+        if !len.is_null() {
+            *len = value.map_or(0, Vec::len);
+        }
+        value.map_or(ptr::null(), |v| v.as_ptr())
+    })
 }
 
 /// Frees a CD-Text result. Null is a no-op.
@@ -80,9 +86,11 @@ pub unsafe extern "C" fn linthra_cd_text_value(
 /// `text` must be null or a pointer from [linthra_cd_text] not yet freed.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_cd_text_free(text: *mut CdText) {
-    if !text.is_null() {
-        drop(Box::from_raw(text));
-    }
+    crate::ffi::guard((), || {
+        if !text.is_null() {
+            drop(Box::from_raw(text));
+        }
+    })
 }
 
 /// `normalizedTocEntries`: writes the positions of the entries in track order
@@ -104,25 +112,27 @@ pub unsafe extern "C" fn linthra_cd_toc_order(
     count: usize,
     order: *mut u32,
 ) -> i64 {
-    let Some(entries) = entries(numbers, starts, data, count) else {
-        return -1;
-    };
-    let toc = Toc {
-        first_track,
-        last_track,
-        lead_out_lba,
-        entries: &entries,
-    };
-    match normalized_entries(&toc) {
-        Some(positions) if order.is_null() && !positions.is_empty() => -1,
-        Some(positions) => {
-            for (k, &p) in positions.iter().enumerate() {
-                *order.add(k) = p as u32;
+    crate::ffi::guard(i64::MIN, || {
+        let Some(entries) = entries(numbers, starts, data, count) else {
+            return -1;
+        };
+        let toc = Toc {
+            first_track,
+            last_track,
+            lead_out_lba,
+            entries: &entries,
+        };
+        match normalized_entries(&toc) {
+            Some(positions) if order.is_null() && !positions.is_empty() => -1,
+            Some(positions) => {
+                for (k, &p) in positions.iter().enumerate() {
+                    *order.add(k) = p as u32;
+                }
+                positions.len() as i64
             }
-            positions.len() as i64
+            None => -1,
         }
-        None => -1,
-    }
+    })
 }
 
 /// `playableAudioTracks` over `count` entries already in track order: writes
@@ -143,19 +153,21 @@ pub unsafe extern "C" fn linthra_cd_playable_tracks(
     lead_out_lba: i64,
     out: *mut i64,
 ) -> i64 {
-    let Some(entries) = entries(numbers, starts, data, count) else {
-        return -1;
-    };
-    let tracks = playable_tracks(&entries, lead_out_lba);
-    if out.is_null() && !tracks.is_empty() {
-        return -1;
-    }
-    for (k, t) in tracks.iter().enumerate() {
-        *out.add(3 * k) = t.number;
-        *out.add(3 * k + 1) = t.start_frame;
-        *out.add(3 * k + 2) = t.frame_count;
-    }
-    tracks.len() as i64
+    crate::ffi::guard(i64::MIN, || {
+        let Some(entries) = entries(numbers, starts, data, count) else {
+            return -1;
+        };
+        let tracks = playable_tracks(&entries, lead_out_lba);
+        if out.is_null() && !tracks.is_empty() {
+            return -1;
+        }
+        for (k, t) in tracks.iter().enumerate() {
+            *out.add(3 * k) = t.number;
+            *out.add(3 * k + 1) = t.start_frame;
+            *out.add(3 * k + 2) = t.frame_count;
+        }
+        tracks.len() as i64
+    })
 }
 
 /// `musicBrainzDiscId`: writes the id's [DISC_ID_LENGTH] ASCII bytes to `out`
@@ -178,23 +190,25 @@ pub unsafe extern "C" fn linthra_cd_disc_id(
     count: usize,
     out: *mut u8,
 ) -> i32 {
-    let Some(entries) = entries(numbers, starts, data, count) else {
-        return -1;
-    };
-    let toc = Toc {
-        first_track,
-        last_track,
-        lead_out_lba,
-        entries: &entries,
-    };
-    match music_brainz_disc_id(&toc) {
-        Some(id) if id.len() == DISC_ID_LENGTH && !out.is_null() => {
-            ptr::copy_nonoverlapping(id.as_ptr(), out, DISC_ID_LENGTH);
-            1
+    crate::ffi::guard(i32::MIN, || {
+        let Some(entries) = entries(numbers, starts, data, count) else {
+            return -1;
+        };
+        let toc = Toc {
+            first_track,
+            last_track,
+            lead_out_lba,
+            entries: &entries,
+        };
+        match music_brainz_disc_id(&toc) {
+            Some(id) if id.len() == DISC_ID_LENGTH && !out.is_null() => {
+                ptr::copy_nonoverlapping(id.as_ptr(), out, DISC_ID_LENGTH);
+                1
+            }
+            Some(_) => -1,
+            None => 0,
         }
-        Some(_) => -1,
-        None => 0,
-    }
+    })
 }
 
 unsafe fn texts<'a>(text: *const CdText, list: u8) -> Option<&'a [(u32, Vec<u8>)]> {

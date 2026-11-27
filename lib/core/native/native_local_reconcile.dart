@@ -80,7 +80,8 @@ abstract final class NativeLocalReconcile {
         count,
       );
       if (result == nullptr) {
-        throw StateError('linthra_local_reconcile refused its input');
+        // Refused, or it panicked: the caller reconciles the Dart way.
+        return null;
       }
       try {
         final int moves = linthraReconcileMoveCount(result);

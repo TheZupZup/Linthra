@@ -20,7 +20,14 @@ path = "src/bin/benchmark_200k.rs"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+# A panic is caught at the C ABI (`guard` in src/ffi.rs) and answered as "no
+# answer"; with "abort" a malformed file would end the app instead.
+panic = "unwind"
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
+
+[lints.rust]
+# `cargo fuzz` builds the crate with `--cfg fuzzing`, which turns on the
+# entry points in src/tags/mod.rs that the targets in fuzz/ call.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }

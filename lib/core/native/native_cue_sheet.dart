@@ -31,10 +31,13 @@ abstract final class NativeCueSheet {
     return using((Arena arena) {
       final Pointer<Uint8> input = arena<Uint8>(bytes.length + 1);
       input.asTypedList(bytes.length).setAll(0, bytes);
-      final Pointer<LinthraCueText> text =
-          linthraCueDecode(input, bytes.length);
+      final Pointer<LinthraCueText> text = linthraCueDecode(
+        input,
+        bytes.length,
+      );
       if (text == nullptr) {
-        throw StateError('linthra_cue_decode refused its input');
+        // It panicked: the caller decodes the Dart way.
+        return null;
       }
       try {
         final Pointer<Size> length = arena<Size>();
@@ -60,10 +63,13 @@ abstract final class NativeCueSheet {
     return using((Arena arena) {
       final Pointer<Uint8> input = arena<Uint8>(bytes.length + 1);
       input.asTypedList(bytes.length).setAll(0, bytes);
-      final Pointer<LinthraCueTracks> tracks =
-          linthraCueParse(input, bytes.length);
+      final Pointer<LinthraCueTracks> tracks = linthraCueParse(
+        input,
+        bytes.length,
+      );
       if (tracks == nullptr) {
-        throw StateError('linthra_cue_parse refused its input');
+        // It panicked: the caller parses the Dart way.
+        return null;
       }
       try {
         final Pointer<Size> length = arena<Size>();

@@ -28,7 +28,17 @@ abstract final class LinthraStatus {
   static const int ok = 0;
   static const int nullArgument = 1;
   static const int invalidUtf8 = 2;
+
+  /// The call panicked and was stopped at the boundary (see `guard` in
+  /// native/linthra_core/src/ffi.rs). Every other entry point answers a
+  /// panic with its own "no answer": null, or a code its caller already
+  /// reads as none, so the caller runs its Dart rules instead.
+  static const int panic = 3;
 }
+
+/// What an `i64` entry point that counts (the CD table of contents) answers
+/// when it panicked: `i64::MIN`, below every count and every "refused".
+const int linthraPanicCount = -0x8000000000000000;
 
 @Native<Uint32 Function()>(symbol: 'linthra_core_abi_version', isLeaf: true)
 external int linthraCoreAbiVersion();
@@ -116,9 +126,7 @@ final class LinthraMatchResults extends Opaque {}
 
 @Native<
     Pointer<LinthraMatchResults> Function(
-        Pointer<LinthraIndex>, Pointer<Utf8>)>(
-  symbol: 'linthra_index_match',
-)
+        Pointer<LinthraIndex>, Pointer<Utf8>)>(symbol: 'linthra_index_match')
 external Pointer<LinthraMatchResults> linthraIndexMatch(
   Pointer<LinthraIndex> index,
   Pointer<Utf8> query,
@@ -318,7 +326,10 @@ external int linthraDownloadSettleCanceled(int row, int committed);
   isLeaf: true,
 )
 external int linthraDownloadHeldAction(
-    bool sameAccount, bool inFlight, int row);
+  bool sameAccount,
+  bool inFlight,
+  int row,
+);
 
 /// `QueueEditResult` on the Rust side (native/linthra_core/src/ffi/queue.rs).
 final class LinthraQueueEditResult extends Opaque {}
@@ -475,6 +486,10 @@ abstract final class LinthraTags {
   static const int notHandled = 1;
   static const int ioError = 2;
 
+  /// Reading the file panicked: a malformed file the reader doesn't hold up
+  /// against. It counts as one that could not be read.
+  static const int panicked = 3;
+
   static const int title = 0;
   static const int artist = 1;
   static const int albumArtist = 2;
@@ -498,10 +513,8 @@ external Pointer<LinthraTagsResult> linthraTagsRead(
 external int linthraTagsStatus(Pointer<LinthraTagsResult> result);
 
 @Native<
-    Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Uint8, Pointer<Size>)>(
-  symbol: 'linthra_tags_text',
-  isLeaf: true,
-)
+    Pointer<Uint8> Function(Pointer<LinthraTagsResult>, Uint8,
+        Pointer<Size>)>(symbol: 'linthra_tags_text', isLeaf: true)
 external Pointer<Uint8> linthraTagsText(
   Pointer<LinthraTagsResult> result,
   int field,
@@ -557,11 +570,17 @@ external int linthraPlaybackFailureForResolution(int kind);
 external int linthraPlaybackFailureForInterruption(int kind);
 
 @Native<
-    Uint8 Function(Uint8, Uint32, Bool, Uint8, Uint64, Uint64, Uint64, Uint32,
-        Pointer<Uint64>)>(
-  symbol: 'linthra_playback_recovery_decide',
-  isLeaf: true,
-)
+    Uint8 Function(
+      Uint8,
+      Uint32,
+      Bool,
+      Uint8,
+      Uint64,
+      Uint64,
+      Uint64,
+      Uint32,
+      Pointer<Uint64>,
+    )>(symbol: 'linthra_playback_recovery_decide', isLeaf: true)
 external int linthraPlaybackRecoveryDecide(
   int kind,
   int failuresBefore,
@@ -581,10 +600,8 @@ external int linthraPlaybackRecoveryDecide(
 external int linthraPlaybackFocusAction(bool begin, int interruption);
 
 @Native<
-    Uint16 Function(Uint8, Uint8, Uint8, Pointer<Uint8>, Size, Pointer<Size>)>(
-  symbol: 'linthra_audio_focus_step',
-  isLeaf: true,
-)
+    Uint16 Function(Uint8, Uint8, Uint8, Pointer<Uint8>, Size,
+        Pointer<Size>)>(symbol: 'linthra_audio_focus_step', isLeaf: true)
 external int linthraAudioFocusStep(
   int state,
   int event,
@@ -619,8 +636,14 @@ external int linthraReconnectProgress(
   symbol: 'linthra_source_end',
   isLeaf: true,
 )
-external int linthraSourceEnd(int gone, bool engineReportsFailureAsIdle,
-    bool stream, int status, int positionUs, int durationUs);
+external int linthraSourceEnd(
+  int gone,
+  bool engineReportsFailureAsIdle,
+  bool stream,
+  int status,
+  int positionUs,
+  int durationUs,
+);
 
 @Native<Uint8 Function(Uint8, Uint8, Bool)>(
   symbol: 'linthra_watchdog_arms',
@@ -633,21 +656,25 @@ external int linthraWatchdogArms(int reported, int current, bool hasPlayed);
   isLeaf: true,
 )
 external int linthraWatchdogFails(
-    int current, bool recoveryUnderway, bool hasTrack);
+  int current,
+  bool recoveryUnderway,
+  bool hasTrack,
+);
 
 /// `UnifyResult` on the Rust side (native/linthra_core/src/ffi/track_unifier.rs).
 final class LinthraUnifyResult extends Opaque {}
 
 @Native<
     Pointer<LinthraUnifyResult> Function(
-        Pointer<Uint8>,
-        Size,
-        Pointer<Uint32>,
-        Pointer<Uint32>,
-        Pointer<Uint32>,
-        Pointer<Int64>,
-        Pointer<Int64>,
-        Size)>(symbol: 'linthra_unify_tracks')
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Uint32>,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Size,
+    )>(symbol: 'linthra_unify_tracks')
 external Pointer<LinthraUnifyResult> linthraUnifyTracks(
   Pointer<Uint8> text,
   int textLength,
@@ -676,7 +703,8 @@ external Pointer<Uint32> linthraUnifyStarts(Pointer<LinthraUnifyResult> result);
   isLeaf: true,
 )
 external Pointer<Uint32> linthraUnifyIndices(
-    Pointer<LinthraUnifyResult> result);
+  Pointer<LinthraUnifyResult> result,
+);
 
 @Native<Void Function(Pointer<LinthraUnifyResult>)>(
   symbol: 'linthra_unify_free',
@@ -689,16 +717,17 @@ final class LinthraSongSort extends Opaque {}
 
 @Native<
     Pointer<LinthraSongSort> Function(
-        Pointer<Uint8>,
-        Size,
-        Pointer<Uint32>,
-        Pointer<Int64>,
-        Pointer<Int64>,
-        Pointer<Int64>,
-        Size,
-        Size,
-        Uint8,
-        Bool)>(symbol: 'linthra_song_sort')
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Size,
+      Size,
+      Uint8,
+      Bool,
+    )>(symbol: 'linthra_song_sort')
 external Pointer<LinthraSongSort> linthraSongSort(
   Pointer<Uint8> text,
   int textLength,
@@ -723,7 +752,8 @@ external Pointer<Uint32> linthraSongSortOrder(Pointer<LinthraSongSort> result);
   isLeaf: true,
 )
 external Pointer<Uint8> linthraSongSortSections(
-    Pointer<LinthraSongSort> result);
+  Pointer<LinthraSongSort> result,
+);
 
 @Native<Void Function(Pointer<LinthraSongSort>)>(
   symbol: 'linthra_song_sort_free',
@@ -738,14 +768,15 @@ final class LinthraReconcileResult extends Opaque {}
 // Not a leaf call: a scan reconciles the whole local catalog.
 @Native<
     Pointer<LinthraReconcileResult> Function(
-        Pointer<Uint8>,
-        Size,
-        Pointer<Uint32>,
-        Pointer<Int64>,
-        Pointer<Int64>,
-        Pointer<Uint8>,
-        Size,
-        Size)>(symbol: 'linthra_local_reconcile')
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Uint8>,
+      Size,
+      Size,
+    )>(symbol: 'linthra_local_reconcile')
 external Pointer<LinthraReconcileResult> linthraLocalReconcile(
   Pointer<Uint8> text,
   int textLength,
@@ -768,21 +799,24 @@ external int linthraReconcileMoveCount(Pointer<LinthraReconcileResult> result);
   isLeaf: true,
 )
 external Pointer<Uint32> linthraReconcileMoves(
-    Pointer<LinthraReconcileResult> result);
+  Pointer<LinthraReconcileResult> result,
+);
 
 @Native<Size Function(Pointer<LinthraReconcileResult>)>(
   symbol: 'linthra_reconcile_removed_count',
   isLeaf: true,
 )
 external int linthraReconcileRemovedCount(
-    Pointer<LinthraReconcileResult> result);
+  Pointer<LinthraReconcileResult> result,
+);
 
 @Native<Pointer<Uint32> Function(Pointer<LinthraReconcileResult>)>(
   symbol: 'linthra_reconcile_removed',
   isLeaf: true,
 )
 external Pointer<Uint32> linthraReconcileRemoved(
-    Pointer<LinthraReconcileResult> result);
+  Pointer<LinthraReconcileResult> result,
+);
 
 @Native<Void Function(Pointer<LinthraReconcileResult>)>(
   symbol: 'linthra_reconcile_free',
@@ -811,14 +845,18 @@ abstract final class LinthraCueField {
   isLeaf: true,
 )
 external Pointer<LinthraCueText> linthraCueDecode(
-    Pointer<Uint8> bytes, int length);
+  Pointer<Uint8> bytes,
+  int length,
+);
 
 @Native<Pointer<Uint16> Function(Pointer<LinthraCueText>, Pointer<Size>)>(
   symbol: 'linthra_cue_text',
   isLeaf: true,
 )
 external Pointer<Uint16> linthraCueText(
-    Pointer<LinthraCueText> text, Pointer<Size> length);
+  Pointer<LinthraCueText> text,
+  Pointer<Size> length,
+);
 
 @Native<Void Function(Pointer<LinthraCueText>)>(
   symbol: 'linthra_cue_text_free',
@@ -831,7 +869,9 @@ external void linthraCueTextFree(Pointer<LinthraCueText> text);
   isLeaf: true,
 )
 external Pointer<LinthraCueTracks> linthraCueParse(
-    Pointer<Uint8> text, int length);
+  Pointer<Uint8> text,
+  int length,
+);
 
 @Native<Size Function(Pointer<LinthraCueTracks>)>(
   symbol: 'linthra_cue_track_count',
@@ -852,11 +892,8 @@ external int linthraCueNumber(Pointer<LinthraCueTracks> tracks, int index);
 external int linthraCueStartMs(Pointer<LinthraCueTracks> tracks, int index);
 
 @Native<
-    Pointer<Uint8> Function(
-        Pointer<LinthraCueTracks>, Size, Uint8, Pointer<Size>)>(
-  symbol: 'linthra_cue_field',
-  isLeaf: true,
-)
+    Pointer<Uint8> Function(Pointer<LinthraCueTracks>, Size, Uint8,
+        Pointer<Size>)>(symbol: 'linthra_cue_field', isLeaf: true)
 external Pointer<Uint8> linthraCueField(
   Pointer<LinthraCueTracks> tracks,
   int index,
@@ -932,11 +969,8 @@ external int linthraCdTextCount(Pointer<LinthraCdText> text, int list);
 external int linthraCdTextItem(Pointer<LinthraCdText> text, int list, int i);
 
 @Native<
-    Pointer<Uint8> Function(
-        Pointer<LinthraCdText>, Uint8, Size, Pointer<Size>)>(
-  symbol: 'linthra_cd_text_value',
-  isLeaf: true,
-)
+    Pointer<Uint8> Function(Pointer<LinthraCdText>, Uint8, Size,
+        Pointer<Size>)>(symbol: 'linthra_cd_text_value', isLeaf: true)
 external Pointer<Uint8> linthraCdTextValue(
   Pointer<LinthraCdText> text,
   int list,
@@ -951,11 +985,16 @@ external Pointer<Uint8> linthraCdTextValue(
 external void linthraCdTextFree(Pointer<LinthraCdText> text);
 
 @Native<
-    Int64 Function(Int64, Int64, Int64, Pointer<Int64>, Pointer<Int64>,
-        Pointer<Uint8>, Size, Pointer<Uint32>)>(
-  symbol: 'linthra_cd_toc_order',
-  isLeaf: true,
-)
+    Int64 Function(
+      Int64,
+      Int64,
+      Int64,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint32>,
+    )>(symbol: 'linthra_cd_toc_order', isLeaf: true)
 external int linthraCdTocOrder(
   int firstTrack,
   int lastTrack,
@@ -968,11 +1007,14 @@ external int linthraCdTocOrder(
 );
 
 @Native<
-    Int64 Function(Pointer<Int64>, Pointer<Int64>, Pointer<Uint8>, Size, Int64,
-        Pointer<Int64>)>(
-  symbol: 'linthra_cd_playable_tracks',
-  isLeaf: true,
-)
+    Int64 Function(
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Uint8>,
+      Size,
+      Int64,
+      Pointer<Int64>,
+    )>(symbol: 'linthra_cd_playable_tracks', isLeaf: true)
 external int linthraCdPlayableTracks(
   Pointer<Int64> numbers,
   Pointer<Int64> starts,
@@ -983,11 +1025,16 @@ external int linthraCdPlayableTracks(
 );
 
 @Native<
-    Int32 Function(Int64, Int64, Int64, Pointer<Int64>, Pointer<Int64>,
-        Pointer<Uint8>, Size, Pointer<Uint8>)>(
-  symbol: 'linthra_cd_disc_id',
-  isLeaf: true,
-)
+    Int32 Function(
+      Int64,
+      Int64,
+      Int64,
+      Pointer<Int64>,
+      Pointer<Int64>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint8>,
+    )>(symbol: 'linthra_cd_disc_id', isLeaf: true)
 external int linthraCdDiscId(
   int firstTrack,
   int lastTrack,
@@ -1025,10 +1072,12 @@ abstract final class LinthraLocalTrack {
 
 @Native<
     Pointer<LinthraMappedTrack> Function(
-        Uint8, Pointer<Uint8>, Size, Pointer<Int64>, Pointer<Int64>)>(
-  symbol: 'linthra_local_track_map',
-  isLeaf: true,
-)
+      Uint8,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Int64>,
+      Pointer<Int64>,
+    )>(symbol: 'linthra_local_track_map', isLeaf: true)
 external Pointer<LinthraMappedTrack> linthraLocalTrackMap(
   int kind,
   Pointer<Uint8> text,
@@ -1038,10 +1087,8 @@ external Pointer<LinthraMappedTrack> linthraLocalTrackMap(
 );
 
 @Native<
-    Pointer<Uint8> Function(Pointer<LinthraMappedTrack>, Uint8, Pointer<Size>)>(
-  symbol: 'linthra_mapped_text',
-  isLeaf: true,
-)
+    Pointer<Uint8> Function(Pointer<LinthraMappedTrack>, Uint8,
+        Pointer<Size>)>(symbol: 'linthra_mapped_text', isLeaf: true)
 external Pointer<Uint8> linthraMappedText(
   Pointer<LinthraMappedTrack> mapped,
   int field,

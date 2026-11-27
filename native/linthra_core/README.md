@@ -48,6 +48,8 @@ The Rust core is **optional for now**. When `cargo`/`rustc` are missing, a Linux
 
 `cargo` is found on `PATH`, then in `$CARGO_HOME/bin` and `~/.cargo/bin`. A build that must carry the core sets the `require_rust` hook user-define (`hooks: user_defines: linthra: require_rust: true` in `pubspec.yaml`, as the F-Droid recipe does), and every case above then fails it instead; an environment variable can't do this, since the hooks runner passes a hook only a fixed set of them. CI runs `flutter test` with `LINTHRA_REQUIRE_RUST=1`, which turns a skipped library into a failing test (`test/core/native/linthra_core_test.dart`).
 
+A panic never reaches Dart: every C entry point runs through `guard` (`src/ffi.rs`), which answers what the caller already takes for no answer (`STATUS_PANIC`, a null pointer, or the call's own "none" code), so the app falls back to its Dart rules for that call, and a tag reader that panics on a file reports it as unreadable (`TAGS_PANICKED`). The release profile unwinds for this. `fuzz/` holds cargo-fuzz targets for the tag readers and the CUE parser; see [fuzz/README.md](fuzz/README.md).
+
 The Flatpak builds it with the Rust in `.rust-version` (a generated rustup module) and gets the crates from pinned archives instead of crates.io (`flatpak/foreign.json`, `flatpak/generated/sources/cargo.json`); after a `Cargo.lock` change, run `./scripts/regenerate_flatpak_sources.sh`.
 
 The Android builds (GitHub, Google Play, Sponsor, and the CI debug APK) install the Rust pinned in `.rust-version` with the Android targets (`.github/actions/setup-rust-android`), and `scripts/check_apk_rust_core.py` fails a build whose APK lacks the library for an ABI.

@@ -12,11 +12,13 @@ pub const STREAM_RECOVERY_INVALID: u8 = 255;
 /// was, the budget's spent count goes up by one and its progress resets.
 #[no_mangle]
 pub extern "C" fn linthra_reconnect_claim(spent: u32, max: u32, retryable: bool) -> bool {
-    ReconnectBudget {
-        spent,
-        ..ReconnectBudget::default()
-    }
-    .claim(retryable, max)
+    crate::ffi::guard(false, || {
+        ReconnectBudget {
+            spent,
+            ..ReconnectBudget::default()
+        }
+        .claim(retryable, max)
+    })
 }
 
 /// [ReconnectBudget::note_progress]: writes the budget's next played time and
@@ -35,18 +37,20 @@ pub unsafe extern "C" fn linthra_reconnect_progress(
     counting: bool,
     refill_after_us: i64,
 ) -> u8 {
-    if played_us.is_null() || last_us.is_null() {
-        return STREAM_RECOVERY_INVALID;
-    }
-    let mut budget = ReconnectBudget {
-        spent,
-        played_us: *played_us,
-        last_us: (*last_us != i64::MIN).then_some(*last_us),
-    };
-    let gave_back = budget.note_progress(position_us, counting, refill_after_us);
-    *played_us = budget.played_us;
-    *last_us = budget.last_us.unwrap_or(i64::MIN);
-    u8::from(gave_back)
+    crate::ffi::guard(u8::MAX, || {
+        if played_us.is_null() || last_us.is_null() {
+            return STREAM_RECOVERY_INVALID;
+        }
+        let mut budget = ReconnectBudget {
+            spent,
+            played_us: *played_us,
+            last_us: (*last_us != i64::MIN).then_some(*last_us),
+        };
+        let gave_back = budget.note_progress(position_us, counting, refill_after_us);
+        *played_us = budget.played_us;
+        *last_us = budget.last_us.unwrap_or(i64::MIN);
+        u8::from(gave_back)
+    })
 }
 
 /// [source_end]: 0 ended, 1 lost.
@@ -59,31 +63,37 @@ pub extern "C" fn linthra_source_end(
     position_us: i64,
     duration_us: i64,
 ) -> u8 {
-    let gone = match gone {
-        0 => SourceGone::Idle,
-        1 => SourceGone::Completed,
-        _ => return STREAM_RECOVERY_INVALID,
-    };
-    let Some(status) = Status::from_code(status) else {
-        return STREAM_RECOVERY_INVALID;
-    };
-    source_end(
-        gone,
-        engine_reports_failure_as_idle,
-        stream,
-        status,
-        position_us,
-        duration_us,
-    ) as u8
+    crate::ffi::guard(u8::MAX, || {
+        let gone = match gone {
+            0 => SourceGone::Idle,
+            1 => SourceGone::Completed,
+            _ => return STREAM_RECOVERY_INVALID,
+        };
+        let Some(status) = Status::from_code(status) else {
+            return STREAM_RECOVERY_INVALID;
+        };
+        source_end(
+            gone,
+            engine_reports_failure_as_idle,
+            stream,
+            status,
+            position_us,
+            duration_us,
+        ) as u8
+    })
 }
 
 /// [watchdog_arms]: 1 or 0.
 #[no_mangle]
 pub extern "C" fn linthra_watchdog_arms(reported: u8, current: u8, has_played: bool) -> u8 {
-    match (Status::from_code(reported), Status::from_code(current)) {
-        (Some(reported), Some(current)) => u8::from(watchdog_arms(reported, current, has_played)),
-        _ => STREAM_RECOVERY_INVALID,
-    }
+    crate::ffi::guard(u8::MAX, || {
+        match (Status::from_code(reported), Status::from_code(current)) {
+            (Some(reported), Some(current)) => {
+                u8::from(watchdog_arms(reported, current, has_played))
+            }
+            _ => STREAM_RECOVERY_INVALID,
+        }
+    })
 }
 
 /// [watchdog_fails]: 1 or 0.
@@ -93,8 +103,10 @@ pub extern "C" fn linthra_watchdog_fails(
     recovery_underway: bool,
     has_track: bool,
 ) -> u8 {
-    Status::from_code(current).map_or(STREAM_RECOVERY_INVALID, |current| {
-        u8::from(watchdog_fails(current, recovery_underway, has_track))
+    crate::ffi::guard(u8::MAX, || {
+        Status::from_code(current).map_or(STREAM_RECOVERY_INVALID, |current| {
+            u8::from(watchdog_fails(current, recovery_underway, has_track))
+        })
     })
 }
 

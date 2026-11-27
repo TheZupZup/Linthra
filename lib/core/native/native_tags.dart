@@ -44,11 +44,14 @@ abstract final class NativeTags {
       final Pointer<Uint8> pathBytes = arena<Uint8>(encoded.length + 1);
       pathBytes.asTypedList(encoded.length).setAll(0, encoded);
 
-      final Pointer<LinthraTagsResult> result =
-          linthraTagsRead(pathBytes, encoded.length, withCover);
-      if (result == nullptr) {
-        throw StateError('linthra_tags_read refused its path');
-      }
+      final Pointer<LinthraTagsResult> result = linthraTagsRead(
+        pathBytes,
+        encoded.length,
+        withCover,
+      );
+      // Refused, or it panicked outside the read: the caller reads the
+      // file the Dart way.
+      if (result == nullptr) return null;
       try {
         final Pointer<Size> length = arena<Size>();
         String? text(int field) {
@@ -60,6 +63,9 @@ abstract final class NativeTags {
         final NativeTagOutcome outcome = switch (linthraTagsStatus(result)) {
           LinthraTags.read => NativeTagOutcome.read,
           LinthraTags.notHandled => NativeTagOutcome.notHandled,
+          // A file the reader panicked on is one that could not be read:
+          // nothing is known about its tags, and the scan goes on.
+          LinthraTags.panicked => NativeTagOutcome.ioError,
           _ => NativeTagOutcome.ioError,
         };
         if (outcome != NativeTagOutcome.read) {

@@ -65,54 +65,57 @@ pub unsafe extern "C" fn linthra_eviction_plan(
     max_bytes: i64,
     only_preloaded: bool,
 ) -> *mut EvictionResult {
-    let input = || -> Option<EvictionResult> {
-        let text = array(text, text_len)?;
-        let spans = array(spans, count.checked_mul(4)?)?;
-        let sizes = array(sizes, count)?;
-        let last_accessed = array(last_accessed, count)?;
-        let cached_at = array(cached_at, count)?;
-        let flags = array(flags, count)?;
-        let protect_spans = array(protect_spans, protect_count.checked_mul(4)?)?;
+    crate::ffi::guard(ptr::null_mut(), || {
+        let input = || -> Option<EvictionResult> {
+            let text = array(text, text_len)?;
+            let spans = array(spans, count.checked_mul(4)?)?;
+            let sizes = array(sizes, count)?;
+            let last_accessed = array(last_accessed, count)?;
+            let cached_at = array(cached_at, count)?;
+            let flags = array(flags, count)?;
+            let protect_spans = array(protect_spans, protect_count.checked_mul(4)?)?;
 
-        let mut cached = Vec::with_capacity(count);
-        for i in 0..count {
-            let flag = flags[i];
-            cached.push(CachedEntry {
-                key: key(text, &spans[4 * i..4 * i + 4])?,
-                managed: flag & EVICTION_MANAGED != 0,
-                size_bytes: sizes[i],
-                last_accessed: (flag & EVICTION_HAS_LAST_ACCESSED != 0).then_some(last_accessed[i]),
-                cached_at: (flag & EVICTION_HAS_CACHED_AT != 0).then_some(cached_at[i]),
-                pinned: flag & EVICTION_PINNED != 0,
-                preloaded: flag & EVICTION_PRELOADED != 0,
-            });
+            let mut cached = Vec::with_capacity(count);
+            for i in 0..count {
+                let flag = flags[i];
+                cached.push(CachedEntry {
+                    key: key(text, &spans[4 * i..4 * i + 4])?,
+                    managed: flag & EVICTION_MANAGED != 0,
+                    size_bytes: sizes[i],
+                    last_accessed: (flag & EVICTION_HAS_LAST_ACCESSED != 0)
+                        .then_some(last_accessed[i]),
+                    cached_at: (flag & EVICTION_HAS_CACHED_AT != 0).then_some(cached_at[i]),
+                    pinned: flag & EVICTION_PINNED != 0,
+                    preloaded: flag & EVICTION_PRELOADED != 0,
+                });
+            }
+            let protected = (0..protect_count)
+                .map(|i| key(text, &protect_spans[4 * i..4 * i + 4]))
+                .collect::<Option<HashSet<CacheKey>>>()?;
+            let incoming = if incoming_span.is_null() {
+                None
+            } else {
+                Some(key(text, array(incoming_span, 4)?)?)
+            };
+
+            let request = EvictionRequest {
+                incoming_bytes,
+                max_bytes,
+                protected,
+                only_preloaded,
+                incoming,
+            };
+            let result = plan(&cached, &request);
+            Some(EvictionResult {
+                fits: result.fits,
+                evict: result.evict.into_iter().map(|i| i as u32).collect(),
+            })
+        };
+        match input() {
+            Some(result) => Box::into_raw(Box::new(result)),
+            None => ptr::null_mut(),
         }
-        let protected = (0..protect_count)
-            .map(|i| key(text, &protect_spans[4 * i..4 * i + 4]))
-            .collect::<Option<HashSet<CacheKey>>>()?;
-        let incoming = if incoming_span.is_null() {
-            None
-        } else {
-            Some(key(text, array(incoming_span, 4)?)?)
-        };
-
-        let request = EvictionRequest {
-            incoming_bytes,
-            max_bytes,
-            protected,
-            only_preloaded,
-            incoming,
-        };
-        let result = plan(&cached, &request);
-        Some(EvictionResult {
-            fits: result.fits,
-            evict: result.evict.into_iter().map(|i| i as u32).collect(),
-        })
-    };
-    match input() {
-        Some(result) => Box::into_raw(Box::new(result)),
-        None => ptr::null_mut(),
-    }
+    })
 }
 
 /// Whether the download fits once the planned entries are deleted. False for
@@ -123,7 +126,7 @@ pub unsafe extern "C" fn linthra_eviction_plan(
 /// `result` must be null or a live pointer from [linthra_eviction_plan].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_eviction_result_fits(result: *const EvictionResult) -> bool {
-    result.as_ref().is_some_and(|r| r.fits)
+    crate::ffi::guard(false, || result.as_ref().is_some_and(|r| r.fits))
 }
 
 /// How many entries to delete. 0 for a null `result`.
@@ -133,7 +136,7 @@ pub unsafe extern "C" fn linthra_eviction_result_fits(result: *const EvictionRes
 /// As for [linthra_eviction_result_fits].
 #[no_mangle]
 pub unsafe extern "C" fn linthra_eviction_result_len(result: *const EvictionResult) -> usize {
-    result.as_ref().map_or(0, |r| r.evict.len())
+    crate::ffi::guard(0, || result.as_ref().map_or(0, |r| r.evict.len()))
 }
 
 /// The entries to delete, as [linthra_eviction_result_len] indices, valid
@@ -146,7 +149,9 @@ pub unsafe extern "C" fn linthra_eviction_result_len(result: *const EvictionResu
 pub unsafe extern "C" fn linthra_eviction_result_indices(
     result: *const EvictionResult,
 ) -> *const u32 {
-    result.as_ref().map_or(ptr::null(), |r| r.evict.as_ptr())
+    crate::ffi::guard(ptr::null(), || {
+        result.as_ref().map_or(ptr::null(), |r| r.evict.as_ptr())
+    })
 }
 
 /// Frees a plan. Null is a no-op.
@@ -157,9 +162,11 @@ pub unsafe extern "C" fn linthra_eviction_result_indices(
 /// not been freed yet.
 #[no_mangle]
 pub unsafe extern "C" fn linthra_eviction_result_free(result: *mut EvictionResult) {
-    if !result.is_null() {
-        drop(Box::from_raw(result));
-    }
+    crate::ffi::guard((), || {
+        if !result.is_null() {
+            drop(Box::from_raw(result));
+        }
+    })
 }
 
 /// `len` elements at `data`, or None when `data` is null and `len` is not 0.

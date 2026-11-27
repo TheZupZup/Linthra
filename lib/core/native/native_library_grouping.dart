@@ -66,12 +66,17 @@ abstract final class NativeLibraryGrouping {
       final Pointer<Uint8> textPointer = arena<Uint8>(bytes.length + 1);
       textPointer.asTypedList(bytes.length).setAll(0, bytes);
 
-      final Pointer<LinthraGroupingResult> result =
-          linthraLibraryGroup(textPointer, bytes.length, spans, count);
+      final Pointer<LinthraGroupingResult> result = linthraLibraryGroup(
+        textPointer,
+        bytes.length,
+        spans,
+        count,
+      );
       // Every span was written by [_Utf8Writer] from Dart strings, so a
       // refusal means the two sides of the ABI disagree.
       if (result == nullptr) {
-        throw StateError('linthra_library_group refused its input');
+        // Refused, or it panicked: the caller groups the Dart way.
+        return null;
       }
       try {
         return _read(linthraGroupingResultView(result), count);

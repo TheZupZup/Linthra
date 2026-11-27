@@ -14,7 +14,7 @@ import 'linthra_core_ffi.dart';
 abstract final class LinthraCore {
   /// The C ABI version this Dart code was written against. Must match
   /// `ABI_VERSION` in native/linthra_core/src/ffi.rs.
-  static const int abiVersion = 20;
+  static const int abiVersion = 21;
 
   static bool? _available;
 
@@ -104,6 +104,12 @@ final class NativeSearchIndex implements Finalizable {
             record.provider.toNativeUtf8(allocator: arena),
           ),
         );
+        // A panic is answered like a build without the Rust core: the
+        // caller searches the Dart way.
+        if (status == LinthraStatus.panic) {
+          linthraIndexBuilderFree(builder);
+          return null;
+        }
         // Dart strings always encode to valid UTF-8 and none of these is
         // null, so a refusal here means the two sides of the ABI disagree.
         if (status != LinthraStatus.ok) {
@@ -116,7 +122,9 @@ final class NativeSearchIndex implements Finalizable {
       linthraIndexBuilderFree(builder);
       rethrow;
     }
-    return linthraIndexBuilderFinish(builder).address;
+    final Pointer<LinthraIndex> index = linthraIndexBuilderFinish(builder);
+    // Null only when building the index panicked.
+    return index == nullptr ? null : index.address;
   }
 
   /// Takes ownership of an index from [buildDetached]: it is freed by
@@ -125,8 +133,10 @@ final class NativeSearchIndex implements Finalizable {
     final Pointer<LinthraIndex> index = Pointer<LinthraIndex>.fromAddress(
       address,
     );
-    final NativeSearchIndex result =
-        NativeSearchIndex._(index, linthraIndexLen(index));
+    final NativeSearchIndex result = NativeSearchIndex._(
+      index,
+      linthraIndexLen(index),
+    );
     _finalizer.attach(result, index.cast(), detach: result);
     return result;
   }
@@ -171,7 +181,8 @@ final class NativeSearchIndex implements Finalizable {
   Uint32List matchPositions(String query) {
     if (_disposed) {
       throw StateError(
-          'NativeSearchIndex.matchPositions called after dispose()');
+        'NativeSearchIndex.matchPositions called after dispose()',
+      );
     }
     final Pointer<LinthraMatchResults> results = using(
       (Arena arena) =>
