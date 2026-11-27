@@ -998,3 +998,68 @@ external int linthraCdDiscId(
   int count,
   Pointer<Uint8> out,
 );
+
+/// `MappedTrack` on the Rust side (native/linthra_core/src/ffi/local_track.rs).
+final class LinthraMappedTrack extends Opaque {}
+
+/// The kinds, inputs and answer fields of [linthraLocalTrackMap], as in
+/// native/linthra_core/src/ffi/local_track.rs.
+abstract final class LinthraLocalTrack {
+  static const int path = 0;
+  static const int document = 1;
+  static const int cue = 2;
+
+  static const int texts = 11;
+  static const int numbers = 5;
+
+  static const int title = 0;
+  static const int artist = 1;
+  static const int album = 2;
+  static const int albumId = 3;
+  static const int albumArtist = 4;
+
+  static const int trackNumber = 0;
+  static const int durationUs = 1;
+  static const int cueEndUs = 2;
+}
+
+@Native<
+    Pointer<LinthraMappedTrack> Function(
+        Uint8, Pointer<Uint8>, Size, Pointer<Int64>, Pointer<Int64>)>(
+  symbol: 'linthra_local_track_map',
+  isLeaf: true,
+)
+external Pointer<LinthraMappedTrack> linthraLocalTrackMap(
+  int kind,
+  Pointer<Uint8> text,
+  int textLength,
+  Pointer<Int64> bounds,
+  Pointer<Int64> numbers,
+);
+
+@Native<
+    Pointer<Uint8> Function(Pointer<LinthraMappedTrack>, Uint8, Pointer<Size>)>(
+  symbol: 'linthra_mapped_text',
+  isLeaf: true,
+)
+external Pointer<Uint8> linthraMappedText(
+  Pointer<LinthraMappedTrack> mapped,
+  int field,
+  Pointer<Size> length,
+);
+
+@Native<Int64 Function(Pointer<LinthraMappedTrack>, Uint8, Pointer<Uint8>)>(
+  symbol: 'linthra_mapped_number',
+  isLeaf: true,
+)
+external int linthraMappedNumber(
+  Pointer<LinthraMappedTrack> mapped,
+  int field,
+  Pointer<Uint8> present,
+);
+
+@Native<Void Function(Pointer<LinthraMappedTrack>)>(
+  symbol: 'linthra_mapped_free',
+  isLeaf: true,
+)
+external void linthraMappedFree(Pointer<LinthraMappedTrack> mapped);

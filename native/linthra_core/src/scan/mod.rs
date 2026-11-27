@@ -2,4 +2,5 @@
 //! phase (docs/development/rust-backend.md).
 
 pub mod files;
+pub mod mapper;
 pub mod walk;
