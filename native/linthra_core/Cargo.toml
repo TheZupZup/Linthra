@@ -26,6 +26,20 @@ panic = "unwind"
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
+# HTTP for the server clients (docs/development/rust-backend.md, Phase 2).
+# TLS is rustls with ring, verified against the platform's own trust store
+# (rustls-platform-verifier), never a bundled root list: a server behind a
+# private CA the user installed must keep working.
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Pinned exactly: the Android side runs the Kotlin component vendored from
+# this very release (android/app/src/main/java/org/rustls/platformverifier/).
+rustls-platform-verifier = "=0.7.1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# The JNI handles rustls-platform-verifier needs to reach Android's trust
+# manager; the same version it uses.
+jni = "0.22"
 
 [lints.rust]
 # `cargo fuzz` builds the crate with `--cfg fuzzing`, which turns on the

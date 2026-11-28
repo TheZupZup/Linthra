@@ -77,13 +77,23 @@
       "rationale": "Part of an archived Microsoft Connect bug report URL in an upstream libFLAC source comment."
     },
     {
+      "host": "cs.android.com",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "android/app/src/main/kotlin/org/rustls/platformverifier/CertificateVerifier.kt"
+      ],
+      "rationale": "Link to Android's revocation checker source in a comment of rustls-platform-verifier's Kotlin verifier, vendored from upstream."
+    },
+    {
       "host": "developer.android.com",
       "kind": "reference",
       "builds": "all",
       "paths": [
-        "android/app/src/main/AndroidManifest.xml"
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/kotlin/org/rustls/platformverifier/CertificateVerifier.kt"
       ],
-      "rationale": "Documentation link in a manifest comment."
+      "rationale": "Documentation links in a manifest comment and in comments of rustls-platform-verifier's Kotlin verifier, vendored from upstream."
     },
     {
       "host": "developer.mozilla.org",
@@ -130,6 +140,7 @@
       "kind": "reference",
       "builds": "all",
       "paths": [
+        "android/app/src/main/kotlin/org/rustls/platformverifier/CertificateVerifier.kt",
         "lib/core/services/cast/cast_containment.dart",
         "lib/core/services/cast/cast_receiver_trust.dart",
         "lib/core/services/cast/trust_gated_cast_transport.dart",
@@ -228,6 +239,15 @@
         "third_party/just_audio/android/src/main/java/com/ryanheise/just_audio/AudioPlayer.java"
       ],
       "rationale": "Placeholder URL in an upstream just_audio code comment."
+    },
+    {
+      "host": "source.chromium.org",
+      "kind": "reference",
+      "builds": "all",
+      "paths": [
+        "android/app/src/main/kotlin/org/rustls/platformverifier/CertificateVerifier.kt"
+      ],
+      "rationale": "Links to Chromium's certificate verifier source in comments of rustls-platform-verifier's Kotlin verifier, vendored from upstream."
     },
     {
       "host": "sourceforge.net",

@@ -276,20 +276,37 @@ relicensing it is unambiguous.
 
 Since the backend started moving to Rust (`docs/development/rust-backend.md`),
 it builds against third-party crates, pinned with their checksums in
-`native/linthra_core/Cargo.lock`. Today that is `flutter_rust_bridge` 2.11.1
-and its dependencies, 82 crates in the lockfile (some only for platforms
-Linthra does not build, such as Windows or the web). Every one is under a
-permissive licence that is compatible with AGPL-3.0-or-later:
+`native/linthra_core/Cargo.lock`. Today that is `flutter_rust_bridge` 2.11.1,
+and for HTTP `ureq` 3.5.2 with `rustls` (ring as its crypto) and
+`rustls-platform-verifier` 0.7.1, with their dependencies: 135 crates in the
+lockfile (some only for platforms Linthra does not build, such as Windows,
+macOS or the web). Every one is under a permissive licence that is
+compatible with AGPL-3.0-or-later:
 
 | Licence (as declared) | Crates |
 | --- | --- |
-| MIT and/or Apache-2.0 (dual, either order) | 64 |
-| MIT | 10 |
-| Unlicense OR MIT | 3 |
-| Zlib OR Apache-2.0 OR MIT | 2 |
+| MIT and/or Apache-2.0 (dual, either order) | 103 |
+| MIT | 13 |
+| Unlicense OR MIT | 6 |
+| Zlib OR Apache-2.0 OR MIT (either order) | 2 |
+| Apache-2.0 OR ISC OR MIT (`rustls`, `rustls-native-certs`) | 2 |
+| ISC (`rustls-webpki`, `untrusted`) | 2 |
+| Apache-2.0 AND ISC (`ring`) | 1 |
+| BSD-3-Clause (`subtle`) | 1 |
 | 0BSD OR MIT OR Apache-2.0 | 1 |
 | (MIT OR Apache-2.0) AND Unicode-3.0 (`unicode-ident`) | 1 |
+| Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (`wasi`, WebAssembly only, not built) | 1 |
+| CDLA-Permissive-2.0 (`webpki-root-certs`, WebAssembly only, not built) | 1 |
 | Apache-2.0, in a `LICENSE` file rather than the manifest (`allo-isolate` 0.1.27) | 1 |
+
+`webpki-root-certs` is a bundled root list the platform verifier uses only
+on WebAssembly; Linux and Android builds never compile it, and verify against
+the system's trust store instead.
+
+The Kotlin half of `rustls-platform-verifier` is built from source in the
+Android app (`android/app/src/main/kotlin/org/rustls/platformverifier/`,
+vendored from its v/0.7.1 tag), under MIT OR Apache-2.0 with both licence
+texts beside it.
 
 Re-list them after any `Cargo.lock` change:
 
@@ -479,7 +496,7 @@ The in-app "Report a bug" flow (Settings → Report a bug) is the reason
   `--enable-nonfree`), mpv `v0.41.0` (`-Dgpl=false` **with** every GPL-only
   component explicitly disabled), libplacebo LGPL-2.1-or-later, libass ISC —
   LGPL-2.1-or-later at worst, AGPL-compatible via the LGPLv3 upgrade path (§5.1).
-- **Rust core:** permissive crates only (MIT, Apache-2.0, Unlicense, Zlib, 0BSD, Unicode-3.0), pinned in `Cargo.lock` (§5.2).
+- **Rust core:** permissive crates only (MIT, Apache-2.0, ISC, BSD-3-Clause, Unlicense, Zlib, 0BSD, Unicode-3.0, and CDLA-Permissive-2.0 for a root list only built for WebAssembly), pinned in `Cargo.lock` (§5.2).
 - **Vendored code:** `third_party/just_audio_media_kit` stays under the
   Unlicense, `third_party/just_audio` under MIT, `third_party/media3_decoder_flac`
   under Apache-2.0 and `third_party/libflac` under BSD-3-Clause; none is
