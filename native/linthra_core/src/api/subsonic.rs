@@ -2,6 +2,8 @@
 //! `SubsonicFolderBrowserSource` (lib/core/sources/subsonic/) send the
 //! requests and hand each body here (see `subsonic::response`).
 
+use flutter_rust_bridge::frb;
+
 use crate::subsonic::response::{self, Envelope, Outcome};
 
 /// What to read out of an answer, by the request it answers.
@@ -132,7 +134,11 @@ impl SubsonicReply {
 ///
 /// A panic while reading gets the safe answer: not a Subsonic answer, which
 /// Dart reports as one it can't use, and nothing of it is kept.
-pub async fn read_subsonic(body: Vec<u8>, what: SubsonicRead) -> SubsonicReply {
+///
+/// Synchronous, as `jsonDecode` was where this ran before: the answer is
+/// read in the order it arrived, and nothing waits on another thread.
+#[frb(sync)]
+pub fn read_subsonic(body: Vec<u8>, what: SubsonicRead) -> SubsonicReply {
     crate::ffi::fail_safe(|| read(&body, what), SubsonicReply::not_subsonic)
 }
 

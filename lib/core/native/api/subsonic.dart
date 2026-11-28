@@ -13,7 +13,10 @@ import '../frb_generated.dart';
 ///
 /// A panic while reading gets the safe answer: not a Subsonic answer, which
 /// Dart reports as one it can't use, and nothing of it is kept.
-Future<SubsonicReply> readSubsonic(
+///
+/// Synchronous, as `jsonDecode` was where this ran before: the answer is
+/// read in the order it arrived, and nothing waits on another thread.
+SubsonicReply readSubsonic(
         {required List<int> body, required SubsonicRead what}) =>
     LinthraBridge.instance.api
         .crateApiSubsonicReadSubsonic(body: body, what: what);

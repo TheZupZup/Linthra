@@ -94,7 +94,7 @@ abstract class LinthraBridgeApi extends BaseApi {
   Future<Uint8List?> crateApiScanReadFile(
       {required String path, required int stallLimitMs});
 
-  Future<SubsonicReply> crateApiSubsonicReadSubsonic(
+  SubsonicReply crateApiSubsonicReadSubsonic(
       {required List<int> body, required SubsonicRead what});
 
   Future<FileStamp?> crateApiScanStampFile(
@@ -221,15 +221,14 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       );
 
   @override
-  Future<SubsonicReply> crateApiSubsonicReadSubsonic(
+  SubsonicReply crateApiSubsonicReadSubsonic(
       {required List<int> body, required SubsonicRead what}) {
-    return handler.executeNormal(NormalTask(
-      callFfi: (port_) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(body, serializer);
         sse_encode_subsonic_read(what, serializer);
-        pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_subsonic_reply,

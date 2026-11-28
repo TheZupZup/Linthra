@@ -30,4 +30,6 @@ flutter_rust_bridge = "=2.11.1"
 [lints.rust]
 # `cargo fuzz` builds the crate with `--cfg fuzzing`, which turns on the
 # entry points in src/tags/mod.rs that the targets in fuzz/ call.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+# `frb_expand` is the cfg flutter_rust_bridge's `#[frb]` attribute expands
+# to (src/api/subsonic.rs uses `#[frb(sync)]`).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)", "cfg(frb_expand)"] }
