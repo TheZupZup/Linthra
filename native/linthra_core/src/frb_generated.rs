@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 833704657;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1720861953;
 
 // Section: executor
 
@@ -113,6 +113,56 @@ fn wire__crate__api__core__bridge_count_impl(
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::core::bridge_count(api_to, api_sink);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__http__http_fetch_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "http_fetch",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_method = <String>::sse_decode(&mut deserializer);
+            let api_url = <String>::sse_decode(&mut deserializer);
+            let api_headers = <Vec<crate::api::http::HttpHeader>>::sse_decode(&mut deserializer);
+            let api_body = <Option<Vec<u8>>>::sse_decode(&mut deserializer);
+            let api_follow_redirects = <bool>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                crate::api::http::HttpPart,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::http::http_fetch(
+                            api_method,
+                            api_url,
+                            api_headers,
+                            api_body,
+                            api_follow_redirects,
+                            api_sink,
+                        );
                     })?;
                     Ok(output_ok)
                 })())
@@ -360,6 +410,16 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
     }
 }
 
+impl SseDecode
+    for StreamSink<crate::api::http::HttpPart, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
+
 impl SseDecode for StreamSink<u32, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -411,6 +471,49 @@ impl SseDecode for crate::api::scan::FolderWalk {
     }
 }
 
+impl SseDecode for crate::api::http::HttpFailure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::http::HttpFailure::Unreachable,
+            1 => crate::api::http::HttpFailure::TimedOut,
+            2 => crate::api::http::HttpFailure::Insecure,
+            3 => crate::api::http::HttpFailure::BadResponse,
+            4 => crate::api::http::HttpFailure::BadRequest,
+            _ => unreachable!("Invalid variant for HttpFailure: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::http::HttpHeader {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::http::HttpHeader {
+            name: var_name,
+            value: var_value,
+        };
+    }
+}
+
+impl SseDecode for crate::api::http::HttpPart {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_status = <Option<u16>>::sse_decode(deserializer);
+        let mut var_headers = <Vec<crate::api::http::HttpHeader>>::sse_decode(deserializer);
+        let mut var_chunk = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_failure = <Option<crate::api::http::HttpFailure>>::sse_decode(deserializer);
+        return crate::api::http::HttpPart {
+            status: var_status,
+            headers: var_headers,
+            chunk: var_chunk,
+            failure: var_failure,
+        };
+    }
+}
+
 impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -432,6 +535,18 @@ impl SseDecode for Vec<String> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::http::HttpHeader> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::http::HttpHeader>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -555,6 +670,17 @@ impl SseDecode for Option<crate::api::scan::FileStamp> {
     }
 }
 
+impl SseDecode for Option<crate::api::http::HttpFailure> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::http::HttpFailure>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<i32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -571,6 +697,17 @@ impl SseDecode for Option<i64> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<i64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u16>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -776,6 +913,13 @@ impl SseDecode for crate::api::subsonic::SubsonicSong {
     }
 }
 
+impl SseDecode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u16::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -820,11 +964,12 @@ fn pde_ffi_dispatcher_primary_impl(
     match func_id {
         1 => wire__crate__api__core__bridge_abi_version_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__api__core__bridge_count_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__scan__is_file_gone_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__scan__read_file_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__scan__stamp_file_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__scan__stamp_files_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__scan__walk_folder_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__http__http_fetch_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__scan__is_file_gone_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__scan__read_file_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__scan__stamp_file_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__scan__stamp_files_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__scan__walk_folder_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -837,7 +982,7 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        5 => wire__crate__api__subsonic__read_subsonic_impl(ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__subsonic__read_subsonic_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -879,6 +1024,63 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::scan::FolderWalk>
     for crate::api::scan::FolderWalk
 {
     fn into_into_dart(self) -> crate::api::scan::FolderWalk {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::http::HttpFailure {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Unreachable => 0.into_dart(),
+            Self::TimedOut => 1.into_dart(),
+            Self::Insecure => 2.into_dart(),
+            Self::BadResponse => 3.into_dart(),
+            Self::BadRequest => 4.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::http::HttpFailure {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::http::HttpFailure>
+    for crate::api::http::HttpFailure
+{
+    fn into_into_dart(self) -> crate::api::http::HttpFailure {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::http::HttpHeader {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::http::HttpHeader {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::http::HttpHeader>
+    for crate::api::http::HttpHeader
+{
+    fn into_into_dart(self) -> crate::api::http::HttpHeader {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::http::HttpPart {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.status.into_into_dart().into_dart(),
+            self.headers.into_into_dart().into_dart(),
+            self.chunk.into_into_dart().into_dart(),
+            self.failure.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::http::HttpPart {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::http::HttpPart> for crate::api::http::HttpPart {
+    fn into_into_dart(self) -> crate::api::http::HttpPart {
         self
     }
 }
@@ -1117,6 +1319,15 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     }
 }
 
+impl SseEncode
+    for StreamSink<crate::api::http::HttpPart, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
 impl SseEncode for StreamSink<u32, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1156,6 +1367,43 @@ impl SseEncode for crate::api::scan::FolderWalk {
     }
 }
 
+impl SseEncode for crate::api::http::HttpFailure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::http::HttpFailure::Unreachable => 0,
+                crate::api::http::HttpFailure::TimedOut => 1,
+                crate::api::http::HttpFailure::Insecure => 2,
+                crate::api::http::HttpFailure::BadResponse => 3,
+                crate::api::http::HttpFailure::BadRequest => 4,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::http::HttpHeader {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
+impl SseEncode for crate::api::http::HttpPart {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<u16>>::sse_encode(self.status, serializer);
+        <Vec<crate::api::http::HttpHeader>>::sse_encode(self.headers, serializer);
+        <Vec<u8>>::sse_encode(self.chunk, serializer);
+        <Option<crate::api::http::HttpFailure>>::sse_encode(self.failure, serializer);
+    }
+}
+
 impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1176,6 +1424,16 @@ impl SseEncode for Vec<String> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::http::HttpHeader> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::http::HttpHeader>::sse_encode(item, serializer);
         }
     }
 }
@@ -1270,6 +1528,16 @@ impl SseEncode for Option<crate::api::scan::FileStamp> {
     }
 }
 
+impl SseEncode for Option<crate::api::http::HttpFailure> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::http::HttpFailure>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<i32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1286,6 +1554,16 @@ impl SseEncode for Option<i64> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <i64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u16>::sse_encode(value, serializer);
         }
     }
 }
@@ -1437,6 +1715,13 @@ impl SseEncode for crate::api::subsonic::SubsonicSong {
         <Option<i64>>::sse_encode(self.duration_seconds, serializer);
         <Option<String>>::sse_encode(self.created, serializer);
         <Option<String>>::sse_encode(self.cover_art, serializer);
+    }
+}
+
+impl SseEncode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u16::<NativeEndian>(self).unwrap();
     }
 }
 

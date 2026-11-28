@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'api/core.dart';
+import 'api/http.dart';
 import 'api/scan.dart';
 import 'api/subsonic.dart';
 import 'frb_generated.dart';
@@ -73,7 +74,7 @@ class LinthraBridge extends BaseEntrypoint<LinthraBridgeApi,
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 833704657;
+  int get rustContentHash => 1720861953;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -87,6 +88,13 @@ abstract class LinthraBridgeApi extends BaseApi {
   Future<int> crateApiCoreBridgeAbiVersion();
 
   Stream<int> crateApiCoreBridgeCount({required int to});
+
+  Stream<HttpPart> crateApiHttpHttpFetch(
+      {required String method,
+      required String url,
+      required List<HttpHeader> headers,
+      Uint8List? body,
+      required bool followRedirects});
 
   Future<bool> crateApiScanIsFileGone(
       {required String path, required String root, required int stallLimitMs});
@@ -168,6 +176,49 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       );
 
   @override
+  Stream<HttpPart> crateApiHttpHttpFetch(
+      {required String method,
+      required String url,
+      required List<HttpHeader> headers,
+      Uint8List? body,
+      required bool followRedirects}) {
+    final sink = RustStreamSink<HttpPart>();
+    unawaited(handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(method, serializer);
+        sse_encode_String(url, serializer);
+        sse_encode_list_http_header(headers, serializer);
+        sse_encode_opt_list_prim_u_8_strict(body, serializer);
+        sse_encode_bool(followRedirects, serializer);
+        sse_encode_StreamSink_http_part_Sse(sink, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 3, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiHttpHttpFetchConstMeta,
+      argValues: [method, url, headers, body, followRedirects, sink],
+      apiImpl: this,
+    )));
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiHttpHttpFetchConstMeta => const TaskConstMeta(
+        debugName: "http_fetch",
+        argNames: [
+          "method",
+          "url",
+          "headers",
+          "body",
+          "followRedirects",
+          "sink"
+        ],
+      );
+
+  @override
   Future<bool> crateApiScanIsFileGone(
       {required String path, required String root, required int stallLimitMs}) {
     return handler.executeNormal(NormalTask(
@@ -177,7 +228,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(root, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 3, port: port_);
+            funcId: 4, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_bool,
@@ -203,7 +254,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 4, port: port_);
+            funcId: 5, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_list_prim_u_8_strict,
@@ -228,7 +279,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(body, serializer);
         sse_encode_subsonic_read(what, serializer);
-        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_subsonic_reply,
@@ -255,7 +306,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_file_stamp,
@@ -281,7 +332,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_list_String(paths, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_opt_box_autoadd_file_stamp,
@@ -307,7 +358,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(folder, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 9, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_folder_walk,
@@ -328,6 +379,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return AnyhowException(raw as String);
+  }
+
+  @protected
+  RustStreamSink<HttpPart> dco_decode_StreamSink_http_part_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
   }
 
   @protected
@@ -355,6 +412,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure dco_decode_box_autoadd_http_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_http_failure(raw);
+  }
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -364,6 +427,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -399,6 +468,38 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure dco_decode_http_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return HttpFailure.values[raw as int];
+  }
+
+  @protected
+  HttpHeader dco_decode_http_header(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return HttpHeader(
+      name: dco_decode_String(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  HttpPart dco_decode_http_part(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return HttpPart(
+      status: dco_decode_opt_box_autoadd_u_16(arr[0]),
+      headers: dco_decode_list_http_header(arr[1]),
+      chunk: dco_decode_list_prim_u_8_strict(arr[2]),
+      failure: dco_decode_opt_box_autoadd_http_failure(arr[3]),
+    );
+  }
+
+  @protected
   int dco_decode_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -414,6 +515,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   List<String> dco_decode_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
+  List<HttpHeader> dco_decode_list_http_header(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_http_header).toList();
   }
 
   @protected
@@ -479,6 +586,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure? dco_decode_opt_box_autoadd_http_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_http_failure(raw);
+  }
+
+  @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_i_32(raw);
@@ -488,6 +601,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
   }
 
   @protected
@@ -621,6 +740,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -659,6 +784,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  RustStreamSink<HttpPart> sse_decode_StreamSink_http_part_Sse(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   RustStreamSink<int> sse_decode_StreamSink_u_32_Sse(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -685,6 +817,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure sse_decode_box_autoadd_http_failure(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_http_failure(deserializer));
+  }
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_32(deserializer));
@@ -694,6 +833,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_16(deserializer));
   }
 
   @protected
@@ -725,6 +870,35 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure sse_decode_http_failure(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final inner = sse_decode_i_32(deserializer);
+    return HttpFailure.values[inner];
+  }
+
+  @protected
+  HttpHeader sse_decode_http_header(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_name = sse_decode_String(deserializer);
+    final var_value = sse_decode_String(deserializer);
+    return HttpHeader(name: var_name, value: var_value);
+  }
+
+  @protected
+  HttpPart sse_decode_http_part(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_status = sse_decode_opt_box_autoadd_u_16(deserializer);
+    final var_headers = sse_decode_list_http_header(deserializer);
+    final var_chunk = sse_decode_list_prim_u_8_strict(deserializer);
+    final var_failure = sse_decode_opt_box_autoadd_http_failure(deserializer);
+    return HttpPart(
+        status: var_status,
+        headers: var_headers,
+        chunk: var_chunk,
+        failure: var_failure);
+  }
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
@@ -744,6 +918,18 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     final ans_ = <String>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<HttpHeader> sse_decode_list_http_header(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <HttpHeader>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_http_header(deserializer));
     }
     return ans_;
   }
@@ -864,6 +1050,18 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  HttpFailure? sse_decode_opt_box_autoadd_http_failure(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_http_failure(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -880,6 +1078,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_i_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_16(deserializer));
     } else {
       return null;
     }
@@ -1046,6 +1255,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -1077,6 +1292,19 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       AnyhowException self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.message, serializer);
+  }
+
+  @protected
+  void sse_encode_StreamSink_http_part_Sse(
+      RustStreamSink<HttpPart> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+        self.setupAndSerialize(
+            codec: SseCodec(
+          decodeSuccessData: sse_decode_http_part,
+          decodeErrorData: sse_decode_AnyhowException,
+        )),
+        serializer);
   }
 
   @protected
@@ -1112,6 +1340,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_http_failure(
+      HttpFailure self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_http_failure(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self, serializer);
@@ -1122,6 +1357,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self, serializer);
   }
 
   @protected
@@ -1148,6 +1389,28 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_http_failure(HttpFailure self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_http_header(HttpHeader self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_http_part(HttpPart self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_u_16(self.status, serializer);
+    sse_encode_list_http_header(self.headers, serializer);
+    sse_encode_list_prim_u_8_strict(self.chunk, serializer);
+    sse_encode_opt_box_autoadd_http_failure(self.failure, serializer);
+  }
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
@@ -1165,6 +1428,16 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_http_header(
+      List<HttpHeader> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_http_header(item, serializer);
     }
   }
 
@@ -1267,6 +1540,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_http_failure(
+      HttpFailure? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_http_failure(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1284,6 +1568,16 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_i_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_16(self, serializer);
     }
   }
 
@@ -1402,6 +1696,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     sse_encode_opt_box_autoadd_i_64(self.durationSeconds, serializer);
     sse_encode_opt_String(self.created, serializer);
     sse_encode_opt_String(self.coverArt, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
   }
 
   @protected

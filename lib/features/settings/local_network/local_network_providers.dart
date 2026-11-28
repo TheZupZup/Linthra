@@ -58,8 +58,12 @@ final localNetworkAccessProvider = Provider<LocalNetworkAccess>((ref) {
 /// gate, so a request Android 17 would block fails at once with the reason
 /// instead of timing out. It never prompts; the prompts belong to the user's
 /// own actions.
-http.Client guardedServerHttpClient(Ref ref) => LocalNetworkGuardedClient(
-    http.Client(), ref.watch(localNetworkAccessProvider));
+///
+/// [transport] is how the requests travel: a plain `package:http` client
+/// unless the caller hands another (see `subsonicTransportProvider`).
+http.Client guardedServerHttpClient(Ref ref, {http.Client? transport}) =>
+    LocalNetworkGuardedClient(
+        transport ?? http.Client(), ref.watch(localNetworkAccessProvider));
 
 /// For a connection the user just asked for (Test connection, Sign in,
 /// Connect): asks for local network access when [rawUrl] is on the local

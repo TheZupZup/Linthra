@@ -19,7 +19,7 @@
 #[cfg(target_os = "android")]
 pub mod android;
 
-use std::io;
+use std::io::{self, Read};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -79,23 +79,70 @@ pub enum Failure {
     BadRequest,
 }
 
+/// The status line and headers of an answer, its body not read yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Head {
+    pub status: u16,
+    /// Names lower-cased, in the order the server sent them.
+    pub headers: Vec<(String, String)>,
+}
+
+impl Head {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+/// An answer whose body is read as it is wanted, at most [BODY_LIMIT]. Dropping
+/// it unread lets go of the connection: a ranged probe of a track a server
+/// streams whole anyway reads its headers and stops there.
+pub struct Opened {
+    pub head: Head,
+    body: Box<dyn io::Read + Send>,
+}
+
+impl Opened {
+    /// Reads the next part of the body into `buf`; 0 at its end.
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, Failure> {
+        self.body.read(buf).map_err(|e| io_failure(&e))
+    }
+}
+
 /// Sends `request` and reads its whole answer.
 pub fn send(request: &Request) -> Result<Response, Failure> {
+    let mut opened = open(request)?;
+    let mut body = Vec::new();
+    opened
+        .body
+        .read_to_end(&mut body)
+        .map_err(|e| io_failure(&e))?;
+    Ok(Response {
+        status: opened.head.status,
+        content_type: opened.head.header("content-type").map(str::to_string),
+        body,
+    })
+}
+
+/// Sends `request` and reads its answer as far as the headers.
+pub fn open(request: &Request) -> Result<Opened, Failure> {
     let agent = agent();
     let redirects = if request.follow_redirects {
         MAX_REDIRECTS
     } else {
         0
     };
-    let result = match (request.method, &request.body) {
-        (Method::Get, _) => {
+    let result = match request.method {
+        Method::Get => {
             let mut builder = agent.get(&request.url);
             for (name, value) in &request.headers {
                 builder = builder.header(name, value);
             }
             builder.config().max_redirects(redirects).build().call()
         }
-        (Method::Post, body) => {
+        Method::Post => {
             let mut builder = agent.post(&request.url);
             for (name, value) in &request.headers {
                 builder = builder.header(name, value);
@@ -104,26 +151,31 @@ pub fn send(request: &Request) -> Result<Response, Failure> {
                 .config()
                 .max_redirects(redirects)
                 .build()
-                .send(body.as_deref().unwrap_or_default())
+                .send(request.body.as_deref().unwrap_or_default())
         }
     };
-    let mut response = result.map_err(|e| failure(&e))?;
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
+    let response = result.map_err(|e| failure(&e))?;
+    let head = Head {
+        status: response.status().as_u16(),
+        headers: response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((
+                    name.as_str().to_ascii_lowercase(),
+                    value.to_str().ok()?.to_string(),
+                ))
+            })
+            .collect(),
+    };
     let body = response
-        .body_mut()
-        .with_config()
+        .into_body()
+        .into_with_config()
         .limit(BODY_LIMIT)
-        .read_to_vec()
-        .map_err(|e| failure(&e))?;
-    Ok(Response {
-        status,
-        content_type,
-        body,
+        .reader();
+    Ok(Opened {
+        head,
+        body: Box::new(body),
     })
 }
 
@@ -205,5 +257,53 @@ mod tests {
             follow_redirects: true,
         };
         assert_eq!(send(&request), Err(Failure::BadRequest));
+    }
+
+    #[test]
+    fn dropping_an_unread_answer_closes_the_connection() {
+        // A server that streams a track whatever the request said: once the
+        // headers are read and the answer is let go of, the connection has to
+        // close, not keep pulling the track.
+        use std::io::Write;
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = io::Read::read(&mut socket, &mut request);
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-type: audio/mpeg\r\n\r\n")
+                .unwrap();
+            let chunk = vec![7u8; 64 * 1024];
+            let start = Instant::now();
+            let mut sent = 0usize;
+            while start.elapsed() < Duration::from_secs(10) {
+                if socket.write_all(&chunk).is_err() {
+                    return Some(sent);
+                }
+                sent += chunk.len();
+            }
+            None
+        });
+        let mut opened = open(&Request {
+            method: Method::Get,
+            url: format!("http://127.0.0.1:{port}/"),
+            headers: Vec::new(),
+            body: None,
+            follow_redirects: true,
+        })
+        .unwrap();
+        assert_eq!(opened.head.header("content-type"), Some("audio/mpeg"));
+        opened.read(&mut [0u8; 1024]).unwrap();
+        drop(opened);
+        let sent = server
+            .join()
+            .unwrap()
+            .expect("the connection was kept open");
+        // What the socket buffers hold, not the track.
+        assert!(sent < 16 * 1024 * 1024, "{sent} bytes went out");
     }
 }

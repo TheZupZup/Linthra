@@ -10,6 +10,7 @@ import 'dart:ffi' as ffi;
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
 import 'api/core.dart';
+import 'api/http.dart';
 import 'api/scan.dart';
 import 'api/subsonic.dart';
 import 'frb_generated.dart';
@@ -27,6 +28,9 @@ abstract class LinthraBridgeApiImplPlatform
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<HttpPart> dco_decode_StreamSink_http_part_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<int> dco_decode_StreamSink_u_32_Sse(dynamic raw);
 
   @protected
@@ -39,10 +43,16 @@ abstract class LinthraBridgeApiImplPlatform
   FileStamp dco_decode_box_autoadd_file_stamp(dynamic raw);
 
   @protected
+  HttpFailure dco_decode_box_autoadd_http_failure(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
   WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw);
@@ -54,6 +64,15 @@ abstract class LinthraBridgeApiImplPlatform
   FolderWalk dco_decode_folder_walk(dynamic raw);
 
   @protected
+  HttpFailure dco_decode_http_failure(dynamic raw);
+
+  @protected
+  HttpHeader dco_decode_http_header(dynamic raw);
+
+  @protected
+  HttpPart dco_decode_http_part(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -61,6 +80,9 @@ abstract class LinthraBridgeApiImplPlatform
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<HttpHeader> dco_decode_list_http_header(dynamic raw);
 
   @protected
   List<FileStamp?> dco_decode_list_opt_box_autoadd_file_stamp(dynamic raw);
@@ -93,10 +115,16 @@ abstract class LinthraBridgeApiImplPlatform
   FileStamp? dco_decode_opt_box_autoadd_file_stamp(dynamic raw);
 
   @protected
+  HttpFailure? dco_decode_opt_box_autoadd_http_failure(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
   WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw);
@@ -132,6 +160,9 @@ abstract class LinthraBridgeApiImplPlatform
   SubsonicSong dco_decode_subsonic_song(dynamic raw);
 
   @protected
+  int dco_decode_u_16(dynamic raw);
+
+  @protected
   int dco_decode_u_32(dynamic raw);
 
   @protected
@@ -147,6 +178,10 @@ abstract class LinthraBridgeApiImplPlatform
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  RustStreamSink<HttpPart> sse_decode_StreamSink_http_part_Sse(
+      SseDeserializer deserializer);
+
+  @protected
   RustStreamSink<int> sse_decode_StreamSink_u_32_Sse(
       SseDeserializer deserializer);
 
@@ -160,10 +195,16 @@ abstract class LinthraBridgeApiImplPlatform
   FileStamp sse_decode_box_autoadd_file_stamp(SseDeserializer deserializer);
 
   @protected
+  HttpFailure sse_decode_box_autoadd_http_failure(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
   WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer);
@@ -175,6 +216,15 @@ abstract class LinthraBridgeApiImplPlatform
   FolderWalk sse_decode_folder_walk(SseDeserializer deserializer);
 
   @protected
+  HttpFailure sse_decode_http_failure(SseDeserializer deserializer);
+
+  @protected
+  HttpHeader sse_decode_http_header(SseDeserializer deserializer);
+
+  @protected
+  HttpPart sse_decode_http_part(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -182,6 +232,9 @@ abstract class LinthraBridgeApiImplPlatform
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<HttpHeader> sse_decode_list_http_header(SseDeserializer deserializer);
 
   @protected
   List<FileStamp?> sse_decode_list_opt_box_autoadd_file_stamp(
@@ -221,10 +274,17 @@ abstract class LinthraBridgeApiImplPlatform
       SseDeserializer deserializer);
 
   @protected
+  HttpFailure? sse_decode_opt_box_autoadd_http_failure(
+      SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
   WalkFault? sse_decode_opt_box_autoadd_walk_fault(
@@ -263,6 +323,9 @@ abstract class LinthraBridgeApiImplPlatform
   SubsonicSong sse_decode_subsonic_song(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
@@ -279,6 +342,10 @@ abstract class LinthraBridgeApiImplPlatform
       AnyhowException self, SseSerializer serializer);
 
   @protected
+  void sse_encode_StreamSink_http_part_Sse(
+      RustStreamSink<HttpPart> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_StreamSink_u_32_Sse(
       RustStreamSink<int> self, SseSerializer serializer);
 
@@ -293,11 +360,18 @@ abstract class LinthraBridgeApiImplPlatform
       FileStamp self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_http_failure(
+      HttpFailure self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_i_64(
       PlatformInt64 self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_walk_fault(
@@ -310,6 +384,15 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_folder_walk(FolderWalk self, SseSerializer serializer);
 
   @protected
+  void sse_encode_http_failure(HttpFailure self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_http_header(HttpHeader self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_http_part(HttpPart self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -317,6 +400,10 @@ abstract class LinthraBridgeApiImplPlatform
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_http_header(
+      List<HttpHeader> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_opt_box_autoadd_file_stamp(
@@ -357,11 +444,18 @@ abstract class LinthraBridgeApiImplPlatform
       FileStamp? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_http_failure(
+      HttpFailure? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(
       PlatformInt64? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_walk_fault(
@@ -401,6 +495,9 @@ abstract class LinthraBridgeApiImplPlatform
 
   @protected
   void sse_encode_subsonic_song(SubsonicSong self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
