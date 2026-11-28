@@ -8,6 +8,7 @@ import '../../core/sources/jellyfin/jellyfin_folder_browser_source.dart';
 import '../../core/sources/subsonic/subsonic_folder_browser_source.dart';
 import '../settings/jellyfin/jellyfin_settings_controller.dart';
 import '../settings/subsonic/subsonic_settings_controller.dart';
+import '../settings/subsonic/subsonic_settings_providers.dart';
 
 /// Live Jellyfin folder browser, present only while a session is connected.
 final jellyfinFolderBrowserSourceProvider =
@@ -33,8 +34,10 @@ final subsonicFolderBrowserSourceProvider =
   if (!connected) return null;
   final session = ref.read(subsonicSettingsControllerProvider.notifier).session;
   if (session == null) return null;
-  final SubsonicFolderBrowserSource source =
-      SubsonicFolderBrowserSource(session: session);
+  final SubsonicFolderBrowserSource source = SubsonicFolderBrowserSource(
+    session: session,
+    httpClient: ref.watch(subsonicTransportProvider)(),
+  );
   ref.onDispose(source.close);
   return source;
 });
