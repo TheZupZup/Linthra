@@ -85,8 +85,9 @@ List<Override> productionApplicationOverrides({
     sharedPreferencesDesktopWindowPreferencesOverride,
     sharedPreferencesDesktopNotificationPreferencesOverride,
     sharedPreferencesKeyboardShortcutPreferencesOverride,
-    if (resolvedHost == HostPlatform.linux) ...<Override>[
+    if (keepsPlaybackSession(resolvedHost))
       sharedPreferencesPlaybackSessionStoreOverride,
+    if (resolvedHost == HostPlatform.linux) ...<Override>[
       // The window-lifecycle channel is Linthra's own GTK runner, so
       // only the Linux build ever opens it. Everywhere else the app keeps the
       // no-op window controller and closing a window means whatever the host

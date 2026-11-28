@@ -17,31 +17,44 @@ import 'in_memory_playback_session_store.dart';
 import 'remote_catalog_owner_store_provider.dart';
 import 'shared_preferences_playback_session_store.dart';
 
-/// Durable store of the crash-safe playback session. Defaults to in-memory so
-/// tests and non-Linux hosts need no plugins; Linux production overrides it
-/// with the `shared_preferences` binding below.
+/// Durable store of the playback session. Defaults to in-memory so tests and
+/// hosts that don't keep one need no plugins; Linux and Android production
+/// override it with the `shared_preferences` binding below.
 final playbackSessionStoreProvider = Provider<PlaybackSessionStore>((ref) {
   return InMemoryPlaybackSessionStore();
 });
 
 /// Production binding: persist the playback session via `shared_preferences`
-/// so an unexpected restart can restore the logical queue. Applied in `main`
-/// on Linux only; other platforms keep the in-memory default (no restore).
+/// so the next launch can restore the logical queue. Applied in `main` where
+/// [keepsPlaybackSession]; other platforms keep the in-memory default (no
+/// restore).
 final sharedPreferencesPlaybackSessionStoreOverride =
     playbackSessionStoreProvider.overrideWithValue(
   const SharedPreferencesPlaybackSessionStore(),
 );
 
-/// Crash-safe playback session persistence + restore.
+/// Whether [host] keeps the queue and its position for the next launch.
 ///
-/// Constructed only on Linux: it listens to the local engine's state stream,
-/// writes logical sessions, and restores them paused on startup. Returns
-/// `null` on other platforms so Android behaviour is unchanged. Side-effect
-/// only; `main` instantiates it once and awaits
-/// [PlaybackSessionPersistence.restore].
+/// Linux, where a quit or a crash ends the process, and Android, where the
+/// system ends it once the app is closed while paused (#1005): there the
+/// pause itself is what gets saved, since nothing runs when the process is
+/// killed.
+bool keepsPlaybackSession(HostPlatform host) =>
+    host == HostPlatform.linux || host == HostPlatform.android;
+
+/// Playback session persistence + restore.
+///
+/// Constructed where [keepsPlaybackSession]: it listens to the local engine's
+/// state stream, writes logical sessions, and restores them paused on
+/// startup. Returns `null` on other platforms. Side-effect only; `main`
+/// instantiates it once and awaits [PlaybackSessionPersistence.restore].
+///
+/// On Android the engine lives as long as the process, which outlives the
+/// Activity (audio_service keeps the Flutter engine), so restore runs once
+/// per process and never lands on top of a queue that is still playing.
 final playbackSessionPersistenceProvider =
     Provider<PlaybackSessionPersistence?>((ref) {
-  if (ref.watch(hostPlatformProvider) != HostPlatform.linux) {
+  if (!keepsPlaybackSession(ref.watch(hostPlatformProvider))) {
     return null;
   }
 

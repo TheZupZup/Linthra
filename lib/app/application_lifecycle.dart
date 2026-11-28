@@ -509,9 +509,9 @@ Future<ApplicationHandle> bootstrapApplication(
         container.read(playbackVolumePersistenceProvider);
     if (volumePersistence != null) await volumePersistence.restore();
 
-    // Linux crash-safe restore: rehydrate any persisted logical queue as a
-    // paused/resumable state. Never autoplay, and never block launch on a bad
-    // record.
+    // Restore (Linux and Android): rehydrate any persisted logical queue as
+    // a paused/resumable state. Never autoplay, and never block launch on a
+    // bad record.
     //
     // Nor on a silent server: a stream is put back by resolving it against its
     // server, and one that never answers (a home server's LAN address, seen
