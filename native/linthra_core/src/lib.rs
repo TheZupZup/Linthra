@@ -25,6 +25,7 @@ pub mod download_state;
 pub mod ffi;
 /// flutter_rust_bridge's glue for [api], generated: do not edit.
 mod frb_generated;
+pub mod http;
 pub mod library_grouping;
 pub mod local_reconcile;
 mod normalize;

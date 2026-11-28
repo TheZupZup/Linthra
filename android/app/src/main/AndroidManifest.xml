@@ -95,9 +95,12 @@
          left the app. And a back swipe closed every tab's open page, hidden
          ones included, and the page under an open dialog instead of the
          dialog. See test/features/shell/home_shell_back_test.dart. -->
+    <!-- android:name: LinthraApplication sets up, once per process, what the
+         Rust core needs to verify TLS with Android's trust manager (NativeTls.kt).
+         Every way in starts it, the launcher, Android Auto and the media service. -->
     <application
         android:label="Linthra"
-        android:name="${applicationName}"
+        android:name=".LinthraApplication"
         android:icon="@mipmap/ic_launcher"
         android:appCategory="audio"
         android:enableOnBackInvokedCallback="false"
