@@ -1,7 +1,9 @@
 # Fuzzing the file parsers
 
 The tag readers (`src/tags/`) and the CUE sheet parser (`src/cue_sheet.rs`)
-read files from NAS shares, USB drives and bad rips. These targets throw
+read files from NAS shares, USB drives and bad rips, and the Subsonic reader
+(`src/subsonic/`) reads whatever a server, or a proxy in front of it, sends.
+These targets throw
 mutated files at them and look for panics. A panic doesn't crash the app (the
 C ABI catches it, see `guard` in `src/ffi.rs`), but the file then reads as
 unreadable, so every one found is a bug to fix, with a regression test.
@@ -14,6 +16,7 @@ unreadable, so every one found is a bug to fix, with a regression test.
 | `tags_vorbis_comments` | a Vorbis comment block |
 | `tags_picture` | a FLAC picture block |
 | `cue_sheet` | a sheet's bytes, decoded and parsed |
+| `subsonic_response` | a server's answer: the envelope, then every list read out of it |
 
 ## Running
 

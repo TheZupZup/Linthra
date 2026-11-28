@@ -10,6 +10,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'api/core.dart';
 import 'api/scan.dart';
+import 'api/subsonic.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
@@ -72,7 +73,7 @@ class LinthraBridge extends BaseEntrypoint<LinthraBridgeApi,
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1291882723;
+  int get rustContentHash => 833704657;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -92,6 +93,9 @@ abstract class LinthraBridgeApi extends BaseApi {
 
   Future<Uint8List?> crateApiScanReadFile(
       {required String path, required int stallLimitMs});
+
+  SubsonicReply crateApiSubsonicReadSubsonic(
+      {required List<int> body, required SubsonicRead what});
 
   Future<FileStamp?> crateApiScanStampFile(
       {required String path, required int stallLimitMs});
@@ -217,6 +221,32 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
       );
 
   @override
+  SubsonicReply crateApiSubsonicReadSubsonic(
+      {required List<int> body, required SubsonicRead what}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(body, serializer);
+        sse_encode_subsonic_read(what, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_subsonic_reply,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiSubsonicReadSubsonicConstMeta,
+      argValues: [body, what],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiSubsonicReadSubsonicConstMeta =>
+      const TaskConstMeta(
+        debugName: "read_subsonic",
+        argNames: ["body", "what"],
+      );
+
+  @override
   Future<FileStamp?> crateApiScanStampFile(
       {required String path, required int stallLimitMs}) {
     return handler.executeNormal(NormalTask(
@@ -225,7 +255,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
+            funcId: 6, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_file_stamp,
@@ -251,7 +281,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_list_String(paths, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_opt_box_autoadd_file_stamp,
@@ -277,7 +307,7 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
         sse_encode_String(folder, serializer);
         sse_encode_u_32(stallLimitMs, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_folder_walk,
@@ -328,6 +358,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_i_64(raw);
   }
 
   @protected
@@ -389,9 +425,51 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  List<SubsonicAlbum> dco_decode_list_subsonic_album(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_subsonic_album).toList();
+  }
+
+  @protected
+  List<SubsonicArtist> dco_decode_list_subsonic_artist(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_subsonic_artist).toList();
+  }
+
+  @protected
+  List<SubsonicLyricLine> dco_decode_list_subsonic_lyric_line(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_subsonic_lyric_line).toList();
+  }
+
+  @protected
+  List<SubsonicNamed> dco_decode_list_subsonic_named(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_subsonic_named).toList();
+  }
+
+  @protected
+  List<SubsonicSong> dco_decode_list_subsonic_song(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_subsonic_song).toList();
+  }
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_String(raw);
   }
 
   @protected
@@ -407,6 +485,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
+  }
+
+  @protected
   WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_walk_fault(raw);
@@ -416,6 +500,124 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
+  }
+
+  @protected
+  List<SubsonicLyricLine>? dco_decode_opt_list_subsonic_lyric_line(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_subsonic_lyric_line(raw);
+  }
+
+  @protected
+  SubsonicAlbum dco_decode_subsonic_album(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return SubsonicAlbum(
+      id: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+      artist: dco_decode_opt_String(arr[2]),
+      songCount: dco_decode_i_64(arr[3]),
+      year: dco_decode_opt_box_autoadd_i_64(arr[4]),
+      created: dco_decode_opt_String(arr[5]),
+      coverArt: dco_decode_opt_String(arr[6]),
+    );
+  }
+
+  @protected
+  SubsonicArtist dco_decode_subsonic_artist(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return SubsonicArtist(
+      id: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+      albumCount: dco_decode_i_64(arr[2]),
+      coverArt: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  SubsonicLyricLine dco_decode_subsonic_lyric_line(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SubsonicLyricLine(
+      text: dco_decode_String(arr[0]),
+      startMs: dco_decode_opt_box_autoadd_i_64(arr[1]),
+    );
+  }
+
+  @protected
+  SubsonicNamed dco_decode_subsonic_named(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SubsonicNamed(
+      id: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  SubsonicOutcome dco_decode_subsonic_outcome(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return SubsonicOutcome.values[raw as int];
+  }
+
+  @protected
+  SubsonicRead dco_decode_subsonic_read(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return SubsonicRead.values[raw as int];
+  }
+
+  @protected
+  SubsonicReply dco_decode_subsonic_reply(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    return SubsonicReply(
+      outcome: dco_decode_subsonic_outcome(arr[0]),
+      errorCode: dco_decode_opt_box_autoadd_i_64(arr[1]),
+      version: dco_decode_opt_String(arr[2]),
+      serverType: dco_decode_opt_String(arr[3]),
+      serverVersion: dco_decode_opt_String(arr[4]),
+      artists: dco_decode_list_subsonic_artist(arr[5]),
+      albums: dco_decode_list_subsonic_album(arr[6]),
+      entryCount: dco_decode_u_32(arr[7]),
+      songs: dco_decode_list_subsonic_song(arr[8]),
+      ids: dco_decode_list_String(arr[9]),
+      named: dco_decode_list_subsonic_named(arr[10]),
+      id: dco_decode_opt_String(arr[11]),
+      takesFormPosts: dco_decode_bool(arr[12]),
+      lyrics: dco_decode_opt_list_subsonic_lyric_line(arr[13]),
+      text: dco_decode_opt_String(arr[14]),
+    );
+  }
+
+  @protected
+  SubsonicSong dco_decode_subsonic_song(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return SubsonicSong(
+      id: dco_decode_String(arr[0]),
+      title: dco_decode_String(arr[1]),
+      album: dco_decode_opt_String(arr[2]),
+      albumId: dco_decode_opt_String(arr[3]),
+      artist: dco_decode_opt_String(arr[4]),
+      track: dco_decode_opt_box_autoadd_i_64(arr[5]),
+      durationSeconds: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      created: dco_decode_opt_String(arr[7]),
+      coverArt: dco_decode_opt_String(arr[8]),
+    );
   }
 
   @protected
@@ -489,6 +691,12 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
   WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_walk_fault(deserializer));
@@ -554,10 +762,93 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     final len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  List<SubsonicAlbum> sse_decode_list_subsonic_album(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <SubsonicAlbum>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_subsonic_album(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SubsonicArtist> sse_decode_list_subsonic_artist(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <SubsonicArtist>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_subsonic_artist(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SubsonicLyricLine> sse_decode_list_subsonic_lyric_line(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <SubsonicLyricLine>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_subsonic_lyric_line(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SubsonicNamed> sse_decode_list_subsonic_named(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <SubsonicNamed>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_subsonic_named(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SubsonicSong> sse_decode_list_subsonic_song(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    final len_ = sse_decode_i_32(deserializer);
+    final ans_ = <SubsonicSong>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_subsonic_song(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
   }
 
   @protected
@@ -584,6 +875,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   WalkFault? sse_decode_opt_box_autoadd_walk_fault(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -604,6 +906,143 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     } else {
       return null;
     }
+  }
+
+  @protected
+  List<SubsonicLyricLine>? sse_decode_opt_list_subsonic_lyric_line(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_subsonic_lyric_line(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  SubsonicAlbum sse_decode_subsonic_album(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_id = sse_decode_String(deserializer);
+    final var_name = sse_decode_String(deserializer);
+    final var_artist = sse_decode_opt_String(deserializer);
+    final var_songCount = sse_decode_i_64(deserializer);
+    final var_year = sse_decode_opt_box_autoadd_i_64(deserializer);
+    final var_created = sse_decode_opt_String(deserializer);
+    final var_coverArt = sse_decode_opt_String(deserializer);
+    return SubsonicAlbum(
+        id: var_id,
+        name: var_name,
+        artist: var_artist,
+        songCount: var_songCount,
+        year: var_year,
+        created: var_created,
+        coverArt: var_coverArt);
+  }
+
+  @protected
+  SubsonicArtist sse_decode_subsonic_artist(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_id = sse_decode_String(deserializer);
+    final var_name = sse_decode_String(deserializer);
+    final var_albumCount = sse_decode_i_64(deserializer);
+    final var_coverArt = sse_decode_opt_String(deserializer);
+    return SubsonicArtist(
+        id: var_id,
+        name: var_name,
+        albumCount: var_albumCount,
+        coverArt: var_coverArt);
+  }
+
+  @protected
+  SubsonicLyricLine sse_decode_subsonic_lyric_line(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_text = sse_decode_String(deserializer);
+    final var_startMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return SubsonicLyricLine(text: var_text, startMs: var_startMs);
+  }
+
+  @protected
+  SubsonicNamed sse_decode_subsonic_named(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_id = sse_decode_String(deserializer);
+    final var_name = sse_decode_String(deserializer);
+    return SubsonicNamed(id: var_id, name: var_name);
+  }
+
+  @protected
+  SubsonicOutcome sse_decode_subsonic_outcome(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final inner = sse_decode_i_32(deserializer);
+    return SubsonicOutcome.values[inner];
+  }
+
+  @protected
+  SubsonicRead sse_decode_subsonic_read(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final inner = sse_decode_i_32(deserializer);
+    return SubsonicRead.values[inner];
+  }
+
+  @protected
+  SubsonicReply sse_decode_subsonic_reply(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_outcome = sse_decode_subsonic_outcome(deserializer);
+    final var_errorCode = sse_decode_opt_box_autoadd_i_64(deserializer);
+    final var_version = sse_decode_opt_String(deserializer);
+    final var_serverType = sse_decode_opt_String(deserializer);
+    final var_serverVersion = sse_decode_opt_String(deserializer);
+    final var_artists = sse_decode_list_subsonic_artist(deserializer);
+    final var_albums = sse_decode_list_subsonic_album(deserializer);
+    final var_entryCount = sse_decode_u_32(deserializer);
+    final var_songs = sse_decode_list_subsonic_song(deserializer);
+    final var_ids = sse_decode_list_String(deserializer);
+    final var_named = sse_decode_list_subsonic_named(deserializer);
+    final var_id = sse_decode_opt_String(deserializer);
+    final var_takesFormPosts = sse_decode_bool(deserializer);
+    final var_lyrics = sse_decode_opt_list_subsonic_lyric_line(deserializer);
+    final var_text = sse_decode_opt_String(deserializer);
+    return SubsonicReply(
+        outcome: var_outcome,
+        errorCode: var_errorCode,
+        version: var_version,
+        serverType: var_serverType,
+        serverVersion: var_serverVersion,
+        artists: var_artists,
+        albums: var_albums,
+        entryCount: var_entryCount,
+        songs: var_songs,
+        ids: var_ids,
+        named: var_named,
+        id: var_id,
+        takesFormPosts: var_takesFormPosts,
+        lyrics: var_lyrics,
+        text: var_text);
+  }
+
+  @protected
+  SubsonicSong sse_decode_subsonic_song(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    final var_id = sse_decode_String(deserializer);
+    final var_title = sse_decode_String(deserializer);
+    final var_album = sse_decode_opt_String(deserializer);
+    final var_albumId = sse_decode_opt_String(deserializer);
+    final var_artist = sse_decode_opt_String(deserializer);
+    final var_track = sse_decode_opt_box_autoadd_i_64(deserializer);
+    final var_durationSeconds = sse_decode_opt_box_autoadd_i_64(deserializer);
+    final var_created = sse_decode_opt_String(deserializer);
+    final var_coverArt = sse_decode_opt_String(deserializer);
+    return SubsonicSong(
+        id: var_id,
+        title: var_title,
+        album: var_album,
+        albumId: var_albumId,
+        artist: var_artist,
+        track: var_track,
+        durationSeconds: var_durationSeconds,
+        created: var_created,
+        coverArt: var_coverArt);
   }
 
   @protected
@@ -679,6 +1118,13 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_i_64(
+      PlatformInt64 self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_walk_fault(
       WalkFault self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -733,11 +1179,80 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_prim_u_8_loose(
+      List<int> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer
+        .putUint8List(self is Uint8List ? self : Uint8List.fromList(self));
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_list_subsonic_album(
+      List<SubsonicAlbum> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_subsonic_album(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_subsonic_artist(
+      List<SubsonicArtist> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_subsonic_artist(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_subsonic_lyric_line(
+      List<SubsonicLyricLine> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_subsonic_lyric_line(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_subsonic_named(
+      List<SubsonicNamed> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_subsonic_named(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_subsonic_song(
+      List<SubsonicSong> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_subsonic_song(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_String(self, serializer);
+    }
   }
 
   @protected
@@ -762,6 +1277,17 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_i_64(
+      PlatformInt64? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_walk_fault(
       WalkFault? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -781,6 +1307,101 @@ class LinthraBridgeApiImpl extends LinthraBridgeApiImplPlatform
     if (self != null) {
       sse_encode_list_prim_u_8_strict(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_opt_list_subsonic_lyric_line(
+      List<SubsonicLyricLine>? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_subsonic_lyric_line(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_subsonic_album(SubsonicAlbum self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_opt_String(self.artist, serializer);
+    sse_encode_i_64(self.songCount, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.year, serializer);
+    sse_encode_opt_String(self.created, serializer);
+    sse_encode_opt_String(self.coverArt, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_artist(
+      SubsonicArtist self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_i_64(self.albumCount, serializer);
+    sse_encode_opt_String(self.coverArt, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_lyric_line(
+      SubsonicLyricLine self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.text, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.startMs, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_named(SubsonicNamed self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_outcome(
+      SubsonicOutcome self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_read(SubsonicRead self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_reply(SubsonicReply self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_subsonic_outcome(self.outcome, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.errorCode, serializer);
+    sse_encode_opt_String(self.version, serializer);
+    sse_encode_opt_String(self.serverType, serializer);
+    sse_encode_opt_String(self.serverVersion, serializer);
+    sse_encode_list_subsonic_artist(self.artists, serializer);
+    sse_encode_list_subsonic_album(self.albums, serializer);
+    sse_encode_u_32(self.entryCount, serializer);
+    sse_encode_list_subsonic_song(self.songs, serializer);
+    sse_encode_list_String(self.ids, serializer);
+    sse_encode_list_subsonic_named(self.named, serializer);
+    sse_encode_opt_String(self.id, serializer);
+    sse_encode_bool(self.takesFormPosts, serializer);
+    sse_encode_opt_list_subsonic_lyric_line(self.lyrics, serializer);
+    sse_encode_opt_String(self.text, serializer);
+  }
+
+  @protected
+  void sse_encode_subsonic_song(SubsonicSong self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.title, serializer);
+    sse_encode_opt_String(self.album, serializer);
+    sse_encode_opt_String(self.albumId, serializer);
+    sse_encode_opt_String(self.artist, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.track, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.durationSeconds, serializer);
+    sse_encode_opt_String(self.created, serializer);
+    sse_encode_opt_String(self.coverArt, serializer);
   }
 
   @protected

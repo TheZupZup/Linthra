@@ -119,27 +119,6 @@ void main() {
     });
   });
 
-  group('SubsonicSongDto.fromJson', () {
-    test('parses the albumId the server reports', () {
-      final dto = SubsonicSongDto.fromJson(<String, dynamic>{
-        'id': 'tr-397',
-        'title': 'As I Please',
-        'album': '.limbo messiah',
-        'albumId': 'al-27',
-        'artist': 'Beatsteaks',
-      })!;
-      expect(dto.albumId, 'al-27');
-    });
-
-    test('leaves albumId null when the server omits it', () {
-      final dto = SubsonicSongDto.fromJson(<String, dynamic>{
-        'id': 'tr-397',
-        'title': 'As I Please',
-      })!;
-      expect(dto.albumId, isNull);
-    });
-  });
-
   group('SubsonicTrackMapper album/artist', () {
     test('maps an album, with coverArt as a credential-free reference', () {
       const dto = SubsonicAlbumDto(

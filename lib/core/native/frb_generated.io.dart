@@ -11,6 +11,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
 import 'api/core.dart';
 import 'api/scan.dart';
+import 'api/subsonic.dart';
 import 'frb_generated.dart';
 
 abstract class LinthraBridgeApiImplPlatform
@@ -41,6 +42,9 @@ abstract class LinthraBridgeApiImplPlatform
   int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
+  PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
   WalkFault dco_decode_box_autoadd_walk_fault(dynamic raw);
 
   @protected
@@ -62,7 +66,28 @@ abstract class LinthraBridgeApiImplPlatform
   List<FileStamp?> dco_decode_list_opt_box_autoadd_file_stamp(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<SubsonicAlbum> dco_decode_list_subsonic_album(dynamic raw);
+
+  @protected
+  List<SubsonicArtist> dco_decode_list_subsonic_artist(dynamic raw);
+
+  @protected
+  List<SubsonicLyricLine> dco_decode_list_subsonic_lyric_line(dynamic raw);
+
+  @protected
+  List<SubsonicNamed> dco_decode_list_subsonic_named(dynamic raw);
+
+  @protected
+  List<SubsonicSong> dco_decode_list_subsonic_song(dynamic raw);
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
   @protected
   FileStamp? dco_decode_opt_box_autoadd_file_stamp(dynamic raw);
@@ -71,10 +96,40 @@ abstract class LinthraBridgeApiImplPlatform
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
+  PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
+
+  @protected
   WalkFault? dco_decode_opt_box_autoadd_walk_fault(dynamic raw);
 
   @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<SubsonicLyricLine>? dco_decode_opt_list_subsonic_lyric_line(dynamic raw);
+
+  @protected
+  SubsonicAlbum dco_decode_subsonic_album(dynamic raw);
+
+  @protected
+  SubsonicArtist dco_decode_subsonic_artist(dynamic raw);
+
+  @protected
+  SubsonicLyricLine dco_decode_subsonic_lyric_line(dynamic raw);
+
+  @protected
+  SubsonicNamed dco_decode_subsonic_named(dynamic raw);
+
+  @protected
+  SubsonicOutcome dco_decode_subsonic_outcome(dynamic raw);
+
+  @protected
+  SubsonicRead dco_decode_subsonic_read(dynamic raw);
+
+  @protected
+  SubsonicReply dco_decode_subsonic_reply(dynamic raw);
+
+  @protected
+  SubsonicSong dco_decode_subsonic_song(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -108,6 +163,9 @@ abstract class LinthraBridgeApiImplPlatform
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
+  PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
   WalkFault sse_decode_box_autoadd_walk_fault(SseDeserializer deserializer);
 
   @protected
@@ -130,7 +188,33 @@ abstract class LinthraBridgeApiImplPlatform
       SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicAlbum> sse_decode_list_subsonic_album(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicArtist> sse_decode_list_subsonic_artist(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicLyricLine> sse_decode_list_subsonic_lyric_line(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicNamed> sse_decode_list_subsonic_named(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicSong> sse_decode_list_subsonic_song(
+      SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
   FileStamp? sse_decode_opt_box_autoadd_file_stamp(
@@ -140,11 +224,43 @@ abstract class LinthraBridgeApiImplPlatform
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
+  PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
   WalkFault? sse_decode_opt_box_autoadd_walk_fault(
       SseDeserializer deserializer);
 
   @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<SubsonicLyricLine>? sse_decode_opt_list_subsonic_lyric_line(
+      SseDeserializer deserializer);
+
+  @protected
+  SubsonicAlbum sse_decode_subsonic_album(SseDeserializer deserializer);
+
+  @protected
+  SubsonicArtist sse_decode_subsonic_artist(SseDeserializer deserializer);
+
+  @protected
+  SubsonicLyricLine sse_decode_subsonic_lyric_line(
+      SseDeserializer deserializer);
+
+  @protected
+  SubsonicNamed sse_decode_subsonic_named(SseDeserializer deserializer);
+
+  @protected
+  SubsonicOutcome sse_decode_subsonic_outcome(SseDeserializer deserializer);
+
+  @protected
+  SubsonicRead sse_decode_subsonic_read(SseDeserializer deserializer);
+
+  @protected
+  SubsonicReply sse_decode_subsonic_reply(SseDeserializer deserializer);
+
+  @protected
+  SubsonicSong sse_decode_subsonic_song(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -180,6 +296,10 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_i_64(
+      PlatformInt64 self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_walk_fault(
       WalkFault self, SseSerializer serializer);
 
@@ -203,8 +323,34 @@ abstract class LinthraBridgeApiImplPlatform
       List<FileStamp?> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_subsonic_album(
+      List<SubsonicAlbum> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_subsonic_artist(
+      List<SubsonicArtist> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_subsonic_lyric_line(
+      List<SubsonicLyricLine> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_subsonic_named(
+      List<SubsonicNamed> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_subsonic_song(
+      List<SubsonicSong> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_file_stamp(
@@ -214,12 +360,47 @@ abstract class LinthraBridgeApiImplPlatform
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_i_64(
+      PlatformInt64? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_walk_fault(
       WalkFault? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_prim_u_8_strict(
       Uint8List? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_subsonic_lyric_line(
+      List<SubsonicLyricLine>? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_album(SubsonicAlbum self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_artist(
+      SubsonicArtist self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_lyric_line(
+      SubsonicLyricLine self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_named(SubsonicNamed self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_outcome(
+      SubsonicOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_read(SubsonicRead self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_reply(SubsonicReply self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_subsonic_song(SubsonicSong self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

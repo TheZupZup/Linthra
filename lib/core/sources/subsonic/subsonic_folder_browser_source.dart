@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -8,10 +7,10 @@ import '../../models/music_folder.dart';
 import '../../models/subsonic_session.dart';
 import '../../models/track.dart';
 import '../../services/folder_browsable_music_source.dart';
-import 'subsonic_api.dart';
 import 'subsonic_auth.dart';
 import 'subsonic_endpoints.dart';
 import 'subsonic_exception.dart';
+import 'subsonic_reply.dart';
 import 'subsonic_track_mapper.dart';
 
 /// Folder-hierarchy browsing for a signed-in Subsonic-compatible server.
@@ -45,25 +44,12 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
 
   @override
   Future<List<MusicFolder>> fetchRootFolders() async {
-    final SubsonicEnvelope envelope = await _call('getMusicFolders');
-    final Object? root = envelope.data['musicFolders'];
-    final Object? rawFolders =
-        root is Map<String, dynamic> ? root['musicFolder'] : null;
-    if (rawFolders is! List) return const <MusicFolder>[];
-
-    final List<MusicFolder> folders = <MusicFolder>[];
-    for (final Object? raw in rawFolders) {
-      if (raw is! Map<String, dynamic>) continue;
-      final String? folderId = _string(raw['id']);
-      final String? name = _string(raw['name']);
-      if (folderId != null && name != null) {
-        folders.add(
-          MusicFolder(id: '$_musicFolderPrefix$folderId', name: name),
-        );
-      }
-    }
-    folders.sort(_compareFolders);
-    return folders;
+    final SubsonicReply reply =
+        await _call('getMusicFolders', SubsonicRead.musicFolders);
+    return <MusicFolder>[
+      for (final folder in reply.named)
+        MusicFolder(id: '$_musicFolderPrefix${folder.id}', name: folder.name),
+    ]..sort(_compareFolders);
   }
 
   @override
@@ -78,69 +64,46 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
   }
 
   Future<MusicFolderListing> _fetchIndex(String musicFolderId) async {
-    final SubsonicEnvelope envelope = await _call(
+    final SubsonicReply reply = await _call(
       'getIndexes',
+      SubsonicRead.indexes,
       extra: <String, String>{'musicFolderId': musicFolderId},
     );
-    final Object? root = envelope.data['indexes'];
-    final Object? indexes = root is Map<String, dynamic> ? root['index'] : null;
-    if (indexes is! List) return MusicFolderListing.empty;
-
-    final List<MusicFolder> folders = <MusicFolder>[];
-    for (final Object? index in indexes) {
-      if (index is! Map<String, dynamic>) continue;
-      final Object? artists = index['artist'];
-      if (artists is! List) continue;
-      for (final Object? raw in artists) {
-        if (raw is! Map<String, dynamic>) continue;
-        final String? directoryId = _string(raw['id']);
-        final String? name = _string(raw['name']);
-        if (directoryId != null && name != null) {
-          folders.add(
-            MusicFolder(id: '$_directoryPrefix$directoryId', name: name),
-          );
-        }
-      }
-    }
-    folders.sort(_compareFolders);
-    return MusicFolderListing(folders: folders);
+    if (reply.named.isEmpty) return MusicFolderListing.empty;
+    return MusicFolderListing(
+      folders: <MusicFolder>[
+        for (final folder in reply.named)
+          MusicFolder(id: '$_directoryPrefix${folder.id}', name: folder.name),
+      ]..sort(_compareFolders),
+    );
   }
 
   Future<MusicFolderListing> _fetchDirectory(String directoryId) async {
-    final SubsonicEnvelope envelope = await _call(
+    final SubsonicReply reply = await _call(
       'getMusicDirectory',
+      SubsonicRead.directory,
       extra: <String, String>{'id': directoryId},
     );
-    final Object? root = envelope.data['directory'];
-    final Object? children =
-        root is Map<String, dynamic> ? root['child'] : null;
-    if (children is! List) return MusicFolderListing.empty;
-
-    final List<MusicFolder> folders = <MusicFolder>[];
-    final List<Track> tracks = <Track>[];
-    for (final Object? raw in children) {
-      if (raw is! Map<String, dynamic>) continue;
-      if (raw['isDir'] == true) {
-        final String? childId = _string(raw['id']);
-        final String? name = _string(raw['title']) ?? _string(raw['name']);
-        if (childId != null && name != null) {
-          folders.add(
-            MusicFolder(id: '$_directoryPrefix$childId', name: name),
-          );
-        }
-        continue;
-      }
-      final SubsonicSongDto? dto = SubsonicSongDto.fromJson(raw);
-      if (dto != null) tracks.add(SubsonicTrackMapper.toTrack(dto));
+    if (reply.named.isEmpty && reply.songs.isEmpty) {
+      return MusicFolderListing.empty;
     }
-    folders.sort(_compareFolders);
-    return MusicFolderListing(folders: folders, tracks: tracks);
+    return MusicFolderListing(
+      folders: <MusicFolder>[
+        for (final folder in reply.named)
+          MusicFolder(id: '$_directoryPrefix${folder.id}', name: folder.name),
+      ]..sort(_compareFolders),
+      tracks: <Track>[
+        for (final song in reply.songs)
+          SubsonicTrackMapper.toTrack(songDto(song)),
+      ],
+    );
   }
 
   void close() => _client.close();
 
-  Future<SubsonicEnvelope> _call(
-    String method, {
+  Future<SubsonicReply> _call(
+    String method,
+    SubsonicRead what, {
     Map<String, String> extra = const <String, String>{},
   }) async {
     final Map<String, String> queryParams = <String, String>{
@@ -192,23 +155,10 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
       throw SubsonicException.notSubsonic();
     }
 
-    final Map<String, dynamic> body;
-    try {
-      final Object? decoded = jsonDecode(
-        utf8.decode(response.bodyBytes, allowMalformed: true),
-      );
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException();
-      }
-      body = decoded;
-    } on FormatException {
-      throw SubsonicException.notSubsonic();
-    }
-
-    final SubsonicEnvelope? envelope = SubsonicEnvelope.fromJson(body);
-    if (envelope == null) throw SubsonicException.notSubsonic();
-    if (!envelope.isOk) throw _mapErrorCode(envelope.errorCode);
-    return envelope;
+    return okOrThrow(
+      await readSubsonicAnswer(response.bodyBytes, what),
+      _mapErrorCode,
+    );
   }
 
   /// GETs [uri] without following a redirect: it carries the legacy password,
@@ -234,12 +184,6 @@ class SubsonicFolderBrowserSource implements FolderBrowsableMusicSource {
       default:
         return SubsonicException.serverError();
     }
-  }
-
-  static String? _string(Object? value) {
-    if (value is! String) return null;
-    final String trimmed = value.trim();
-    return trimmed.isEmpty ? null : trimmed;
   }
 
   static int _compareFolders(MusicFolder a, MusicFolder b) =>

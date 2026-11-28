@@ -103,3 +103,10 @@ path = "fuzz_targets/cue_sheet.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "subsonic_response"
+path = "fuzz_targets/subsonic_response.rs"
+test = false
+doc = false
+bench = false
